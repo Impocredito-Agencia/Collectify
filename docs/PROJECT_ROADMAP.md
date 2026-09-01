@@ -15,7 +15,7 @@ Set up the skeleton both applications run on, with nothing business-specific yet
 - Repository structure, Docker Compose for local PostgreSQL
 - NestJS project scaffolded: TypeORM connection, global config, global exception filter, response interceptor, Swagger setup
 - React + Vite project scaffolded: routing, Tailwind, TanStack Query client, base layout (sidebar/header)
-- Railway deployment configured for `api`; Cloudflare Pages configured for `client`
+- Railway deployment configured for `api`; Cloudflare Workers (static assets) configured for `client`
 - Manual deployment flow documented (see `README.md`)
 
 **Exit criteria:** an empty but working app is deployed and reachable in production; a developer can clone the repo and be running locally within the steps in `README.md`.

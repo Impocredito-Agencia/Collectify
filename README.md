@@ -9,7 +9,7 @@ WhatsApp-based automated overdue payment reminder system for lending companies. 
 | Backend | NestJS + TypeORM + PostgreSQL |
 | Frontend | React + Vite + Tailwind CSS |
 | Messaging | Meta Cloud API (WhatsApp Business) |
-| Infrastructure | Railway (backend + DB) · Cloudflare Pages (frontend) |
+| Infrastructure | Railway (backend + DB) · Cloudflare Workers, static assets (frontend) |
 | Local database | PostgreSQL via Docker |
 
 ## Repository structure
