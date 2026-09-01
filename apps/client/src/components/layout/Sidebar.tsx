@@ -34,7 +34,10 @@ const NAV_ITEMS: NavItem[] = [
   // three items above, since it's a stateless calculator with no client
   // data and nothing persisted. See
   // docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md.
-  { label: 'Cotizador', to: '/cotizador' },
+  // Phase 32 — renamed to "Proyector rápido" (label only; route/path left
+  // as /cotizador, matching this project's precedent of not renaming URL
+  // slugs for copy-only changes — see docs/phases/PHASE_31_LOAN_TERMINOLOGY.md).
+  { label: 'Proyector rápido', to: '/cotizador' },
   { label: 'Plantillas', to: '/plantillas', module: 'message_templates' },
   // Phase 23 — migrated from roles: ['admin'] to module, matching
   // InterestConceptTypesController's move to @RequireModule(). See
