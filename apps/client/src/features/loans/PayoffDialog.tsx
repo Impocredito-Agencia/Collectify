@@ -31,6 +31,13 @@ export function PayoffDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Phase 32 — an explicit second "¿estás seguro?" step on top of the
+  // breakdown-plus-confirm flow this dialog already had (confirmed with
+  // the human: the extra step is wanted even though a confirm button
+  // already existed here). "Confirmar liquidación" only reveals this final
+  // warning; the actual POST /loans/:id/payoff call happens on the second
+  // button below.
+  const [isConfirmingFinal, setIsConfirmingFinal] = useState(false);
 
   const payoffQuote = usePayoffQuote();
 
@@ -125,6 +132,15 @@ export function PayoffDialog({
           </>
         )}
 
+        {isConfirmingFinal && (
+          <p
+            className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-small text-amber-300"
+            role="alert"
+          >
+            ¿Estás seguro? Esta acción no se puede deshacer.
+          </p>
+        )}
+
         {confirmError && (
           <p className="mt-3 text-small text-red-400" role="alert">
             {confirmError}
@@ -136,19 +152,32 @@ export function PayoffDialog({
         <div className="mt-5 flex items-center justify-end gap-3">
           <button
             type="button"
-            onClick={onClose}
+            onClick={
+              isConfirmingFinal ? () => setIsConfirmingFinal(false) : onClose
+            }
             className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
           >
             Cancelar
           </button>
-          <button
-            type="button"
-            onClick={() => void handleConfirm()}
-            disabled={!quote || isSubmitting}
-            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? 'Liquidando…' : 'Confirmar liquidación'}
-          </button>
+          {isConfirmingFinal ? (
+            <button
+              type="button"
+              onClick={() => void handleConfirm()}
+              disabled={isSubmitting}
+              className="rounded bg-red-500 px-4 py-2.5 text-small font-semibold text-white hover:bg-red-500/90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? 'Liquidando…' : 'Sí, liquidar definitivamente'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsConfirmingFinal(true)}
+              disabled={!quote}
+              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Confirmar liquidación
+            </button>
+          )}
         </div>
       </div>
     </div>

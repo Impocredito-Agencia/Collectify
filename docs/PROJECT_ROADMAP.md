@@ -282,6 +282,8 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_31_LOAN
 
 ## Phase 32 — UI fixes and small corrections
 
+**Done.** See `docs/phases/PHASE_32_UI_FIXES.md` / `docs/phasesClient/PHASE_32_UI_FIXES.md` — the sequential-payment rule was extended to the bulk payment endpoint too (not just the single one named below), the audit log fix turned out to be a frontend-only label map gap, the "0 enviados" fix is a removal (not a backend bug), and "liquidar" already had a confirmation dialog — a second explicit step was added on top of it.
+
 Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_32_UI_FIXES.md`.
 
 - An installment's "pay" button is only enabled once every earlier installment on the same loan is paid

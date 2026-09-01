@@ -209,7 +209,14 @@ export function LoanDetailPage() {
         </span>
       </div>
 
-      <div className="flex items-center justify-between rounded border border-border bg-surface px-6 py-5">
+      {/* Phase 32 — flex-wrap on this row (and on the button group below)
+          instead of a single non-wrapping flex row: with a realistic
+          number of action buttons (up to 6: Registrar pago, Pagar
+          seleccionadas, Liquidar, Editar, Refinanciar, Eliminar), a
+          non-wrapping row either overflowed or squeezed each button down
+          below its label's width. Wrapping to a second line keeps every
+          button at its natural size instead. */}
+      <div className="flex flex-wrap items-start justify-between gap-4 rounded border border-border bg-surface px-6 py-5">
         <div className="flex flex-col gap-1.5">
           <h1 className="text-page-title font-semibold text-white">
             Préstamo {loan.promissoryNoteNumber}
@@ -250,12 +257,12 @@ export function LoanDetailPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
             disabled={!oldestPending}
             onClick={() => oldestPending && setPayingInstallment(oldestPending)}
-            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+            className="shrink-0 whitespace-nowrap rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Registrar pago
           </button>
@@ -263,7 +270,7 @@ export function LoanDetailPage() {
             <button
               type="button"
               onClick={() => setIsBulkPaying(true)}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
+              className="shrink-0 whitespace-nowrap rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
             >
               Pagar seleccionadas ({selectedInstallments.length})
             </button>
@@ -273,7 +280,7 @@ export function LoanDetailPage() {
               type="button"
               disabled={loan.status !== LoanStatus.Active}
               onClick={() => setIsPayingOff(true)}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="shrink-0 whitespace-nowrap rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
               Liquidar anticipadamente
             </button>
@@ -282,7 +289,7 @@ export function LoanDetailPage() {
             <button
               type="button"
               onClick={() => setIsEditing(true)}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
+              className="shrink-0 whitespace-nowrap rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
             >
               Editar
             </button>
@@ -292,7 +299,7 @@ export function LoanDetailPage() {
               type="button"
               disabled={loan.status !== LoanStatus.Active}
               onClick={() => setIsRefinancing(true)}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="shrink-0 whitespace-nowrap rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
               Refinanciar
             </button>
@@ -307,7 +314,7 @@ export function LoanDetailPage() {
                   : undefined
               }
               onClick={() => setIsDeleting(true)}
-              className="rounded border border-red-500/30 bg-input px-4 py-2.5 text-small text-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className="shrink-0 whitespace-nowrap rounded border border-red-500/30 bg-input px-4 py-2.5 text-small text-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Eliminar préstamo
             </button>
@@ -439,6 +446,7 @@ export function LoanDetailPage() {
       <InstallmentsTable
         loan={loan}
         onPay={(installment) => setPayingInstallment(installment)}
+        oldestPendingInstallmentId={oldestPending?.id ?? null}
         selectedInstallmentIds={selectedInstallmentIds}
         onToggleSelected={(installmentId) =>
           setSelectedInstallmentIds((current) => {
@@ -642,11 +650,20 @@ export function LoanDetailPage() {
 function InstallmentsTable({
   loan,
   onPay,
+  oldestPendingInstallmentId,
   selectedInstallmentIds,
   onToggleSelected,
 }: {
   loan: LoanDetail;
   onPay: (installment: Installment) => void;
+  // Phase 32 — the single-installment "Pagar" button is only enabled for
+  // this one row: the sequential-payment rule (see
+  // InstallmentsService.registerPayment) means it's the only pending
+  // installment payable on its own right now — matches the parent's
+  // already-sorted `pendingInstallments[0]`. Server-side rejection is the
+  // real enforcement (defense in depth); this just keeps the UI from
+  // offering an action the API would reject.
+  oldestPendingInstallmentId: string | null;
   selectedInstallmentIds: Set<string>;
   onToggleSelected: (installmentId: string) => void;
 }) {
@@ -782,8 +799,14 @@ function InstallmentsTable({
                     {installment.status === InstallmentStatus.Pending ? (
                       <button
                         type="button"
+                        disabled={installment.id !== oldestPendingInstallmentId}
                         onClick={() => onPay(installment)}
-                        className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
+                        title={
+                          installment.id !== oldestPendingInstallmentId
+                            ? 'Primero debes pagar las cuotas anteriores de este préstamo.'
+                            : undefined
+                        }
+                        className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-muted"
                       >
                         Pagar
                       </button>

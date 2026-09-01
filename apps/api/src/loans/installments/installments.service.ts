@@ -131,6 +131,19 @@ export class InstallmentsService {
       );
     }
 
+    // Phase 32 — a defense-in-depth rule, not just a UI-disabled button: an
+    // installment can't be paid while an earlier-numbered installment on
+    // the same loan is still pending, even via a direct API call. Only
+    // meaningful when this installment itself is still Pending — an
+    // already-Paid/Cancelled installment accepting an extra payment record
+    // (see the no-op branch below) isn't "skipping ahead" of anything.
+    if (installment.status === InstallmentStatus.Pending) {
+      await this.assertNoEarlierPendingInstallment(
+        installment,
+        this.installmentsRepository,
+      );
+    }
+
     const payment = this.paymentsRepository.create({
       installmentId,
       amountPaid: dto.amountPaid,
@@ -190,7 +203,31 @@ export class InstallmentsService {
       const savedPayments: Payment[] = [];
       const loanIdsToCascade = new Set<string>();
 
-      for (const entry of entries) {
+      // Phase 32 — process in installment_number order (not submission
+      // order) so the sequential-payment rule below can't false-positive
+      // against an earlier installment that's ALSO part of this same
+      // batch: by the time that earlier entry's turn comes up, it's
+      // already been marked Paid within this transaction, so the query
+      // sees it correctly. Only a lookup pass (installmentNumber only) —
+      // the full fetch + status/amount checks below stay per-entry, same
+      // as before, so a bad entry still rolls back the whole batch.
+      const installmentsForSorting = await installmentsRepository.find({
+        where: { id: In(entries.map((entry) => entry.installmentId)) },
+        select: { id: true, installmentNumber: true },
+      });
+      const installmentNumberById = new Map(
+        installmentsForSorting.map((installment) => [
+          installment.id,
+          installment.installmentNumber,
+        ]),
+      );
+      const sortedEntries = [...entries].sort(
+        (a, b) =>
+          (installmentNumberById.get(a.installmentId) ?? 0) -
+          (installmentNumberById.get(b.installmentId) ?? 0),
+      );
+
+      for (const entry of sortedEntries) {
         const installment = await installmentsRepository.findOneBy({
           id: entry.installmentId,
         });
@@ -204,6 +241,10 @@ export class InstallmentsService {
             `Installment ${installment.installmentNumber} (id ${installment.id}) is not pending — it cannot be paid again.`,
           );
         }
+        await this.assertNoEarlierPendingInstallment(
+          installment,
+          installmentsRepository,
+        );
 
         const totalPaidBefore = await this.sumPayments(
           entry.installmentId,
@@ -248,6 +289,32 @@ export class InstallmentsService {
 
       return savedPayments;
     });
+  }
+
+  // Phase 32 — shared by registerPayment and registerBulkPayments. Takes
+  // the repository as a parameter (rather than always using
+  // this.installmentsRepository) so the bulk path can pass the
+  // transactional repository and see status updates already made earlier
+  // in the same transaction (see the sort-by-installmentNumber comment
+  // above registerBulkPayments' loop).
+  private async assertNoEarlierPendingInstallment(
+    installment: Installment,
+    installmentsRepository: Repository<Installment>,
+  ): Promise<void> {
+    const earlierPending = await installmentsRepository.find({
+      where: {
+        loanId: installment.loanId,
+        installmentNumber: LessThan(installment.installmentNumber),
+        status: InstallmentStatus.Pending,
+      },
+      order: { installmentNumber: 'ASC' },
+      take: 1,
+    });
+    if (earlierPending.length > 0) {
+      throw new BadRequestException(
+        `Installment ${installment.installmentNumber} cannot be paid — installment ${earlierPending[0].installmentNumber} on the same loan is still pending.`,
+      );
+    }
   }
 
   private async savePaymentImages(

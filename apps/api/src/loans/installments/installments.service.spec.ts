@@ -170,9 +170,33 @@ describe('InstallmentsService', () => {
   });
 
   describe('registerPayment', () => {
+    // Phase 32 — installmentsRepository.find() now serves two different
+    // queries from registerPayment: the new sequential-payment check
+    // (assertNoEarlierPendingInstallment, `where.installmentNumber` set)
+    // and the pre-existing cascadeLoanStatusIfFullyPaid check
+    // (`where.loanId` only). Distinguishing by the shape of `where` (rather
+    // than a single blanket mockResolvedValue, or call order) keeps every
+    // test below correct regardless of whether the sequential check even
+    // runs for it. Defaults to "nothing earlier pending" — tests that care
+    // about the cascade outcome pass their own `cascadeResult`; tests that
+    // care about the sequential rejection override this mock directly.
+    function mockInstallmentsFind(
+      cascadeResult: Partial<Installment>[] = [],
+    ): void {
+      installmentsRepository.find.mockImplementation(
+        ({ where }: { where?: Record<string, unknown> } = {}) => {
+          if (where?.installmentNumber) {
+            return Promise.resolve([]);
+          }
+          return Promise.resolve(cascadeResult);
+        },
+      );
+    }
+
     it('records a partial payment without marking the installment paid', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
       paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
+      mockInstallmentsFind();
 
       const result = await service.registerPayment(
         mockInstallment.id,
@@ -187,7 +211,7 @@ describe('InstallmentsService', () => {
     it('marks the installment paid when accumulated payments cover the amount exactly', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
       paymentsRepository.find.mockResolvedValue([{ amountPaid: 200000 }]);
-      installmentsRepository.find.mockResolvedValue([
+      mockInstallmentsFind([
         { ...mockInstallment, status: InstallmentStatus.Paid },
       ]);
 
@@ -205,7 +229,7 @@ describe('InstallmentsService', () => {
     it('marks the installment paid on overpayment (accumulated exceeds the amount)', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
       paymentsRepository.find.mockResolvedValue([{ amountPaid: 250000 }]);
-      installmentsRepository.find.mockResolvedValue([
+      mockInstallmentsFind([
         { ...mockInstallment, status: InstallmentStatus.Paid },
       ]);
 
@@ -223,7 +247,7 @@ describe('InstallmentsService', () => {
     it('cascades the loan to paid when every installment of it is paid', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
       paymentsRepository.find.mockResolvedValue([{ amountPaid: 200000 }]);
-      installmentsRepository.find.mockResolvedValue([
+      mockInstallmentsFind([
         { ...mockInstallment, status: InstallmentStatus.Paid },
       ]);
 
@@ -241,7 +265,7 @@ describe('InstallmentsService', () => {
     it('does not cascade the loan to paid when other installments are still pending', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
       paymentsRepository.find.mockResolvedValue([{ amountPaid: 200000 }]);
-      installmentsRepository.find.mockResolvedValue([
+      mockInstallmentsFind([
         { ...mockInstallment, status: InstallmentStatus.Paid },
         { ...mockInstallment, id: 'inst-2', status: InstallmentStatus.Pending },
       ]);
@@ -252,6 +276,49 @@ describe('InstallmentsService', () => {
       });
 
       expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+
+    // Phase 32 — defense in depth: rejecting this server-side, not just
+    // disabling the "pagar" button, is the whole point of the rule (see
+    // docs/phases/PHASE_32_UI_FIXES.md).
+    it('rejects a payment when an earlier-numbered installment on the same loan is still pending', async () => {
+      const installment3: Installment = {
+        ...mockInstallment,
+        id: 'inst-3',
+        installmentNumber: 3,
+      };
+      installmentsRepository.findOneBy.mockResolvedValue(installment3);
+      installmentsRepository.find.mockImplementation(
+        ({ where }: { where?: Record<string, unknown> } = {}) => {
+          if (where?.installmentNumber) {
+            return Promise.resolve([
+              { ...mockInstallment, installmentNumber: 1 },
+            ]);
+          }
+          return Promise.resolve([]);
+        },
+      );
+
+      await expect(
+        service.registerPayment(installment3.id, paymentDto),
+      ).rejects.toThrow(BadRequestException);
+      expect(paymentsRepository.create).not.toHaveBeenCalled();
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    // The rule only gates installments still Pending — an installment
+    // that's already resolved (Paid/Cancelled) isn't "skipping ahead" of
+    // anything, so an extra payment record against one goes through as
+    // before, with no earlier-pending lookup at all.
+    it('does not run the sequential-payment check against an already-paid installment', async () => {
+      installmentsRepository.findOneBy.mockResolvedValue({
+        ...mockInstallment,
+        status: InstallmentStatus.Paid,
+      });
+
+      await service.registerPayment(mockInstallment.id, paymentDto);
+
+      expect(installmentsRepository.find).not.toHaveBeenCalled();
     });
 
     it('does not re-evaluate an already-paid installment', async () => {
@@ -280,6 +347,7 @@ describe('InstallmentsService', () => {
     it('persists one PaymentImage row per URL in imageUrls', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
       paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
+      mockInstallmentsFind();
       paymentsRepository.save.mockResolvedValue({
         id: 'payment-1',
         ...paymentDto,
@@ -313,6 +381,7 @@ describe('InstallmentsService', () => {
     it('stores a null imageUrl and no PaymentImage rows when imageUrls is omitted', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
       paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
+      mockInstallmentsFind();
 
       const result = await service.registerPayment(
         mockInstallment.id,
@@ -344,12 +413,31 @@ describe('InstallmentsService', () => {
       paymentsRepository.save.mockImplementation((payment: Partial<Payment>) =>
         Promise.resolve({ id: `payment-${payment.installmentId}`, ...payment }),
       );
-      // cascadeLoanStatusIfFullyPaid's own lookup — defaults to "not
-      // everything paid yet" so tests that don't care about the loan
-      // cascade specifically don't need to stub this themselves.
-      installmentsRepository.find.mockResolvedValue([
-        { ...mockInstallment, status: InstallmentStatus.Pending },
-      ]);
+      // Phase 32 — installmentsRepository.find() now serves three distinct
+      // queries from registerBulkPayments: the installmentNumber lookup
+      // used to sort entries before processing (`where.id`, via In()), the
+      // sequential-payment check run per entry
+      // (assertNoEarlierPendingInstallment, `where.installmentNumber`),
+      // and the pre-existing cascadeLoanStatusIfFullyPaid check
+      // (`where.loanId` only). Distinguishing by the shape of `where`
+      // (rather than call order, which varies with entry count) keeps
+      // every test below correct. Defaults: sorting sees both known
+      // installments, the sequential check sees nothing earlier pending,
+      // and the cascade check sees "not everything paid yet" — matching
+      // this suite's behavior before this phase.
+      installmentsRepository.find.mockImplementation(
+        ({ where }: { where?: Record<string, unknown> } = {}) => {
+          if (where?.id) {
+            return Promise.resolve([mockInstallment, installment2]);
+          }
+          if (where?.installmentNumber) {
+            return Promise.resolve([]);
+          }
+          return Promise.resolve([
+            { ...mockInstallment, status: InstallmentStatus.Pending },
+          ]);
+        },
+      );
     });
 
     it('creates one Payment per entry, all within the same transaction', async () => {
@@ -469,6 +557,91 @@ describe('InstallmentsService', () => {
       );
     });
 
+    // Phase 32 — the same defense-in-depth rule as registerPayment, applied
+    // to the bulk endpoint too (confirmed with the human): "Pagar
+    // seleccionadas" shouldn't be a way to skip the sequential rule that
+    // the single-payment button enforces.
+    it('rejects a bulk entry when an earlier-numbered installment on the same loan (outside the batch) is still pending', async () => {
+      installmentsRepository.find.mockImplementation(
+        ({ where }: { where?: Record<string, unknown> } = {}) => {
+          if (where?.id) {
+            return Promise.resolve([installment2]);
+          }
+          if (where?.installmentNumber) {
+            return Promise.resolve([
+              { ...mockInstallment, installmentNumber: 1 },
+            ]);
+          }
+          return Promise.resolve([]);
+        },
+      );
+
+      await expect(
+        service.registerBulkPayments([
+          {
+            installmentId: installment2.id,
+            amountPaid: 200000,
+            paidAt: '2026-01-05',
+          },
+        ]),
+      ).rejects.toThrow(BadRequestException);
+      expect(installmentsRepository.update).not.toHaveBeenCalled();
+    });
+
+    // Proves the batch is processed in installment_number order, not
+    // submission order — otherwise installment #2 (submitted first here)
+    // would false-positive against installment #1 (submitted second, same
+    // loan) as "an earlier installment still pending" even though both are
+    // being settled together in this same request.
+    it('processes a same-loan batch in installment_number order regardless of submission order', async () => {
+      const sameLoanInstallment2: Installment = {
+        ...installment2,
+        loanId: mockInstallment.loanId,
+      };
+      installmentsRepository.findOneBy.mockImplementation(
+        ({ id }: { id: string }) =>
+          Promise.resolve(
+            [mockInstallment, sameLoanInstallment2].find((i) => i.id === id) ??
+              null,
+          ),
+      );
+      installmentsRepository.find.mockImplementation(
+        ({ where }: { where?: Record<string, unknown> } = {}) => {
+          if (where?.id) {
+            return Promise.resolve([mockInstallment, sameLoanInstallment2]);
+          }
+          if (where?.installmentNumber) {
+            return Promise.resolve([]);
+          }
+          return Promise.resolve([
+            { ...mockInstallment, status: InstallmentStatus.Paid },
+            { ...sameLoanInstallment2, status: InstallmentStatus.Paid },
+          ]);
+        },
+      );
+
+      // Submitted OUT of order: installment #2 listed before installment #1.
+      await service.registerBulkPayments([
+        {
+          installmentId: sameLoanInstallment2.id,
+          amountPaid: 200000,
+          paidAt: '2026-01-05',
+        },
+        {
+          installmentId: mockInstallment.id,
+          amountPaid: 200000,
+          paidAt: '2026-01-05',
+        },
+      ]);
+
+      const updateCallOrder = installmentsRepository.update.mock.calls.map(
+        ([criteria]: [{ id: string }]) => criteria.id,
+      );
+      expect(updateCallOrder.indexOf(mockInstallment.id)).toBeLessThan(
+        updateCallOrder.indexOf(sameLoanInstallment2.id),
+      );
+    });
+
     it('cascades the loan to paid only once even when multiple paid installments belong to it', async () => {
       const sameLoanInstallment2: Installment = {
         ...installment2,
@@ -481,10 +654,20 @@ describe('InstallmentsService', () => {
               null,
           ),
       );
-      installmentsRepository.find.mockResolvedValue([
-        { ...mockInstallment, status: InstallmentStatus.Paid },
-        { ...sameLoanInstallment2, status: InstallmentStatus.Paid },
-      ]);
+      installmentsRepository.find.mockImplementation(
+        ({ where }: { where?: Record<string, unknown> } = {}) => {
+          if (where?.id) {
+            return Promise.resolve([mockInstallment, sameLoanInstallment2]);
+          }
+          if (where?.installmentNumber) {
+            return Promise.resolve([]);
+          }
+          return Promise.resolve([
+            { ...mockInstallment, status: InstallmentStatus.Paid },
+            { ...sameLoanInstallment2, status: InstallmentStatus.Paid },
+          ]);
+        },
+      );
 
       await service.registerBulkPayments([
         {

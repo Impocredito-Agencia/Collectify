@@ -172,7 +172,7 @@ export function LoanQuotePage() {
   return (
     <div className="flex flex-col gap-5">
       <Header
-        title="Cotizador"
+        title="Proyector rápido"
         subtitle="Simula un préstamo antes de crearlo — nada aquí queda guardado"
       />
 

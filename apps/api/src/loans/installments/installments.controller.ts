@@ -59,7 +59,7 @@ export class InstallmentsController {
   @ApiResponse({
     status: 400,
     description:
-      "An installment isn't pending, or an entry's amount doesn't fully cover its installment's remaining balance.",
+      "An installment isn't pending, an entry's amount doesn't fully cover its installment's remaining balance, or an entry would pay an installment while an earlier-numbered installment on the same loan is still pending (Phase 32).",
   })
   @ApiResponse({ status: 404, description: 'An installment was not found.' })
   registerBulkPayments(
@@ -77,6 +77,11 @@ export class InstallmentsController {
       'Accepts optional imageUrls for the deposit receipt photos (a payment can carry more than one, as of Phase 28). The api does not handle image uploads — each URL must already point to an externally hosted image (see docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md); the client is responsible for uploading the files and passing back the resulting URLs.',
   })
   @ApiResponse({ status: 201, description: 'The payment was recorded.' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'An earlier-numbered installment on the same loan is still pending (Phase 32) — this installment cannot be paid out of order.',
+  })
   @ApiResponse({ status: 404, description: 'Installment not found.' })
   registerPayment(
     @Param('id') id: string,
