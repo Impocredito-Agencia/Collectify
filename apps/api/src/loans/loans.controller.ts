@@ -76,7 +76,10 @@ export class LoansController {
       'refinancedToLoanId is a computed reverse lookup — the loan this one was later refinanced into, if any. ' +
       'As of Phase 26, coDebtorClient is resolved from coDebtorClientId on read (null when the loan has ' +
       'no co-debtor) — resolved with withDeleted so a loan whose co-debtor was later deactivated still ' +
-      'renders instead of breaking. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.',
+      'renders instead of breaking. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md. ' +
+      'As of Phase 31, currentPrincipalBalance ("saldo capital a la fecha") is the pure remaining ' +
+      'principal across still-pending installments, with no accrued interest folded in — same ' +
+      'totalPrincipalOwed figure a payoff quote would show, safe to read regardless of loan status.',
   })
   @ApiResponse({
     status: 200,

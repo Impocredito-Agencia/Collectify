@@ -979,6 +979,46 @@ describe('LoansService', () => {
       });
     });
 
+    // Phase 31 — "saldo capital a la fecha" must be pure principal, no
+    // interest, and only across still-pending installments.
+    it('computes currentPrincipalBalance as pure principal across pending installments only', async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      loansRepository.findOne.mockResolvedValue(null);
+      const overduePending: Installment = {
+        id: 'inst-1',
+        loanId: mockLoan.id,
+        loan: undefined as never,
+        installmentNumber: 1,
+        amount: 210000,
+        principalPortion: 200000,
+        dueDate: '2024-01-01', // far in the past — deterministic overdue, accrues interest
+        status: InstallmentStatus.Pending,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      };
+      const paidInstallment: Installment = {
+        ...overduePending,
+        id: 'inst-2',
+        installmentNumber: 2,
+        principalPortion: 300000,
+        // Must be excluded despite having its own principalPortion — only
+        // still-pending installments count toward the current balance.
+        status: InstallmentStatus.Paid,
+      };
+      installmentsRepository.find.mockResolvedValue([
+        overduePending,
+        paidInstallment,
+      ]);
+
+      const result = await service.findOne(mockLoan.id);
+
+      // Sanity check: this installment does accrue interest, so a naive
+      // "sum of totalDue" would overstate the pure-principal figure.
+      expect(result.installments[0].interest).toBeGreaterThan(0);
+      expect(result.currentPrincipalBalance).toBe(200000);
+    });
+
     it('attaches each installment its concept breakdown from LoanInstallmentConcept', async () => {
       loansRepository.findOneBy.mockResolvedValue(mockLoan);
       loansRepository.findOne.mockResolvedValue(null);

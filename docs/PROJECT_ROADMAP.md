@@ -186,6 +186,8 @@ Requested by the client (reunión 2026-08-26) — the most important and most ur
 
 ## Phase 23 — Unified dynamic charges (cargos corrientes y moratorios)
 
+**Done.** Backend in PR #59 (`feature/dynamic-charges-backend`), frontend in `feature/dynamic-charges-frontend` — see `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`. The amortizador numeric-discrepancy item was explicitly dropped from scope ("el número era muy pequeño").
+
 Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`.
 
 - Moratory interest stops being a single hardcoded rate/formula and becomes just another dynamic concept in the Phase 14 catalog, alongside ordinary ("corriente") concepts — the admin can add as many moratory-related charges as needed, the same way they already do for corriente ones
@@ -197,6 +199,8 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_23_DYNA
 **Exit criteria:** moratory interest is priced through the same concept engine as corriente interest, a fixed-amount concept's distribution mode is explicit and correct, and the loan detail view renders charges as a dynamic per-charge table.
 
 ## Phase 24 — Usury rate becomes mandatory and self-applied
+
+**Done.** See `docs/phases/PHASE_24_USURY_MANDATORY.md` for the confirmed rules and full implementation notes.
 
 Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_24_USURY_MANDATORY.md`. Depends on Phase 23 (moratory interest must already be a concept before it can be auto-priced against the ceiling).
 
@@ -266,11 +270,13 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_30_LOAN
 
 ## Phase 31 — Loan section terminology and copy
 
+**Done.** See `docs/phases/PHASE_31_LOAN_TERMINOLOGY.md` — the justification-note item below turned out to be a misremembering of a field Phase 24 had already dropped, and was cut from scope after the human reviewed the original meeting recording (not rebuilt).
+
 Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_31_LOAN_TERMINOLOGY.md`. Depends on Phases 22–23 (the wording must describe the unified charges/usury model those phases build).
 
 - Renames confusing labels across the loan section ("tasa de interés" → "incremento consolidado en caso de mora", "saldo pendiente" → "saldo pendiente con incremento", "monto original" → "monto original sin incremento")
 - Adds a "saldo capital a la fecha" card to the loan detail view (the calculation already exists for refinancing; it just isn't shown as its own card yet)
-- Adds a short explanatory note on the loan detail view justifying why the total surcharge rate was applied
+- ~~Adds a short explanatory note on the loan detail view justifying why the total surcharge rate was applied~~ — dropped, see above
 
 **Exit criteria:** the loan section's labels and an added explanatory note match what the client actually asked for, with no lingering ambiguity between "with" and "without" mora increment.
 

@@ -471,8 +471,8 @@ export function ClientDetailPage() {
                 <tr>
                   <Th className="w-12">#</Th>
                   <Th>ID</Th>
-                  <Th>Monto</Th>
-                  <Th>Saldo</Th>
+                  <Th>Monto (s/inc.)</Th>
+                  <Th>Saldo (c/inc.)</Th>
                   <Th>Cuotas</Th>
                   <Th>Estado</Th>
                   <Th>Días mora</Th>

@@ -91,6 +91,11 @@ export interface LoanDetail extends Loan {
   // (ClientsService.findByIdIncludingDeleted), so a loan whose co-debtor
   // was later deactivated still renders instead of breaking this view.
   coDebtorClient: Client | null;
+  // Phase 31 — "saldo capital a la fecha". Pure remaining principal across
+  // still-pending installments, no accrued interest folded in — do not
+  // confuse with the "Saldo pendiente con incremento" KPI (which does
+  // include interest). See LoansService.findOne's own comment (api).
+  currentPrincipalBalance: number;
 }
 
 export interface LoansQueryParams {

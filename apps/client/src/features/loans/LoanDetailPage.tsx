@@ -343,14 +343,21 @@ export function LoanDetailPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-6 gap-4">
         <KpiCard
-          label="Monto original"
+          label="Monto original sin incremento"
           value={formatCurrency(loan.principalAmount)}
         />
         <KpiCard
-          label="Saldo pendiente"
+          label="Saldo pendiente con incremento"
           value={formatCurrency(outstandingBalance)}
+        />
+        {/* Phase 31 — pure remaining principal, no interest folded in;
+            deliberately a separate card from "Saldo pendiente con
+            incremento" above, which does include accrued interest. */}
+        <KpiCard
+          label="Saldo capital a la fecha"
+          value={formatCurrency(loan.currentPrincipalBalance)}
         />
         <KpiCard
           label="Cuotas pagadas"
@@ -360,7 +367,10 @@ export function LoanDetailPage() {
           label="Próx. pago"
           value={oldestPending ? formatDateOnly(oldestPending.dueDate) : '—'}
         />
-        <KpiCard label="Tasa de interés" value={`${loan.interestRate}%`} />
+        <KpiCard
+          label="Incremento consolidado en caso de mora"
+          value={`${loan.interestRate}%`}
+        />
       </div>
 
       {loan.initialPayment != null && (

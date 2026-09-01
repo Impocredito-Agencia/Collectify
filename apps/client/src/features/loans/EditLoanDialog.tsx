@@ -84,7 +84,7 @@ export function EditLoanDialog({
         <div className="mt-5 border-t border-border" />
 
         <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3.5">
-          <Field label="Tasa de interés (%)">
+          <Field label="Incremento consolidado en caso de mora (%)">
             <input
               type="number"
               min={0}

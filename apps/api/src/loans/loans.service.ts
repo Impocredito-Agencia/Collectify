@@ -97,6 +97,18 @@ export interface LoanDetail extends Loan {
   // Computed reverse lookup, not a stored column — the loan this one was
   // later refinanced into, if any. See docs/phases/PHASE_6_REFINANCING.md.
   refinancedToLoanId: string | null;
+  // Phase 31 — "saldo capital a la fecha". Pure remaining principal, with
+  // NO interest folded in — deliberately `totalPrincipalOwed`, not
+  // `totalDue`/`suggestedPrincipalAmount` (confirmed with the human,
+  // 2026-08-31): those include accrued interest, which would misstate this
+  // as owing more than the actual capital left. Reuses getPayoffQuote()
+  // rather than a second implementation, per docs/phases/PHASE_17_REFINANCING_RECALC.md's
+  // own precedent of never duplicating this math. `totalPrincipalOwed` is
+  // unaffected by the refinance-only earlyMaturityWindowDays option (see
+  // calculatePayoff.ts — principalApplied never depends on it), so the
+  // plain getPayoffQuote() call here always agrees with what a refinance
+  // quote would show for the same figure.
+  currentPrincipalBalance: number;
 }
 
 // Phase 28 — getPayments()'s return shape: imageUrl replaced with
@@ -540,6 +552,28 @@ export class LoansService {
         )
       : null;
 
+    // Phase 31 — see LoanDetail.currentPrincipalBalance's own comment for
+    // why this is totalPrincipalOwed specifically. Computed inline from
+    // `installments`/`conceptsByInstallmentId` already fetched above
+    // (filtered to pending / moratorio respectively) rather than calling
+    // getPayoffQuote(id) again, which would re-fetch the loan and its
+    // concepts a second time for no reason — same calculatePayoff() engine
+    // either way, just without the redundant round-trips.
+    const pendingInstallments = installments.filter(
+      (installment) => installment.status === InstallmentStatus.Pending,
+    );
+    const currentPrincipalBalance = calculatePayoff(
+      pendingInstallments.map((installment) =>
+        toPayoffInstallmentInput(
+          installment,
+          (conceptsByInstallmentId.get(installment.id) ?? []).filter(
+            (concept) => concept.category === ConceptCategory.Moratorio,
+          ),
+        ),
+      ),
+      loan.interestRate,
+    ).totalPrincipalOwed;
+
     return {
       ...loan,
       coDebtorClient,
@@ -551,6 +585,7 @@ export class LoansService {
         ),
       ),
       refinancedToLoanId: refinancedTo?.id ?? null,
+      currentPrincipalBalance,
     };
   }
 
