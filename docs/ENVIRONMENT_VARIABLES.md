@@ -7,8 +7,9 @@ This document explains every environment variable used across `api` and `client`
 Currently the project runs in three contexts:
 
 - **Local development** — your machine, using the `.env` file, with PostgreSQL running via Docker.
-- **Staging** — a test environment for manual QA before something reaches production: `api` on Railway, `client` on Vercel (its own Postgres plugin, separate from whatever production ends up using). Variables are set through each platform's dashboard, never committed to the repo. See "Deploying to staging" below for the full walkthrough.
-- **Production** — the original plan (Phase 1) was Railway (`api`) + Cloudflare Pages (`client`); not deployed yet. Whether production stays on Cloudflare Pages or also moves to Vercel is a separate decision from standing up staging — this document will be updated once that's decided.
+- **Production** — `api` on Railway, `client` on Cloudflare Pages, per the original Phase 1 plan. Variables are set through each platform's dashboard, never committed to the repo. See "Deploying" below for the full walkthrough.
+
+There's no separate staging environment right now — Vercel was used for that early on but is no longer part of the setup (staging's own Postgres plugin was separate from production's, so nothing from it carries over). Cloudflare Pages gives an automatic **Preview deployment** per branch/PR out of the box, which can stand in for manual QA on the `client` side when needed; there's no equivalent yet on the `api` side.
 
 ## General rules
 
@@ -125,9 +126,9 @@ Unlike the pending Meta WhatsApp credentials (which the `api` handles by logging
 - **Railway (`api`)**: Project → Variables tab. When a PostgreSQL plugin is attached to the same Railway project, reference its values instead of hardcoding them — e.g. set `DATABASE_HOST` to `${{Postgres.PGHOST}}`, `DATABASE_PORT` to `${{Postgres.PGPORT}}`, and so on for `DATABASE_USER`/`DATABASE_PASSWORD`/`DATABASE_NAME` against `PGUSER`/`PGPASSWORD`/`PGDATABASE`. This keeps the API in sync automatically if the plugin ever rotates credentials.
 - **Cloudflare Pages (`client`)**: Project → Settings → Environment Variables. Remember `client` variables are baked into the build at build time, not read at runtime — redeploying is required after changing one.
 
-## Deploying to staging (`api` on Railway, `client` on Vercel)
+## Deploying (`api` on Railway, `client` on Cloudflare Pages)
 
-This is the current staging setup — `api` and `client` each live in their own Railway/Vercel project, both pointed at the `apps/api` / `apps/client` subfolder of this monorepo (Root Directory setting on each platform). See `apps/api/railway.toml` and `apps/client/vercel.json` for the config-as-code that ships with each app.
+`api` and `client` each live in their own Railway/Cloudflare Pages project, both pointed at the `apps/api` / `apps/client` subfolder of this monorepo (Root Directory setting on each platform). See `apps/api/railway.toml` for the API's config-as-code; `apps/client/public/_redirects` gives Cloudflare Pages the SPA fallback (`/*` → `/index.html`) that `react-router-dom`'s `createBrowserRouter` needs — without it, refreshing on any route other than `/` 404s.
 
 **`api` on Railway** — set these in the service's Variables tab:
 
@@ -146,14 +147,13 @@ OVERDUE_REMINDER_CRON=0 9 * * 1,3,5
 UPCOMING_DUE_REMINDER_CRON=0 8 * * *
 UPCOMING_DUE_REMINDER_DAYS=5,3,1
 ACCOUNT_SUMMARY_REMINDER_CRON=0 8 1 * *
-CLIENT_URL=<the Vercel production URL for this project, e.g. https://collectify-staging.vercel.app>
-# META_WHATSAPP_* — leave blank for staging unless testing real sends; see
-# "On the pending Meta Cloud API credentials" above.
+CLIENT_URL=<the Cloudflare Pages production URL for this project, e.g. https://collectify.pages.dev>
+# META_WHATSAPP_* — see "On the pending Meta Cloud API credentials" above.
 ```
 
 `apps/api/railway.toml` sets the build command (`npm run build`), start command (`npm run migration:run && npm run start:prod` — runs pending migrations before every start), and healthcheck path (`/api/v1/health`, already public via `@Public()`).
 
-**`client` on Vercel** — set these in Project → Settings → Environment Variables (Production):
+**`client` on Cloudflare Pages** — set these in Project → Settings → Environment Variables (Production):
 
 ```bash
 VITE_API_URL=<the Railway public domain for the api service>/api/v1
@@ -161,9 +161,7 @@ VITE_CLOUDINARY_CLOUD_NAME=
 VITE_CLOUDINARY_UPLOAD_PRESET=
 ```
 
-`apps/client/vercel.json` adds the SPA rewrite (`/*` → `/index.html`) that `react-router-dom`'s `createBrowserRouter` needs — without it, refreshing on any route other than `/` 404s on Vercel.
-
-There's a **circular dependency the first time you deploy both**: the API needs `CLIENT_URL` to know the Vercel domain, and the client needs `VITE_API_URL` to know the Railway domain. Deploy the API first with a placeholder `CLIENT_URL` (or Railway's own domain), get Vercel's assigned domain, update `CLIENT_URL` on Railway, then deploy the client with the real `VITE_API_URL`.
+There's a **circular dependency the first time you deploy both**: the API needs `CLIENT_URL` to know the Cloudflare Pages domain, and the client needs `VITE_API_URL` to know the Railway domain. Deploy the API first with a placeholder `CLIENT_URL` (or Railway's own domain), get Cloudflare Pages' assigned domain, update `CLIENT_URL` on Railway, then deploy the client with the real `VITE_API_URL`.
 
 ## Related documents
 
