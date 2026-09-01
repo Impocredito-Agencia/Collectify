@@ -48,6 +48,10 @@ import type { ReactNode } from 'react';
 //     a full audit log. The Enviados/Fallidos legend counts are kept as
 //     read-only context (they still reflect the true totals, not just
 //     what's listed).
+//   - Phase 32: dropped the "X Enviados" legend count — per the client's
+//     own framing above, a sent-count has no place on a page meant to
+//     only ever surface failures. Kept "X Fallidos" only, since that one
+//     IS actionable context for this list.
 type TypeFilter = 'all' | MessageType;
 
 const TYPE_FILTER_OPTIONS = [
@@ -78,10 +82,6 @@ export function MessageLogsPage() {
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
     page,
-  });
-  const { data: sentCount } = useMessageLogs({
-    status: MessageLogStatus.Sent,
-    limit: 1,
   });
   const { data: failedCount } = useMessageLogs({
     status: MessageLogStatus.Failed,
@@ -154,10 +154,6 @@ export function MessageLogsPage() {
         <div className="flex-1" />
 
         <div className="flex items-center gap-3 text-label text-muted">
-          <Legend
-            color="#22c55e"
-            label={`${sentCount?.meta.total ?? 0} Enviados`}
-          />
           <Legend
             color="#ef4444"
             label={`${failedCount?.meta.total ?? 0} Fallidos`}
