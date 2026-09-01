@@ -4,19 +4,19 @@ This document explains every environment variable used across `api` and `client`
 
 ## Environments
 
-Currently the project runs in three contexts:
+Currently the project runs in two contexts:
 
 - **Local development** — your machine, using the `.env` file, with PostgreSQL running via Docker.
-- **Production** — `api` on Railway, `client` on Cloudflare Pages, per the original Phase 1 plan. Variables are set through each platform's dashboard, never committed to the repo. See "Deploying" below for the full walkthrough.
+- **Production** — `api` on Railway, `client` on Cloudflare Workers with static assets, per the original Phase 1 plan (Cloudflare's current recommended path for static sites, replacing the classic Pages product). Variables are set through each platform's dashboard, never committed to the repo. See "Deploying" below for the full walkthrough.
 
-There's no separate staging environment right now — Vercel was used for that early on but is no longer part of the setup (staging's own Postgres plugin was separate from production's, so nothing from it carries over). Cloudflare Pages gives an automatic **Preview deployment** per branch/PR out of the box, which can stand in for manual QA on the `client` side when needed; there's no equivalent yet on the `api` side.
+There's no separate staging environment right now — Vercel was used for that early on but is no longer part of the setup (staging's own Postgres plugin was separate from production's, so nothing from it carries over). Workers Builds gives an automatic **preview deployment** per branch/PR out of the box (once non-production branch builds are enabled on the trigger), which can stand in for manual QA on the `client` side when needed; there's no equivalent yet on the `api` side.
 
 ## General rules
 
 - **Never commit a `.env` file.** It's listed in `.gitignore` for exactly this reason.
 - **Every variable must exist in `.env.example`**, with a placeholder or dummy value — this is how a new developer knows what to fill in.
 - If you add a new environment variable, update `.env.example` **and** this document in the same Pull Request (see `DEFINITION_OF_DONE.md`).
-- Production values are set directly in Railway's / Cloudflare Pages' environment variable settings — never sent over Slack, WhatsApp, or committed anywhere.
+- Production values are set directly in Railway's / Cloudflare Workers' environment variable settings — never sent over Slack, WhatsApp, or committed anywhere.
 
 ---
 
@@ -81,7 +81,7 @@ CLIENT_URL=http://localhost:5173
 | `UPCOMING_DUE_REMINDER_CRON` | ✅ | Cron expression controlling when the daily upcoming-due ("Aviso") reminder job runs. Default `0 8 * * *` = every day at 8:00 AM. Added in Phase 9 — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. |
 | `UPCOMING_DUE_REMINDER_DAYS` | ✅ | Comma-separated list of day thresholds before an installment's due date to send the "Aviso" reminder. Default `5,3,1`. Added in Phase 9. |
 | `ACCOUNT_SUMMARY_REMINDER_CRON` | ✅ | Cron expression for the account-summary cron (Phase 18) — sends to every client with at least one active loan (corrected after client QA, 2026-08-18; originally audience-only). Default `0 8 1 * *` = 8:00 AM on the 1st of each month. Admin-editable via `MessageTemplate.cronExpression`, which takes precedence over this code default when set — see `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. `new_loan` has no cron variable at all — it's sent synchronously at loan creation only, with no periodic job. |
-| `CLIENT_URL` | ✅ | The client's URL, used to configure CORS. `http://localhost:5173` locally; the Cloudflare Pages URL in production. |
+| `CLIENT_URL` | ✅ | The client's URL, used to configure CORS. `http://localhost:5173` locally; the Cloudflare Workers URL in production. |
 
 ### On the pending Meta Cloud API credentials
 
@@ -124,11 +124,13 @@ Unlike the pending Meta WhatsApp credentials (which the `api` handles by logging
 ## Setting variables in production
 
 - **Railway (`api`)**: Project → Variables tab. When a PostgreSQL plugin is attached to the same Railway project, reference its values instead of hardcoding them — e.g. set `DATABASE_HOST` to `${{Postgres.PGHOST}}`, `DATABASE_PORT` to `${{Postgres.PGPORT}}`, and so on for `DATABASE_USER`/`DATABASE_PASSWORD`/`DATABASE_NAME` against `PGUSER`/`PGPASSWORD`/`PGDATABASE`. This keeps the API in sync automatically if the plugin ever rotates credentials.
-- **Cloudflare Pages (`client`)**: Project → Settings → Environment Variables. Remember `client` variables are baked into the build at build time, not read at runtime — redeploying is required after changing one.
+- **Cloudflare Workers (`client`)**: since `VITE_*` variables are baked into the build at build time (not read at runtime), they must be set as **build variables**, not runtime ones — Worker → Settings → Builds → your trigger → Build variables and secrets. Setting them under Settings → Variables & Secrets instead (the *runtime* ones) has no effect on the Vite build and will silently ship a client pointing nowhere. Redeploying is required after changing a build variable.
 
-## Deploying (`api` on Railway, `client` on Cloudflare Pages)
+## Deploying (`api` on Railway, `client` on Cloudflare Workers with static assets)
 
-`api` and `client` each live in their own Railway/Cloudflare Pages project, both pointed at the `apps/api` / `apps/client` subfolder of this monorepo (Root Directory setting on each platform). See `apps/api/railway.toml` for the API's config-as-code; `apps/client/public/_redirects` gives Cloudflare Pages the SPA fallback (`/*` → `/index.html`) that `react-router-dom`'s `createBrowserRouter` needs — without it, refreshing on any route other than `/` 404s.
+`api` and `client` each live in their own Railway/Cloudflare project, both pointed at the `apps/api` / `apps/client` subfolder of this monorepo (Root Directory setting on each platform). See `apps/api/railway.toml` for the API's config-as-code, and `apps/client/wrangler.jsonc` for the client's.
+
+Note this is Cloudflare **Workers** with static assets, not the classic Cloudflare **Pages** product — Cloudflare's current recommended path for static sites, and what new projects get by default now. The two are configured differently: `apps/client/wrangler.jsonc` sets `assets.not_found_handling` to `single-page-application`, which is what gives the SPA fallback that `react-router-dom`'s `createBrowserRouter` needs (serves `index.html` with a 200 for any path that doesn't match a real asset) — without it, refreshing on any route other than `/` 404s. This replaces the `_redirects`-file approach Pages used; a plain `/* /index.html 200` rule in a `_redirects` file is rejected by Workers static assets as an infinite-loop redirect, since it conflicts with this built-in SPA handling.
 
 **`api` on Railway** — set these in the service's Variables tab:
 
@@ -147,13 +149,13 @@ OVERDUE_REMINDER_CRON=0 9 * * 1,3,5
 UPCOMING_DUE_REMINDER_CRON=0 8 * * *
 UPCOMING_DUE_REMINDER_DAYS=5,3,1
 ACCOUNT_SUMMARY_REMINDER_CRON=0 8 1 * *
-CLIENT_URL=<the Cloudflare Pages production URL for this project, e.g. https://collectify.pages.dev>
+CLIENT_URL=<the Cloudflare Workers production URL for this project, e.g. https://collectify.<subdomain>.workers.dev>
 # META_WHATSAPP_* — see "On the pending Meta Cloud API credentials" above.
 ```
 
 `apps/api/railway.toml` sets the build command (`npm run build`), start command (`npm run migration:run && npm run start:prod` — runs pending migrations before every start), and healthcheck path (`/api/v1/health`, already public via `@Public()`).
 
-**`client` on Cloudflare Pages** — set these in Project → Settings → Environment Variables (Production):
+**`client` on Cloudflare Workers** — build command `npm run build`, deploy command `npx wrangler deploy`, root directory `apps/client`. Set these as **build variables** on the Workers Build trigger (Worker → Settings → Builds → your trigger → Build variables and secrets — see the note above, these are build-time only, not the runtime Variables & Secrets section):
 
 ```bash
 VITE_API_URL=<the Railway public domain for the api service>/api/v1
@@ -161,7 +163,7 @@ VITE_CLOUDINARY_CLOUD_NAME=
 VITE_CLOUDINARY_UPLOAD_PRESET=
 ```
 
-There's a **circular dependency the first time you deploy both**: the API needs `CLIENT_URL` to know the Cloudflare Pages domain, and the client needs `VITE_API_URL` to know the Railway domain. Deploy the API first with a placeholder `CLIENT_URL` (or Railway's own domain), get Cloudflare Pages' assigned domain, update `CLIENT_URL` on Railway, then deploy the client with the real `VITE_API_URL`.
+There's a **circular dependency the first time you deploy both**: the API needs `CLIENT_URL` to know the Workers domain, and the client needs `VITE_API_URL` to know the Railway domain. Deploy the API first with a placeholder `CLIENT_URL` (or Railway's own domain), get the client's assigned `*.workers.dev` domain, update `CLIENT_URL` on Railway, then deploy the client with the real `VITE_API_URL`.
 
 ## Related documents
 

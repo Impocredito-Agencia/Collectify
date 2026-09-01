@@ -14,7 +14,7 @@ collectify/
 └── docs/          # This documentation
 ```
 
-The `api` and `client` are deployed independently (`api` on Railway, `client` on Cloudflare Pages) and can be developed, tested, and released independently. The only contract between them is the REST API defined by `api`.
+The `api` and `client` are deployed independently (`api` on Railway, `client` on Cloudflare Workers with static assets) and can be developed, tested, and released independently. The only contract between them is the REST API defined by `api`.
 
 ---
 
@@ -270,7 +270,7 @@ This keeps components focused on rendering, and centralizes loading/error/cache 
 | ORM | TypeORM | Team has prior experience; mature NestJS integration |
 | Messaging | Meta Cloud API | Official WhatsApp Business API, no third-party markup |
 | Deployment (API) | Railway | Simple, affordable for current scale |
-| Deployment (Client) | Cloudflare Pages | Free tier, unlimited bandwidth, ideal for a static SPA build |
+| Deployment (Client) | Cloudflare Workers (static assets) | Free tier, unlimited bandwidth, ideal for a static SPA build — Cloudflare's current recommended path for static sites, replacing the classic Pages product |
 
 ## Architecture Decision Records
 
