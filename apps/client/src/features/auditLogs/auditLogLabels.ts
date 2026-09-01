@@ -18,15 +18,35 @@ export const ACTION_LABELS: Record<string, string> = {
   'client.addReference': 'Agregó una referencia',
   'client.updateReference': 'Editó una referencia',
   'client.removeReference': 'Eliminó una referencia',
+  // Phase 27 — added when the frequency whitelist shipped, but never added
+  // here (see Phase 32's audit log fix — this file fell out of sync with
+  // new @Audit() calls added by later phases, which is exactly the
+  // "raw unreadable code" the client reported: e.g. "client.
+  // setMessageFrequency" shown verbatim instead of translated).
+  'client.setMessageFrequency':
+    'Configuró la frecuencia de mensajes de un cliente',
+  'client.clearMessageFrequency':
+    'Quitó la frecuencia personalizada de un cliente',
   'loan.create': 'Creó un préstamo',
   'loan.update': 'Editó un préstamo',
   'loan.payoff': 'Liquidó un préstamo',
   'loan.refinance': 'Refinanció un préstamo',
+  // Phase 30 — same gap as above: added when loan deletion shipped, never
+  // added here.
+  'loan.delete': 'Eliminó un préstamo',
   'payment.register': 'Registró un pago',
+  // Phase 28 — same gap: added when bulk payments shipped.
+  'payment.registerBulk': 'Registró un pago sobre varias cuotas',
   'user.create': 'Creó un usuario',
   'user.deactivate': 'Desactivó un usuario',
   'user.reactivate': 'Reactivó un usuario',
+  // Phase 20 — same gap: added when the module-permissions matrix shipped.
+  'user.updatePermissions': 'Actualizó los permisos de un usuario',
   'usuryRate.create': 'Creó una tasa de usura',
+  // Phase 8 — same gap: the Excel import endpoint has always had this
+  // decorator, but this map was only ever backfilled for actions added
+  // from Phase 11 onward.
+  'clientLoanImport.execute': 'Importó clientes y préstamos desde Excel',
 };
 
 // Mirrors the entityType values @Audit()-decorated endpoints actually use
@@ -40,6 +60,8 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   payment: 'Pago',
   user: 'Usuario',
   usuryRate: 'Tasa de usura',
+  // Phase 32 — same sync gap as ACTION_LABELS above.
+  clientLoanImport: 'Importación de clientes',
 };
 
 export function formatAuditAction(action: string): string {
