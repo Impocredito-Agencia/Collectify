@@ -16,7 +16,15 @@ Fix confusing labels across the loan section that the client reported real users
    - "Monto original" → **"Monto original sin incremento"**
 2. **Why this matters:** "hay confusión con la tasa de mora que es el techo máximo, creen que es por aparte y no que cobija los cargos que se inventan" — users were reading the mora rate as one charge among several, rather than the ceiling that already encompasses every additional charge on top of it. The rename is meant to make that containment explicit in the label itself.
 3. **New card:** "saldo capital a la fecha" on the loan detail view — the current-principal-balance figure that already gets computed when refinancing (per `docs/DATABASE.md`), just not currently shown as its own card outside that flow.
-4. **Justification note:** a short explanation on the loan detail view of why the total surcharge rate was applied — "justificación de tasa total de recargos, ponerle donde se explica por qué se pusieron esos intereses."
+
+## Dropped from scope (confirmed directly with the human, 2026-08-31)
+
+- **Justification note.** The original meeting note ("justificación de tasa total de recargos, ponerle donde se explica por qué se pusieron esos intereses") turned out to be a misremembering of an already-existing field, `Loan.usuryJustification` ("Justificación de la tasa de usura") from Phase 15 — which Phase 24 deliberately dropped (column and all) once the usury rate became self-applied and a loan can no longer exceed the ceiling by construction, making a justification moot. The human reviewed the meeting recording directly and confirmed this: the field "no servía para mucho e iba a ser usado muy pocas veces" — not worth rebuilding from scratch. This item is dropped entirely, not deferred; do not reintroduce `usuryJustification` or an equivalent field without a new confirmation round.
+
+## Resolved during implementation (2026-08-31)
+
+- **Pure principal, not principal+interest:** `calculatePayoff()` (the function this phase reuses) returns several figures — `totalPrincipalOwed` (pure remaining capital) and `totalDue`/`suggestedPrincipalAmount` (capital plus accrued interest, what `RefinanceLoanForm.tsx` shows as "Capital sugerido"). Confirmed with the human: "saldo capital a la fecha" must show `totalPrincipalOwed` — showing `totalDue` would overstate the client's remaining principal by folding in interest. Also confirmed (by inspecting `calculatePayoff.ts`) that `totalPrincipalOwed` is unaffected by the refinance-only `earlyMaturityWindowDays` option, so no distinction is needed between "the payoff-quote calculation" and "the refinance-quote calculation" for this specific figure — they always agree.
+- **Rename scope extended beyond the 3 literal strings above**, confirmed reasonable during implementation (not a financial-calculation call, a copy-consistency one): `EditLoanDialog.tsx`'s "Tasa de interés (%)" field (same ambiguity as the KPI card) was renamed too; `LoanForm.tsx`/`RefinanceLoanForm.tsx`'s "Tasa de interés moratorio (%)" were left as-is (already unambiguous); `LoansListPage.tsx`/`ClientDetailPage.tsx`'s abbreviated table columns "Monto"/"Saldo" were changed to "Monto (s/inc.)"/"Saldo (c/inc.)" for consistency with the renamed KPI cards.
 
 ## Required reading before starting
 
@@ -25,19 +33,19 @@ Fix confusing labels across the loan section that the client reported real users
 ## Scope
 
 ### Service and API
-- [ ] Expose the current principal balance ("saldo capital a la fecha") on the loan detail response (`GET /loans/:id`) — reuse the same calculation Phase 17's refinance recalculation already performs, rather than writing a second implementation of it.
-- [ ] If the justification note needs to reference the loan's specific concepts/values (not just static boilerplate text), expose whatever data the client app needs to render it dynamically — confirm with the human whether a static explanation is sufficient or a per-loan dynamic one is expected before adding new fields for this.
+- [x] Expose the current principal balance ("saldo capital a la fecha") on the loan detail response (`GET /loans/:id`) as `currentPrincipalBalance` — computed inline in `LoansService.findOne()` from data already fetched there (pending installments + their moratory concepts), using the same `calculatePayoff()` engine Phase 17's refinance recalculation uses, without re-fetching the loan/concepts a second time via a redundant `getPayoffQuote()` call.
 
 ### Tests (mandatory)
-- [ ] Current principal balance on `GET /loans/:id` matches the figure Phase 17's refinance calculation would produce for the same loan at the same point in time.
+- [x] `currentPrincipalBalance` on `GET /loans/:id` equals the sum of pending installments' `principalPortion` only (no interest folded in), and excludes non-pending (paid/cancelled) installments — `loans.service.spec.ts`, `findOne` describe block.
 
 ### Swagger
-- [ ] Updated field documented on the loan detail response.
+- [x] Updated field documented on the loan detail response (`GET /loans/:id`'s `@ApiOperation` description).
 
 ## Definition of done for this phase
 
-- The three renamed labels appear consistently everywhere they're currently shown.
-- A loan's current principal balance is available on its detail response and shown as its own card.
+- [x] The three renamed labels appear consistently everywhere they're currently shown (plus `EditLoanDialog.tsx` and the two list-table column headers — see "Resolved during implementation" above).
+- [x] A loan's current principal balance is available on its detail response and shown as its own card.
+- [x] The justification note item is dropped from scope (see above) — not part of this phase's done criteria.
 - All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase

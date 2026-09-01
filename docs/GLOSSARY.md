@@ -68,6 +68,8 @@ The percentage used in the interest formula above. **Confirmed to vary per loan*
 
 **Superseded after Phase 23:** even its moratory role is now just the fallback for a loan with no moratory concepts assigned — see "Interest / Interés (mora interest)" above.
 
+**Renamed after Phase 31:** users were misreading `interest_rate`'s UI label ("Tasa de interés") as a charge separate from the mora ceiling, rather than the ceiling that already covers every additional charge stacked on top of it. Relabeled to "Incremento consolidado en caso de mora" everywhere it's shown/edited in the client app (`LoanDetailPage.tsx`, `EditLoanDialog.tsx`) — no change to the underlying field, column name, or formula, copy only. See `docs/phases/PHASE_31_LOAN_TERMINOLOGY.md`.
+
 ### Interest concept type / Tipo de concepto de interés
 Added Phase 14 — an admin-managed, reusable definition of a kind of charge a loan can carry (e.g. "Interés remuneratorio", "Gastos de cobranza", "Uso de plataforma"): a name, a default calculation type (percentage or fixed amount), and an optional default value. The admin can create, edit, or deactivate these at any time — confirmed with the client this must never require a code change to add or reprice a concept. In code: `InterestConceptType` entity, `interest_concept_types` table. See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`.
 
