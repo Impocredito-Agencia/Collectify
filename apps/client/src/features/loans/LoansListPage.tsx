@@ -121,8 +121,8 @@ export function LoansListPage() {
               <Th className="w-12">#</Th>
               <Th>ID</Th>
               <Th>Cliente</Th>
-              <Th>Monto</Th>
-              <Th>Saldo</Th>
+              <Th>Monto (s/inc.)</Th>
+              <Th>Saldo (c/inc.)</Th>
               <Th>Cuotas</Th>
               <Th>Días mora</Th>
               <Th>Estado</Th>
