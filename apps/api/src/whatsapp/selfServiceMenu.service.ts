@@ -123,6 +123,20 @@ export class SelfServiceMenuService {
       return;
     }
 
+    // Bug fix (2026-09-02): AwaitingReceipt/HandedOffToHuman mean a human
+    // needs to take this over — the bot must stay completely silent on
+    // further free text (previously it kept re-sending the receipt prompt,
+    // or — for HandedOffToHuman, back when handOffToAdvisor cleared state
+    // instead of setting it — re-triggered the main menu). It stays silent
+    // until an admin explicitly closes the conversation from the panel
+    // (WhatsappWebhookService.closeConversation), which clears this state.
+    if (
+      state.currentMenu === ConversationMenu.AwaitingReceipt ||
+      state.currentMenu === ConversationMenu.HandedOffToHuman
+    ) {
+      return;
+    }
+
     // Per docs/phases/PHASE_34_INTERACTIVE_MENU.md's "Resolved"
     // (2026-09-01): a stray message while a menu is active re-sends that
     // same menu rather than falling back to the main menu.
@@ -142,7 +156,14 @@ export class SelfServiceMenuService {
       client.phoneNumber,
       RECEIPT_RECEIVED_MESSAGE,
     );
-    await this.conversationStateService.clear(client.phoneNumber);
+    // Hands off to a human for review — see the ConversationMenu doc
+    // comment. No further automated replies fire for this number until an
+    // admin closes the conversation.
+    await this.conversationStateService.upsert(
+      client.phoneNumber,
+      client.id,
+      ConversationMenu.HandedOffToHuman,
+    );
   }
 
   private async resendCurrentMenu(
@@ -152,12 +173,6 @@ export class SelfServiceMenuService {
     switch (menu) {
       case ConversationMenu.MiCuentaSubmenu:
         await this.sendMiCuentaSubmenu(client);
-        return;
-      case ConversationMenu.AwaitingReceipt:
-        await this.whatsAppService.sendTextMessage(
-          client.phoneNumber,
-          RECEIPT_REQUEST_MESSAGE,
-        );
         return;
       case ConversationMenu.Main:
       default:
@@ -213,7 +228,14 @@ export class SelfServiceMenuService {
       client.phoneNumber,
       ADVISOR_HANDOFF_MESSAGE,
     );
-    await this.conversationStateService.clear(client.phoneNumber);
+    // Hands off to a human — see the ConversationMenu doc comment. No
+    // further automated replies fire for this number until an admin closes
+    // the conversation.
+    await this.conversationStateService.upsert(
+      client.phoneNumber,
+      client.id,
+      ConversationMenu.HandedOffToHuman,
+    );
   }
 
   private async sendBreakdown(client: Client): Promise<void> {

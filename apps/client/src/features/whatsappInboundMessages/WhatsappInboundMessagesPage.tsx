@@ -2,11 +2,16 @@ import { useMemo, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import {
+  useCloseConversation,
+  useConversationState,
   useReplyToInboundMessage,
   useWhatsappInboundMessages,
 } from '@/features/whatsappInboundMessages/useWhatsappInboundMessages';
 import { useWhatsappInboundSocket } from '@/features/whatsappInboundMessages/useWhatsappInboundSocket';
-import { WhatsappInboundMessageType } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
+import {
+  ConversationMenu,
+  WhatsappInboundMessageType,
+} from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 import { ApiError } from '@/lib/apiClient';
 import { formatPhoneNumber } from '@/lib/format';
 
@@ -22,19 +27,18 @@ import type { ReactNode } from 'react';
 // Updates live via useWhatsappInboundSocket instead of needing a manual
 // refresh.
 //
-// TEST-ONLY menu (requested directly by the human, 2026-08-27, to exercise
-// this page before the real button-flow/"menu" catalog exists — see
-// docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md's open questions): a client
-// replying "1" ("hablar con humano") unlocks the reply box below for that
-// conversation — purely by this page scanning the thread for that exact
-// text, no backend flag involved. Replying "2" auto-triggers the existing
-// account-summary send server-side (WhatsappWebhookService). This is NOT
-// the real menu system — no catalog, no admin config — and a sent reply
-// is only kept in this page's local state (lost on refresh), since replies
-// aren't persisted as MessageLog rows yet. Rip this out once the real
-// catalog + human-handoff flow are actually scoped.
-const TEST_MENU_HUMAN_OPTION = '1';
-
+// Manual reply / "Cerrar conversación" gating (Phase 34, fixed 2026-09-02):
+// enabled while the backend's self-service-menu state for that phone
+// number is AwaitingReceipt (client tapped "Reportar un pago") or
+// HandedOffToHuman (client tapped "Hablar con asesor", or already sent a
+// receipt) — see useConversationState and SelfServiceMenuService. The bot
+// stays silent on further client messages in either state; "Cerrar
+// conversación" sends a generic closing message and clears that state, so
+// the client's next message gets the real menu fresh. Replaces the old
+// TEST-ONLY "client replies '1'" text-scanning hack this page used before
+// the real menu existed. A sent reply is still only kept in this page's
+// local state (lost on refresh) — replies aren't persisted as MessageLog
+// rows yet.
 const MESSAGE_FETCH_LIMIT = 100;
 
 const TYPE_LABELS: Record<WhatsappInboundMessageType, string> = {
@@ -106,8 +110,8 @@ function messagePreview(message: WhatsappInboundMessage): string {
   );
 }
 
-// A reply sent from this page — kept in local state only (see the
-// TEST-ONLY menu comment above), not fetched from the server.
+// A reply sent from this page — kept in local state only, not fetched
+// from the server (replies aren't persisted as MessageLog rows yet).
 interface LocalReply {
   id: string;
   message: string;
@@ -283,20 +287,26 @@ function ConversationThread({
   localReplies: LocalReply[];
   onReplySent: (message: string) => void;
 }) {
-  const humanReplyEnabled = conversation.messages.some(
-    (message) => message.bodyText?.trim() === TEST_MENU_HUMAN_OPTION,
-  );
+  const { data: currentMenu } = useConversationState(conversation.phoneNumber);
+  const humanReplyEnabled =
+    currentMenu === ConversationMenu.AwaitingReceipt ||
+    currentMenu === ConversationMenu.HandedOffToHuman;
   const threadItems = buildThreadItems(conversation, localReplies);
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <div className="border-b border-border pb-3">
-        <p className="text-small font-medium text-white">
-          {conversation.displayName}
-        </p>
-        <p className="text-meta text-muted">
-          {formatSenderPhoneNumber(conversation.phoneNumber)}
-        </p>
+      <div className="flex items-center justify-between gap-2 border-b border-border pb-3">
+        <div>
+          <p className="text-small font-medium text-white">
+            {conversation.displayName}
+          </p>
+          <p className="text-meta text-muted">
+            {formatSenderPhoneNumber(conversation.phoneNumber)}
+          </p>
+        </div>
+        {humanReplyEnabled && (
+          <CloseConversationButton phoneNumber={conversation.phoneNumber} />
+        )}
       </div>
 
       <div className="flex flex-1 flex-col gap-3">
@@ -313,11 +323,26 @@ function ConversationThread({
         <ReplyBox phoneNumber={conversation.phoneNumber} onSent={onReplySent} />
       ) : (
         <p className="text-meta text-subtle">
-          El cliente todavía no pidió hablar con un humano (opción "1") — la
-          respuesta manual se habilita cuando lo hace.
+          El cliente todavía no pidió hablar con un asesor ni reportó un pago —
+          la respuesta manual se habilita cuando lo hace.
         </p>
       )}
     </div>
+  );
+}
+
+function CloseConversationButton({ phoneNumber }: { phoneNumber: string }) {
+  const closeConversation = useCloseConversation();
+
+  return (
+    <button
+      type="button"
+      disabled={closeConversation.isPending}
+      onClick={() => closeConversation.mutate(phoneNumber)}
+      className="shrink-0 rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {closeConversation.isPending ? 'Cerrando…' : 'Cerrar conversación'}
+    </button>
   );
 }
 
@@ -341,9 +366,8 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
 }
 
 // Right-aligned, distinct color — the admin's own reply, not something the
-// client sent. Local-only (see the TEST-ONLY menu comment at the top of
-// this file), so it disappears on refresh — it's not fetched from the
-// server.
+// client sent. Local-only (see LocalReply above), so it disappears on
+// refresh — it's not fetched from the server.
 function ReplyBubble({ reply }: { reply: LocalReply }) {
   return (
     <div className="ml-auto flex max-w-[480px] flex-col gap-1 rounded-lg bg-white/10 px-3.5 py-2.5">

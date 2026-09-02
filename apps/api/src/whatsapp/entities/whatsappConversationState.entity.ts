@@ -21,10 +21,22 @@ import { Client } from '../../clients/entities/client.entity';
 // all — vs "mid-receipt-flow"), which would otherwise make a stray text
 // message while awaiting a receipt look identical to a brand-new
 // conversation and incorrectly re-show the main menu.
+//
+// `handedOffToHuman` — added after a real bug report (2026-09-02): once a
+// client tapped "Reportar un pago"/"Ya pagué" or "Hablar con asesor", any
+// further inbound text (before the client actually sent the receipt image,
+// or ever, for "Hablar con asesor") kept re-triggering an automated reply
+// (a resent prompt, or the main menu once the old code cleared state
+// outright). Both terminal actions now stop the bot entirely once a human
+// needs to take over — no automated replies fire again for that phone
+// number until an admin explicitly closes the conversation from the panel
+// (WhatsappWebhookService.closeConversation), which sends a generic
+// closing message and clears this state — see SelfServiceMenuService.
 export enum ConversationMenu {
   Main = 'main',
   MiCuentaSubmenu = 'mi_cuenta_submenu',
   AwaitingReceipt = 'awaiting_receipt',
+  HandedOffToHuman = 'handed_off_to_human',
 }
 
 // One row per phone number currently mid-conversation with the self-service

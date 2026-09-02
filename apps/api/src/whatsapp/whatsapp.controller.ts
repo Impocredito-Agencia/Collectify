@@ -20,12 +20,14 @@ import { PaginatedResult } from '../common/interfaces/paginatedResult.interface'
 import { UserRole } from '../users/entities/user.entity';
 
 import { UpdateCronScheduleDto } from './dto/updateCronSchedule.dto';
+import { ConversationMenu } from './entities/whatsappConversationState.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
 import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
 import { OverdueReminderService } from './overdueReminder.service';
 import { ReminderFamily } from './reminderFamily';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
+import { PhoneNumberDto } from './webhook/dto/phoneNumber.dto';
 import { QueryWhatsappInboundMessagesDto } from './webhook/dto/queryWhatsappInboundMessages.dto';
 import { ReplyToInboundMessageDto } from './webhook/dto/replyToInboundMessage.dto';
 import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
@@ -76,6 +78,44 @@ export class WhatsappController {
     const sent = await this.whatsappWebhookService.sendManualReply(
       dto.phoneNumber,
       dto.message,
+    );
+    return { sent };
+  }
+
+  @Get('inbound-messages/conversation-state')
+  @ApiOperation({
+    summary: "One phone number's current self-service-menu state (admin only)",
+    description:
+      'Backs the "Responder"/"Cerrar conversación" gating on the inbound-messages inbox — null when there\'s no active (or an expired) conversation. See docs/phases/PHASE_34_INTERACTIVE_MENU.md.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns the current menu, or null if none is active.',
+  })
+  async getConversationState(
+    @Query() query: PhoneNumberDto,
+  ): Promise<{ currentMenu: ConversationMenu | null }> {
+    const currentMenu = await this.whatsappWebhookService.getConversationState(
+      query.phoneNumber,
+    );
+    return { currentMenu };
+  }
+
+  @Post('inbound-messages/close-conversation')
+  @ApiOperation({
+    summary: 'Close a hand-off conversation (admin only)',
+    description:
+      "Sends a generic closing message and clears the self-service-menu state, so the client's next message gets the menu fresh instead of the bot staying silent — see docs/phases/PHASE_34_INTERACTIVE_MENU.md.",
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns whether the closing message actually sent.',
+  })
+  async closeConversation(
+    @Body() dto: PhoneNumberDto,
+  ): Promise<{ sent: boolean }> {
+    const sent = await this.whatsappWebhookService.closeConversation(
+      dto.phoneNumber,
     );
     return { sent };
   }
