@@ -13,12 +13,14 @@ import {
   Loan,
   LoanStatus,
 } from '../loans/entities/loan.entity';
+import { Payment } from '../loans/entities/payment.entity';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
+import { UPCOMING_FAMILY_TYPES } from './reminderFamily';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
 import { WhatsAppService } from './whatsapp.service';
 
@@ -26,16 +28,17 @@ describe('UpcomingDueReminderService', () => {
   let service: UpcomingDueReminderService;
   let clientsRepository: { findOneBy: jest.Mock };
   let installmentsRepository: { find: jest.Mock };
+  let paymentsRepository: { find: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
   let messageFrequencyThrottleService: { filterOutThrottledClients: jest.Mock };
-  let whatsAppService: { sendTextMessage: jest.Mock };
+  let whatsAppService: { sendTemplateMessage: jest.Mock };
 
   const mockClient: Client = {
     id: 'client-1',
-    firstName: 'Luis',
-    lastName: 'Rosales',
+    firstName: 'Maria',
+    lastName: 'Muñoz',
     documentNumber: '1234567890',
     phoneNumber: '+573001234567',
     creditLimit: null,
@@ -66,12 +69,12 @@ describe('UpcomingDueReminderService', () => {
     id: 'loan-1',
     clientId: mockClient.id,
     client: undefined as never,
-    promissoryNoteNumber: '957',
+    promissoryNoteNumber: '#1039',
     principalAmount: 900000,
     interestRate: 6,
     disbursedAt: '2024-01-01',
     installmentFrequency: InstallmentFrequency.Monthly,
-    totalInstallments: 6,
+    totalInstallments: 3,
     status: LoanStatus.Active,
     refinancedFromLoanId: null,
     refinancedFromLoan: null,
@@ -86,6 +89,16 @@ describe('UpcomingDueReminderService', () => {
     deletedAt: null,
   };
 
+  function daysAgoDateString(days: number): string {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function daysFromNowDateString(days: number): string {
+    return daysAgoDateString(-days);
+  }
+
   function upcomingInstallment(
     overrides: Partial<Installment> = {},
   ): Installment {
@@ -93,10 +106,10 @@ describe('UpcomingDueReminderService', () => {
       id: 'inst-1',
       loanId: mockLoan.id,
       loan: mockLoan,
-      installmentNumber: 6,
-      amount: 299000,
+      installmentNumber: 3,
+      amount: 2052000,
       principalPortion: null,
-      dueDate: '2026-07-21',
+      dueDate: daysFromNowDateString(5),
       status: InstallmentStatus.Pending,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -108,6 +121,7 @@ describe('UpcomingDueReminderService', () => {
   beforeEach(async () => {
     clientsRepository = { findOneBy: jest.fn() };
     installmentsRepository = { find: jest.fn() };
+    paymentsRepository = { find: jest.fn().mockResolvedValue([]) };
     messageLogsRepository = {
       create: jest.fn((dto: Partial<MessageLog>) => dto),
       save: jest.fn((log: Partial<MessageLog>) =>
@@ -118,15 +132,20 @@ describe('UpcomingDueReminderService', () => {
       create: jest.fn((dto: Partial<MessageLogItem>) => dto),
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
-    messageTemplatesService = { findByTypeOrThrow: jest.fn() };
-    // Default: no throttling — passes every dynamically-qualifying client
-    // straight through, matching "no whitelist entries" behavior.
+    messageTemplatesService = {
+      findByTypeOrThrow: jest.fn().mockResolvedValue({
+        metaTemplateName: 'some_template',
+        metaLanguageCode: 'es',
+      }),
+    };
     messageFrequencyThrottleService = {
       filterOutThrottledClients: jest
         .fn()
         .mockImplementation((ids: string[]) => Promise.resolve(ids)),
     };
-    whatsAppService = { sendTextMessage: jest.fn() };
+    whatsAppService = {
+      sendTemplateMessage: jest.fn().mockResolvedValue(true),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -136,6 +155,7 @@ describe('UpcomingDueReminderService', () => {
           provide: getRepositoryToken(Installment),
           useValue: installmentsRepository,
         },
+        { provide: getRepositoryToken(Payment), useValue: paymentsRepository },
         {
           provide: getRepositoryToken(MessageLog),
           useValue: messageLogsRepository,
@@ -164,62 +184,66 @@ describe('UpcomingDueReminderService', () => {
     service = module.get<UpcomingDueReminderService>(
       UpcomingDueReminderService,
     );
+    clientsRepository.findOneBy.mockResolvedValue(mockClient);
   });
 
-  describe('sendReminderForClient', () => {
-    beforeEach(() => {
-      clientsRepository.findOneBy.mockResolvedValue(mockClient);
-      messageTemplatesService.findByTypeOrThrow.mockResolvedValue({
-        content: 'Hola {{clientFullName}}\n{{installmentsList}}',
-      });
-    });
+  // installmentsRepository.find is called first for the upcoming query,
+  // then for the overdue query — see UpcomingDueReminderService's
+  // sendReminderForClient.
+  function mockGathered(upcoming: Installment[], overdue: Installment[] = []) {
+    installmentsRepository.find
+      .mockResolvedValueOnce(upcoming)
+      .mockResolvedValueOnce(overdue);
+  }
 
-    it('gathers upcoming installments across multiple loans into one message', async () => {
-      const otherLoan: Loan = {
-        ...mockLoan,
-        id: 'loan-2',
-        promissoryNoteNumber: '1035',
-      };
-      installmentsRepository.find.mockResolvedValue([
-        upcomingInstallment({ id: 'inst-1', loan: mockLoan }),
-        upcomingInstallment({
-          id: 'inst-2',
-          loan: otherLoan,
-          installmentNumber: 4,
-        }),
-      ]);
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
+  describe('sendReminderForClient', () => {
+    it('sends SingleUpcomingInstallment for one upcoming installment', async () => {
+      mockGathered([upcomingInstallment()]);
 
       const result = await service.sendReminderForClient(mockClient.id);
 
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
-        MessageType.UpcomingDue,
+        MessageType.SingleUpcomingInstallment,
       );
-      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
-        mockClient.phoneNumber,
-        expect.stringContaining('957'),
-      );
-      expect(messageLogsRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: MessageType.UpcomingDue,
-          status: MessageLogStatus.Sent,
-        }),
-      );
-      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([
-        expect.objectContaining({
-          messageLogId: 'log-1',
-          installmentId: 'inst-1',
-          overdueDaysSnapshot: 0,
-          interestSnapshot: 0,
-        }),
-        expect.objectContaining({
-          messageLogId: 'log-1',
-          installmentId: 'inst-2',
-          overdueDaysSnapshot: 0,
-          interestSnapshot: 0,
+      expect(result.status).toBe(MessageLogStatus.Sent);
+    });
+
+    it('sends MultipleUpcomingInstallments for more than one', async () => {
+      mockGathered([
+        upcomingInstallment({ id: 'inst-1' }),
+        upcomingInstallment({
+          id: 'inst-2',
+          dueDate: daysFromNowDateString(1),
         }),
       ]);
-      expect(result.status).toBe(MessageLogStatus.Sent);
+
+      await service.sendReminderForClient(mockClient.id);
+
+      expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
+        MessageType.MultipleUpcomingInstallments,
+      );
+    });
+
+    it('sends UpcomingAndOverdueMixed when the client also has an overdue installment', async () => {
+      mockGathered(
+        [upcomingInstallment()],
+        [upcomingInstallment({ id: 'inst-2', dueDate: daysAgoDateString(3) })],
+      );
+
+      await service.sendReminderForClient(mockClient.id);
+
+      expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
+        MessageType.UpcomingAndOverdueMixed,
+      );
+    });
+
+    it('logs the message as failed when WhatsAppService could not send it', async () => {
+      mockGathered([upcomingInstallment()]);
+      whatsAppService.sendTemplateMessage.mockResolvedValue(false);
+
+      const result = await service.sendReminderForClient(mockClient.id);
+
+      expect(result.status).toBe(MessageLogStatus.Failed);
     });
 
     it('throws NotFoundException when the client does not exist', async () => {
@@ -231,33 +255,40 @@ describe('UpcomingDueReminderService', () => {
     });
 
     it('throws BadRequestException when the client has no upcoming installments', async () => {
-      installmentsRepository.find.mockResolvedValue([]);
+      mockGathered([]);
 
       await expect(
         service.sendReminderForClient(mockClient.id),
       ).rejects.toThrow(BadRequestException);
-      expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+      expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
     });
 
-    it('sends an empty message instead of throwing when allowEmpty is true', async () => {
-      installmentsRepository.find.mockResolvedValue([]);
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
+    it('sends the overdue-only template when allowEmpty is true and only overdue installments exist', async () => {
+      mockGathered(
+        [],
+        [upcomingInstallment({ dueDate: daysAgoDateString(3) })],
+      );
 
       const result = await service.sendReminderForClient(mockClient.id, {
         allowEmpty: true,
       });
 
-      expect(whatsAppService.sendTextMessage).toHaveBeenCalled();
+      expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
+        MessageType.SingleOverdueInstallment,
+      );
       expect(result.status).toBe(MessageLogStatus.Sent);
-      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([]);
+    });
+
+    it('throws BadRequestException even with allowEmpty when there is nothing to report at all', async () => {
+      mockGathered([], []);
+
+      await expect(
+        service.sendReminderForClient(mockClient.id, { allowEmpty: true }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
   describe('runDailyReminder', () => {
-    // Phase 27 reverses Phase 18's "audience is a required filter" design
-    // (docs/phases/PHASE_27_MESSAGE_FREQUENCY.md): every dynamically-
-    // qualifying client is messaged again, with no group to populate
-    // first — no audience/whitelist involved at all in this case.
     it('sends a reminder to every dynamically-upcoming client with no whitelist involved', async () => {
       installmentsRepository.find.mockResolvedValue([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
@@ -273,10 +304,9 @@ describe('UpcomingDueReminderService', () => {
       expect(sendSpy).toHaveBeenCalledWith('client-2');
     });
 
-    it('passes the dynamically-upcoming client ids through the frequency throttle before sending', async () => {
+    it('passes the dynamically-upcoming client ids through the frequency throttle', async () => {
       installmentsRepository.find.mockResolvedValue([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
-        upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
       ]);
       jest
         .spyOn(service, 'sendReminderForClient')
@@ -286,7 +316,7 @@ describe('UpcomingDueReminderService', () => {
 
       expect(
         messageFrequencyThrottleService.filterOutThrottledClients,
-      ).toHaveBeenCalledWith(['client-1', 'client-2'], MessageType.UpcomingDue);
+      ).toHaveBeenCalledWith(['client-1'], UPCOMING_FAMILY_TYPES);
     });
 
     it('only sends to the clients the frequency throttle actually returns', async () => {

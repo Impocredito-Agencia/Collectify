@@ -19,13 +19,12 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { UserRole } from '../users/entities/user.entity';
 
-import { AccountSummaryService } from './accountSummary.service';
 import { UpdateCronScheduleDto } from './dto/updateCronSchedule.dto';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
 import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
-import { MessageType } from './messageType.enum';
 import { OverdueReminderService } from './overdueReminder.service';
+import { ReminderFamily } from './reminderFamily';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
 import { QueryWhatsappInboundMessagesDto } from './webhook/dto/queryWhatsappInboundMessages.dto';
 import { ReplyToInboundMessageDto } from './webhook/dto/replyToInboundMessage.dto';
@@ -40,7 +39,6 @@ export class WhatsappController {
   constructor(
     private readonly overdueReminderService: OverdueReminderService,
     private readonly upcomingDueReminderService: UpcomingDueReminderService,
-    private readonly accountSummaryService: AccountSummaryService,
     private readonly whatsappCronService: WhatsappCronService,
     private readonly whatsappWebhookService: WhatsappWebhookService,
   ) {}
@@ -82,49 +80,49 @@ export class WhatsappController {
     return { sent };
   }
 
-  @Get('cron/:type/status')
+  @Get('cron/:family/status')
   @ApiOperation({
-    summary: "Whether a message type's cron job is running (admin only)",
+    summary: "Whether a reminder family's cron job is running (admin only)",
     description:
-      'All 4 message types have a cron job (Phase 18) — see docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.',
+      'One job per family (overdue, upcoming_due) as of Phase 33 — each family internally picks among several exact templates per client. new_loan/refinance and payment-confirmation types have no cron job at all, they send synchronously at their triggering event. See docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md.',
   })
   @ApiResponse({ status: 200, description: 'Returns the job running state.' })
   getCronStatus(
-    @Param('type', new ParseEnumPipe(MessageType)) type: MessageType,
+    @Param('family', new ParseEnumPipe(ReminderFamily)) family: ReminderFamily,
   ): { running: boolean } {
-    return this.whatsappCronService.getStatus(type);
+    return this.whatsappCronService.getStatus(family);
   }
 
-  @Post('cron/:type/pause')
-  @ApiOperation({ summary: "Pause a message type's cron job (admin only)" })
+  @Post('cron/:family/pause')
+  @ApiOperation({ summary: "Pause a reminder family's cron job (admin only)" })
   @ApiResponse({ status: 200, description: 'The job is paused.' })
   pauseCron(
-    @Param('type', new ParseEnumPipe(MessageType)) type: MessageType,
+    @Param('family', new ParseEnumPipe(ReminderFamily)) family: ReminderFamily,
   ): Promise<{ paused: true }> {
-    return this.whatsappCronService.pause(type);
+    return this.whatsappCronService.pause(family);
   }
 
-  @Post('cron/:type/resume')
-  @ApiOperation({ summary: "Resume a message type's cron job (admin only)" })
+  @Post('cron/:family/resume')
+  @ApiOperation({ summary: "Resume a reminder family's cron job (admin only)" })
   @ApiResponse({ status: 200, description: 'The job is running again.' })
   resumeCron(
-    @Param('type', new ParseEnumPipe(MessageType)) type: MessageType,
+    @Param('family', new ParseEnumPipe(ReminderFamily)) family: ReminderFamily,
   ): { paused: false } {
-    return this.whatsappCronService.resume(type);
+    return this.whatsappCronService.resume(family);
   }
 
-  @Patch('cron/:type/schedule')
+  @Patch('cron/:family/schedule')
   @ApiOperation({
-    summary: "Change a message type's cron schedule (admin only)",
+    summary: "Change a reminder family's cron schedule (admin only)",
     description:
-      'Persists the new expression on MessageTemplate.cronExpression and reschedules the running job immediately, without a restart.',
+      "Persists the new expression on the family's schedule-owner MessageTemplate.cronExpression and reschedules the running job immediately, without a restart.",
   })
   @ApiResponse({ status: 200, description: 'Returns the updated template.' })
   rescheduleCron(
-    @Param('type', new ParseEnumPipe(MessageType)) type: MessageType,
+    @Param('family', new ParseEnumPipe(ReminderFamily)) family: ReminderFamily,
     @Body() dto: UpdateCronScheduleDto,
   ): Promise<MessageTemplate> {
-    return this.whatsappCronService.reschedule(type, dto.cronExpression);
+    return this.whatsappCronService.reschedule(family, dto.cronExpression);
   }
 
   @Post('clients/:clientId/send-reminder')
@@ -162,24 +160,6 @@ export class WhatsappController {
     @Param('clientId') clientId: string,
   ): Promise<MessageLog> {
     return this.upcomingDueReminderService.sendReminderForClient(clientId);
-  }
-
-  @Post('clients/:clientId/send-account-summary')
-  @ApiOperation({
-    summary:
-      'Manually send the full account summary to one client (admin only)',
-    description:
-      "Every pending installment across all of the client's active loans, overdue or not, ending in a grand total. On-demand only — separate from the audience-only cron.",
-  })
-  @ApiResponse({ status: 201, description: 'Returns the created message log.' })
-  @ApiResponse({
-    status: 400,
-    description:
-      'Client has no pending installments across their active loans.',
-  })
-  @ApiResponse({ status: 404, description: 'Client not found.' })
-  sendAccountSummary(@Param('clientId') clientId: string): Promise<MessageLog> {
-    return this.accountSummaryService.sendAccountSummary(clientId);
   }
 
   @Post('clients/:clientId/send-test-menu')

@@ -58,7 +58,7 @@ describe('MessageFrequencyThrottleService', () => {
 
       const result = await service.filterOutThrottledClients(
         ['client-1'],
-        MessageType.Overdue,
+        [MessageType.SingleOverdueInstallment],
       );
 
       expect(result).toEqual(['client-1']);
@@ -77,7 +77,7 @@ describe('MessageFrequencyThrottleService', () => {
       ]);
       let result = await service.filterOutThrottledClients(
         ['client-1'],
-        MessageType.Overdue,
+        [MessageType.SingleOverdueInstallment],
       );
       expect(result).toEqual([]);
 
@@ -86,7 +86,7 @@ describe('MessageFrequencyThrottleService', () => {
       ]);
       result = await service.filterOutThrottledClients(
         ['client-1'],
-        MessageType.Overdue,
+        [MessageType.SingleOverdueInstallment],
       );
       expect(result).toEqual(['client-1']);
     });
@@ -96,7 +96,7 @@ describe('MessageFrequencyThrottleService', () => {
 
       const result = await service.filterOutThrottledClients(
         ['client-1', 'client-2', 'client-3'],
-        MessageType.UpcomingDue,
+        [MessageType.SingleUpcomingInstallment],
       );
 
       expect(result).toEqual(['client-1', 'client-2', 'client-3']);
@@ -110,7 +110,7 @@ describe('MessageFrequencyThrottleService', () => {
 
       const result = await service.filterOutThrottledClients(
         ['client-1'],
-        MessageType.Overdue,
+        [MessageType.SingleOverdueInstallment],
       );
 
       expect(result).toEqual(['client-1']);
@@ -126,7 +126,7 @@ describe('MessageFrequencyThrottleService', () => {
 
       const result = await service.filterOutThrottledClients(
         ['client-1', 'client-2'],
-        MessageType.Overdue,
+        [MessageType.SingleOverdueInstallment],
       );
 
       expect(result).toEqual(['client-2']);
@@ -135,7 +135,7 @@ describe('MessageFrequencyThrottleService', () => {
     it('returns an empty list unchanged without querying anything', async () => {
       const result = await service.filterOutThrottledClients(
         [],
-        MessageType.Overdue,
+        [MessageType.SingleOverdueInstallment],
       );
 
       expect(result).toEqual([]);

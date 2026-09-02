@@ -2,12 +2,12 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
-import { AccountSummaryService } from '../accountSummary.service';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
 import { MessageType } from '../messageType.enum';
 import { NewLoanReminderService } from '../newLoanReminder.service';
 import { OverdueReminderService } from '../overdueReminder.service';
+import { PaymentConfirmationService } from '../paymentConfirmation.service';
 import { UpcomingDueReminderService } from '../upcomingDueReminder.service';
 
 import { MessageLogsService } from './messageLogs.service';
@@ -23,13 +23,16 @@ describe('MessageLogsService', () => {
   let overdueReminderService: { sendReminderForClient: jest.Mock };
   let upcomingDueReminderService: { sendReminderForClient: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
-  let accountSummaryService: { sendAccountSummary: jest.Mock };
+  let paymentConfirmationService: {
+    sendPaymentConfirmation: jest.Mock;
+    sendPaidInFull: jest.Mock;
+  };
 
   const mockLog: MessageLog = {
     id: 'log-1',
     clientId: 'client-1',
     client: undefined as never,
-    type: MessageType.Overdue,
+    type: MessageType.SingleOverdueInstallment,
     phoneNumber: '+573001234567',
     messageContent: 'Hola...',
     status: MessageLogStatus.Sent,
@@ -53,7 +56,10 @@ describe('MessageLogsService', () => {
     overdueReminderService = { sendReminderForClient: jest.fn() };
     upcomingDueReminderService = { sendReminderForClient: jest.fn() };
     newLoanReminderService = { sendNewLoanMessage: jest.fn() };
-    accountSummaryService = { sendAccountSummary: jest.fn() };
+    paymentConfirmationService = {
+      sendPaymentConfirmation: jest.fn(),
+      sendPaidInFull: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -72,7 +78,10 @@ describe('MessageLogsService', () => {
           useValue: upcomingDueReminderService,
         },
         { provide: NewLoanReminderService, useValue: newLoanReminderService },
-        { provide: AccountSummaryService, useValue: accountSummaryService },
+        {
+          provide: PaymentConfirmationService,
+          useValue: paymentConfirmationService,
+        },
       ],
     }).compile();
 
@@ -84,7 +93,7 @@ describe('MessageLogsService', () => {
 
     const result = await service.findAll({
       clientId: 'client-1',
-      type: MessageType.Overdue,
+      type: MessageType.SingleOverdueInstallment,
       status: MessageLogStatus.Sent,
       dateFrom: '2026-01-01',
       dateTo: '2026-01-31',
@@ -98,7 +107,7 @@ describe('MessageLogsService', () => {
       expect.objectContaining({
         where: {
           clientId: 'client-1',
-          type: MessageType.Overdue,
+          type: MessageType.SingleOverdueInstallment,
           status: MessageLogStatus.Sent,
           sentAt: expect.objectContaining({
             _type: 'between',
@@ -250,7 +259,7 @@ describe('MessageLogsService', () => {
     it('re-sends an upcoming-due reminder', async () => {
       repository.findOneBy.mockResolvedValue({
         ...mockLog,
-        type: MessageType.UpcomingDue,
+        type: MessageType.SingleUpcomingInstallment,
         status: MessageLogStatus.Failed,
       });
       upcomingDueReminderService.sendReminderForClient.mockResolvedValue({
@@ -265,20 +274,20 @@ describe('MessageLogsService', () => {
       ).toHaveBeenCalledWith('client-1', { allowEmpty: true });
     });
 
-    it('re-sends an account summary', async () => {
+    it('re-sends the mixed overdue+upcoming reminder via the overdue family path', async () => {
       repository.findOneBy.mockResolvedValue({
         ...mockLog,
-        type: MessageType.AccountSummary,
+        type: MessageType.UpcomingAndOverdueMixed,
         status: MessageLogStatus.Failed,
       });
-      accountSummaryService.sendAccountSummary.mockResolvedValue({
+      overdueReminderService.sendReminderForClient.mockResolvedValue({
         ...mockLog,
         id: 'log-2',
       });
 
       await service.retry('log-1');
 
-      expect(accountSummaryService.sendAccountSummary).toHaveBeenCalledWith(
+      expect(overdueReminderService.sendReminderForClient).toHaveBeenCalledWith(
         'client-1',
         { allowEmpty: true },
       );
@@ -287,7 +296,7 @@ describe('MessageLogsService', () => {
     it('re-sends a new-loan message using the loan found via the message items', async () => {
       repository.findOneBy.mockResolvedValue({
         ...mockLog,
-        type: MessageType.NewLoan,
+        type: MessageType.NewLoanNewClient,
         status: MessageLogStatus.Failed,
       });
       messageLogItemsRepository.findOne.mockResolvedValue({
@@ -308,13 +317,57 @@ describe('MessageLogsService', () => {
     it('throws BadRequestException for a new-loan message with no related items', async () => {
       repository.findOneBy.mockResolvedValue({
         ...mockLog,
-        type: MessageType.NewLoan,
+        type: MessageType.NewLoanNewClient,
         status: MessageLogStatus.Failed,
       });
       messageLogItemsRepository.findOne.mockResolvedValue(null);
 
       await expect(service.retry('log-1')).rejects.toThrow(BadRequestException);
       expect(newLoanReminderService.sendNewLoanMessage).not.toHaveBeenCalled();
+    });
+
+    it('re-sends a payment confirmation using the installmentId found via the message items', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockLog,
+        type: MessageType.PaymentConfirmation,
+        status: MessageLogStatus.Failed,
+      });
+      messageLogItemsRepository.findOne.mockResolvedValue({
+        installmentId: 'inst-1',
+        installment: { loanId: 'loan-1' },
+      });
+      paymentConfirmationService.sendPaymentConfirmation.mockResolvedValue({
+        ...mockLog,
+        id: 'log-2',
+      });
+
+      await service.retry('log-1');
+
+      expect(
+        paymentConfirmationService.sendPaymentConfirmation,
+      ).toHaveBeenCalledWith('inst-1');
+    });
+
+    it('re-sends a paid-in-full message using the loan found via the message items', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockLog,
+        type: MessageType.PaidInFull,
+        status: MessageLogStatus.Failed,
+      });
+      messageLogItemsRepository.findOne.mockResolvedValue({
+        installmentId: 'inst-1',
+        installment: { loanId: 'loan-1' },
+      });
+      paymentConfirmationService.sendPaidInFull.mockResolvedValue({
+        ...mockLog,
+        id: 'log-2',
+      });
+
+      await service.retry('log-1');
+
+      expect(paymentConfirmationService.sendPaidInFull).toHaveBeenCalledWith(
+        'loan-1',
+      );
     });
   });
 });

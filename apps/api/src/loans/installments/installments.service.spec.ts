@@ -10,6 +10,8 @@ import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entit
 import { Payment } from '../entities/payment.entity';
 import { PaymentImage } from '../entities/paymentImage.entity';
 
+import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
+
 import { InstallmentsService } from './installments.service';
 
 describe('InstallmentsService', () => {
@@ -29,6 +31,10 @@ describe('InstallmentsService', () => {
   let loanInstallmentConceptsRepository: { find: jest.Mock };
   let paymentImagesRepository: { create: jest.Mock; save: jest.Mock };
   let dataSource: { transaction: jest.Mock };
+  let paymentConfirmationService: {
+    sendPaymentConfirmation: jest.Mock;
+    sendPaidInFull: jest.Mock;
+  };
 
   const mockInstallment: Installment = {
     id: 'inst-1',
@@ -58,7 +64,9 @@ describe('InstallmentsService', () => {
       save: jest.fn((payment: Partial<Payment>) => Promise.resolve(payment)),
       find: jest.fn(),
     };
-    loansRepository = { update: jest.fn() };
+    loansRepository = {
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
     loanInstallmentConceptsRepository = {
       find: jest.fn().mockResolvedValue([]),
     };
@@ -90,6 +98,10 @@ describe('InstallmentsService', () => {
           },
         ),
     };
+    paymentConfirmationService = {
+      sendPaymentConfirmation: jest.fn().mockResolvedValue(undefined),
+      sendPaidInFull: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -109,6 +121,10 @@ describe('InstallmentsService', () => {
           useValue: paymentImagesRepository,
         },
         { provide: DataSource, useValue: dataSource },
+        {
+          provide: PaymentConfirmationService,
+          useValue: paymentConfirmationService,
+        },
       ],
     }).compile();
 
