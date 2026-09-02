@@ -1,5 +1,7 @@
 # Phase 9 — Additional WhatsApp message types
 
+**Superseded by Phase 33** (`docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`): the 4-type catalog this phase introduced (`new_loan`, `upcoming_due`, `overdue`, `account_summary`) was replaced by 13 real Meta-approved templates — `account_summary` retired outright, the other three split into more specific variants. Kept here for history; see `docs/DATABASE.md`'s `message_templates` section for the current catalog.
+
 ## Goal
 
 Phase 5 shipped exactly one message type: the weekly overdue reminder ("Deuda"). Real usage requires three more, all confirmed against real message examples shared by the client (see `mensaje.txt` at the repo root — not committed to `docs/`, kept as the source reference for this phase):

@@ -77,6 +77,8 @@ Split into what's mechanically clear regardless of the open questions above, and
 
 Update `docs/DATABASE.md` with the new `whatsapp_inbound_messages` table (and any button-action table the resolved open questions require), `docs/ENVIRONMENT_VARIABLES.md` with the two new env vars, and `docs/GLOSSARY.md` with an "Inbound message" / "Menu de botones" entry once the terminology is settled.
 
+**Partial update, Phase 33**: the TEST-ONLY "reply 2 → send account summary" auto-trigger (`WhatsappWebhookService.maybeTriggerTestMenuAction`) was removed, since it depended on `account_summary`, which Phase 33 retired outright. The rest of the TEST-ONLY scaffolding (`sendTestMenu` / `TEST_MENU_MESSAGE`, and the "Enviar menú de prueba" button on the client) was deliberately left in place — it's still used by the panel and doesn't depend on anything Phase 33 removed. Still rip the whole thing out once Phase 34's real menu ships, per this doc's original scaffolding comment. The four open questions below remain genuinely open — Phase 33 only reworked the template catalog these future button flows will attach to (`docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`), it doesn't answer them.
+
 ## Related documents
 
 - `docs/phases/PHASE_5_WHATSAPP.md`, `docs/phases/PHASE_9_MESSAGE_TYPES.md` — the outbound model whose services this phase's triggered follow-ups call into

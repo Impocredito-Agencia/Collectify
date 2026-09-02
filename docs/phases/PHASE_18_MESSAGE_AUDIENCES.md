@@ -1,5 +1,7 @@
 # Phase 18 — Message Audiences, Cronjobs and Log Retention
 
+**Cron structure changed by Phase 33** (`docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`): this phase's one-job-per-exact-type model no longer holds — as of Phase 33 there's one job per reminder *family* (overdue, upcoming_due), since "vencida"/"próxima a vencer" now each span several exact templates. `account_summary`'s cron was removed along with the type itself. See `WhatsappCronService` and `reminderFamily.ts`. The audience mechanism this phase introduced was already retired independently in Phase 27 — see `docs/phases/PHASE_27_MESSAGE_FREQUENCY.md`.
+
 ## Goal
 
 Let an admin attach a curated group of clients ("grupo de personas") to a message template, with its own schedulable cronjob, so the job only messages that group when it runs. Also let an admin manually retry a message that failed to send, without needing to keep every successfully-sent message log forever taking up attention in the retry workflow.

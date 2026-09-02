@@ -329,52 +329,20 @@ Added Phase 14 — one row per interest/fee concept applied to a specific instal
 
 ### `message_templates`
 
+**Changed after Phase 33** — replaces the 4-value catalog below with the 13 real Meta-approved templates the client wrote; `account_summary` is retired outright with no replacement. See `docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md` for the full template catalog (every body, parameter order, and button spec) and `docs/phases/PHASE_9_MESSAGE_TYPES.md` for the superseded model this replaces.
+
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
-| `name` | VARCHAR | |
-| `type` | ENUM (`new_loan`, `upcoming_due`, `overdue`, `account_summary`), **UNIQUE** | which message flow this template renders — exactly one row per type, see `docs/phases/PHASE_9_MESSAGE_TYPES.md` |
-| `content` | TEXT | supports placeholders — see below. **Not admin-editable — see "Changed after Phase 9" below.** |
-| `cron_expression` | VARCHAR, nullable | Added Phase 18 — admin-editable cron schedule for this type's job. `NULL` falls back to a per-type code default (env-configurable) — see `WhatsappCronService` and `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
+| `name` | VARCHAR | admin-facing label, e.g. "Una cuota vencida (días 1-8)" |
+| `type` | ENUM (13 values, matching the Meta template names literally — `nuevo_pagar_cliente_nuevo`, `nuevo_pagar_cuota_inicial_cliente_nuevo`, `nuevo_pagar_cliente_existent`, `nuevo_pagar_cuota_inicial`, `refinanciamiento_un_solo_pagar`, `una_cuota_proxima_vencer`, `varias_cuota_proxima_vencer`, `una_cuota_vencida`, `una_cuota_vencida_en_mora`, `varias_cuota_vencida`, `proxima_vencer_y_vencida`, `confirmacion_pago`, `pago_completo_paz_y_salvo`), **UNIQUE** | which Meta template this row is for — exactly one row per type |
+| `content` | TEXT | the literal approved body text, for reference/display only — the actual send uses `meta_template_name` + ordered component parameters via `WhatsAppService.sendTemplateMessage`, not this column. **Not admin-editable** — updating it is a migration, like any other data change. |
+| `meta_template_name` | VARCHAR | Added Phase 33 — the real Meta template name this row sends. Always identical to `type`'s string value in practice, but kept as its own column since the two are allowed to drift. |
+| `meta_language_code` | VARCHAR | Added Phase 33 — the language code selected when the template was submitted to Meta. Confirmed `es` for all 13 as of Phase 33 — must match exactly or the send is rejected. |
+| `cron_expression` | VARCHAR, nullable | Admin-editable cron schedule. As of Phase 33 this only applies to the two "schedule owner" rows — one per reminder family (see `WhatsappCronService` and `reminderFamily.ts`) — every other row leaves this `NULL` and has no cron job at all (new-loan/refinance and payment-confirmation types send synchronously at their triggering event; the remaining reminder-family rows share their family's single schedule). |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
-**Template placeholders** — the per-installment line format is fixed per message type (matches the confirmed real message formats); the outer template (greeting, where the list/total go) is fixed too — see "Changed after Phase 9" below for why.
-
-`overdue` (real message format shared by the client):
-
-```
-{{clientFullName}}
-{{installmentsList}}   -- rendered block, one line per overdue installment:
-                          "La cuota No. {{number}} del pagaré #{{promissoryNoteNumber}}
-                           por ${{totalDue}} (incluidos intereses) venció hace {{overdueDays}} días."
-{{grandTotal}}          -- sum of totalDueForInstallment across all included installments,
-                           substituted WITH a leading "$" already included (e.g. "$158.000") —
-                           template authors should not type a $ before this placeholder.
-```
-
-The real message format numbers each overdue installment with an emoji (1️⃣, 2️⃣...) and ends with "El valor a pagar hoy es $X". See `ARCHITECTURE.md` for how the `whatsapp` module renders this.
-
-`new_loan` (sent once, at loan creation — see Phase 9):
-
-```
-{{clientFullName}} {{promissoryNoteNumber}} {{loanDescription}}
-{{disbursedAt}} {{totalInstallments}} {{installmentsSummary}}
-```
-
-`upcoming_due` (sent as an installment approaches its due date — see Phase 9; same list structure as `overdue` but "vence en N días" instead of "venció hace N días", and **no grand total** — not present in the real "Aviso" example):
-
-```
-{{clientFullName}}
-{{installmentsList}}   -- one line per upcoming installment
-```
-
-`account_summary` (on-demand full statement — see Phase 9; every pending installment, overdue or not, ending in a grand total):
-
-```
-{{clientFullName}}
-{{installmentsList}}
-{{grandTotal}}          -- also includes the leading "$" automatically, same as `overdue`
-```
+**Template selection** — which of the 13 templates a given send uses is decided in code, not stored: `newLoanTemplateSelection.ts` (new loan / refinance, by new-vs-existing client and with/without cuota inicial), `reminderTemplateSelection.ts` (overdue / upcoming-due / the mixed template, by count and days), and `paymentConfirmationTemplateSelection.ts` (payment confirmation / paid-in-full). Every reminder template (4 through 10) shares one closing-line mechanism — "nota adicional" (`notaAdicional.ts`) — filled with one of three fixed strings (normal / saldo pendiente / saldo a favor) since Meta templates can't show or hide a line conditionally.
 
 ### `message_logs`
 
@@ -384,9 +352,9 @@ One row per reminder **actually sent to a client** — not per installment.
 |---|---|---|
 | `id` | UUID | PK |
 | `client_id` | UUID | FK → `clients.id` |
-| `type` | ENUM (`new_loan`, `upcoming_due`, `overdue`, `account_summary`) | which message flow produced this log — added in Phase 9; historical rows backfilled to `overdue` |
+| `type` | ENUM — widened after Phase 33 to the union of the old 4 values and the new 13, since this table is append-only history: existing rows keep whichever value they already had, only new rows use the 13-value catalog | which message flow produced this log |
 | `phone_number` | VARCHAR | snapshot at send time |
-| `message_content` | TEXT | the full rendered message, exactly as sent (all installments included, formatted) |
+| `message_content` | TEXT | Phase 33 — for a Template Message send, this is the ordered list of body parameters joined for reference (the actual WhatsApp body text is Meta's, assembled from `meta_template_name` + these parameters, not stored verbatim here) |
 | `status` | ENUM (`sent`, `failed`) | |
 | `sent_at` | TIMESTAMPTZ | |
 | `retried_at` | TIMESTAMPTZ, nullable | Added Phase 18 — set on the ORIGINAL (failed) row once it's manually retried. Still append-only: this is a stamp on the historical row, not an edit of what was actually sent. |
