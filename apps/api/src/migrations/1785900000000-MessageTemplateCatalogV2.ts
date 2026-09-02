@@ -264,8 +264,21 @@ export class MessageTemplateCatalogV21785900000000 implements MigrationInterface
       await queryRunner.query(
         `INSERT INTO "message_templates"
            ("id", "name", "type", "content", "meta_template_name", "meta_language_code")
-         VALUES (gen_random_uuid(), $1, $2, $3, $2, $4)`,
-        [template.name, template.type, template.content, META_LANGUAGE_CODE],
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
+        [
+          template.name,
+          template.type,
+          template.content,
+          // Same value as $2 ("type") — deliberately a separate parameter,
+          // not a reused $2, because $2 binds to an enum column here and
+          // this one binds to varchar; Postgres can't infer one consistent
+          // type for a single placeholder used against two differently
+          // typed columns ("inconsistent types deduced for parameter",
+          // caught against a real Postgres instance on Railway — this
+          // migration was never run against a live DB before that).
+          template.type,
+          META_LANGUAGE_CODE,
+        ],
       );
     }
 
