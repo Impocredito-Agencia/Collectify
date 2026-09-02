@@ -101,6 +101,15 @@ export function formatDateEs(dateString: string): string {
   return `${day} de ${SPANISH_MONTHS[month - 1]} de ${year}`;
 }
 
+// The "tratamiento + nombre cliente" {{1}} used by all 13 Phase 33
+// templates. Client has no gender/salutation field, and the human
+// confirmed (2026-09-01) not to add one — "Señor/a" is the deliberate,
+// gender-neutral stand-in for "Señor"/"Señora", used as a literal string
+// for every client rather than picking one or the other.
+export function formatTratamiento(clientFullName: string): string {
+  return `Señor/a ${clientFullName}`;
+}
+
 export interface NewLoanMessageData {
   clientFullName: string;
   promissoryNoteNumber: string;

@@ -7,9 +7,11 @@ import { Loan } from '../loans/entities/loan.entity';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
-import { renderNewLoanMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
-import { MessageType } from './messageType.enum';
+import {
+  selectNewLoanTemplate,
+  selectRefinanceTemplate,
+} from './newLoanTemplateSelection';
 import { WhatsAppService } from './whatsapp.service';
 
 // Sent once, synchronously, right after a loan (or a refinance's new loan)
@@ -20,11 +22,18 @@ import { WhatsAppService } from './whatsapp.service';
 // application error).
 //
 // Confirmed with the human (2026-08-18): this is the ONLY way a new-loan
-// message is ever sent — no periodic retry sweep. The Phase 18 cron/backstop
-// that used to scan for Loan.newLoanMessageSentAt IS NULL and retry was
-// removed; a failed synchronous send can still be retried manually via
-// POST /message-logs/:id/retry, but nothing does it automatically. See
-// docs/phases/PHASE_18_MESSAGE_AUDIENCES.md "Extended after client QA".
+// message is ever sent — no periodic retry sweep. A failed synchronous
+// send can still be retried manually via POST /message-logs/:id/retry, but
+// nothing does it automatically. See docs/phases/PHASE_18_MESSAGE_AUDIENCES.md
+// "Extended after client QA".
+//
+// Phase 33 rewrite — picks among 5 templates (see
+// docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md and newLoanTemplateSelection.ts):
+// a refinance (loan.refinancedFromLoanId set) always uses
+// RefinanceSingleLoan; otherwise the choice is new/existing client ×
+// with/without cuota inicial. A multi-loan refinance merge is NOT a
+// separate code path — it's an ordinary new-loan send for an existing
+// client, with the merged pagarés listed in the loan's own description.
 @Injectable()
 export class NewLoanReminderService {
   private readonly logger = new Logger(NewLoanReminderService.name);
@@ -45,7 +54,7 @@ export class NewLoanReminderService {
   async sendNewLoanMessage(loanId: string): Promise<MessageLog> {
     const loan = await this.loansRepository.findOne({
       where: { id: loanId },
-      relations: ['client'],
+      relations: ['client', 'refinancedFromLoan'],
     });
     if (!loan) {
       throw new NotFoundException(`Loan with id ${loanId} not found`);
@@ -55,29 +64,42 @@ export class NewLoanReminderService {
       where: { loanId },
       order: { installmentNumber: 'ASC' },
     });
+    const clientFullName = `${loan.client.firstName} ${loan.client.lastName}`;
+
+    const selection = loan.refinancedFromLoan
+      ? selectRefinanceTemplate({
+          clientFullName,
+          originalPromissoryNoteNumber:
+            loan.refinancedFromLoan.promissoryNoteNumber,
+          frequency: loan.installmentFrequency,
+          installments,
+        })
+      : selectNewLoanTemplate({
+          clientFullName,
+          promissoryNoteNumber: loan.promissoryNoteNumber,
+          disbursedAt: loan.disbursedAt,
+          description: loan.description,
+          frequency: loan.installmentFrequency,
+          installments,
+          initialPayment: loan.initialPayment,
+          isNewClient: await this.isFirstLoanEver(loan.clientId, loan.id),
+        });
 
     const template = await this.messageTemplatesService.findByTypeOrThrow(
-      MessageType.NewLoan,
+      selection.type,
     );
-    const messageContent = renderNewLoanMessage(template.content, {
-      clientFullName: `${loan.client.firstName} ${loan.client.lastName}`,
-      promissoryNoteNumber: loan.promissoryNoteNumber,
-      loanDescription: loan.description,
-      disbursedAt: loan.disbursedAt,
-      totalInstallments: loan.totalInstallments,
-      installmentAmounts: installments.map((installment) => installment.amount),
-    });
-
-    const sent = await this.whatsAppService.sendTextMessage(
+    const sent = await this.whatsAppService.sendTemplateMessage(
       loan.client.phoneNumber,
-      messageContent,
+      template.metaTemplateName,
+      template.metaLanguageCode,
+      selection.bodyParameters,
     );
 
     const messageLog = this.messageLogsRepository.create({
       clientId: loan.clientId,
-      type: MessageType.NewLoan,
+      type: selection.type,
       phoneNumber: loan.client.phoneNumber,
-      messageContent,
+      messageContent: selection.bodyParameters.join(' | '),
       status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
       sentAt: new Date(),
     });
@@ -96,5 +118,21 @@ export class NewLoanReminderService {
     await this.messageLogItemsRepository.save(items);
 
     return savedLog;
+  }
+
+  // A client is "new" exactly when they have no OTHER loan on file, of any
+  // status — confirmed by the human (2026-09-01). Excludes the loan we're
+  // currently sending the message for, which already exists in the DB by
+  // the time this runs.
+  private async isFirstLoanEver(
+    clientId: string,
+    excludingLoanId: string,
+  ): Promise<boolean> {
+    const otherLoanCount = await this.loansRepository
+      .createQueryBuilder('loan')
+      .where('loan.clientId = :clientId', { clientId })
+      .andWhere('loan.id != :excludingLoanId', { excludingLoanId })
+      .getCount();
+    return otherLoanCount === 0;
   }
 }
