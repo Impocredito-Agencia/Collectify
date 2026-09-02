@@ -77,7 +77,15 @@ Split into what's mechanically clear regardless of the open questions above, and
 
 Update `docs/DATABASE.md` with the new `whatsapp_inbound_messages` table (and any button-action table the resolved open questions require), `docs/ENVIRONMENT_VARIABLES.md` with the two new env vars, and `docs/GLOSSARY.md` with an "Inbound message" / "Menu de botones" entry once the terminology is settled.
 
-**Partial update, Phase 33**: the TEST-ONLY "reply 2 → send account summary" auto-trigger (`WhatsappWebhookService.maybeTriggerTestMenuAction`) was removed, since it depended on `account_summary`, which Phase 33 retired outright. The rest of the TEST-ONLY scaffolding (`sendTestMenu` / `TEST_MENU_MESSAGE`, and the "Enviar menú de prueba" button on the client) was deliberately left in place — it's still used by the panel and doesn't depend on anything Phase 33 removed. Still rip the whole thing out once Phase 34's real menu ships, per this doc's original scaffolding comment. The four open questions below remain genuinely open — Phase 33 only reworked the template catalog these future button flows will attach to (`docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`), it doesn't answer them.
+**Partial update, Phase 33**: the TEST-ONLY "reply 2 → send account summary" auto-trigger (`WhatsappWebhookService.maybeTriggerTestMenuAction`) was removed, since it depended on `account_summary`, which Phase 33 retired outright. The rest of the TEST-ONLY scaffolding (`sendTestMenu` / `TEST_MENU_MESSAGE`, and the "Enviar menú de prueba" button on the client) was deliberately left in place — it's still used by the panel and doesn't depend on anything Phase 33 removed. The four open questions below remain genuinely open — Phase 33 only reworked the template catalog these future button flows will attach to (`docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`), it doesn't answer them.
+
+**Update, Phase 34** (`docs/phases/PHASE_34_INTERACTIVE_MENU.md`): three of the four open questions below are now resolved —
+
+- **How many menus / how organized** → one fixed, in-code set (not an admin-managed catalog, matching this doc's own guess that the client didn't ask for one): a flat 3-option main menu, one submenu under "Mi cuenta", no deeper nesting.
+- **Client-initiated, unprompted messages** → for a client who resolves to a known `Client` record, an unprompted free-text message now gets the main menu automatically (`SelfServiceMenuService`). An unrecognized phone number is still only logged, per this phase's original minimum — Phase 34 didn't extend automated handling to that case.
+- **The admin notification itself** → the minimum-build default: visible in the existing inbound inbox (this phase's own `WhatsappInboundGateway`), no separate channel. Explicitly reversible if the human wants a dedicated alert later.
+
+**Still open**: whether a "No" (or any inbound signal) persists as a standing per-client preference — not touched by Phase 34, still intersects `docs/phases/PHASE_27_MESSAGE_FREQUENCY.md` as originally noted below. The TEST-ONLY `sendTestMenu` scaffolding is *still* in place, not yet ripped out — its "Enviar menú de prueba" button lives in `apps/client` (a different developer's surface), so removing the backend side needs to be coordinated with removing that button first, not done unilaterally.
 
 ## Related documents
 
