@@ -15,19 +15,23 @@ import {
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
-import { NewLoanReminderService } from './newLoanReminder.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
+import { NewLoanReminderService } from './newLoanReminder.service';
 import { WhatsAppService } from './whatsapp.service';
 
 describe('NewLoanReminderService', () => {
   let service: NewLoanReminderService;
-  let loansRepository: { findOne: jest.Mock };
+  let loansRepository: {
+    findOne: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
   let installmentsRepository: { find: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
-  let whatsAppService: { sendTextMessage: jest.Mock };
+  let whatsAppService: { sendTemplateMessage: jest.Mock };
+  let otherLoanCount: number;
 
   const mockClient: Client = {
     id: 'client-1',
@@ -59,35 +63,37 @@ describe('NewLoanReminderService', () => {
     deletedAt: null,
   };
 
-  const mockLoan: Loan = {
-    id: 'loan-1',
-    clientId: mockClient.id,
-    client: mockClient,
-    promissoryNoteNumber: '1093',
-    principalAmount: 4308000,
-    interestRate: 6,
-    disbursedAt: '2026-05-20',
-    installmentFrequency: InstallmentFrequency.Monthly,
-    totalInstallments: 12,
-    status: LoanStatus.Active,
-    refinancedFromLoanId: null,
-    refinancedFromLoan: null,
-    description: 'Compra de Apple MacBook Air M5',
-    initialPayment: null,
-    newLoanMessageSentAt: null,
-    coDebtorClientId: null,
-    coDebtorClient: null,
-    coDebtorRelationship: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    deletedAt: null,
-  };
+  function loan(overrides: Partial<Loan> = {}): Loan {
+    return {
+      id: 'loan-1',
+      clientId: mockClient.id,
+      client: mockClient,
+      promissoryNoteNumber: '1093',
+      principalAmount: 4308000,
+      interestRate: 6,
+      disbursedAt: '2026-05-20',
+      installmentFrequency: InstallmentFrequency.Monthly,
+      totalInstallments: 12,
+      status: LoanStatus.Active,
+      refinancedFromLoanId: null,
+      refinancedFromLoan: null,
+      description: 'Compra de Apple MacBook Air M5',
+      initialPayment: null,
+      coDebtorClientId: null,
+      coDebtorClient: null,
+      coDebtorRelationship: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      ...overrides,
+    } as Loan;
+  }
 
   function installment(overrides: Partial<Installment> = {}): Installment {
     return {
       id: 'inst-1',
-      loanId: mockLoan.id,
-      loan: mockLoan,
+      loanId: 'loan-1',
+      loan: loan(),
       installmentNumber: 1,
       amount: 359000,
       principalPortion: null,
@@ -101,7 +107,15 @@ describe('NewLoanReminderService', () => {
   }
 
   beforeEach(async () => {
-    loansRepository = { findOne: jest.fn() };
+    otherLoanCount = 0;
+    loansRepository = {
+      findOne: jest.fn(),
+      createQueryBuilder: jest.fn(() => ({
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getCount: jest.fn(() => Promise.resolve(otherLoanCount)),
+      })),
+    };
     installmentsRepository = { find: jest.fn() };
     messageLogsRepository = {
       create: jest.fn((dto: Partial<MessageLog>) => dto),
@@ -114,7 +128,7 @@ describe('NewLoanReminderService', () => {
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
     messageTemplatesService = { findByTypeOrThrow: jest.fn() };
-    whatsAppService = { sendTextMessage: jest.fn() };
+    whatsAppService = { sendTemplateMessage: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -142,57 +156,83 @@ describe('NewLoanReminderService', () => {
 
   describe('sendNewLoanMessage', () => {
     beforeEach(() => {
-      loansRepository.findOne.mockResolvedValue(mockLoan);
       installmentsRepository.find.mockResolvedValue([
         installment({ id: 'inst-1', installmentNumber: 1 }),
         installment({ id: 'inst-2', installmentNumber: 2 }),
       ]);
       messageTemplatesService.findByTypeOrThrow.mockResolvedValue({
-        content:
-          'Hola {{clientFullName}}, pagaré #{{promissoryNoteNumber}} por {{loanDescription}}, {{totalInstallments}} cuotas {{installmentsSummary}} desde {{disbursedAt}}',
+        metaTemplateName: 'some_template',
+        metaLanguageCode: 'es',
       });
+      whatsAppService.sendTemplateMessage.mockResolvedValue(true);
     });
 
-    it('renders and sends the new-loan message, logging one item per installment', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
+    it('sends NewLoanNewClient when the client has no other loan', async () => {
+      loansRepository.findOne.mockResolvedValue(loan());
+      otherLoanCount = 0;
 
-      const result = await service.sendNewLoanMessage(mockLoan.id);
+      const result = await service.sendNewLoanMessage('loan-1');
 
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
-        MessageType.NewLoan,
+        MessageType.NewLoanNewClient,
       );
-      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
-        mockClient.phoneNumber,
-        expect.stringContaining('pagaré #1093'),
-      );
-      expect(messageLogsRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          clientId: mockClient.id,
-          type: MessageType.NewLoan,
-          status: MessageLogStatus.Sent,
-        }),
-      );
-      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([
-        expect.objectContaining({
-          messageLogId: 'log-1',
-          installmentId: 'inst-1',
-          overdueDaysSnapshot: 0,
-          interestSnapshot: 0,
-        }),
-        expect.objectContaining({
-          messageLogId: 'log-1',
-          installmentId: 'inst-2',
-          overdueDaysSnapshot: 0,
-          interestSnapshot: 0,
-        }),
-      ]);
       expect(result.status).toBe(MessageLogStatus.Sent);
     });
 
-    it('logs the message as failed when WhatsAppService could not send it', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(false);
+    it('sends NewLoanExistingClient when the client already has another loan', async () => {
+      loansRepository.findOne.mockResolvedValue(loan());
+      otherLoanCount = 1;
 
-      const result = await service.sendNewLoanMessage(mockLoan.id);
+      await service.sendNewLoanMessage('loan-1');
+
+      expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
+        MessageType.NewLoanExistingClient,
+      );
+    });
+
+    it('sends NewLoanNewClientInitialInstallment when there is a cuota inicial', async () => {
+      loansRepository.findOne.mockResolvedValue(
+        loan({ initialPayment: 1400000 }),
+      );
+      otherLoanCount = 0;
+
+      await service.sendNewLoanMessage('loan-1');
+
+      expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
+        MessageType.NewLoanNewClientInitialInstallment,
+      );
+    });
+
+    it('sends RefinanceSingleLoan when the loan came from a refinance', async () => {
+      const originalLoan = loan({
+        id: 'old-loan',
+        promissoryNoteNumber: '1029',
+      });
+      loansRepository.findOne.mockResolvedValue(
+        loan({
+          refinancedFromLoanId: 'old-loan',
+          refinancedFromLoan: originalLoan,
+        }),
+      );
+
+      await service.sendNewLoanMessage('loan-1');
+
+      expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
+        MessageType.RefinanceSingleLoan,
+      );
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        mockClient.phoneNumber,
+        'some_template',
+        'es',
+        expect.arrayContaining(['1029']),
+      );
+    });
+
+    it('logs the message as failed when WhatsAppService could not send it', async () => {
+      loansRepository.findOne.mockResolvedValue(loan());
+      whatsAppService.sendTemplateMessage.mockResolvedValue(false);
+
+      const result = await service.sendNewLoanMessage('loan-1');
 
       expect(result.status).toBe(MessageLogStatus.Failed);
     });

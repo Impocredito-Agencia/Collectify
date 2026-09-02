@@ -373,55 +373,59 @@ Instead of "saldo pendiente" / "saldo a favor" being lines that appear/disappear
 
 ### Entities and migrations
 
-- [ ] `MessageType` enum: replace the 4 existing values with the 13 (14 counting the promotional-image follow-up, pending its name — see Open questions) values named above, matching the Meta template names exactly.
-- [ ] `MessageTemplate.type` keeps its **unique-per-type** index — the "one row per type" model still holds, it's just that there are now 13 types instead of 4 instead of a single flat catalog.
-- [ ] `MessageTemplate` gains: `metaTemplateName` (VARCHAR — usually identical to `type`'s string value, but kept as its own column since Meta names and internal enum values are allowed to drift independently) and `metaLanguageCode` (VARCHAR, e.g. `es` or `es_CO` — **must match exactly what was selected when submitting each template to Meta**, confirm the real value before writing the migration, do not assume `es`).
-- [ ] Migration renaming/expanding the `message_templates_type_enum` Postgres type and seeding the 13 rows. The old `new_loan`/`upcoming_due`/`overdue` `MessageTemplate` rows are superseded (deleted/deactivated) by their Template-33 replacements; `account_summary`'s row is retired outright with no replacement (confirmed above) — no data migration needed for it beyond removing/deactivating the row.
-- [ ] `message_logs.type` uses the same enum — this table is append-only (`docs/DATABASE.md`), so historical rows keep whatever old enum value they already have; only the column's allowed-values set needs to accept both old and new values through the migration, no rewriting past rows.
+- [x] `MessageType` enum: replace the 4 existing values with the 13 (14 counting the promotional-image follow-up, pending its name — see Open questions) values named above, matching the Meta template names exactly.
+- [x] `MessageTemplate.type` keeps its **unique-per-type** index — the "one row per type" model still holds, it's just that there are now 13 types instead of 4 instead of a single flat catalog.
+- [x] `MessageTemplate` gains: `metaTemplateName` (VARCHAR — usually identical to `type`'s string value, but kept as its own column since Meta names and internal enum values are allowed to drift independently) and `metaLanguageCode` (VARCHAR, e.g. `es` or `es_CO` — **must match exactly what was selected when submitting each template to Meta**, confirm the real value before writing the migration, do not assume `es`).
+- [x] Migration renaming/expanding the `message_templates_type_enum` Postgres type and seeding the 13 rows. The old `new_loan`/`upcoming_due`/`overdue` `MessageTemplate` rows are superseded (deleted/deactivated) by their Template-33 replacements; `account_summary`'s row is retired outright with no replacement (confirmed above) — no data migration needed for it beyond removing/deactivating the row.
+- [x] `message_logs.type` uses the same enum — this table is append-only (`docs/DATABASE.md`), so historical rows keep whatever old enum value they already have; only the column's allowed-values set needs to accept both old and new values through the migration, no rewriting past rows.
 
 ### Service and API
 
-- [ ] `WhatsAppService`: add `sendTemplateMessage(phoneNumber, templateName, languageCode, bodyParameters, buttonComponents?)`, calling the Graph API with `type: "template"` (`template: { name, language: { code }, components: [{ type: "body", parameters: [...] }, ...] }`) — the real Template Messages endpoint, not `sendTextMessage`. Same "never throws, returns whether it sent" contract as the existing method.
-- [ ] A composer per template that assembles the exact ordered parameter array from domain data — reuse existing overdue/upcoming-due calculation logic (`OverdueReminderService`, `UpcomingDueReminderService`, loan/installment services), don't recompute it.
-- [ ] Template **selection logic** per trigger:
+- [x] `WhatsAppService`: add `sendTemplateMessage(phoneNumber, templateName, languageCode, bodyParameters, buttonComponents?)`, calling the Graph API with `type: "template"` (`template: { name, language: { code }, components: [{ type: "body", parameters: [...] }, ...] }`) — the real Template Messages endpoint, not `sendTextMessage`. Same "never throws, returns whether it sent" contract as the existing method.
+- [x] A composer per template that assembles the exact ordered parameter array from domain data — reuse existing overdue/upcoming-due calculation logic (`OverdueReminderService`, `UpcomingDueReminderService`, loan/installment services), don't recompute it.
+- [x] Template **selection logic** per trigger:
   - New loan: pick `nuevo_pagar_cliente_nuevo` / `nuevo_pagar_cuota_inicial_cliente_nuevo` when the client has **no other loan on file** (their first loan ever, confirmed above) vs. `nuevo_pagar_cliente_existent` / `nuevo_pagar_cuota_inicial` otherwise, vs. `refinanciamiento_un_solo_pagar` for a single-loan refinance. "Has cuota inicial" is already a fact the loan-creation flow has.
   - Upcoming due: `una_cuota_proxima_vencer` vs. `varias_cuota_proxima_vencer` by count.
   - Overdue: `una_cuota_vencida` / `una_cuota_vencida_en_mora` (by `diasVencida > 8`) vs. `varias_cuota_vencida`, plus `proxima_vencer_y_vencida` when a client has both overdue and upcoming installments at once — confirm how this interacts with the existing separate overdue/upcoming-due cron jobs (see Open questions).
-- [ ] New `PaymentConfirmationService` (doesn't exist today): fires `confirmacion_pago` synchronously when an installment is fully paid, and `pago_completo_paz_y_salvo` when a loan's last installment is fully paid — mirrors how `new_loan` already fires synchronously at loan creation (Phase 9), not on a cron. **The promotional-image follow-up is confirmed not yet built on the client's side (no template written/submitted) — do not build the chained send for it in this phase; `pago_completo_paz_y_salvo` alone is in scope.**
-- [ ] "Nota adicional" composer function, shared across every template that needs it (4–10) — one function, not duplicated per service, since the three possible strings are identical everywhere except the Templates 9/10 wording difference already documented above.
-- [ ] `docs/phases/PHASE_34_INTERACTIVE_MENU.md` covers the buttons themselves (payload wiring, follow-up flow) — this phase only needs to attach the right button `components` when *sending* a template that has them, using whatever fixed payload strings Meta was configured with (confirm those strings — see Open questions in Phase 34).
+- [x] New `PaymentConfirmationService` (doesn't exist today): fires `confirmacion_pago` synchronously when an installment is fully paid, and `pago_completo_paz_y_salvo` when a loan's last installment is fully paid — mirrors how `new_loan` already fires synchronously at loan creation (Phase 9), not on a cron. **The promotional-image follow-up is confirmed not yet built on the client's side (no template written/submitted) — do not build the chained send for it in this phase; `pago_completo_paz_y_salvo` alone is in scope.**
+- [x] "Nota adicional" composer function, shared across every template that needs it (4–10) — one function, not duplicated per service, since the three possible strings are identical everywhere except the Templates 9/10 wording difference already documented above.
+- [x] `docs/phases/PHASE_34_INTERACTIVE_MENU.md` covers the buttons themselves (payload wiring, follow-up flow) — this phase only needs to attach the right button `components` when *sending* a template that has them, using whatever fixed payload strings Meta was configured with (confirm those strings — see Open questions in Phase 34).
 
 ### Tests (mandatory)
 
-- [ ] `sendTemplateMessage` calls the Graph API with the correct `type: "template"` shape, including parameter order and buttons when present.
-- [ ] Per-template selection logic: each branch (new/existing client, con/sin cuota inicial, single/multi refinance, una/varias upcoming, día ≤8/>8/varias overdue, mixed) picks the right template name.
-- [ ] "Nota adicional" composer: all three cases (normal, saldo pendiente, saldo a favor) for both the 4–8 wording and the 9/10 wording.
-- [ ] `confirmacion_pago` fires only on a full installment payment, never on a partial one; `pago_completo_paz_y_salvo` fires only when the loan's last installment is paid.
-- [ ] Refinance-merge case sends `nuevo_pagar_cliente_existent` (not `refinanciamiento_un_solo_pagar`) with the merged-pagarés list in the concepto parameter.
+- [x] `sendTemplateMessage` calls the Graph API with the correct `type: "template"` shape, including parameter order and buttons when present.
+- [x] Per-template selection logic: each branch (new/existing client, con/sin cuota inicial, single/multi refinance, una/varias upcoming, día ≤8/>8/varias overdue, mixed) picks the right template name.
+- [x] "Nota adicional" composer: all three cases (normal, saldo pendiente, saldo a favor) for both the 4–8 wording and the 9/10 wording.
+- [x] `confirmacion_pago` fires only on a full installment payment, never on a partial one; `pago_completo_paz_y_salvo` fires only when the loan's last installment is paid.
+- [x] Refinance-merge case sends `nuevo_pagar_cliente_existent` (not `refinanciamiento_un_solo_pagar`) with the merged-pagarés list in the concepto parameter.
 
 ### Swagger
 
-- [ ] Any new/changed endpoints documented — this phase is mostly internal service logic, so this may be minimal.
+- [x] Any new/changed endpoints documented — this phase is mostly internal service logic, so this may be minimal.
 
 ## Resolved — confirmed by the human (2026-09-01)
 
 - **`metaLanguageCode`**: `es` for all 13 templates.
 - **Fate of the old `account_summary` type**: retired. Only the 13 new templates are used going forward — `account_summary` is not migrated forward as its own proactive template, and no new template replaces it 1:1. (The "estado de cuenta" self-service option in `docs/phases/PHASE_34_INTERACTIVE_MENU.md`'s menu is a separate, session-message breakdown, not this template.)
 - **"New client" vs. "existing client"**: a client is "new" exactly when this is their **first loan ever** — i.e. they have no other loan (of any status) already on file. Use that as the deciding signal for the Template-1 family (`nuevo_pagar_cliente_nuevo` / `nuevo_pagar_cuota_inicial_cliente_nuevo`) vs. the Template-2 family (`nuevo_pagar_cliente_existent` / `nuevo_pagar_cuota_inicial`); no new explicit flag needed.
+- **Tratamiento ({{1}} on all 13 templates)**: `Client` has no gender/salutation field, and the human confirmed not to add one — every send uses the literal string "Señor/a {nombre}" (`formatTratamiento` in `messageRenderer.ts`), regardless of the client's actual gender.
+
+### Technical decisions (not business rules — noted here per this project's convention for judgment calls on unspecified implementation details)
+
+- **How the mixed `proxima_vencer_y_vencida` template interacts with the overdue/upcoming-due cron jobs**: kept the existing two-job structure (confirmed with the human, one job per *family*, not one per exact template). The weekly overdue job excludes any client who currently also has an upcoming installment — the daily upcoming-due job owns the mixed picture for them instead, so the two jobs never both pick the mixed template for the same client on the same day. See `OverdueReminderService`'s doc comment.
+- **The `política de datos` link (Template 1's button)**: turned out to need no swappable config on our side at all — it's a fully static URL button (no `{{n}}` suffix, "el mismo para todos los clientes"), configured entirely inside Meta's Template Manager when the template was created. `sendTemplateMessage` never sends button components for any of the 13 templates (none needs a dynamic override). Once the client provides the real link, it's updated directly in Meta — no code or env var here.
 
 ## Open questions — still blocking, do not guess
 
-- [ ] **Name for the promotional-image follow-up template/`MessageType`** sent after `pago_completo_paz_y_salvo` — **confirmed not yet implemented on the client's side** (no template written, nothing submitted to Meta). Leave this specific piece unbuilt/pending for now — don't invent a name or send logic for it; everything else in this phase can proceed without it.
-- [ ] **How the mixed `proxima_vencer_y_vencida` template interacts with the existing separate overdue-reminder and upcoming-due-reminder cron jobs** — does one cron job now need to check both conditions before picking a template, superseding the current two-jobs-that-each-pick-their-own-type model, or do the two jobs stay separate and this template is used by a third mechanism? This changes `WhatsappCronService`'s structure materially — confirm before touching it.
-- [ ] **The pending `política de datos` link** — Template 1 (both variants) ships with a placeholder URL until the client provides the real one; this phase should NOT block on it, just make the value trivially swappable (an env var or a single config row) once it's available.
+- [ ] **Name for the promotional-image follow-up template/`MessageType`** sent after `pago_completo_paz_y_salvo` — **confirmed not yet implemented on the client's side** (no template written, nothing submitted to Meta). Left unbuilt/pending — the rest of this phase doesn't depend on it.
 
 ## Definition of done for this phase
 
-- [ ] Every one of the 13 templates can be sent via `sendTemplateMessage` with the exact parameter order and content specified above, and Meta accepts the call once each template is approved.
-- [ ] Every trigger (new loan, upcoming due, overdue, refinance, payment confirmation, paz y salvo) selects the correct template/variant per the rules above. The promotional-image follow-up is explicitly out of scope for this phase (not yet built on the client's side).
-- [ ] The "nota adicional" mechanism produces the correct one of three strings in every case, for both wording variants.
-- [ ] Every open question above has a recorded, confirmed answer before its dependent scope item is built.
-- [ ] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] Every one of the 13 templates can be sent via `sendTemplateMessage` with the exact parameter order and content specified above, and Meta accepts the call once each template is approved.
+- [x] Every trigger (new loan, upcoming due, overdue, refinance, payment confirmation, paz y salvo) selects the correct template/variant per the rules above. The promotional-image follow-up is explicitly out of scope for this phase (not yet built on the client's side).
+- [x] The "nota adicional" mechanism produces the correct one of three strings in every case, for both wording variants.
+- [x] Every open question above has a recorded, confirmed answer before its dependent scope item is built.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 

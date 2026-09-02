@@ -42,9 +42,15 @@ export class MessageFrequencyThrottleService {
   // 2026-08-30): unlike Phase 18's audience-member-with-nothing-to-report
   // rule, no internal record is kept of a client being evaluated and
   // skipped for being inside their throttle window.
+  // Added Phase 33: `types` (plural) rather than a single MessageType —
+  // "vencida" and "próxima a vencer" each now span several exact template
+  // types (see reminderFamily.ts), but the throttle window is still one
+  // per FAMILY, matching how the cron jobs themselves are grouped. Pass
+  // every MessageType in the family; "last sent" is the most recent
+  // message_logs row whose type is any of them.
   async filterOutThrottledClients(
     clientIds: string[],
-    type: MessageType,
+    types: MessageType[],
   ): Promise<string[]> {
     if (clientIds.length === 0) {
       return clientIds;
@@ -65,7 +71,7 @@ export class MessageFrequencyThrottleService {
     );
     const lastSentAtByClientId = await this.getLastMessageDates(
       [...minDaysByClientId.keys()],
-      type,
+      types,
     );
 
     const now = Date.now();
@@ -87,7 +93,7 @@ export class MessageFrequencyThrottleService {
 
   private async getLastMessageDates(
     clientIds: string[],
-    type: MessageType,
+    types: MessageType[],
   ): Promise<Map<string, Date>> {
     if (clientIds.length === 0) {
       return new Map();
@@ -98,7 +104,7 @@ export class MessageFrequencyThrottleService {
       .select('log.client_id', 'clientId')
       .addSelect('MAX(log.sent_at)', 'lastSentAt')
       .where('log.client_id IN (:...clientIds)', { clientIds })
-      .andWhere('log.type = :type', { type })
+      .andWhere('log.type IN (:...types)', { types })
       .groupBy('log.client_id')
       .getRawMany<{ clientId: string; lastSentAt: Date }>();
 

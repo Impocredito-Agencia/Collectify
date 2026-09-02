@@ -18,8 +18,10 @@ describe('MessageTemplatesService', () => {
   const mockTemplate: MessageTemplate = {
     id: 'template-1',
     name: 'Weekly reminder',
-    type: MessageType.Overdue,
+    type: MessageType.SingleOverdueInstallment,
     content: 'Hola {{clientFullName}}',
+    metaTemplateName: 'una_cuota_vencida',
+    metaLanguageCode: 'es',
     cronExpression: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -58,11 +60,13 @@ describe('MessageTemplatesService', () => {
     it('returns the template for the given type', async () => {
       repository.findOneBy.mockResolvedValue(mockTemplate);
 
-      const result = await service.findByTypeOrThrow(MessageType.Overdue);
+      const result = await service.findByTypeOrThrow(
+        MessageType.SingleOverdueInstallment,
+      );
 
       expect(result).toEqual(mockTemplate);
       expect(repository.findOneBy).toHaveBeenCalledWith({
-        type: MessageType.Overdue,
+        type: MessageType.SingleOverdueInstallment,
       });
     });
 
@@ -70,7 +74,7 @@ describe('MessageTemplatesService', () => {
       repository.findOneBy.mockResolvedValue(null);
 
       await expect(
-        service.findByTypeOrThrow(MessageType.NewLoan),
+        service.findByTypeOrThrow(MessageType.NewLoanNewClient),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -83,7 +87,7 @@ describe('MessageTemplatesService', () => {
       );
 
       const result = await service.updateCronExpression(
-        MessageType.Overdue,
+        MessageType.SingleOverdueInstallment,
         '0 9 * * 1,3,5',
       );
 
@@ -95,7 +99,10 @@ describe('MessageTemplatesService', () => {
 
     it('throws BadRequestException for an invalid cron expression', async () => {
       await expect(
-        service.updateCronExpression(MessageType.Overdue, 'not a cron'),
+        service.updateCronExpression(
+          MessageType.SingleOverdueInstallment,
+          'not a cron',
+        ),
       ).rejects.toThrow(BadRequestException);
       expect(repository.findOneBy).not.toHaveBeenCalled();
       expect(repository.save).not.toHaveBeenCalled();
@@ -105,7 +112,10 @@ describe('MessageTemplatesService', () => {
       repository.findOneBy.mockResolvedValue(null);
 
       await expect(
-        service.updateCronExpression(MessageType.Overdue, '0 9 * * 1'),
+        service.updateCronExpression(
+          MessageType.SingleOverdueInstallment,
+          '0 9 * * 1',
+        ),
       ).rejects.toThrow(NotFoundException);
     });
   });

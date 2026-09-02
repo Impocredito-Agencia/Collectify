@@ -30,6 +30,21 @@ export class MessageTemplate {
   @Column({ type: 'text' })
   content!: string;
 
+  // Added Phase 33 — the real Meta template this row sends via the
+  // Template Messages API (WhatsAppService.sendTemplateMessage), replacing
+  // the old plain-text-only send. Kept as its own column rather than
+  // reusing `type` even though the two are always identical in practice
+  // (type's enum values are literally named after the Meta template
+  // names) — see docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md.
+  @Column()
+  metaTemplateName!: string;
+
+  // The exact language code selected when submitting this template to
+  // Meta — must match exactly or every send is rejected. Confirmed 'es'
+  // for all 13 templates as of Phase 33.
+  @Column()
+  metaLanguageCode!: string;
+
   // Admin-editable schedule for this type's cron job (Phase 18) — nullable,
   // falling back to a per-type code default when unset. See
   // WhatsappCronService and docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.

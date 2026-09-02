@@ -13,13 +13,14 @@ import {
   Repository,
 } from 'typeorm';
 
-import { AccountSummaryService } from '../accountSummary.service';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
 import { MessageType } from '../messageType.enum';
 import { NewLoanReminderService } from '../newLoanReminder.service';
 import { OverdueReminderService } from '../overdueReminder.service';
+import { PaymentConfirmationService } from '../paymentConfirmation.service';
+import { OVERDUE_FAMILY_TYPES, UPCOMING_FAMILY_TYPES } from '../reminderFamily';
 import { UpcomingDueReminderService } from '../upcomingDueReminder.service';
 
 import { QueryMessageLogsDto } from './dto/queryMessageLogs.dto';
@@ -37,7 +38,7 @@ export class MessageLogsService {
     private readonly overdueReminderService: OverdueReminderService,
     private readonly upcomingDueReminderService: UpcomingDueReminderService,
     private readonly newLoanReminderService: NewLoanReminderService,
-    private readonly accountSummaryService: AccountSummaryService,
+    private readonly paymentConfirmationService: PaymentConfirmationService,
   ) {}
 
   async findAll(
@@ -138,41 +139,57 @@ export class MessageLogsService {
     return retryLog;
   }
 
+  // Phase 33 — the old switch-per-exact-type dispatch doesn't scale to 13
+  // template types, so this groups by family instead (see
+  // reminderFamily.ts and docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md).
   private async dispatchRetry(original: MessageLog): Promise<MessageLog> {
+    if (OVERDUE_FAMILY_TYPES.includes(original.type)) {
+      return this.overdueReminderService.sendReminderForClient(
+        original.clientId,
+        { allowEmpty: true },
+      );
+    }
+    if (UPCOMING_FAMILY_TYPES.includes(original.type)) {
+      return this.upcomingDueReminderService.sendReminderForClient(
+        original.clientId,
+        { allowEmpty: true },
+      );
+    }
+
+    // Everything below is keyed by loan/installment, not client — recover
+    // it through any of the message's items (they all belong to the same
+    // loan, since each of these sends gathers installments by loanId).
+    const item = await this.messageLogItemsRepository.findOne({
+      where: { messageLogId: original.id },
+      relations: { installment: true },
+    });
+    if (!item) {
+      throw new BadRequestException(
+        `Cannot retry message log ${original.id}: no related installments found`,
+      );
+    }
+
     switch (original.type) {
-      case MessageType.Overdue:
-        return this.overdueReminderService.sendReminderForClient(
-          original.clientId,
-          { allowEmpty: true },
-        );
-      case MessageType.UpcomingDue:
-        return this.upcomingDueReminderService.sendReminderForClient(
-          original.clientId,
-          { allowEmpty: true },
-        );
-      case MessageType.AccountSummary:
-        return this.accountSummaryService.sendAccountSummary(
-          original.clientId,
-          { allowEmpty: true },
-        );
-      case MessageType.NewLoan: {
-        // new_loan messages are keyed by loan, not client — recover the
-        // loanId through any of the message's items (they all belong to
-        // the same loan, since sendNewLoanMessage gathers installments by
-        // loanId).
-        const item = await this.messageLogItemsRepository.findOne({
-          where: { messageLogId: original.id },
-          relations: { installment: true },
-        });
-        if (!item) {
-          throw new BadRequestException(
-            `Cannot retry message log ${original.id}: no related installments found`,
-          );
-        }
+      case MessageType.NewLoanNewClient:
+      case MessageType.NewLoanNewClientInitialInstallment:
+      case MessageType.NewLoanExistingClient:
+      case MessageType.NewLoanExistingClientInitialInstallment:
+      case MessageType.RefinanceSingleLoan:
         return this.newLoanReminderService.sendNewLoanMessage(
           item.installment.loanId,
         );
-      }
+      case MessageType.PaymentConfirmation:
+        return this.paymentConfirmationService.sendPaymentConfirmation(
+          item.installmentId,
+        );
+      case MessageType.PaidInFull:
+        return this.paymentConfirmationService.sendPaidInFull(
+          item.installment.loanId,
+        );
+      default:
+        throw new BadRequestException(
+          `Message log ${original.id} has an unsupported type for retry: ${original.type}`,
+        );
     }
   }
 }

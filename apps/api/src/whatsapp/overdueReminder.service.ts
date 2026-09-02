@@ -4,25 +4,47 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { Client } from '../clients/entities/client.entity';
-import {
-  Installment,
-  InstallmentStatus,
-} from '../loans/entities/installment.entity';
-import { LoanStatus } from '../loans/entities/loan.entity';
-import { enrichInstallment } from '../loans/installments/enrichInstallment';
+import { Configuration } from '../config/configuration';
+import { addDaysToDateString, todayDateString } from '../loans/dueDateSchedule';
+import { Installment } from '../loans/entities/installment.entity';
+import { Payment } from '../loans/entities/payment.entity';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
-import { MessageType } from './messageType.enum';
-import { renderOverdueReminderMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
+import { NotaAdicionalInput, NotaAdicionalState } from './notaAdicional';
+import { OVERDUE_FAMILY_TYPES } from './reminderFamily';
+import {
+  findClientIdsWithOverdueInstallments,
+  findClientIdsWithUpcomingInstallments,
+  findOverdueInstallmentsForClient,
+  findUpcomingInstallmentsForClient,
+} from './reminderInstallmentQueries';
+import { selectReminderTemplate } from './reminderTemplateSelection';
+import { computeSaldoPendiente } from './saldoPendiente';
 import { WhatsAppService } from './whatsapp.service';
 
+// Phase 33 rewrite — picks among 4 templates (SingleOverdueInstallment,
+// SingleOverdueInstallmentWithSurcharge, MultipleOverdueInstallments,
+// UpcomingAndOverdueMixed), see reminderTemplateSelection.ts.
+//
+// The weekly cron deliberately EXCLUDES a client who currently also has an
+// upcoming installment — the daily job (UpcomingDueReminderService) covers
+// them with the fuller mixed picture instead, so the two jobs never both
+// pick UpcomingAndOverdueMixed for the same client on the same day.
+// Confirmed with the human (2026-09-01): keep the existing two-job
+// structure (one per family, not one per exact template) rather than
+// fragmenting further. sendReminderForClient itself (used by the manual
+// on-demand endpoint too) always looks at both sets regardless — an admin
+// explicitly asking for one client's status should see the accurate
+// picture, exclusion only applies to which clients the automated weekly
+// run picks up.
 @Injectable()
 export class OverdueReminderService {
   private readonly logger = new Logger(OverdueReminderService.name);
@@ -32,6 +54,8 @@ export class OverdueReminderService {
     private readonly clientsRepository: Repository<Client>,
     @InjectRepository(Installment)
     private readonly installmentsRepository: Repository<Installment>,
+    @InjectRepository(Payment)
+    private readonly paymentsRepository: Repository<Payment>,
     @InjectRepository(MessageLog)
     private readonly messageLogsRepository: Repository<MessageLog>,
     @InjectRepository(MessageLogItem)
@@ -39,24 +63,27 @@ export class OverdueReminderService {
     private readonly messageTemplatesService: MessageTemplatesService,
     private readonly messageFrequencyThrottleService: MessageFrequencyThrottleService,
     private readonly whatsAppService: WhatsAppService,
+    private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
-  // Weekly job entry point — one client at a time, so one client's failure
-  // doesn't stop the rest from being reminded. Phase 27 reverses Phase
-  // 18's "curated audience is a required filter" design: every client who
-  // dynamically qualifies (has an overdue installment) is messaged again,
-  // with no group to populate first. A whitelisted client's frequency is
-  // then throttled — see MessageFrequencyThrottleService — but the
-  // whitelist only narrows further, it never adds eligibility and an
-  // empty/nonexistent whitelist never blocks anyone. See
-  // docs/phases/PHASE_27_MESSAGE_FREQUENCY.md (and
-  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md for the design this replaces).
   async runWeeklyReminder(): Promise<void> {
-    const dynamicClientIds = await this.findClientIdsWithOverdueInstallments();
+    const overdueClientIds = await findClientIdsWithOverdueInstallments(
+      this.installmentsRepository,
+    );
+    const upcomingClientIds = new Set(
+      await findClientIdsWithUpcomingInstallments(
+        this.installmentsRepository,
+        this.upcomingTargetDates(),
+      ),
+    );
+    const dynamicClientIds = overdueClientIds.filter(
+      (clientId) => !upcomingClientIds.has(clientId),
+    );
+
     const clientIds =
       await this.messageFrequencyThrottleService.filterOutThrottledClients(
         dynamicClientIds,
-        MessageType.Overdue,
+        OVERDUE_FAMILY_TYPES,
       );
     this.logger.log(
       `Weekly overdue reminder: ${clientIds.length} client(s) to notify`,
@@ -74,17 +101,6 @@ export class OverdueReminderService {
     }
   }
 
-  // Gathers every overdue installment across ALL of a client's active
-  // loans, renders one consolidated message, sends it, and logs it —
-  // per the grouping rule in docs/phases/PHASE_5_WHATSAPP.md.
-  //
-  // allowEmpty (default false, unchanged for the manual on-demand
-  // controller endpoint): every client the weekly cron now calls this with
-  // already dynamically qualifies (the frequency throttle only narrows,
-  // never adds — see docs/phases/PHASE_27_MESSAGE_FREQUENCY.md), so it
-  // never needs allowEmpty. Still used by the manual "retry a failed
-  // message" flow (MessageLogsService), which resends regardless of the
-  // client's current mora status.
   async sendReminderForClient(
     clientId: string,
     options?: { allowEmpty?: boolean },
@@ -94,83 +110,113 @@ export class OverdueReminderService {
       throw new NotFoundException(`Client with id ${clientId} not found`);
     }
 
-    const overdueInstallments = await this.gatherOverdueInstallments(clientId);
-    if (overdueInstallments.length === 0 && !options?.allowEmpty) {
+    const overdue = await findOverdueInstallmentsForClient(
+      this.installmentsRepository,
+      clientId,
+    );
+    if (overdue.length === 0 && !options?.allowEmpty) {
       throw new BadRequestException(
         `Client ${clientId} has no overdue installments across their active loans`,
       );
     }
+    const upcoming = await findUpcomingInstallmentsForClient(
+      this.installmentsRepository,
+      clientId,
+      this.upcomingTargetDates(),
+    );
+    // The template catalog has no "nothing to report" variant (unlike the
+    // old account_summary message, which could render an empty/$0 list) —
+    // allowEmpty only relaxes the overdue-specific guard above, it can't
+    // manufacture a template when there's truly nothing in either set
+    // (e.g. a retry where the underlying installment was paid off since
+    // the original failed attempt).
+    if (overdue.length === 0 && upcoming.length === 0) {
+      throw new BadRequestException(
+        `Client ${clientId} has no overdue or upcoming installments to report`,
+      );
+    }
+
+    const notaAdicional = await this.resolveNotaAdicional(overdue, upcoming);
+    const selection = selectReminderTemplate(
+      `${client.firstName} ${client.lastName}`,
+      overdue,
+      upcoming,
+      notaAdicional,
+    );
 
     const template = await this.messageTemplatesService.findByTypeOrThrow(
-      MessageType.Overdue,
+      selection.type,
     );
-    const messageContent = renderOverdueReminderMessage(
-      template.content,
-      `${client.firstName} ${client.lastName}`,
-      overdueInstallments,
-    );
-
-    const sent = await this.whatsAppService.sendTextMessage(
+    const sent = await this.whatsAppService.sendTemplateMessage(
       client.phoneNumber,
-      messageContent,
+      template.metaTemplateName,
+      template.metaLanguageCode,
+      selection.bodyParameters,
     );
 
     const messageLog = this.messageLogsRepository.create({
       clientId,
-      type: MessageType.Overdue,
+      type: selection.type,
       phoneNumber: client.phoneNumber,
-      messageContent,
+      messageContent: selection.bodyParameters.join(' | '),
       status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
       sentAt: new Date(),
     });
     const savedLog = await this.messageLogsRepository.save(messageLog);
 
-    const items = overdueInstallments.map((installment) =>
-      this.messageLogItemsRepository.create({
-        messageLogId: savedLog.id,
-        installmentId: installment.id,
-        overdueDaysSnapshot: installment.overdueDays,
-        interestSnapshot: installment.interest,
-      }),
-    );
+    const items = [
+      ...overdue.map((installment) =>
+        this.messageLogItemsRepository.create({
+          messageLogId: savedLog.id,
+          installmentId: installment.id,
+          overdueDaysSnapshot: installment.overdueDays,
+          interestSnapshot: installment.totalDue - installment.amount,
+        }),
+      ),
+      ...upcoming.map((installment) =>
+        this.messageLogItemsRepository.create({
+          messageLogId: savedLog.id,
+          installmentId: installment.id,
+          overdueDaysSnapshot: 0,
+          interestSnapshot: 0,
+        }),
+      ),
+    ];
     await this.messageLogItemsRepository.save(items);
 
     return savedLog;
   }
 
-  private async gatherOverdueInstallments(clientId: string) {
-    const today = new Date().toISOString().slice(0, 10);
-
-    const installments = await this.installmentsRepository.find({
-      where: {
-        status: InstallmentStatus.Pending,
-        dueDate: LessThan(today),
-        loan: { clientId, status: LoanStatus.Active },
-      },
-      relations: { loan: true },
-      order: { dueDate: 'ASC' },
+  // See saldoPendiente.ts — derived from existing Payment rows, never
+  // guessed. Saldo a favor isn't detected here yet, see that module's doc
+  // comment.
+  private async resolveNotaAdicional(
+    overdue: { id: string; amount: number }[],
+    upcoming: { id: string; amount: number }[],
+  ): Promise<NotaAdicionalInput> {
+    const installmentIds = [...overdue, ...upcoming].map((i) => i.id);
+    if (installmentIds.length === 0) {
+      return { state: NotaAdicionalState.Normal };
+    }
+    const payments = await this.paymentsRepository.find({
+      where: { installmentId: In(installmentIds) },
     });
-
-    return installments.map((installment) => ({
-      ...enrichInstallment(installment, installment.loan.interestRate),
-      promissoryNoteNumber: installment.loan.promissoryNoteNumber,
-    }));
+    const saldoPendiente = computeSaldoPendiente(
+      [...overdue, ...upcoming],
+      payments,
+    );
+    return saldoPendiente > 0
+      ? { state: NotaAdicionalState.SaldoPendiente, amount: saldoPendiente }
+      : { state: NotaAdicionalState.Normal };
   }
 
-  private async findClientIdsWithOverdueInstallments(): Promise<string[]> {
-    const today = new Date().toISOString().slice(0, 10);
-
-    const installments = await this.installmentsRepository.find({
-      where: {
-        status: InstallmentStatus.Pending,
-        dueDate: LessThan(today),
-        loan: { status: LoanStatus.Active },
-      },
-      relations: { loan: true },
+  private upcomingTargetDates(): string[] {
+    const today = todayDateString();
+    const { upcomingDueReminderDays } = this.configService.get('cron', {
+      infer: true,
     });
-
-    return [
-      ...new Set(installments.map((installment) => installment.loan.clientId)),
-    ];
+    return upcomingDueReminderDays.map((days) =>
+      addDaysToDateString(today, days),
+    );
   }
 }
