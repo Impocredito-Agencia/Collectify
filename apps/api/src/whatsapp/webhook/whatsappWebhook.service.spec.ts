@@ -11,6 +11,7 @@ import {
   WhatsappInboundMessageType,
 } from '../entities/whatsappInboundMessage.entity';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
+import { WhatsappConversationStateService } from '../whatsappConversationState.service';
 import { WhatsAppService } from '../whatsapp.service';
 
 import { WhatsappInboundGateway } from './whatsappInbound.gateway';
@@ -35,6 +36,7 @@ describe('WhatsappWebhookService', () => {
   let whatsappInboundGateway: { emitInboundMessage: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
+  let conversationStateService: { getActive: jest.Mock; clear: jest.Mock };
 
   beforeEach(async () => {
     inboundMessagesRepository = {
@@ -52,6 +54,10 @@ describe('WhatsappWebhookService', () => {
     selfServiceMenuService = {
       handleInboundEvent: jest.fn().mockResolvedValue(undefined),
     };
+    conversationStateService = {
+      getActive: jest.fn().mockResolvedValue(null),
+      clear: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -68,6 +74,10 @@ describe('WhatsappWebhookService', () => {
         },
         { provide: WhatsAppService, useValue: whatsAppService },
         { provide: SelfServiceMenuService, useValue: selfServiceMenuService },
+        {
+          provide: WhatsappConversationStateService,
+          useValue: conversationStateService,
+        },
       ],
     }).compile();
 
@@ -349,6 +359,57 @@ describe('WhatsappWebhookService', () => {
       expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
         '+573001234567',
         'Hola!',
+      );
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('getConversationState', () => {
+    it('returns null when there is no active conversation state', async () => {
+      conversationStateService.getActive.mockResolvedValue(null);
+
+      const result = await service.getConversationState('573001234567');
+
+      expect(conversationStateService.getActive).toHaveBeenCalledWith(
+        '+573001234567',
+      );
+      expect(result).toBeNull();
+    });
+
+    it("returns the active state's currentMenu", async () => {
+      conversationStateService.getActive.mockResolvedValue({
+        currentMenu: 'handed_off_to_human',
+      });
+
+      const result = await service.getConversationState('+573001234567');
+
+      expect(result).toBe('handed_off_to_human');
+    });
+  });
+
+  describe('closeConversation', () => {
+    it('sends the closing message and clears the conversation state', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+
+      const result = await service.closeConversation('573001234567');
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        '+573001234567',
+        expect.stringContaining('Gracias'),
+      );
+      expect(conversationStateService.clear).toHaveBeenCalledWith(
+        '+573001234567',
+      );
+      expect(result).toBe(true);
+    });
+
+    it('still clears state even when the closing message fails to send', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(false);
+
+      const result = await service.closeConversation('+573001234567');
+
+      expect(conversationStateService.clear).toHaveBeenCalledWith(
+        '+573001234567',
       );
       expect(result).toBe(false);
     });

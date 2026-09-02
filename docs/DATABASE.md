@@ -459,18 +459,20 @@ Added Phase 22 — append-only, one row per inbound WhatsApp event Meta's webhoo
 
 ### `whatsapp_conversation_states`
 
-Added Phase 34 — one row per phone number currently mid-conversation with the self-service menu (main menu, "Mi cuenta" submenu, or awaiting a payment receipt), tracking which screen a client is on so "Volver al menú" returns to the right one. Unlike `whatsapp_inbound_messages`, this is **not** append-only — one row per `phone_number`, upserted on every menu-navigation event, and not soft-deleted (ephemeral state, not a historical record). See `docs/phases/PHASE_34_INTERACTIVE_MENU.md`.
+Added Phase 34 — one row per phone number currently mid-conversation with the self-service menu (main menu, "Mi cuenta" submenu, awaiting a payment receipt, or handed off to a human), tracking which screen a client is on so "Volver al menú" returns to the right one. Unlike `whatsapp_inbound_messages`, this is **not** append-only — one row per `phone_number`, upserted on every menu-navigation event, and not soft-deleted (ephemeral state, not a historical record). See `docs/phases/PHASE_34_INTERACTIVE_MENU.md`.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
 | `phone_number` | VARCHAR, unique | one active state per number |
 | `client_id` | UUID, nullable | FK → `clients.id`, `ON DELETE SET NULL` — same "log even if unrecognized" convention as `whatsapp_inbound_messages`, though in practice this table is only written for known clients (see below) |
-| `current_menu` | ENUM (`main`, `mi_cuenta_submenu`, `awaiting_receipt`) | which screen the client is on |
+| `current_menu` | ENUM (`main`, `mi_cuenta_submenu`, `awaiting_receipt`, `handed_off_to_human`) | which screen the client is on. `handed_off_to_human` added 2026-09-02 (bug fix) — a client tapping "Reportar un pago"/"Ya pagué" (once the receipt image arrives) or "Hablar con asesor" used to keep re-triggering an automated reply on every further message; both now transition here instead, where the bot goes silent until an admin explicitly closes the conversation (`WhatsappWebhookService.closeConversation`, `POST /whatsapp/inbound-messages/close-conversation`), which sends a generic closing message and clears the row. |
 | `expires_at` | TIMESTAMPTZ | refreshed to now + 24h on every write, matching Meta's own session window — a row past this is treated as "no state" by query, not physically deleted |
 | `created_at` / `updated_at` | TIMESTAMPTZ | |
 
 **Only written for known clients:** `SelfServiceMenuService` requires a resolved `Client` to look up installments/payments for the breakdown and history actions, so an inbound event from an unrecognized phone number gets no automated menu reply and no row here — it's still logged in `whatsapp_inbound_messages` as before, per Phase 22's existing behavior.
+
+**Reading it from the panel:** `GET /whatsapp/inbound-messages/conversation-state?phoneNumber=...` backs the inbound-messages inbox's "Responder"/"Cerrar conversación" gating (`apps/client`'s `WhatsappInboundMessagesPage.tsx`) — the manual reply box and close button are only shown while a number is in `awaiting_receipt` or `handed_off_to_human`.
 
 **Cleanup:** expired rows are simply ignored by `WhatsappConversationStateService.getActive()` rather than deleted by a scheduled job — the simplest option, revisit if row volume ever becomes a real concern.
 
@@ -597,6 +599,8 @@ npm run migration:revert
 - `whatsapp_conversation_states` — per-phone-number self-service menu state, closing Phase 22's "button-flow catalog" open question. See "`whatsapp_conversation_states`" above and `docs/phases/PHASE_34_INTERACTIVE_MENU.md`.
 - No new endpoints or env vars — this phase is entirely webhook-driven, dispatched from the existing `POST /whatsapp/webhook`.
 - Still open, unresolved by this phase: whether an inbound "No" persists as a standing preference (likely intersects `client_message_frequencies`, see "`client_message_frequencies`" above), and the exact Meta button-payload strings for Templates 4-8 — until confirmed, taps on a *template's own* buttons don't trigger anything (the free-text-triggered menu is unaffected). See `docs/phases/PHASE_34_INTERACTIVE_MENU.md`'s open questions.
+
+**Bug fix, 2026-09-02**: `current_menu` gained a fourth value, `handed_off_to_human` (see "`whatsapp_conversation_states`" above), plus two new admin endpoints — `GET`/`POST /whatsapp/inbound-messages/conversation-state` and `.../close-conversation` — and the corresponding `apps/client` UI ("Cerrar conversación" button on the inbound-messages inbox, replacing a stale reply-box gate that scanned for a literal `"1"` text left over from before the real menu existed).
 
 ## Related documents
 

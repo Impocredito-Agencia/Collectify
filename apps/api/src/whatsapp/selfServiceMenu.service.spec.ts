@@ -145,20 +145,32 @@ describe('SelfServiceMenuService', () => {
       );
     });
 
-    it('re-sends the receipt request when free text arrives while awaiting a receipt', async () => {
+    it('stays silent when free text arrives while awaiting a receipt', async () => {
       conversationStateService.getActive.mockResolvedValue({
         currentMenu: ConversationMenu.AwaitingReceipt,
       });
 
       await service.handleInboundEvent(textEvent('ya casi'), client);
 
-      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
-        client.phoneNumber,
-        expect.stringContaining('comprobante'),
-      );
+      expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
       expect(
         whatsAppService.sendInteractiveButtonsMessage,
       ).not.toHaveBeenCalled();
+      expect(conversationStateService.upsert).not.toHaveBeenCalled();
+    });
+
+    it('stays silent when free text arrives after being handed off to a human', async () => {
+      conversationStateService.getActive.mockResolvedValue({
+        currentMenu: ConversationMenu.HandedOffToHuman,
+      });
+
+      await service.handleInboundEvent(textEvent('hola?'), client);
+
+      expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+      expect(
+        whatsAppService.sendInteractiveButtonsMessage,
+      ).not.toHaveBeenCalled();
+      expect(conversationStateService.upsert).not.toHaveBeenCalled();
     });
   });
 
@@ -221,8 +233,10 @@ describe('SelfServiceMenuService', () => {
         expect(
           whatsAppService.sendInteractiveButtonsMessage,
         ).not.toHaveBeenCalled();
-        expect(conversationStateService.clear).toHaveBeenCalledWith(
+        expect(conversationStateService.upsert).toHaveBeenCalledWith(
           client.phoneNumber,
+          client.id,
+          ConversationMenu.HandedOffToHuman,
         );
       },
     );
@@ -292,7 +306,7 @@ describe('SelfServiceMenuService', () => {
   });
 
   describe('other (media/document) events', () => {
-    it('confirms and clears state when a receipt arrives while awaiting one', async () => {
+    it('confirms and hands off to a human when a receipt arrives while awaiting one', async () => {
       conversationStateService.getActive.mockResolvedValue({
         currentMenu: ConversationMenu.AwaitingReceipt,
       });
@@ -303,8 +317,10 @@ describe('SelfServiceMenuService', () => {
         client.phoneNumber,
         expect.stringContaining('Recibimos tu comprobante'),
       );
-      expect(conversationStateService.clear).toHaveBeenCalledWith(
+      expect(conversationStateService.upsert).toHaveBeenCalledWith(
         client.phoneNumber,
+        client.id,
+        ConversationMenu.HandedOffToHuman,
       );
     });
 
@@ -322,6 +338,17 @@ describe('SelfServiceMenuService', () => {
       await service.handleInboundEvent(otherEvent(), client);
 
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when media arrives after already being handed off to a human', async () => {
+      conversationStateService.getActive.mockResolvedValue({
+        currentMenu: ConversationMenu.HandedOffToHuman,
+      });
+
+      await service.handleInboundEvent(otherEvent(), client);
+
+      expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+      expect(conversationStateService.upsert).not.toHaveBeenCalled();
     });
   });
 });

@@ -8,8 +8,11 @@ import { FindOptionsWhere, ILike, Repository } from 'typeorm';
 import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Configuration } from '../../config/configuration';
+import { ConversationMenu } from '../entities/whatsappConversationState.entity';
 import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
+import { CONVERSATION_CLOSED_MESSAGE } from '../selfServiceMenuMessages';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
+import { WhatsappConversationStateService } from '../whatsappConversationState.service';
 import { WhatsAppService } from '../whatsapp.service';
 
 import { QueryWhatsappInboundMessagesDto } from './dto/queryWhatsappInboundMessages.dto';
@@ -37,6 +40,7 @@ export class WhatsappWebhookService {
     private readonly whatsappInboundGateway: WhatsappInboundGateway,
     private readonly whatsAppService: WhatsAppService,
     private readonly selfServiceMenuService: SelfServiceMenuService,
+    private readonly conversationStateService: WhatsappConversationStateService,
   ) {}
 
   // Meta's one-time verification handshake — echoes hub.challenge back only
@@ -196,5 +200,36 @@ export class WhatsappWebhookService {
       normalizeIncomingPhoneNumber(rawPhoneNumber),
       message,
     );
+  }
+
+  // Backs the panel's "Responder"/"Cerrar conversación" gating — see
+  // WhatsappInboundMessagesPage.tsx. Returns null when there's no active
+  // (or an expired) self-service-menu state for this number, same
+  // "no state" semantics WhatsappConversationStateService.getActive uses
+  // internally.
+  async getConversationState(
+    rawPhoneNumber: string,
+  ): Promise<ConversationMenu | null> {
+    const state = await this.conversationStateService.getActive(
+      normalizeIncomingPhoneNumber(rawPhoneNumber),
+    );
+    return state?.currentMenu ?? null;
+  }
+
+  // Bug fix (2026-09-02): once a client tapped "Reportar un pago"/"Ya
+  // pagué" or "Hablar con asesor", the self-service menu (Phase 34) now
+  // stays silent on that number — see SelfServiceMenuService and the
+  // ConversationMenu doc comment. This is the admin's explicit way to end
+  // that: sends a generic closing message and clears the conversation
+  // state, so the client's next message gets the self-service menu fresh,
+  // same as a brand-new conversation.
+  async closeConversation(rawPhoneNumber: string): Promise<boolean> {
+    const phoneNumber = normalizeIncomingPhoneNumber(rawPhoneNumber);
+    const sent = await this.whatsAppService.sendTextMessage(
+      phoneNumber,
+      CONVERSATION_CLOSED_MESSAGE,
+    );
+    await this.conversationStateService.clear(phoneNumber);
+    return sent;
   }
 }

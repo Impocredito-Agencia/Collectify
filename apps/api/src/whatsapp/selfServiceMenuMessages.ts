@@ -58,6 +58,15 @@ export const RECEIPT_RECEIVED_MESSAGE =
 
 export const ADVISOR_HANDOFF_MESSAGE = 'En un momento un asesor te contactará.';
 
+// ── Closing a hand-off ──────────────────────────────────────────────────
+// Sent by WhatsappWebhookService.closeConversation when an admin explicitly
+// closes a conversation that's in AwaitingReceipt or HandedOffToHuman —
+// clears the way for the self-service menu to fire again on the client's
+// next message, instead of the bot staying silent forever.
+
+export const CONVERSATION_CLOSED_MESSAGE =
+  'Gracias por contactarnos. Si necesitas algo más, escríbenos de nuevo. 🤝';
+
 // ── Breakdown ("Ver mis cuotas" / "Estado de cuenta" / "Cuotas pendientes")
 // Reuses the same renderer the old (Phase 9, retired by Phase 33)
 // account_summary message type used — see breakdownQueries.ts.
