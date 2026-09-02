@@ -34,7 +34,7 @@ export interface OverdueInstallmentForMessage {
   overdueDays: number;
 }
 
-function formatCurrency(amount: number): string {
+export function formatCurrency(amount: number): string {
   return Math.round(amount).toLocaleString('es-CO');
 }
 
