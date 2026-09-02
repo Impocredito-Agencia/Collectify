@@ -295,6 +295,28 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_32_UI_F
 
 **Exit criteria:** each listed bug/annoyance is fixed with no change to any financial calculation.
 
+## Phase 33 — WhatsApp message template catalog v2 (real Meta Template Messages)
+
+Requested by the client — templates already written and submitted to Meta for approval. See `docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`.
+
+- Switches outbound WhatsApp sends from plain text to real Meta-approved Template Messages, required for any business-initiated send outside the 24h session window
+- Replaces the old 4-type message catalog (`new_loan`, `upcoming_due`, `overdue`, `account_summary`) with the 13 specific templates the client wrote — new/existing client variants, cuota inicial variants, refinancing, upcoming/overdue by count and days-overdue, payment confirmation, and paz y salvo
+- A shared "nota adicional" mechanism (saldo pendiente / saldo a favor / normal) fills the closing line on every reminder template
+- A fixed promotional image follows the paz y salvo confirmation, submitted to Meta as Marketing category
+
+**Exit criteria:** every trigger (new loan, refinance, upcoming due, overdue, payment confirmation, paz y salvo) sends the correct one of the 13 approved templates with the exact parameter order the client specified.
+
+## Phase 34 — Interactive buttons and self-service menu
+
+Requested by the client. Depends on Phase 33 (buttons live on the templates it builds). See `docs/phases/PHASE_34_INTERACTIVE_MENU.md`.
+
+- Resolves the four open questions `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md` left blocked: the button-flow catalog's shape, preference persistence, unprompted free-text handling, and the admin notification mechanism
+- Quick Reply buttons on the reminder templates ("Ver mis cuotas", "Ya pagué", "Hablar con asesor") each resolve to a terminal automatic flow
+- A free-standing 3-option self-service menu ("Mi cuenta", "Reportar un pago", "Hablar con asesor"), with a "Mi cuenta" submenu, reachable any time a client texts in
+- Per-phone-number conversation state so "Volver al menú" returns to the correct menu, expiring with the 24h session window
+
+**Exit criteria:** every button across Templates 4–8 does exactly what's specified, the self-service menu and its submenu work end-to-end, and Phase 22's four open questions are marked resolved.
+
 ---
 
 ## Explicitly out of scope for now
