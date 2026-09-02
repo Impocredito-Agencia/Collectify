@@ -13,6 +13,7 @@ import {
 import {
   MESSAGE_TYPE_LABELS,
   MESSAGE_TYPE_ORDER,
+  messageTypeLabel,
 } from '@/features/messageTemplates/messageTemplatesApi';
 import { ApiError } from '@/lib/apiClient';
 import { formatPhoneNumber } from '@/lib/format';
@@ -194,7 +195,7 @@ export function MessageLogsPage() {
                 <Td className="text-muted">
                   {formatPhoneNumber(log.phoneNumber)}
                 </Td>
-                <Td className="text-muted">{MESSAGE_TYPE_LABELS[log.type]}</Td>
+                <Td className="text-muted">{messageTypeLabel(log.type)}</Td>
                 <Td className="text-muted">
                   {new Date(log.sentAt).toLocaleString('es-CO', {
                     dateStyle: 'medium',

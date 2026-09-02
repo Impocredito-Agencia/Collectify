@@ -18,7 +18,7 @@ collectify/
 
 Each app under `apps/` may have its own `CLAUDE.local.md` with conventions, constraints, and required reading specific to that app (e.g. `apps/api/CLAUDE.local.md` for the backend). **Before working inside an app's folder, check for and read that file in full** — it applies on top of this one, not instead of it.
 
-When working inside one app, don't modify the other app's folder unless explicitly asked to.
+**Both apps are Claude's to maintain — there is no separate frontend developer.** (Updated 2026-09-02: this reverses the earlier "apps/client belongs to a different developer" convention still referenced in some older phase docs — those references are historical, not current policy.) A fix or feature that touches both the API and the admin panel should be implemented on both sides in the same pass, not backend-only with a "frontend follow-up needed" note left for someone else. If a backend change breaks or orphans something in `apps/client` (a button calling a removed endpoint, a param rename, a type change), fix the frontend side too, in the same PR when practical.
 
 ## Required reading before writing any code
 
@@ -95,6 +95,6 @@ If a phase brief or the docs don't specify something you need to make a decision
 
 - Don't skip tests to move faster — untested logic that should be tested per the relevant testing doc is not done, per `docs/DEFINITION_OF_DONE.md`.
 - Don't build ahead of the current phase in `docs/PROJECT_ROADMAP.md`.
-- Don't modify the other app's folder unless explicitly asked.
+- Don't leave a fix half-done because it crosses from `apps/api` into `apps/client` (or vice versa) — see "Both apps are Claude's to maintain" above.
 - Don't add AI attribution anywhere (see above — this is the most important rule in this file).
 - Don't guess at ambiguous business rules (interest rate assignment, refinancing behavior, etc.) that are explicitly marked as pending client confirmation in `docs/DATABASE.md`.

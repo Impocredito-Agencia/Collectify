@@ -2,49 +2,49 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { whatsappApi } from '@/features/whatsapp/whatsappApi';
 
-import type { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
+import type { ReminderFamily } from '@/features/whatsapp/whatsappApi';
 
-// Phase 18 — parametrized by type since all 4 message types now have a
-// cron job, sharing one status/pause/resume/reschedule contract. Replaces
-// the old one-off overdue/upcoming-due-specific hooks.
-export function useCronStatus(type: MessageType) {
+// Phase 33 — parametrized by FAMILY, not MessageType: cron is now shared
+// across several templates per family (see whatsappApi.ts's doc comment),
+// not one job per template. Replaces the old per-MessageType hooks.
+export function useCronStatus(family: ReminderFamily) {
   return useQuery({
-    queryKey: ['whatsapp', 'cronStatus', type],
-    queryFn: () => whatsappApi.getCronStatus(type),
+    queryKey: ['whatsapp', 'cronStatus', family],
+    queryFn: () => whatsappApi.getCronStatus(family),
   });
 }
 
-export function usePauseCron(type: MessageType) {
+export function usePauseCron(family: ReminderFamily) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => whatsappApi.pauseCron(type),
+    mutationFn: () => whatsappApi.pauseCron(family),
     onSuccess: () =>
       queryClient.invalidateQueries({
-        queryKey: ['whatsapp', 'cronStatus', type],
+        queryKey: ['whatsapp', 'cronStatus', family],
       }),
   });
 }
 
-export function useResumeCron(type: MessageType) {
+export function useResumeCron(family: ReminderFamily) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => whatsappApi.resumeCron(type),
+    mutationFn: () => whatsappApi.resumeCron(family),
     onSuccess: () =>
       queryClient.invalidateQueries({
-        queryKey: ['whatsapp', 'cronStatus', type],
+        queryKey: ['whatsapp', 'cronStatus', family],
       }),
   });
 }
 
-export function useUpdateCronSchedule(type: MessageType) {
+export function useUpdateCronSchedule(family: ReminderFamily) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (cronExpression: string) =>
-      whatsappApi.updateCronSchedule(type, cronExpression),
+      whatsappApi.updateCronSchedule(family, cronExpression),
     onSuccess: () =>
       Promise.all([
         queryClient.invalidateQueries({
-          queryKey: ['whatsapp', 'cronStatus', type],
+          queryKey: ['whatsapp', 'cronStatus', family],
         }),
         queryClient.invalidateQueries({ queryKey: ['messageTemplates'] }),
       ]),
@@ -68,22 +68,5 @@ export function useSendUpcomingDueReminder() {
     mutationFn: whatsappApi.sendUpcomingDueReminder,
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['messageLogs'] }),
-  });
-}
-
-export function useSendAccountSummary() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: whatsappApi.sendAccountSummary,
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['messageLogs'] }),
-  });
-}
-
-// TEST-ONLY — see whatsappApi.sendTestMenu's doc comment. No MessageLog
-// row is created, so there's no messageLogs cache to invalidate here.
-export function useSendTestMenu() {
-  return useMutation({
-    mutationFn: whatsappApi.sendTestMenu,
   });
 }
