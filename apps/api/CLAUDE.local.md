@@ -4,7 +4,7 @@ This file applies on top of the root `CLAUDE.md` whenever you're working inside 
 
 ## Scope of this folder
 
-`apps/api` is the NestJS backend. `apps/client` is owned by a different developer — do not modify it unless explicitly asked.
+`apps/api` is the NestJS backend. **`apps/client` is not a separate developer's territory** (see the root `CLAUDE.md`, updated 2026-09-02) — when a backend change here breaks or orphans something in the admin panel (a removed endpoint a button still calls, a renamed param, a changed response shape), fix `apps/client` in the same pass rather than flagging it as someone else's follow-up.
 
 ## Required reading before writing any backend code
 
@@ -33,5 +33,4 @@ Check `.agents/skills/` for backend-relevant skills before starting any task —
 
 - Don't skip tests to move faster — untested service logic is not done, per `docs/DEFINITION_OF_DONE.md`.
 - Don't build ahead of the current phase in `docs/PROJECT_ROADMAP.md`.
-- Don't modify `apps/client/`.
 - Don't guess at the interest rate rule or refinancing behavior — these are explicitly marked as pending client confirmation in `docs/DATABASE.md`. Stop and ask the human instead.
