@@ -85,7 +85,9 @@ Update `docs/DATABASE.md` with the new `whatsapp_inbound_messages` table (and an
 - **Client-initiated, unprompted messages** → for a client who resolves to a known `Client` record, an unprompted free-text message now gets the main menu automatically (`SelfServiceMenuService`). An unrecognized phone number is still only logged, per this phase's original minimum — Phase 34 didn't extend automated handling to that case.
 - **The admin notification itself** → the minimum-build default: visible in the existing inbound inbox (this phase's own `WhatsappInboundGateway`), no separate channel. Explicitly reversible if the human wants a dedicated alert later.
 
-**Still open**: whether a "No" (or any inbound signal) persists as a standing per-client preference — not touched by Phase 34, still intersects `docs/phases/PHASE_27_MESSAGE_FREQUENCY.md` as originally noted below. The TEST-ONLY `sendTestMenu` scaffolding is *still* in place, not yet ripped out — its "Enviar menú de prueba" button lives in `apps/client` (a different developer's surface), so removing the backend side needs to be coordinated with removing that button first, not done unilaterally.
+**Still open**: whether a "No" (or any inbound signal) persists as a standing per-client preference — not touched by Phase 34, still intersects `docs/phases/PHASE_27_MESSAGE_FREQUENCY.md` as originally noted below.
+
+**TEST-ONLY scaffolding removed** (2026-09-02, explicit human request): `WhatsappWebhookService.sendTestMenu`/`TEST_MENU_MESSAGE` and the `POST /whatsapp/clients/:clientId/send-test-menu` endpoint are gone — the real menu (Phase 34) replaces it. **`apps/client`'s "Enviar menú de prueba" button (`ClientDetailPage.tsx`) now calls a removed endpoint and will 404** — that's a frontend follow-up for the client-side developer, not done here per this repo's "don't modify `apps/client`" rule.
 
 ## Related documents
 

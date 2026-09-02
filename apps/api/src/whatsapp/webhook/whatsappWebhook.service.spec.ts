@@ -1,6 +1,6 @@
 import { createHmac } from 'crypto';
 
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -351,36 +351,6 @@ describe('WhatsappWebhookService', () => {
         'Hola!',
       );
       expect(result).toBe(false);
-    });
-  });
-
-  describe('sendTestMenu', () => {
-    it("sends the numbered menu text to the client's stored phone number", async () => {
-      clientsRepository.findOneBy.mockResolvedValue({
-        id: 'client-1',
-        phoneNumber: '+573001234567',
-      });
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
-
-      const result = await service.sendTestMenu('client-1');
-
-      expect(clientsRepository.findOneBy).toHaveBeenCalledWith({
-        id: 'client-1',
-      });
-      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
-        '+573001234567',
-        expect.stringContaining('1. Hablar con un humano'),
-      );
-      expect(result).toBe(true);
-    });
-
-    it('throws NotFoundException when the client does not exist', async () => {
-      clientsRepository.findOneBy.mockResolvedValue(null);
-
-      await expect(service.sendTestMenu('missing-client')).rejects.toThrow(
-        NotFoundException,
-      );
-      expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
     });
   });
 });
