@@ -14,6 +14,7 @@ import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Configuration } from '../../config/configuration';
 import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
+import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsAppService } from '../whatsapp.service';
 
 import { QueryWhatsappInboundMessagesDto } from './dto/queryWhatsappInboundMessages.dto';
@@ -68,6 +69,7 @@ export class WhatsappWebhookService {
     private readonly clientsRepository: Repository<Client>,
     private readonly whatsappInboundGateway: WhatsappInboundGateway,
     private readonly whatsAppService: WhatsAppService,
+    private readonly selfServiceMenuService: SelfServiceMenuService,
   ) {}
 
   // Meta's one-time verification handshake — echoes hub.challenge back only
@@ -198,6 +200,22 @@ export class WhatsappWebhookService {
     // merges both sources into the same list/cache, so they need to look
     // the same.
     this.whatsappInboundGateway.emitInboundMessage({ ...saved, client });
+
+    // Phase 34 — self-service menu, known clients only (see
+    // SelfServiceMenuService's doc comment for why an unrecognized number
+    // gets no automated reply). Never lets a menu-handling failure break
+    // the "every inbound event is durably logged, ack 200 regardless"
+    // guarantee this method already provides.
+    if (client) {
+      try {
+        await this.selfServiceMenuService.handleInboundEvent(event, client);
+      } catch (error) {
+        this.logger.error(
+          `Self-service menu handling failed for client ${client.id}`,
+          error,
+        );
+      }
+    }
   }
 
   // Manual reply from the panel — a free-form session message, valid
