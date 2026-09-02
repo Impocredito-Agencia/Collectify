@@ -37,7 +37,7 @@ import {
 } from '@/features/loans/useLoans';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
-import { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
+import { NEW_LOAN_FAMILY_TYPES } from '@/features/messageTemplates/messageTemplatesApi';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
 
 import type { Installment } from '@/features/installments/installmentsApi';
@@ -81,25 +81,29 @@ export function LoanDetailPage() {
     loan?.refinancedFromLoanId ?? '',
   );
 
-  // Fase 9: the new-loan ("Primera vez") message is sent automatically at
-  // loan creation (see NewLoanReminderService in the api), with no manual
-  // trigger — this only surfaces whether it actually went through, so a
-  // failed/skipped send is visible instead of silent (per
-  // docs/phasesClient/PHASE_9_MESSAGE_TYPES.md). There's no loanId on
-  // MessageLog (it's per-client, see docs/DATABASE.md), so the matching
-  // log is found by checking which of the client's new_loan messages
-  // mentions this loan's promissoryNoteNumber — the rendered message
-  // always includes it ("tu pagaré #{{promissoryNoteNumber}}...", see the
-  // canonical template content), so this is reliable without an extra
-  // per-log items request.
+  // Fase 9, updated Phase 33: the new-loan/refinance message is sent
+  // automatically at loan creation or refinance (see NewLoanReminderService
+  // in the api), with no manual trigger — this only surfaces whether it
+  // actually went through, so a failed/skipped send is visible instead of
+  // silent (per docs/phasesClient/PHASE_9_MESSAGE_TYPES.md). There's no
+  // loanId on MessageLog (it's per-client, see docs/DATABASE.md), so the
+  // matching log is found among the client's messages by type membership
+  // (NEW_LOAN_FAMILY_TYPES — Phase 33 split the old single `new_loan` type
+  // into 5, and GET /message-logs only accepts one `type` filter at a
+  // time, so this filters client-side instead) AND by checking which one
+  // mentions this loan's promissoryNoteNumber — every template in that
+  // family renders it ("...pagaré *{{2}}*...", see the seeded template
+  // content), so the combination is reliable without an extra per-log
+  // items request.
   const { data: newLoanMessages } = useMessageLogs({
     clientId: loan?.clientId,
-    type: MessageType.NewLoan,
     limit: 50,
   });
   const newLoanMessage = loan
-    ? newLoanMessages?.items.find((message) =>
-        message.messageContent.includes(loan.promissoryNoteNumber),
+    ? newLoanMessages?.items.find(
+        (message) =>
+          NEW_LOAN_FAMILY_TYPES.includes(message.type) &&
+          message.messageContent.includes(loan.promissoryNoteNumber),
       )
     : undefined;
 

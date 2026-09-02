@@ -1,40 +1,49 @@
 import { apiClient } from '@/lib/apiClient';
 
 import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
-import type {
-  MessageTemplate,
-  MessageType,
-} from '@/features/messageTemplates/messageTemplatesApi';
+import type { MessageTemplate } from '@/features/messageTemplates/messageTemplatesApi';
 
-// Matches apps/api/src/whatsapp/whatsapp.controller.ts. Phase 18 replaced
-// the old hardcoded per-type routes (/cron/status, /cron/upcoming-due/
-// status, ...) with one parametrized set — all 4 message types now have a
-// cron job, not just overdue/upcoming-due. See
-// docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+// Matches apps/api/src/whatsapp/reminderFamily.ts — Phase 33 replaced the
+// old per-MessageType cron jobs (one each for new_loan/upcoming_due/
+// overdue/account_summary) with one job per FAMILY, since "vencida" now
+// spans 4 templates and "próxima a vencer" spans 2. new_loan/refinance and
+// payment-confirmation templates have no cron job at all — they're sent
+// synchronously at their triggering event. See
+// docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md.
+export enum ReminderFamily {
+  Overdue = 'overdue',
+  UpcomingDue = 'upcoming_due',
+}
+
+// Matches apps/api/src/whatsapp/whatsapp.controller.ts's
+// /whatsapp/cron/:family/* routes.
 export const whatsappApi = {
-  getCronStatus: async (type: MessageType): Promise<{ running: boolean }> => {
+  getCronStatus: async (
+    family: ReminderFamily,
+  ): Promise<{ running: boolean }> => {
     const { data } = await apiClient.get<{ running: boolean }>(
-      `/whatsapp/cron/${type}/status`,
+      `/whatsapp/cron/${family}/status`,
     );
     return data;
   },
 
-  pauseCron: async (type: MessageType): Promise<void> => {
-    await apiClient.post<{ paused: true }>(`/whatsapp/cron/${type}/pause`);
+  pauseCron: async (family: ReminderFamily): Promise<void> => {
+    await apiClient.post<{ paused: true }>(`/whatsapp/cron/${family}/pause`);
   },
 
-  resumeCron: async (type: MessageType): Promise<void> => {
-    await apiClient.post<{ paused: false }>(`/whatsapp/cron/${type}/resume`);
+  resumeCron: async (family: ReminderFamily): Promise<void> => {
+    await apiClient.post<{ paused: false }>(`/whatsapp/cron/${family}/resume`);
   },
 
-  // Persists on MessageTemplate.cronExpression and reschedules the running
-  // job immediately, no restart needed.
+  // Persists on the family's "schedule owner" MessageTemplate row
+  // (SingleOverdueInstallment / SingleUpcomingInstallment) and reschedules
+  // the running job immediately, no restart needed. Returns that owner row.
   updateCronSchedule: async (
-    type: MessageType,
+    family: ReminderFamily,
     cronExpression: string,
   ): Promise<MessageTemplate> => {
     const { data } = await apiClient.patch<MessageTemplate>(
-      `/whatsapp/cron/${type}/schedule`,
+      `/whatsapp/cron/${family}/schedule`,
       { cronExpression },
     );
     return data;
@@ -54,27 +63,6 @@ export const whatsappApi = {
   sendUpcomingDueReminder: async (clientId: string): Promise<MessageLog> => {
     const { data } = await apiClient.post<MessageLog>(
       `/whatsapp/clients/${clientId}/send-upcoming-due`,
-    );
-    return data;
-  },
-
-  // On-demand only — separate from the audience-only cron. 400 if the
-  // client has no pending installments across their active loans.
-  sendAccountSummary: async (clientId: string): Promise<MessageLog> => {
-    const { data } = await apiClient.post<MessageLog>(
-      `/whatsapp/clients/${clientId}/send-account-summary`,
-    );
-    return data;
-  },
-
-  // TEST-ONLY (see docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md) — sends the
-  // hardcoded "1/2" numbered menu as plain text, not a real template.
-  // Doesn't create a MessageLog row (no `test_menu` type exists), so it
-  // never shows up in the message history list, only in the toast/error
-  // this triggers.
-  sendTestMenu: async (clientId: string): Promise<{ sent: boolean }> => {
-    const { data } = await apiClient.post<{ sent: boolean }>(
-      `/whatsapp/clients/${clientId}/send-test-menu`,
     );
     return data;
   },
