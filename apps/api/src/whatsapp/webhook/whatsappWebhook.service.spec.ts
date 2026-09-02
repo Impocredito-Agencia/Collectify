@@ -1,6 +1,6 @@
 import { createHmac } from 'crypto';
 
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -10,6 +10,7 @@ import {
   WhatsappInboundMessage,
   WhatsappInboundMessageType,
 } from '../entities/whatsappInboundMessage.entity';
+import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsAppService } from '../whatsapp.service';
 
 import { WhatsappInboundGateway } from './whatsappInbound.gateway';
@@ -33,6 +34,7 @@ describe('WhatsappWebhookService', () => {
   let configGet: jest.Mock;
   let whatsappInboundGateway: { emitInboundMessage: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
+  let selfServiceMenuService: { handleInboundEvent: jest.Mock };
 
   beforeEach(async () => {
     inboundMessagesRepository = {
@@ -47,6 +49,9 @@ describe('WhatsappWebhookService', () => {
     });
     whatsappInboundGateway = { emitInboundMessage: jest.fn() };
     whatsAppService = { sendTextMessage: jest.fn() };
+    selfServiceMenuService = {
+      handleInboundEvent: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -62,6 +67,7 @@ describe('WhatsappWebhookService', () => {
           useValue: whatsappInboundGateway,
         },
         { provide: WhatsAppService, useValue: whatsAppService },
+        { provide: SelfServiceMenuService, useValue: selfServiceMenuService },
       ],
     }).compile();
 
@@ -194,6 +200,38 @@ describe('WhatsappWebhookService', () => {
       );
     });
 
+    it('dispatches to the self-service menu when the client is known', async () => {
+      const client = { id: 'client-1' };
+      clientsRepository.findOneBy.mockResolvedValue(client);
+
+      await service.handleIncomingPayload(buildPayload('573001234567'));
+
+      expect(selfServiceMenuService.handleInboundEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: WhatsappInboundMessageType.Text }),
+        client,
+      );
+    });
+
+    it('does not dispatch to the self-service menu for an unrecognized number', async () => {
+      clientsRepository.findOneBy.mockResolvedValue(null);
+
+      await service.handleIncomingPayload(buildPayload('573009999999'));
+
+      expect(selfServiceMenuService.handleInboundEvent).not.toHaveBeenCalled();
+    });
+
+    it('still persists and acks when the self-service menu handler throws', async () => {
+      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+      selfServiceMenuService.handleInboundEvent.mockRejectedValue(
+        new Error('WhatsApp API down'),
+      );
+
+      await expect(
+        service.handleIncomingPayload(buildPayload('573001234567')),
+      ).resolves.toBeUndefined();
+      expect(inboundMessagesRepository.save).toHaveBeenCalled();
+    });
+
     it('never throws for a malformed payload', async () => {
       await expect(
         service.handleIncomingPayload({ entry: 'not-an-array' }),
@@ -313,36 +351,6 @@ describe('WhatsappWebhookService', () => {
         'Hola!',
       );
       expect(result).toBe(false);
-    });
-  });
-
-  describe('sendTestMenu', () => {
-    it("sends the numbered menu text to the client's stored phone number", async () => {
-      clientsRepository.findOneBy.mockResolvedValue({
-        id: 'client-1',
-        phoneNumber: '+573001234567',
-      });
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
-
-      const result = await service.sendTestMenu('client-1');
-
-      expect(clientsRepository.findOneBy).toHaveBeenCalledWith({
-        id: 'client-1',
-      });
-      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
-        '+573001234567',
-        expect.stringContaining('1. Hablar con un humano'),
-      );
-      expect(result).toBe(true);
-    });
-
-    it('throws NotFoundException when the client does not exist', async () => {
-      clientsRepository.findOneBy.mockResolvedValue(null);
-
-      await expect(service.sendTestMenu('missing-client')).rejects.toThrow(
-        NotFoundException,
-      );
-      expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
     });
   });
 });

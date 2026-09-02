@@ -455,7 +455,24 @@ Added Phase 22 — append-only, one row per inbound WhatsApp event Meta's webhoo
 
 **Phone number matching:** Meta sends the sender's number without a leading `+` (e.g. `573001234567`); `clients.phone_number` is stored E.164 with one (e.g. `+573001234567`). `client_id` is resolved by prepending `+` when absent, then matching against `clients.phone_number` exactly — see `normalizeIncomingPhoneNumber` in `apps/api/src/whatsapp/webhook/`.
 
-**What's not yet built:** the button-flow/"menu" catalog that would turn a button tap into an automatic triggered action, whether an inbound signal persists as a standing client preference, and any automated handling of unprompted free text beyond logging it — all explicitly blocked on open questions with the human, see `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
+**What's not yet built:** whether an inbound signal (e.g. a "No") persists as a standing client preference — still open, see `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`. The button-flow/"menu" catalog and automated handling of unprompted free text are now built — see `whatsapp_conversation_states` below and `docs/phases/PHASE_34_INTERACTIVE_MENU.md`.
+
+### `whatsapp_conversation_states`
+
+Added Phase 34 — one row per phone number currently mid-conversation with the self-service menu (main menu, "Mi cuenta" submenu, or awaiting a payment receipt), tracking which screen a client is on so "Volver al menú" returns to the right one. Unlike `whatsapp_inbound_messages`, this is **not** append-only — one row per `phone_number`, upserted on every menu-navigation event, and not soft-deleted (ephemeral state, not a historical record). See `docs/phases/PHASE_34_INTERACTIVE_MENU.md`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `phone_number` | VARCHAR, unique | one active state per number |
+| `client_id` | UUID, nullable | FK → `clients.id`, `ON DELETE SET NULL` — same "log even if unrecognized" convention as `whatsapp_inbound_messages`, though in practice this table is only written for known clients (see below) |
+| `current_menu` | ENUM (`main`, `mi_cuenta_submenu`, `awaiting_receipt`) | which screen the client is on |
+| `expires_at` | TIMESTAMPTZ | refreshed to now + 24h on every write, matching Meta's own session window — a row past this is treated as "no state" by query, not physically deleted |
+| `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+**Only written for known clients:** `SelfServiceMenuService` requires a resolved `Client` to look up installments/payments for the breakdown and history actions, so an inbound event from an unrecognized phone number gets no automated menu reply and no row here — it's still logged in `whatsapp_inbound_messages` as before, per Phase 22's existing behavior.
+
+**Cleanup:** expired rows are simply ignored by `WhatsappConversationStateService.getActive()` rather than deleted by a scheduled job — the simplest option, revisit if row volume ever becomes a real concern.
 
 ## Refinancing
 
@@ -564,7 +581,7 @@ npm run migration:revert
 - `whatsapp_inbound_messages` — Collectify's first inbound WhatsApp capability, a webhook that receives what clients send back instead of only ever sending. See "`whatsapp_inbound_messages`" above.
 - Two new env vars: `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN` (Meta's handshake token) and `META_WHATSAPP_APP_SECRET` (signs `X-Hub-Signature-256`) — see `ENVIRONMENT_VARIABLES.md`.
 - `GET`/`POST /api/v1/whatsapp/webhook` — the one deliberate `@Public()` exception in the `whatsapp` module; the API's global JSON-response envelope (`{success,data}`) is bypassed on the `GET` handshake's success path only, since Meta requires the bare `hub.challenge` string back.
-- Only the not-blocked half of the phase shipped — the button-flow catalog, preference persistence, and any automated reply logic remain open questions, not yet built. See `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
+- Only the not-blocked half of the phase shipped at the time — the button-flow catalog and automated reply logic shipped later, in Phase 34; preference persistence remains an open question. See `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
 
 ## Added/changed in Phase 26
 
@@ -574,6 +591,12 @@ npm run migration:revert
 - **`document_number` and address are now required at interactive client creation.** `ClientsService.create()` rejects a request missing `document_number`, or missing both `home_address` and `work_address` — application-level validation, not a DB `NOT NULL` constraint, same pattern as `data_processing_consent`/`document_type` (Phase 21). Unlike those two, **this rule is unconditional — it also applies to Excel-imported clients**, per explicit instruction from the business (documented as an exception to the Phase 21 bulk-import exemption precedent). The Excel import template (`clientLoanImportTemplate.ts`) documents both as conditionally required in its column hints.
 - `GET /loans/:id` resolves `co_debtor_client_id` into a full client summary (`coDebtorClient`) on read, via `ClientsService.findByIdIncludingDeleted()` — deliberately permissive (never throws, includes soft-deleted) so a loan whose co-debtor was later deactivated still renders instead of breaking the detail view. This is a stricter/looser split from write-time validation (`ClientsService.findOne()`, which throws for a missing or soft-deleted id) — you can't newly attach a deactivated client as co-debtor, but an already-attached one deactivating later doesn't retroactively break the loan.
 - The legacy, unused `POST /clients/import` endpoint and its supporting `clientsImportParser.ts` (superseded by the `ClientLoanImportService` bulk import flow, which the frontend actually calls) were removed as orphaned code, unrelated to the co-debtor/required-fields work above but done in the same phase.
+
+## Added in Phase 34
+
+- `whatsapp_conversation_states` — per-phone-number self-service menu state, closing Phase 22's "button-flow catalog" open question. See "`whatsapp_conversation_states`" above and `docs/phases/PHASE_34_INTERACTIVE_MENU.md`.
+- No new endpoints or env vars — this phase is entirely webhook-driven, dispatched from the existing `POST /whatsapp/webhook`.
+- Still open, unresolved by this phase: whether an inbound "No" persists as a standing preference (likely intersects `client_message_frequencies`, see "`client_message_frequencies`" above), and the exact Meta button-payload strings for Templates 4-8 — until confirmed, taps on a *template's own* buttons don't trigger anything (the free-text-triggered menu is unaffected). See `docs/phases/PHASE_34_INTERACTIVE_MENU.md`'s open questions.
 
 ## Related documents
 

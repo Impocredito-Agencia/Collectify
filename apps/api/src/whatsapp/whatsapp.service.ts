@@ -3,7 +3,13 @@ import { ConfigService } from '@nestjs/config';
 
 import { Configuration } from '../config/configuration';
 
+export interface WhatsAppInteractiveButton {
+  id: string;
+  title: string;
+}
+
 const META_GRAPH_API_VERSION = 'v21.0';
+const MAX_INTERACTIVE_BUTTONS = 3;
 
 @Injectable()
 export class WhatsAppService {
@@ -139,6 +145,81 @@ export class WhatsAppService {
     } catch (error) {
       this.logger.error(
         `Failed to send WhatsApp template message to ${phoneNumber} (template ${templateName})`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  // Added Phase 34 — the self-service menu's Reply Buttons (main menu,
+  // "Mi cuenta" submenu, the "Volver al menú" follow-up). A session
+  // message like sendTextMessage (only reaches the client inside an
+  // already-open 24h window, no Meta approval needed), but WhatsApp
+  // requires a distinct `type: "interactive"` request shape to attach
+  // tappable buttons — see docs/phases/PHASE_34_INTERACTIVE_MENU.md.
+  async sendInteractiveButtonsMessage(
+    phoneNumber: string,
+    bodyText: string,
+    buttons: WhatsAppInteractiveButton[],
+  ): Promise<boolean> {
+    const { phoneNumberId, accessToken } = this.configService.get('whatsapp', {
+      infer: true,
+    });
+
+    if (!phoneNumberId || !accessToken) {
+      this.logger.warn(
+        `WhatsApp credentials are not configured — skipping send to ${phoneNumber}. ` +
+          'See docs/ENVIRONMENT_VARIABLES.md.',
+      );
+      return false;
+    }
+
+    if (buttons.length === 0 || buttons.length > MAX_INTERACTIVE_BUTTONS) {
+      this.logger.error(
+        `Interactive message to ${phoneNumber} must have between 1 and ${MAX_INTERACTIVE_BUTTONS} buttons, got ${buttons.length}`,
+      );
+      return false;
+    }
+
+    try {
+      const response = await fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${phoneNumberId}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: phoneNumber,
+            type: 'interactive',
+            interactive: {
+              type: 'button',
+              body: { text: bodyText },
+              action: {
+                buttons: buttons.map((button) => ({
+                  type: 'reply',
+                  reply: { id: button.id, title: button.title },
+                })),
+              },
+            },
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        this.logger.error(
+          `WhatsApp API responded with ${response.status} for ${phoneNumber} (interactive buttons): ${errorBody}`,
+        );
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Failed to send WhatsApp interactive buttons message to ${phoneNumber}`,
         error,
       );
       return false;
