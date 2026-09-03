@@ -634,6 +634,8 @@ Two human reports on the self-service menu's breakdown message (`renderBreakdown
 
 No schema or query change — `findPendingInstallmentsBreakdown` (`breakdownQueries.ts`) still returns every pending installment across a client's active loans; all three fixes are presentation-layer only. Verified via unit tests in `messageRenderer.spec.ts` and the new `selfServiceMenuMessages.spec.ts`.
 
+**Follow-up, 2026-09-03**: `BREAKDOWN_TEMPLATE`'s closing line (`selfServiceMenuMessages.ts`) changed from "Total pendiente: {{grandTotal}}" to "El valor a pagar hoy es {{grandTotal}} 🚨" + "Quedamos atentos a cualquier consulta." — matching the confirmed real overdue-reminder phrasing (see `messageRenderer.ts`'s doc comment / `docs/GLOSSARY.md` → "Overdue reminder") instead of the more generic wording. Applies uniformly to every use of `renderBreakdownMessage` (Estado de cuenta, Cuotas pendientes, and the scoped "Más información" reply above), since they all share this one template.
+
 ## Bug fix, 2026-09-03 — reminder cron jobs ran in the server's time zone, not Colombia's
 
 Human report: rescheduled the "Cuotas vencidas"/"Cuotas próximas a vencer" family cron to 14:40 via the admin panel's hour/minute picker; nothing fired, and no request appeared in the Railway log around that time at all.

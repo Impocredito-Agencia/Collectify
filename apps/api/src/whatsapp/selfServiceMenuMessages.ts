@@ -71,10 +71,15 @@ export const CONVERSATION_CLOSED_MESSAGE =
 // Reuses the same renderer the old (Phase 9, retired by Phase 33)
 // account_summary message type used — see breakdownQueries.ts.
 
+// Bug fix, 2026-09-03 (human report): closes with the same grand-total
+// phrasing and closing line as the confirmed real overdue-reminder message
+// (see messageRenderer.ts's doc comment / docs/GLOSSARY.md → "Overdue
+// reminder") instead of the more generic "Total pendiente:".
 const BREAKDOWN_TEMPLATE = [
   'Hola {{clientFullName}}, este es el desglose de tus cuotas:',
   '{{installmentsList}}',
-  'Total pendiente: {{grandTotal}}',
+  'El valor a pagar hoy es {{grandTotal}} 🚨',
+  'Quedamos atentos a cualquier consulta.',
 ].join('\n');
 
 export function renderBreakdownMessage(
