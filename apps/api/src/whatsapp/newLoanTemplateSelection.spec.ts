@@ -43,6 +43,31 @@ describe('selectNewLoanTemplate', () => {
     expect(result.type).toBe(MessageType.NewLoanExistingClient);
   });
 
+  // Bug fix, 2026-09-03: WhatsApp's template API rejects an empty-string
+  // text parameter outright ("(#131008) Required parameter is missing"),
+  // so a loan with no description (the field is optional) must never
+  // forward '' as {{4}} — this silently failed every new-loan send for a
+  // loan with a blank description until fixed.
+  it('falls back to a non-empty placeholder when description is null', () => {
+    const result = selectNewLoanTemplate({
+      ...baseInput,
+      description: null,
+      isNewClient: true,
+    });
+
+    expect(result.bodyParameters[3]).toBe('No especificado');
+  });
+
+  it('falls back to a non-empty placeholder when description is blank/whitespace', () => {
+    const result = selectNewLoanTemplate({
+      ...baseInput,
+      description: '   ',
+      isNewClient: true,
+    });
+
+    expect(result.bodyParameters[3]).toBe('No especificado');
+  });
+
   it('picks NewLoanNewClientInitialInstallment and composes the split totals', () => {
     const result = selectNewLoanTemplate({
       ...baseInput,
