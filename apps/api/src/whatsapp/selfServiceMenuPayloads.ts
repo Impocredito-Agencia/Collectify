@@ -13,18 +13,22 @@ export enum SelfServiceMenuButtonId {
   VolverAlMenu = 'menu_volver',
 }
 
-// TODO(Fase 34 — blocking): the real button.payload strings Meta assigned
-// to Templates 4-8's Quick Reply buttons ("Ver mis cuotas" / "Ver
-// desglose", "Ya pagué" / "Enviar comprobante", "Hablar con asesor") are
-// still pending — see the "Open questions" section of
-// docs/phases/PHASE_34_INTERACTIVE_MENU.md. Until the human provides the
-// real values (via GET .../message_templates, see chat), these placeholder
-// strings will never match a real inbound webhook event, so taps on a
-// template's own buttons don't trigger anything yet — the self-service
-// menu below (triggered by free text) is unaffected and works today.
-// Swap the three values below once confirmed; nothing else needs to change.
+// Resolved 2026-09-03 — confirmed against Meta's actual template
+// configuration (see docs/phases/PHASE_34_INTERACTIVE_MENU.md's "Bug fix,
+// 2026-09-03" section). Meta's Quick Reply buttons have no separate
+// payload field in the create-template UI — confirmed by screenshot — so
+// the payload IS the literal button text, exactly as configured:
+//
+//   proxima_vencer_y_vencida, varias_cuota_vencida,
+//   varias_cuota_proxima_vencer: "Más información" + "Ya pagué"
+//   una_cuota_vencida, una_cuota_vencida_en_mora,
+//   una_cuota_proxima_vencer: "Ya pagué" only
+//   every new-loan/refinance/payment-confirmation template: no buttons
+//
+// No template carries a "Hablar con asesor" button — that option only
+// exists in the self-service menu's own main menu
+// (SelfServiceMenuButtonId.HablarAsesor above).
 export const TemplateButtonPayload = {
-  VerMisCuotas: 'PENDING_VER_MIS_CUOTAS',
-  YaPague: 'PENDING_YA_PAGUE',
-  HablarConAsesor: 'PENDING_HABLAR_CON_ASESOR',
+  MasInformacion: 'Más información',
+  YaPague: 'Ya pagué',
 } as const;

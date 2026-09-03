@@ -218,33 +218,32 @@ describe('SelfServiceMenuService', () => {
       );
     });
 
-    it.each([
-      SelfServiceMenuButtonId.HablarAsesor,
-      TemplateButtonPayload.HablarConAsesor,
-    ])(
-      'hands off to an advisor on %s, with no Volver al menú',
-      async (payload) => {
-        await service.handleInboundEvent(buttonEvent(payload), client);
+    it('hands off to an advisor on Hablar con asesor, with no Volver al menú', async () => {
+      // No template carries a "Hablar con asesor" button (confirmed
+      // 2026-09-03) — only the self-service menu's own main menu does.
+      await service.handleInboundEvent(
+        buttonEvent(SelfServiceMenuButtonId.HablarAsesor),
+        client,
+      );
 
-        expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
-          client.phoneNumber,
-          expect.stringContaining('asesor'),
-        );
-        expect(
-          whatsAppService.sendInteractiveButtonsMessage,
-        ).not.toHaveBeenCalled();
-        expect(conversationStateService.upsert).toHaveBeenCalledWith(
-          client.phoneNumber,
-          client.id,
-          ConversationMenu.HandedOffToHuman,
-        );
-      },
-    );
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        client.phoneNumber,
+        expect.stringContaining('asesor'),
+      );
+      expect(
+        whatsAppService.sendInteractiveButtonsMessage,
+      ).not.toHaveBeenCalled();
+      expect(conversationStateService.upsert).toHaveBeenCalledWith(
+        client.phoneNumber,
+        client.id,
+        ConversationMenu.HandedOffToHuman,
+      );
+    });
 
     it.each([
       SelfServiceMenuButtonId.EstadoCuenta,
       SelfServiceMenuButtonId.CuotasPendientes,
-      TemplateButtonPayload.VerMisCuotas,
+      TemplateButtonPayload.MasInformacion,
     ])(
       'sends the breakdown with a Volver al menú follow-up on %s',
       async (payload) => {

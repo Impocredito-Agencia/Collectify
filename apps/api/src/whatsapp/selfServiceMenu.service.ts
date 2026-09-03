@@ -76,9 +76,11 @@ export class SelfServiceMenuService {
   }
 
   // Keyed by payload string rather than a switch/case: SelfServiceMenuButtonId
-  // (our own ids) and TemplateButtonPayload (Meta's, still placeholders —
+  // (our own ids) and TemplateButtonPayload (Meta's real button text —
   // see selfServiceMenuPayloads.ts) are two different types, several of
-  // them mapping to the same terminal action.
+  // them mapping to the same terminal action. No template carries a
+  // "Hablar con asesor" button — only the self-service menu's own main
+  // menu does (SelfServiceMenuButtonId.HablarAsesor).
   private buttonActionFor(
     payload: string,
   ): ((client: Client) => Promise<void>) | undefined {
@@ -87,10 +89,9 @@ export class SelfServiceMenuService {
       [SelfServiceMenuButtonId.ReportarPago]: (c) => this.startReceiptFlow(c),
       [TemplateButtonPayload.YaPague]: (c) => this.startReceiptFlow(c),
       [SelfServiceMenuButtonId.HablarAsesor]: (c) => this.handOffToAdvisor(c),
-      [TemplateButtonPayload.HablarConAsesor]: (c) => this.handOffToAdvisor(c),
       [SelfServiceMenuButtonId.EstadoCuenta]: (c) => this.sendBreakdown(c),
       [SelfServiceMenuButtonId.CuotasPendientes]: (c) => this.sendBreakdown(c),
-      [TemplateButtonPayload.VerMisCuotas]: (c) => this.sendBreakdown(c),
+      [TemplateButtonPayload.MasInformacion]: (c) => this.sendBreakdown(c),
       [SelfServiceMenuButtonId.HistorialPagos]: (c) =>
         this.sendPaymentHistory(c),
       [SelfServiceMenuButtonId.VolverAlMenu]: (c) => this.sendMainMenu(c),
@@ -104,9 +105,10 @@ export class SelfServiceMenuService {
   ): Promise<void> {
     const action = this.buttonActionFor(payload);
     if (!action) {
-      // Covers the still-placeholder TemplateButtonPayload values (see
-      // selfServiceMenuPayloads.ts) — logged, not silently dropped, so
-      // it's visible once real templates start delivering taps.
+      // Shouldn't happen for a real template/menu button anymore now that
+      // TemplateButtonPayload holds Meta's confirmed real values — logged
+      // rather than silently dropped in case Meta's config ever drifts
+      // from this file.
       this.logger.warn(`Unrecognized WhatsApp button payload: ${payload}`);
       return;
     }
