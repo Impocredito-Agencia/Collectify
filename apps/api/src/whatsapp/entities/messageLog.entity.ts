@@ -46,6 +46,14 @@ export class MessageLog {
   @Column({ type: 'timestamptz' })
   sentAt!: Date;
 
+  // Meta's WAMID for this send (null on a Failed send, or a send made
+  // before this column existed). Bug fix, 2026-09-03: lets a "Más
+  // información" button tap be traced back to the exact reminder it
+  // replied to via the inbound webhook's `context.id` — see
+  // SelfServiceMenuService.sendBreakdownForContext.
+  @Column({ type: 'varchar', nullable: true })
+  whatsappMessageId!: string | null;
+
   // Phase 18 manual retry tracking — retriedAt is set on the ORIGINAL
   // (failed) row once someone retries it; retryOfMessageLogId is set on
   // the NEW row created for that retry attempt, pointing back at the

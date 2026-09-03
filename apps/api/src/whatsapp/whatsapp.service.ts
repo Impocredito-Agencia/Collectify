@@ -8,6 +8,13 @@ export interface WhatsAppInteractiveButton {
   title: string;
 }
 
+export interface SendTemplateMessageResult {
+  sent: boolean;
+  // Meta's WAMID for this send, null when not sent (or on the rare case
+  // the API accepted the send but omitted it). See sendTemplateMessage.
+  whatsappMessageId: string | null;
+}
+
 const META_GRAPH_API_VERSION = 'v21.0';
 const MAX_INTERACTIVE_BUTTONS = 3;
 
@@ -90,7 +97,7 @@ export class WhatsAppService {
     templateName: string,
     languageCode: string,
     bodyParameters: string[],
-  ): Promise<boolean> {
+  ): Promise<SendTemplateMessageResult> {
     const { phoneNumberId, accessToken } = this.configService.get('whatsapp', {
       infer: true,
     });
@@ -100,7 +107,7 @@ export class WhatsAppService {
         `WhatsApp credentials are not configured — skipping send to ${phoneNumber}. ` +
           'See docs/ENVIRONMENT_VARIABLES.md.',
       );
-      return false;
+      return { sent: false, whatsappMessageId: null };
     }
 
     try {
@@ -138,16 +145,26 @@ export class WhatsAppService {
         this.logger.error(
           `WhatsApp API responded with ${response.status} for ${phoneNumber} (template ${templateName}): ${errorBody}`,
         );
-        return false;
+        return { sent: false, whatsappMessageId: null };
       }
 
-      return true;
+      // Bug fix, 2026-09-03: needed so a later "Más información" button
+      // tap (which arrives with `context.id` set to this WAMID) can be
+      // traced back to exactly which reminder — and which installments —
+      // it was replying to, instead of falling back to the client's whole
+      // account. See SelfServiceMenuService.sendBreakdownForContext.
+      const data = (await response.json()) as {
+        messages?: { id?: string }[];
+      };
+      const whatsappMessageId = data.messages?.[0]?.id ?? null;
+
+      return { sent: true, whatsappMessageId };
     } catch (error) {
       this.logger.error(
         `Failed to send WhatsApp template message to ${phoneNumber} (template ${templateName})`,
         error,
       );
-      return false;
+      return { sent: false, whatsappMessageId: null };
     }
   }
 

@@ -37,6 +37,7 @@ describe('MessageLogsService', () => {
     messageContent: 'Hola...',
     status: MessageLogStatus.Sent,
     sentAt: new Date(),
+    whatsappMessageId: null,
     retriedAt: null,
     retryOfMessageLogId: null,
     retryOfMessageLog: null,

@@ -77,7 +77,7 @@ describe('WhatsAppService', () => {
   });
 
   describe('sendTemplateMessage', () => {
-    it('skips the send and returns false when credentials are not configured', async () => {
+    it('skips the send and returns sent: false when credentials are not configured', async () => {
       configService.get.mockReturnValue({
         phoneNumberId: '',
         accessToken: '',
@@ -90,16 +90,19 @@ describe('WhatsAppService', () => {
         ['Señor Juan', '2', '#100', '$50.000', 'hace 3 días', 'Nota'],
       );
 
-      expect(result).toBe(false);
+      expect(result).toEqual({ sent: false, whatsappMessageId: null });
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('sends a type: template request with the parameters in order', async () => {
+    it('sends a type: template request with the parameters in order, returning the WAMID', async () => {
       configService.get.mockReturnValue({
         phoneNumberId: 'phone-id',
         accessToken: 'token',
       });
-      fetchMock.mockResolvedValue({ ok: true });
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ messages: [{ id: 'wamid.HBgMNTczM' }] }),
+      });
 
       const result = await service.sendTemplateMessage(
         '+573001234567',
@@ -108,7 +111,10 @@ describe('WhatsAppService', () => {
         ['Señor Juan', '2', '#100'],
       );
 
-      expect(result).toBe(true);
+      expect(result).toEqual({
+        sent: true,
+        whatsappMessageId: 'wamid.HBgMNTczM',
+      });
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toContain('/phone-id/messages');
       expect(init.method).toBe('POST');
@@ -138,7 +144,7 @@ describe('WhatsAppService', () => {
       ]);
     });
 
-    it('returns false when the API responds with a non-ok status', async () => {
+    it('returns sent: false when the API responds with a non-ok status', async () => {
       configService.get.mockReturnValue({
         phoneNumberId: 'phone-id',
         accessToken: 'token',
@@ -156,10 +162,10 @@ describe('WhatsAppService', () => {
         ['Señor Juan'],
       );
 
-      expect(result).toBe(false);
+      expect(result).toEqual({ sent: false, whatsappMessageId: null });
     });
 
-    it('returns false when the request throws', async () => {
+    it('returns sent: false when the request throws', async () => {
       configService.get.mockReturnValue({
         phoneNumberId: 'phone-id',
         accessToken: 'token',
@@ -173,7 +179,27 @@ describe('WhatsAppService', () => {
         ['Señor Juan'],
       );
 
-      expect(result).toBe(false);
+      expect(result).toEqual({ sent: false, whatsappMessageId: null });
+    });
+
+    it('returns whatsappMessageId: null when the API accepts the send but omits it', async () => {
+      configService.get.mockReturnValue({
+        phoneNumberId: 'phone-id',
+        accessToken: 'token',
+      });
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+
+      const result = await service.sendTemplateMessage(
+        '+573001234567',
+        'una_cuota_vencida',
+        'es',
+        ['Señor Juan'],
+      );
+
+      expect(result).toEqual({ sent: true, whatsappMessageId: null });
     });
   });
 

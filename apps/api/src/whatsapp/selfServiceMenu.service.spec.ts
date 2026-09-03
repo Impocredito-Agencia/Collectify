@@ -6,6 +6,8 @@ import { Installment } from '../loans/entities/installment.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
+import { MessageLog } from './entities/messageLog.entity';
+import { MessageLogItem } from './entities/messageLogItem.entity';
 import { WhatsappInboundMessageType } from './entities/whatsappInboundMessage.entity';
 import { SelfServiceMenuService } from './selfServiceMenu.service';
 import {
@@ -20,6 +22,8 @@ describe('SelfServiceMenuService', () => {
   let service: SelfServiceMenuService;
   let installmentsRepository: { find: jest.Mock };
   let paymentsRepository: { find: jest.Mock };
+  let messageLogsRepository: { findOne: jest.Mock };
+  let messageLogItemsRepository: { find: jest.Mock };
   let conversationStateService: {
     getActive: jest.Mock;
     upsert: jest.Mock;
@@ -43,17 +47,22 @@ describe('SelfServiceMenuService', () => {
       type: WhatsappInboundMessageType.Text,
       buttonPayload: null,
       bodyText,
+      contextMessageId: null,
       receivedAt: new Date(),
       rawPayload: {},
     };
   }
 
-  function buttonEvent(buttonPayload: string): ParsedInboundEvent {
+  function buttonEvent(
+    buttonPayload: string,
+    contextMessageId: string | null = null,
+  ): ParsedInboundEvent {
     return {
       fromPhoneNumber: client.phoneNumber,
       type: WhatsappInboundMessageType.Button,
       buttonPayload,
       bodyText: null,
+      contextMessageId,
       receivedAt: new Date(),
       rawPayload: {},
     };
@@ -65,6 +74,7 @@ describe('SelfServiceMenuService', () => {
       type: WhatsappInboundMessageType.Other,
       buttonPayload: null,
       bodyText: null,
+      contextMessageId: null,
       receivedAt: new Date(),
       rawPayload: {},
     };
@@ -73,6 +83,8 @@ describe('SelfServiceMenuService', () => {
   beforeEach(async () => {
     installmentsRepository = { find: jest.fn().mockResolvedValue([]) };
     paymentsRepository = { find: jest.fn().mockResolvedValue([]) };
+    messageLogsRepository = { findOne: jest.fn().mockResolvedValue(null) };
+    messageLogItemsRepository = { find: jest.fn().mockResolvedValue([]) };
     conversationStateService = {
       getActive: jest.fn().mockResolvedValue(null),
       upsert: jest.fn().mockResolvedValue(undefined),
@@ -91,6 +103,14 @@ describe('SelfServiceMenuService', () => {
           useValue: installmentsRepository,
         },
         { provide: getRepositoryToken(Payment), useValue: paymentsRepository },
+        {
+          provide: getRepositoryToken(MessageLog),
+          useValue: messageLogsRepository,
+        },
+        {
+          provide: getRepositoryToken(MessageLogItem),
+          useValue: messageLogItemsRepository,
+        },
         {
           provide: WhatsappConversationStateService,
           useValue: conversationStateService,
@@ -272,6 +292,83 @@ describe('SelfServiceMenuService', () => {
         );
       },
     );
+
+    // Bug fix, 2026-09-03 (human report): "Más información" must answer
+    // only about the pagaré/installment(s) the tapped reminder was
+    // actually about, not the client's whole account.
+    describe('Más información (scoped to the tapped reminder)', () => {
+      it('replies with only the reminder-scoped installments when the context id correlates to a MessageLog', async () => {
+        messageLogsRepository.findOne.mockResolvedValue({
+          id: 'log-1',
+          clientId: client.id,
+        });
+        messageLogItemsRepository.find.mockResolvedValue([
+          { installmentId: 'installment-1' },
+        ]);
+        installmentsRepository.find.mockResolvedValue([
+          {
+            id: 'installment-1',
+            installmentNumber: 3,
+            amount: 300000,
+            dueDate: '2020-01-01',
+            status: 'pending',
+            loan: { interestRate: 0, promissoryNoteNumber: '743' },
+          },
+        ]);
+
+        await service.handleInboundEvent(
+          buttonEvent(TemplateButtonPayload.MasInformacion, 'wamid.REMINDER'),
+          client,
+        );
+
+        expect(messageLogsRepository.findOne).toHaveBeenCalledWith({
+          where: { whatsappMessageId: 'wamid.REMINDER', clientId: client.id },
+        });
+        expect(messageLogItemsRepository.find).toHaveBeenCalledWith({
+          where: { messageLogId: 'log-1' },
+        });
+        const [installmentsWhere] = installmentsRepository.find.mock
+          .calls[0] as [{ where: { id: unknown } }];
+        expect(installmentsWhere.where).not.toHaveProperty('status');
+        expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+          client.phoneNumber,
+          expect.stringContaining('Pagaré #743'),
+        );
+      });
+
+      it('falls back to the full account breakdown when no MessageLog matches the context id', async () => {
+        messageLogsRepository.findOne.mockResolvedValue(null);
+        installmentsRepository.find.mockResolvedValue([]);
+
+        await service.handleInboundEvent(
+          buttonEvent(TemplateButtonPayload.MasInformacion, 'wamid.UNKNOWN'),
+          client,
+        );
+
+        expect(messageLogItemsRepository.find).not.toHaveBeenCalled();
+        const [installmentsWhere] = installmentsRepository.find.mock
+          .calls[0] as [{ where: { status: unknown } }];
+        expect(installmentsWhere.where).toHaveProperty('status');
+      });
+
+      it('falls back to the full account breakdown when the correlated MessageLog has no items', async () => {
+        messageLogsRepository.findOne.mockResolvedValue({
+          id: 'log-1',
+          clientId: client.id,
+        });
+        messageLogItemsRepository.find.mockResolvedValue([]);
+        installmentsRepository.find.mockResolvedValue([]);
+
+        await service.handleInboundEvent(
+          buttonEvent(TemplateButtonPayload.MasInformacion, 'wamid.EMPTY'),
+          client,
+        );
+
+        const [installmentsWhere] = installmentsRepository.find.mock
+          .calls[0] as [{ where: { status: unknown } }];
+        expect(installmentsWhere.where).toHaveProperty('status');
+      });
+    });
 
     it('sends the payment history with a Volver al menú follow-up on Historial de pagos', async () => {
       paymentsRepository.find.mockResolvedValue([]);

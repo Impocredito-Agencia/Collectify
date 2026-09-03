@@ -360,6 +360,7 @@ One row per reminder **actually sent to a client** — not per installment.
 | `sent_at` | TIMESTAMPTZ | |
 | `retried_at` | TIMESTAMPTZ, nullable | Added Phase 18 — set on the ORIGINAL (failed) row once it's manually retried. Still append-only: this is a stamp on the historical row, not an edit of what was actually sent. |
 | `retry_of_message_log_id` | UUID, nullable | Added Phase 18 — self-referencing FK → `message_logs.id`, `ON DELETE SET NULL`. Set on the NEW row created by a retry, pointing back at the original it retried. Both columns null on rows never retried; a retry that itself fails can be retried again, chaining further. |
+| `whatsapp_message_id` | VARCHAR, nullable | Added 2026-09-03 (bug fix, see below) — Meta's WAMID for this send, null on a `failed` send or a row from before this column existed. Lets an inbound button reply be traced back to exactly which send it replied to, via the webhook's `context.id`. |
 | `created_at` | TIMESTAMPTZ | append-only, no `updated_at`/`deleted_at` |
 
 ### `message_audiences` / `message_audience_clients` (retired — Phase 27)
@@ -640,6 +641,21 @@ Human report: rescheduled the "Cuotas vencidas"/"Cuotas próximas a vencer" fami
 `WhatsappCronService.registerJob()` constructed every `CronJob` (the `cron` npm package) without an explicit `timeZone`, so the cron fields were evaluated against the **server's own** system time zone — UTC on Railway — while `cronScheduleUtils.ts`'s picker builds its hour/minute from the admin's own local clock, assumed to be Colombia's (IMPROCRÉDITO operates out of Pasto — see the city baked into the new-loan template body). A picked "14:40" was actually scheduled for 14:40 UTC = 09:40 Colombia time, which had already passed earlier that same day by the time the admin checked at their own 14:40 — explaining both the silent no-send and the missing log line.
 
 Fixed by pinning every `CronJob` explicitly to `America/Bogota` (Colombia has no DST, so no seasonal edge case) in `whatsappCron.service.ts`, regardless of what time zone the Node process itself runs in. Single-tenant, single-city business — hardcoded, not an env var. Verified directly against the `cron` package with `TZ=UTC`: `"40 14 * * *"` next-fires at `2026-09-04T14:40:00.000Z` without the fix vs. `2026-09-04T14:40:00.000-05:00` (i.e. the actually-intended Colombia wall-clock time) with it.
+
+## Bug fix, 2026-09-03 — "Más información" answered with the client's whole account, not the reminder it replied to
+
+Human report: tapping "Más información" on a reminder template (`proxima_vencer_y_vencida`, `varias_cuota_vencida`, `varias_cuota_proxima_vencer` — the three templates that carry this button) should answer only about the pagaré/installment(s) that specific reminder was about, not dump every pending installment across every one of the client's loans.
+
+Previously `TemplateButtonPayload.MasInformacion` dispatched to the same `sendBreakdown()` handler as the self-service menu's own "Estado de cuenta"/"Cuotas pendientes" — by design for those two (an explicit "show me everything" request), but wrong for a reply to one specific reminder.
+
+Fixed by tracing the button tap back to the exact reminder it replied to:
+
+- `message_logs` gained `whatsapp_message_id` (Meta's WAMID for the send, see the table above) — `WhatsAppService.sendTemplateMessage()` now returns `{ sent, whatsappMessageId }` instead of a bare boolean, and every caller (`OverdueReminderService`, `UpcomingDueReminderService`, `NewLoanReminderService`, `PaymentConfirmationService`) persists it on the row it creates.
+- `extractInboundEvents.ts`'s `ParsedInboundEvent` gained `contextMessageId` — Meta's inbound webhook carries `context.id` (the WAMID of the message a quick-reply button tap is replying to) for every template quick-reply tap.
+- `SelfServiceMenuService.sendBreakdownForContext()` (the new `MasInformacion` handler): looks up the `message_logs` row by `whatsapp_message_id` + `client_id`, then its `message_log_items` for the exact installment ids that reminder was about, and renders the breakdown scoped to just those — via a new `findInstallmentsBreakdownByIds()` query (`breakdownQueries.ts`), which re-fetches their **current live** state (not the frozen send-time snapshot, since the client can tap the button days later). Falls back to the full-account breakdown (old behavior) when the tap can't be traced to a specific reminder — no context id on the event, or no matching `message_logs` row/items (an old message, or a send that never actually reached the API) — rather than replying with nothing.
+- `EstadoCuenta`/`CuotasPendientes` (the self-service menu's own buttons) are unchanged — still the full account, by design.
+
+Verified against a real local Postgres: seeded a `message_logs`/`message_log_items` pair scoping one specific overdue installment (out of 3 pending on the same client/loan), posted a real signed webhook payload with a matching `context.id` through the running API, and directly queried `findInstallmentsBreakdownByIds` against the live DB — returned exactly that 1 installment vs. 3 for the same client's full account.
 
 ## Related documents
 

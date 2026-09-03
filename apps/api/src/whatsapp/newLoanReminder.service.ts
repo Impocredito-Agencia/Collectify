@@ -88,12 +88,13 @@ export class NewLoanReminderService {
     const template = await this.messageTemplatesService.findByTypeOrThrow(
       selection.type,
     );
-    const sent = await this.whatsAppService.sendTemplateMessage(
-      loan.client.phoneNumber,
-      template.metaTemplateName,
-      template.metaLanguageCode,
-      selection.bodyParameters,
-    );
+    const { sent, whatsappMessageId } =
+      await this.whatsAppService.sendTemplateMessage(
+        loan.client.phoneNumber,
+        template.metaTemplateName,
+        template.metaLanguageCode,
+        selection.bodyParameters,
+      );
 
     const messageLog = this.messageLogsRepository.create({
       clientId: loan.clientId,
@@ -102,6 +103,7 @@ export class NewLoanReminderService {
       messageContent: selection.bodyParameters.join(' | '),
       status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
       sentAt: new Date(),
+      whatsappMessageId,
     });
     const savedLog = await this.messageLogsRepository.save(messageLog);
 

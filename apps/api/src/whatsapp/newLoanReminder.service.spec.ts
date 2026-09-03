@@ -164,7 +164,10 @@ describe('NewLoanReminderService', () => {
         metaTemplateName: 'some_template',
         metaLanguageCode: 'es',
       });
-      whatsAppService.sendTemplateMessage.mockResolvedValue(true);
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: 'wamid.TEST',
+      });
     });
 
     it('sends NewLoanNewClient when the client has no other loan', async () => {
@@ -230,7 +233,10 @@ describe('NewLoanReminderService', () => {
 
     it('logs the message as failed when WhatsAppService could not send it', async () => {
       loansRepository.findOne.mockResolvedValue(loan());
-      whatsAppService.sendTemplateMessage.mockResolvedValue(false);
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: false,
+        whatsappMessageId: null,
+      });
 
       const result = await service.sendNewLoanMessage('loan-1');
 
