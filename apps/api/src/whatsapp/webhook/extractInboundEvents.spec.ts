@@ -43,6 +43,27 @@ describe('extractInboundEvents', () => {
       bodyText: 'Sí',
     });
     expect(events[0].receivedAt).toEqual(new Date(1700000000 * 1000));
+    expect(events[0].contextMessageId).toBeNull();
+  });
+
+  // Bug fix, 2026-09-03 (human report): "Más información" replied with the
+  // client's whole account instead of just the pagaré/installment the
+  // reminder was about — fixed by tracing the tap back to the exact
+  // reminder via this context id.
+  it('extracts context.id from a quick-reply button tap replying to a template message', () => {
+    const payload = buildPayload([
+      {
+        from: '573001234567',
+        timestamp: '1700000000',
+        type: 'button',
+        context: { from: '15550001111', id: 'wamid.ORIGINAL_REMINDER' },
+        button: { payload: 'Más información', text: 'Más información' },
+      },
+    ]);
+
+    const events = extractInboundEvents(payload);
+
+    expect(events[0].contextMessageId).toBe('wamid.ORIGINAL_REMINDER');
   });
 
   it('parses a session interactive button_reply (type "interactive")', () => {

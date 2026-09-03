@@ -7,11 +7,15 @@ import { Installment } from '../loans/entities/installment.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
 import {
+  findInstallmentsBreakdownByIds,
   findPaymentHistoryForClient,
   findPendingInstallmentsBreakdown,
 } from './breakdownQueries';
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
+import { MessageLog } from './entities/messageLog.entity';
+import { MessageLogItem } from './entities/messageLogItem.entity';
 import { WhatsappInboundMessageType } from './entities/whatsappInboundMessage.entity';
+import { AccountSummaryInstallmentForMessage } from './messageRenderer';
 import {
   ADVISOR_HANDOFF_MESSAGE,
   MAIN_MENU_BODY,
@@ -49,6 +53,10 @@ export class SelfServiceMenuService {
     private readonly installmentsRepository: Repository<Installment>,
     @InjectRepository(Payment)
     private readonly paymentsRepository: Repository<Payment>,
+    @InjectRepository(MessageLog)
+    private readonly messageLogsRepository: Repository<MessageLog>,
+    @InjectRepository(MessageLogItem)
+    private readonly messageLogItemsRepository: Repository<MessageLogItem>,
     private readonly conversationStateService: WhatsappConversationStateService,
     private readonly whatsAppService: WhatsAppService,
   ) {}
@@ -61,7 +69,7 @@ export class SelfServiceMenuService {
       event.type === WhatsappInboundMessageType.Button &&
       event.buttonPayload
     ) {
-      await this.handleButtonPayload(event.buttonPayload, client);
+      await this.handleButtonPayload(event.buttonPayload, client, event);
       return;
     }
 
@@ -83,15 +91,24 @@ export class SelfServiceMenuService {
   // menu does (SelfServiceMenuButtonId.HablarAsesor).
   private buttonActionFor(
     payload: string,
-  ): ((client: Client) => Promise<void>) | undefined {
-    const actions: Record<string, (client: Client) => Promise<void>> = {
+  ):
+    ((client: Client, event: ParsedInboundEvent) => Promise<void>) | undefined {
+    const actions: Record<
+      string,
+      (client: Client, event: ParsedInboundEvent) => Promise<void>
+    > = {
       [SelfServiceMenuButtonId.MiCuenta]: (c) => this.sendMiCuentaSubmenu(c),
       [SelfServiceMenuButtonId.ReportarPago]: (c) => this.startReceiptFlow(c),
       [TemplateButtonPayload.YaPague]: (c) => this.startReceiptFlow(c),
       [SelfServiceMenuButtonId.HablarAsesor]: (c) => this.handOffToAdvisor(c),
       [SelfServiceMenuButtonId.EstadoCuenta]: (c) => this.sendBreakdown(c),
       [SelfServiceMenuButtonId.CuotasPendientes]: (c) => this.sendBreakdown(c),
-      [TemplateButtonPayload.MasInformacion]: (c) => this.sendBreakdown(c),
+      // Bug fix, 2026-09-03 (human report): "Más información" replies with
+      // just the pagaré/installment(s) the tapped reminder was about,
+      // traced via event.contextMessageId — not the client's whole
+      // account (that's what EstadoCuenta/CuotasPendientes above are for).
+      [TemplateButtonPayload.MasInformacion]: (c, e) =>
+        this.sendBreakdownForContext(c, e.contextMessageId),
       [SelfServiceMenuButtonId.HistorialPagos]: (c) =>
         this.sendPaymentHistory(c),
       [SelfServiceMenuButtonId.VolverAlMenu]: (c) => this.sendMainMenu(c),
@@ -102,6 +119,7 @@ export class SelfServiceMenuService {
   private async handleButtonPayload(
     payload: string,
     client: Client,
+    event: ParsedInboundEvent,
   ): Promise<void> {
     const action = this.buttonActionFor(payload);
     if (!action) {
@@ -112,7 +130,7 @@ export class SelfServiceMenuService {
       this.logger.warn(`Unrecognized WhatsApp button payload: ${payload}`);
       return;
     }
-    await action(client);
+    await action(client, event);
   }
 
   private async handleFreeText(client: Client): Promise<void> {
@@ -252,6 +270,59 @@ export class SelfServiceMenuService {
       renderBreakdownMessage(clientFullName, installments),
     );
     await this.sendVolverAlMenuFollowUp(client);
+  }
+
+  // Bug fix, 2026-09-03 (human report): "Más información" on a reminder
+  // should only answer about the pagaré/installment(s) that reminder was
+  // actually about — not the client's whole account (sendBreakdown above).
+  // Falls back to the full account breakdown when the tap can't be traced
+  // back to a specific reminder (no context id on the webhook event, or no
+  // matching MessageLog — e.g. a very old message, or credentials weren't
+  // configured for it so it was never actually a real send), rather than
+  // replying with nothing.
+  private async sendBreakdownForContext(
+    client: Client,
+    contextMessageId: string | null,
+  ): Promise<void> {
+    const scoped = contextMessageId
+      ? await this.findScopedBreakdown(client.id, contextMessageId)
+      : null;
+
+    if (!scoped) {
+      await this.sendBreakdown(client);
+      return;
+    }
+
+    const clientFullName = `${client.firstName} ${client.lastName}`;
+    await this.whatsAppService.sendTextMessage(
+      client.phoneNumber,
+      renderBreakdownMessage(clientFullName, scoped),
+    );
+    await this.sendVolverAlMenuFollowUp(client);
+  }
+
+  private async findScopedBreakdown(
+    clientId: string,
+    contextMessageId: string,
+  ): Promise<AccountSummaryInstallmentForMessage[] | null> {
+    const messageLog = await this.messageLogsRepository.findOne({
+      where: { whatsappMessageId: contextMessageId, clientId },
+    });
+    if (!messageLog) {
+      return null;
+    }
+
+    const items = await this.messageLogItemsRepository.find({
+      where: { messageLogId: messageLog.id },
+    });
+    if (items.length === 0) {
+      return null;
+    }
+
+    return findInstallmentsBreakdownByIds(
+      this.installmentsRepository,
+      items.map((item) => item.installmentId),
+    );
   }
 
   private async sendPaymentHistory(client: Client): Promise<void> {

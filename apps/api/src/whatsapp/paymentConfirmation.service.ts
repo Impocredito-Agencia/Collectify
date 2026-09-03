@@ -128,12 +128,13 @@ export class PaymentConfirmationService {
     const template = await this.messageTemplatesService.findByTypeOrThrow(
       selection.type,
     );
-    const sent = await this.whatsAppService.sendTemplateMessage(
-      phoneNumber,
-      template.metaTemplateName,
-      template.metaLanguageCode,
-      selection.bodyParameters,
-    );
+    const { sent, whatsappMessageId } =
+      await this.whatsAppService.sendTemplateMessage(
+        phoneNumber,
+        template.metaTemplateName,
+        template.metaLanguageCode,
+        selection.bodyParameters,
+      );
 
     const messageLog = this.messageLogsRepository.create({
       clientId,
@@ -142,6 +143,7 @@ export class PaymentConfirmationService {
       messageContent: selection.bodyParameters.join(' | '),
       status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
       sentAt: new Date(),
+      whatsappMessageId,
     });
     const savedLog = await this.messageLogsRepository.save(messageLog);
 

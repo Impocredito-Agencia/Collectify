@@ -1,4 +1,4 @@
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import {
   Installment,
@@ -10,6 +10,22 @@ import { enrichInstallment } from '../loans/installments/enrichInstallment';
 import { calculateDaysUntilDue } from '../loans/installments/installmentCalculations';
 
 import { AccountSummaryInstallmentForMessage } from './messageRenderer';
+
+function toAccountSummaryInstallment(
+  installment: Installment,
+): AccountSummaryInstallmentForMessage {
+  const enriched = enrichInstallment(
+    installment,
+    installment.loan.interestRate,
+  );
+  return {
+    installmentNumber: installment.installmentNumber,
+    promissoryNoteNumber: installment.loan.promissoryNoteNumber,
+    totalDue: enriched.totalDue,
+    overdueDays: enriched.overdueDays,
+    daysUntilDue: calculateDaysUntilDue(new Date(installment.dueDate)),
+  };
+}
 
 // Phase 34 — backs "Ver mis cuotas" / "Estado de cuenta" / "Cuotas
 // pendientes": one shared breakdown of every pending installment (overdue
@@ -31,19 +47,33 @@ export async function findPendingInstallmentsBreakdown(
     order: { dueDate: 'ASC' },
   });
 
-  return installments.map((installment) => {
-    const enriched = enrichInstallment(
-      installment,
-      installment.loan.interestRate,
-    );
-    return {
-      installmentNumber: installment.installmentNumber,
-      promissoryNoteNumber: installment.loan.promissoryNoteNumber,
-      totalDue: enriched.totalDue,
-      overdueDays: enriched.overdueDays,
-      daysUntilDue: calculateDaysUntilDue(new Date(installment.dueDate)),
-    };
+  return installments.map(toAccountSummaryInstallment);
+}
+
+// Bug fix, 2026-09-03 (human report): backs "Más información" on a
+// reminder template — the client tapped it to ask about the specific
+// installment(s) that reminder was actually about, not their whole
+// account. Given the exact installment ids a MessageLogItem row recorded
+// for that reminder (see SelfServiceMenuService.sendBreakdownForContext),
+// returns their CURRENT live state — same enrichment as
+// findPendingInstallmentsBreakdown above — rather than replaying the
+// snapshot values frozen at send time, since the client may tap the
+// button days later and a stale overdue-day count would be wrong.
+export async function findInstallmentsBreakdownByIds(
+  installmentsRepository: Repository<Installment>,
+  installmentIds: string[],
+): Promise<AccountSummaryInstallmentForMessage[]> {
+  if (installmentIds.length === 0) {
+    return [];
+  }
+
+  const installments = await installmentsRepository.find({
+    where: { id: In(installmentIds) },
+    relations: { loan: true },
+    order: { dueDate: 'ASC' },
   });
+
+  return installments.map(toAccountSummaryInstallment);
 }
 
 export interface PaymentHistoryEntry {

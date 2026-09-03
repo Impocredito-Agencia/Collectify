@@ -5,6 +5,12 @@ export interface ParsedInboundEvent {
   type: WhatsappInboundMessageType;
   buttonPayload: string | null;
   bodyText: string | null;
+  // Set for a quick-reply button tap on a template message — Meta's
+  // `context.id`, the WAMID of the message this one is replying to. Lets a
+  // "Más información" tap be traced back to the exact reminder it came
+  // from, see SelfServiceMenuService.sendBreakdownForContext. Bug fix,
+  // 2026-09-03.
+  contextMessageId: string | null;
   receivedAt: Date;
   rawPayload: Record<string, unknown>;
 }
@@ -26,6 +32,16 @@ function asString(value: unknown): string | null {
 function parseReceivedAt(value: unknown): Date {
   const seconds = typeof value === 'string' ? Number(value) : NaN;
   return Number.isFinite(seconds) ? new Date(seconds * 1000) : new Date();
+}
+
+// A quick-reply tap on a template message carries `context: { id, from }`
+// pointing at the message it's replying to; a session-message button and
+// plain text never do. Same nesting for every message type, so pulled out
+// once rather than repeated per branch below.
+function parseContextMessageId(
+  message: Record<string, unknown>,
+): string | null {
+  return isRecord(message.context) ? asString(message.context.id) : null;
 }
 
 // Maps one Meta "message" object to our normalized shape. Handles the two
@@ -108,6 +124,7 @@ export function extractInboundEvents(payload: unknown): ParsedInboundEvent[] {
           type,
           buttonPayload,
           bodyText,
+          contextMessageId: parseContextMessageId(message),
           receivedAt: parseReceivedAt(message.timestamp),
           rawPayload: payload,
         });

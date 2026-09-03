@@ -146,7 +146,9 @@ describe('OverdueReminderService', () => {
         .mockImplementation((ids: string[]) => Promise.resolve(ids)),
     };
     whatsAppService = {
-      sendTemplateMessage: jest.fn().mockResolvedValue(true),
+      sendTemplateMessage: jest
+        .fn()
+        .mockResolvedValue({ sent: true, whatsappMessageId: 'wamid.TEST' }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -269,7 +271,10 @@ describe('OverdueReminderService', () => {
 
     it('logs the message as failed when WhatsAppService could not send it', async () => {
       mockGathered([overdueInstallment()]);
-      whatsAppService.sendTemplateMessage.mockResolvedValue(false);
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: false,
+        whatsappMessageId: null,
+      });
 
       const result = await service.sendReminderForClient(mockClient.id);
 

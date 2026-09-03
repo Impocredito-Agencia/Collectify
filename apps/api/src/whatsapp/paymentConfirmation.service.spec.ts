@@ -89,7 +89,10 @@ describe('PaymentConfirmationService', () => {
       metaTemplateName: 'confirmacion_pago',
       metaLanguageCode: 'es',
     });
-    whatsAppService.sendTemplateMessage.mockResolvedValue(true);
+    whatsAppService.sendTemplateMessage.mockResolvedValue({
+      sent: true,
+      whatsappMessageId: 'wamid.TEST',
+    });
   });
 
   describe('sendPaymentConfirmation', () => {
