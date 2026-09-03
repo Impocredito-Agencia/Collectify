@@ -597,7 +597,6 @@ export function ClientDetailPage() {
               <tbody>
                 {failedMessages.items.map((message) => (
                   <tr key={message.id} className="border-t border-border">
-                    </Td>
                     <Td muted>{messageTypeLabel(message.type)}</Td>
                     <Td className="text-right">
                       <StatusBadge

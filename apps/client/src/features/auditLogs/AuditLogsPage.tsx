@@ -225,7 +225,6 @@ export function AuditLogsPage() {
   );
 }
 
-
 function EmptyRow({
   children,
   tone = 'muted',

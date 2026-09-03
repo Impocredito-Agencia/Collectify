@@ -293,7 +293,6 @@ export function MessageLogsPage() {
   );
 }
 
-
 function EmptyRow({
   children,
   tone = 'muted',
