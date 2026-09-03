@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
+import { Button } from '@/components/ui/Button';
 import { authApi } from '@/features/auth/authApi';
 import { ApiError } from '@/lib/apiClient';
+import { inputClassName } from '@/lib/formStyles';
 
 import type { FormEvent } from 'react';
 
@@ -97,7 +99,7 @@ export function ChangePasswordCard() {
 
   return (
     <div className="rounded border border-border bg-surface p-5">
-      <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+      <span className="text-[10px] font-normal tracking-normal text-muted">
         CAMBIAR CONTRASEÑA
       </span>
 
@@ -154,42 +156,31 @@ export function ChangePasswordCard() {
         </div>
 
         {formError && (
-          <p className="text-small text-red-400" role="alert">
+          <p className="text-small text-danger" role="alert">
             {formError}
           </p>
         )}
         {successMessage && (
-          <p className="text-small text-[#22c55e]">{successMessage}</p>
+          <p className="text-small text-success">{successMessage}</p>
         )}
 
         <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Guardando…' : 'Guardar cambios'}
-          </button>
-          <button
-            type="button"
-            onClick={resetFields}
-            className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
-          >
+          </Button>
+          <Button variant="secondary" onClick={resetFields}>
             Cancelar
-          </button>
+          </Button>
         </div>
       </form>
     </div>
   );
 }
 
-function inputClassName(hasError: boolean): string {
-  const base =
-    'h-[42px] w-full rounded border bg-input px-3.5 text-control text-white placeholder-mid focus:outline-none';
-  return hasError
-    ? `${base} border-red-500 focus:border-red-500`
-    : `${base} border-border focus:border-subtle`;
-}
+// inputClassName now lives in @/lib/formStyles — see DESIGN_TOKENS.md's
+// "Component-based centralization" section. Field stays local here: its
+// layout (no flex-1, always full-width/stacked) differs from the shared
+// component's default row layout.
 
 function Field({
   label,
@@ -202,12 +193,12 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+      <span className="text-[10px] font-normal tracking-normal text-muted">
         {label}
       </span>
       {children}
       {error && (
-        <span className="text-meta text-red-400" role="alert">
+        <span className="text-meta text-danger" role="alert">
           {error}
         </span>
       )}

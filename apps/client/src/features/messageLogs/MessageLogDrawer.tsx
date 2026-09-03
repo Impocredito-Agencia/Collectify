@@ -1,4 +1,5 @@
 import { CloseButton } from '@/components/ui/CloseButton';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useMessageLogItems } from '@/features/messageLogs/useMessageLogs';
 import { formatCurrency, formatPhoneNumber } from '@/lib/format';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -66,28 +67,25 @@ export function MessageLogDrawer({ log, onClose }: MessageLogDrawerProps) {
             })}
           />
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+            <span className="text-[10px] font-normal tracking-normal text-muted">
               ESTADO
             </span>
-            <span
-              className={`w-fit rounded-[3px] border px-2 py-[3px] text-meta font-medium ${
-                log.status === 'sent'
-                  ? 'border-[#22c55e] bg-[#051e0e] text-[#22c55e]'
-                  : 'border-[#ef4444] bg-[#240a0a] text-[#ef4444]'
-              }`}
+            <StatusBadge
+              tone={log.status === 'sent' ? 'success' : 'danger'}
+              className="w-fit"
             >
               {log.status === 'sent' ? 'Enviado' : 'Fallido'}
-            </span>
+            </StatusBadge>
           </div>
         </div>
 
         <div className="mt-5 border-t border-border" />
 
         <div className="mt-5 flex flex-col gap-1.5">
-          <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+          <span className="text-[10px] font-normal tracking-normal text-muted">
             MENSAJE COMPLETO
           </span>
-          <div className="rounded bg-[#0a240a] p-3">
+          <div className="rounded bg-whatsapp-bg p-3">
             <p className="text-meta text-muted">WhatsApp · Collectify</p>
             <p className="mt-1 whitespace-pre-wrap text-small text-white">
               {log.messageContent}
@@ -98,7 +96,7 @@ export function MessageLogDrawer({ log, onClose }: MessageLogDrawerProps) {
         <div className="mt-5 border-t border-border" />
 
         <div className="mt-5 flex flex-col gap-2">
-          <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+          <span className="text-[10px] font-normal tracking-normal text-muted">
             CUOTAS INCLUIDAS EN ESTE MENSAJE
           </span>
           {isLoading && <p className="text-small text-muted">Cargando…</p>}
@@ -131,7 +129,7 @@ export function MessageLogDrawer({ log, onClose }: MessageLogDrawerProps) {
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+      <span className="text-[10px] font-normal tracking-normal text-muted">
         {label.toUpperCase()}
       </span>
       <span className="text-small text-white">{value}</span>

@@ -17,12 +17,16 @@ export type AppModule =
   | 'usury_rates'
   | 'users';
 
+// Style cleanup (2026-09-01): 'messages' and 'interest_concept_types' labels
+// updated to match Sidebar.tsx's renamed nav items ("Envíos fallidos" and
+// "Tipos de cargo") so the permissions-management UI (Usuarios) describes
+// each module the same way the sidebar does.
 export const MODULE_LABELS: Record<AppModule, string> = {
   clients: 'Clientes',
   loans: 'Préstamos',
-  messages: 'Mensajes',
+  messages: 'Envíos fallidos',
   message_templates: 'Plantillas',
-  interest_concept_types: 'Cargos adicionales',
+  interest_concept_types: 'Tipos de cargo',
   audit_log: 'Auditoría',
   usury_rates: 'Tasa de usura',
   users: 'Usuarios',

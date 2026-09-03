@@ -1,9 +1,12 @@
 import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
+import { Button } from '@/components/ui/Button';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
+import { Field } from '@/components/ui/Field';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { Select } from '@/components/ui/Select';
+import { Td, Th } from '@/components/ui/Table';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
 import {
   ConceptCalculationType,
@@ -181,7 +184,7 @@ export function LoanQuotePage() {
       <StaleUsuryRateBanner />
 
       <div className="grid grid-cols-[420px_1fr] gap-8">
-        <div className="flex flex-col gap-3.5 rounded bg-surface p-5">
+        <div className="flex flex-col gap-3.5 rounded-lg bg-surface p-5">
           <Field label="Monto a financiar">
             <CurrencyInput
               value={principalAmount}
@@ -209,19 +212,17 @@ export function LoanQuotePage() {
               />
             </Field>
             <Field label="Periodicidad">
-              <select
+              <Select
                 value={installmentFrequency}
-                onChange={(event) => {
-                  setInstallmentFrequency(
-                    event.target.value as InstallmentFrequency,
-                  );
+                onChange={(value) => {
+                  setInstallmentFrequency(value as InstallmentFrequency);
                   setPreview(null);
                 }}
-                className={inputClassName}
-              >
-                <option value={InstallmentFrequency.Monthly}>Mensual</option>
-                <option value={InstallmentFrequency.Biweekly}>Quincenal</option>
-              </select>
+                options={[
+                  { value: InstallmentFrequency.Monthly, label: 'Mensual' },
+                  { value: InstallmentFrequency.Biweekly, label: 'Quincenal' },
+                ]}
+              />
             </Field>
           </div>
 
@@ -293,7 +294,7 @@ export function LoanQuotePage() {
                   <button
                     type="button"
                     onClick={() => removeConceptRow(row.rowId)}
-                    className="text-meta text-muted hover:text-red-400"
+                    className="text-meta text-muted hover:text-danger"
                   >
                     Quitar
                   </button>
@@ -313,19 +314,18 @@ export function LoanQuotePage() {
           </Field>
 
           {formError && (
-            <p className="text-small text-red-400" role="alert">
+            <p className="text-small text-danger" role="alert">
               {formError}
             </p>
           )}
 
-          <button
-            type="button"
+          <Button
             onClick={() => void handleCalculate()}
             disabled={!canCalculate || previewSchedule.isPending}
-            className="mt-1 rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-1"
           >
             {previewSchedule.isPending ? 'Calculando…' : 'Calcular cotización'}
-          </button>
+          </Button>
         </div>
 
         <div className="flex flex-col gap-5">
@@ -367,12 +367,12 @@ export function LoanQuotePage() {
                         key={installment.installmentNumber}
                         className="divide-x divide-border"
                       >
-                        <Td>{installment.installmentNumber}</Td>
-                        <Td>{formatDateOnly(installment.dueDate)}</Td>
-                        <Td className="text-right">
+                        <Td muted>{installment.installmentNumber}</Td>
+                        <Td muted>{formatDateOnly(installment.dueDate)}</Td>
+                        <Td muted className="text-right">
                           {formatCurrency(installment.principalPortion)}
                         </Td>
-                        <Td className="text-right font-medium text-white">
+                        <Td className="text-right">
                           {formatCurrency(installment.amount)}
                         </Td>
                       </tr>
@@ -409,22 +409,8 @@ export function LoanQuotePage() {
 const inputClassName =
   'h-[42px] w-full rounded border border-border bg-input px-3.5 text-control text-white placeholder-mid focus:border-subtle focus:outline-none';
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-1 flex-col gap-1.5">
-      <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
-        {label}
-      </span>
-      {children}
-    </div>
-  );
-}
+// Field now lives in @/components/ui/Field — see DESIGN_TOKENS.md's
+// "Component-based centralization" section.
 
 // Same chip treatment as LoanForm.tsx/RefinanceLoanForm.tsx — a bordered,
 // backgrounded button instead of bare colored text, which made these easy
@@ -463,32 +449,8 @@ function PlusIcon() {
   );
 }
 
-function Th({
-  children,
-  className = '',
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <th
-      className={`h-11 px-4 text-left text-label font-medium tracking-[0.36px] text-muted ${className}`}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  className = '',
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <td className={`h-12 px-4 text-small text-muted ${className}`}>
-      {children}
-    </td>
-  );
-}
+// Local Th/Td removed (style cleanup, 2026-09-02) — this table used
+// `h-11 px-4`/`h-12 px-4`, visibly taller/wider-padded rows than every
+// other table in the app (`h-[38px] px-3.5`/`h-11 px-3.5`), an
+// inconsistency found while auditing every table for typography drift.
+// Replaced with the shared Th/Td; see DESIGN_TOKENS.md.

@@ -1,7 +1,8 @@
+import { RowActionButton } from '@/components/ui/RowActionButton';
+import { Td } from '@/components/ui/Table';
 import { USER_ROLE_LABELS } from '@/features/users/usersApi';
 
 import type { User } from '@/features/users/usersApi';
-import type { ReactNode } from 'react';
 
 interface UserRowProps {
   user: User;
@@ -30,7 +31,7 @@ export function UserRow({
 }: UserRowProps) {
   return (
     <tr className="border-t border-border">
-      <Td className="font-medium text-white">{user.fullName}</Td>
+      <Td>{user.fullName}</Td>
       <Td>{user.email}</Td>
       <Td>{USER_ROLE_LABELS[user.role]}</Td>
       <Td>
@@ -48,56 +49,22 @@ export function UserRow({
         {user.isActive ? (
           <div className="flex gap-2">
             {user.role === 'collector' && (
-              <RowAction onClick={onEditPermissions}>Permisos</RowAction>
+              <RowActionButton onClick={onEditPermissions}>
+                Permisos
+              </RowActionButton>
             )}
             {isOwnAccount ? (
               <span className="text-meta text-mid">Tu cuenta</span>
             ) : (
-              <RowAction onClick={onDeactivate} tone="subtle">
+              <RowActionButton onClick={onDeactivate} tone="subtle">
                 Desactivar
-              </RowAction>
+              </RowActionButton>
             )}
           </div>
         ) : (
-          <RowAction onClick={onReactivate}>Reactivar</RowAction>
+          <RowActionButton onClick={onReactivate}>Reactivar</RowActionButton>
         )}
       </Td>
     </tr>
-  );
-}
-
-function Td({
-  children,
-  className = '',
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <td className={`h-11 px-3.5 text-small text-muted ${className}`}>
-      {children}
-    </td>
-  );
-}
-
-function RowAction({
-  children,
-  onClick,
-  tone = 'muted',
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  tone?: 'muted' | 'subtle';
-}) {
-  const className = `rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta ${
-    tone === 'subtle'
-      ? 'text-subtle hover:text-muted'
-      : 'text-muted hover:text-white'
-  }`;
-
-  return (
-    <button type="button" onClick={onClick} className={className}>
-      {children}
-    </button>
   );
 }

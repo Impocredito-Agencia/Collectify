@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { ApiError } from '@/lib/apiClient';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
@@ -46,42 +48,33 @@ export function DeleteLoanDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-[420px] rounded-lg border border-border bg-surface px-8 py-7">
-        <h2 className="text-[16px] font-medium text-white">
-          Eliminar préstamo
-        </h2>
-        <p className="mt-2.5 text-small text-muted">
-          ¿Estás seguro de que deseas eliminar {loanLabel}? Esta acción no se
-          puede deshacer desde el panel.
+    <Modal maxWidth="max-w-[420px]">
+      <h2 className="text-[16px] font-medium text-white">Eliminar préstamo</h2>
+      <p className="mt-2.5 text-small text-muted">
+        ¿Estás seguro de que deseas eliminar {loanLabel}? Esta acción no se
+        puede deshacer desde el panel.
+      </p>
+
+      <div className="mt-6 border-t border-border" />
+
+      {error && (
+        <p className="mt-4 text-small text-danger" role="alert">
+          {error}
         </p>
+      )}
 
-        <div className="mt-6 border-t border-border" />
-
-        {error && (
-          <p className="mt-4 text-small text-red-400" role="alert">
-            {error}
-          </p>
-        )}
-
-        <div className="mt-5 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleConfirm()}
-            disabled={isSubmitting}
-            className="rounded border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-small text-red-400 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? 'Eliminando…' : 'Sí, eliminar'}
-          </button>
-        </div>
+      <div className="mt-5 flex items-center justify-end gap-3">
+        <Button variant="secondary" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button
+          variant="danger"
+          onClick={() => void handleConfirm()}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? 'Eliminando…' : 'Sí, eliminar'}
+        </Button>
       </div>
-    </div>
+    </Modal>
   );
 }

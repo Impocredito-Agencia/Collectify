@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
+import { Button } from '@/components/ui/Button';
 import { CloseButton } from '@/components/ui/CloseButton';
+import { Modal } from '@/components/ui/Modal';
 import { ApiError } from '@/lib/apiClient';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
@@ -67,72 +69,60 @@ export function EditLoanDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-[440px] rounded-lg border border-border bg-surface px-8 py-7">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[16px] font-medium text-white">
-            Editar préstamo
-          </h2>
-          <CloseButton onClick={onClose} />
-        </div>
-        <p className="mt-1 text-label text-muted">
-          {loanLabel} · Solo la tasa de interés y la descripción pueden editarse
-          — el monto y el desglose de cuotas ya generaron las cuotas reales,
-          cambiarlos las dejaría inconsistentes.
-        </p>
-
-        <div className="mt-5 border-t border-border" />
-
-        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3.5">
-          <Field label="Incremento consolidado en caso de mora (%)">
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="0.1"
-              value={interestRateInput}
-              onChange={(event) => setInterestRateInput(event.target.value)}
-              className="h-[42px] w-full rounded border border-border bg-input px-3.5 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
-            />
-          </Field>
-
-          <Field label="Descripción (opcional)">
-            <textarea
-              value={descriptionInput}
-              onChange={(event) => setDescriptionInput(event.target.value)}
-              placeholder="Ej: Compra de electrodoméstico…"
-              rows={2}
-              className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
-            />
-          </Field>
-
-          {error && (
-            <p className="text-small text-red-400" role="alert">
-              {error}
-            </p>
-          )}
-
-          <div className="mt-2.5 border-t border-border" />
-
-          <div className="mt-2 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? 'Guardando…' : 'Guardar cambios'}
-            </button>
-          </div>
-        </form>
+    <Modal maxWidth="max-w-[440px]">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[16px] font-medium text-white">Editar préstamo</h2>
+        <CloseButton onClick={onClose} />
       </div>
-    </div>
+      <p className="mt-1 text-label text-muted">
+        {loanLabel} · Solo la tasa de interés y la descripción pueden editarse —
+        el monto y el desglose de cuotas ya generaron las cuotas reales,
+        cambiarlos las dejaría inconsistentes.
+      </p>
+
+      <div className="mt-5 border-t border-border" />
+
+      <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3.5">
+        <Field label="Incremento consolidado en caso de mora (%)">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step="0.1"
+            value={interestRateInput}
+            onChange={(event) => setInterestRateInput(event.target.value)}
+            className="h-[42px] w-full rounded border border-border bg-input px-3.5 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
+          />
+        </Field>
+
+        <Field label="Descripción (opcional)">
+          <textarea
+            value={descriptionInput}
+            onChange={(event) => setDescriptionInput(event.target.value)}
+            placeholder="Ej: Compra de electrodoméstico…"
+            rows={2}
+            className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
+          />
+        </Field>
+
+        {error && (
+          <p className="text-small text-danger" role="alert">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-2.5 border-t border-border" />
+
+        <div className="mt-2 flex items-center justify-end gap-3">
+          <Button variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Guardando…' : 'Guardar cambios'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -145,7 +135,7 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+      <span className="text-[10px] font-normal tracking-normal text-muted">
         {label}
       </span>
       {children}

@@ -6,7 +6,12 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 
+import { Button } from '@/components/ui/Button';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
+import { StatCard } from '@/components/ui/StatCard';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { RowActionButton } from '@/components/ui/RowActionButton';
+import { Td, Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { DOCUMENT_TYPE_LABELS } from '@/features/clients/clientsApi';
 import { useClient } from '@/features/clients/useClients';
@@ -42,7 +47,6 @@ import { formatCurrency, formatDateOnly } from '@/lib/format';
 
 import type { Installment } from '@/features/installments/installmentsApi';
 import type { LoanDetail } from '@/features/loans/loansApi';
-import type { ReactNode } from 'react';
 
 // Matches Figma frame 52:537 ("F-19 / Detalle préstamo — Desktop 1440"),
 // with one addition and one removal — see
@@ -159,7 +163,7 @@ export function LoanDetailPage() {
   if (isError || !loan) {
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-small text-red-400" role="alert">
+        <p className="text-small text-danger" role="alert">
           No se pudo cargar este préstamo.
         </p>
         <Link
@@ -238,14 +242,14 @@ export function LoanDetailPage() {
                 {overdueDays} días
               </span>
             )}
-            <span
-              className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${
+            <StatusBadge
+              tone={
                 newLoanMessage?.status === MessageLogStatus.Sent
-                  ? 'border-[#22c55e] bg-[#051e0e] text-[#22c55e]'
+                  ? 'success'
                   : newLoanMessage?.status === MessageLogStatus.Failed
-                    ? 'border-[#ef4444] bg-[#240a0a] text-[#ef4444]'
-                    : 'border-muted bg-border text-muted'
-              }`}
+                    ? 'danger'
+                    : 'neutral'
+              }
             >
               Mensaje de confirmación:{' '}
               {newLoanMessage?.status === MessageLogStatus.Sent
@@ -253,56 +257,55 @@ export function LoanDetailPage() {
                 : newLoanMessage?.status === MessageLogStatus.Failed
                   ? 'Fallido'
                   : 'No enviado'}
-            </span>
+            </StatusBadge>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            type="button"
+          <Button
             disabled={!oldestPending}
             onClick={() => oldestPending && setPayingInstallment(oldestPending)}
-            className="shrink-0 whitespace-nowrap rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+            className="shrink-0 whitespace-nowrap"
           >
             Registrar pago
-          </button>
+          </Button>
           {selectedInstallments.length >= 2 && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               onClick={() => setIsBulkPaying(true)}
-              className="shrink-0 whitespace-nowrap rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
+              className="shrink-0 whitespace-nowrap"
             >
               Pagar seleccionadas ({selectedInstallments.length})
-            </button>
+            </Button>
           )}
           {isAdmin && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               disabled={loan.status !== LoanStatus.Active}
               onClick={() => setIsPayingOff(true)}
-              className="shrink-0 whitespace-nowrap rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="shrink-0 whitespace-nowrap"
             >
               Liquidar anticipadamente
-            </button>
+            </Button>
           )}
           {isAdmin && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               onClick={() => setIsEditing(true)}
-              className="shrink-0 whitespace-nowrap rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
+              className="shrink-0 whitespace-nowrap"
             >
               Editar
-            </button>
+            </Button>
           )}
           {isAdmin && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               disabled={loan.status !== LoanStatus.Active}
               onClick={() => setIsRefinancing(true)}
-              className="shrink-0 whitespace-nowrap rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="shrink-0 whitespace-nowrap"
             >
               Refinanciar
-            </button>
+            </Button>
           )}
           {isAdmin && (
             <button
@@ -314,7 +317,7 @@ export function LoanDetailPage() {
                   : undefined
               }
               onClick={() => setIsDeleting(true)}
-              className="shrink-0 whitespace-nowrap rounded border border-red-500/30 bg-input px-4 py-2.5 text-small text-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className="shrink-0 whitespace-nowrap rounded border border-danger/30 bg-input px-4 py-2.5 text-small text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Eliminar préstamo
             </button>
@@ -351,30 +354,30 @@ export function LoanDetailPage() {
       )}
 
       <div className="grid grid-cols-6 gap-4">
-        <KpiCard
+        <StatCard
           label="Monto original sin incremento"
           value={formatCurrency(loan.principalAmount)}
         />
-        <KpiCard
+        <StatCard
           label="Saldo pendiente con incremento"
           value={formatCurrency(outstandingBalance)}
         />
         {/* Phase 31 — pure remaining principal, no interest folded in;
             deliberately a separate card from "Saldo pendiente con
             incremento" above, which does include accrued interest. */}
-        <KpiCard
+        <StatCard
           label="Saldo capital a la fecha"
           value={formatCurrency(loan.currentPrincipalBalance)}
         />
-        <KpiCard
+        <StatCard
           label="Cuotas pagadas"
           value={`${installmentsPaid} de ${loan.totalInstallments}`}
         />
-        <KpiCard
+        <StatCard
           label="Próx. pago"
           value={oldestPending ? formatDateOnly(oldestPending.dueDate) : '—'}
         />
-        <KpiCard
+        <StatCard
           label="Incremento consolidado en caso de mora"
           value={`${loan.interestRate}%`}
         />
@@ -408,8 +411,8 @@ export function LoanDetailPage() {
           docs/phasesClient/PHASE_26_CODEBTOR_CLIENT.md. */}
       {loan.coDebtorClient && (
         <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
-          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-            CODEUDOR
+          <span className="text-section-label font-normal tracking-normal text-subtle">
+            Codeudor
           </span>
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-small">
             <DetailField
@@ -462,10 +465,10 @@ export function LoanDetailPage() {
       />
 
       <div className="flex flex-col gap-2.5">
-        <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-          HISTORIAL DE PAGOS
+        <span className="text-section-label font-normal tracking-normal text-subtle">
+          Historial de pagos
         </span>
-        <div className="overflow-hidden rounded bg-surface">
+        <div className="overflow-hidden rounded-lg bg-surface">
           <table className="w-full">
             <thead className="bg-input">
               <tr>
@@ -492,9 +495,7 @@ export function LoanDetailPage() {
                   <Td muted>{index + 1}</Td>
                   <Td>{formatDateOnly(payment.paidAt)}</Td>
                   <Td>{formatCurrency(payment.amountPaid)}</Td>
-                  <Td className="font-normal text-muted">
-                    {payment.observation ?? '—'}
-                  </Td>
+                  <Td muted>{payment.observation ?? '—'}</Td>
                   <Td>
                     {payment.imageUrls.length > 0 ? (
                       <div className="flex items-center gap-1.5">
@@ -679,8 +680,8 @@ function InstallmentsTable({
 
   return (
     <div className="flex flex-col gap-2.5">
-      <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-        CUOTAS
+      <span className="text-section-label font-normal tracking-normal text-subtle">
+        Cuotas
       </span>
       <div className="overflow-x-auto rounded border border-border bg-surface">
         <table className="w-full min-w-max border-collapse">
@@ -697,7 +698,7 @@ function InstallmentsTable({
                     className={`ml-1.5 rounded px-1 py-0.5 text-[9px] font-medium normal-case tracking-normal ${
                       chargeCategoryByName.get(name) ===
                       ConceptCategory.Moratorio
-                        ? 'bg-red-500/15 text-red-400'
+                        ? 'bg-danger/15 text-danger'
                         : 'bg-white/10 text-mid'
                     }`}
                   >
@@ -779,7 +780,7 @@ function InstallmentsTable({
                       ? formatCurrency(installment.interest)
                       : '—'}
                   </Td>
-                  <Td className="font-medium text-white">
+                  <Td>
                     {formatCurrency(
                       installment.status === InstallmentStatus.Pending
                         ? installment.totalDue
@@ -797,8 +798,7 @@ function InstallmentsTable({
                   </Td>
                   <Td>
                     {installment.status === InstallmentStatus.Pending ? (
-                      <button
-                        type="button"
+                      <RowActionButton
                         disabled={installment.id !== oldestPendingInstallmentId}
                         onClick={() => onPay(installment)}
                         title={
@@ -806,10 +806,9 @@ function InstallmentsTable({
                             ? 'Primero debes pagar las cuotas anteriores de este préstamo.'
                             : undefined
                         }
-                        className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-muted"
                       >
                         Pagar
-                      </button>
+                      </RowActionButton>
                     ) : (
                       <span className="text-meta text-mid">—</span>
                     )}
@@ -835,14 +834,12 @@ function installmentStatusLabel(status: InstallmentStatus): string {
   }
 }
 
-function KpiCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-1.5 rounded border border-border bg-surface p-4">
-      <span className="text-label text-muted">{label}</span>
-      <span className="text-kpi font-light text-white">{value}</span>
-    </div>
-  );
-}
+// Local KpiCard removed (style cleanup, 2026-09-02) — was its own third
+// copy of the same "label + big number" card as DashboardPage's and
+// ClientDetailPage's stat grids, with slightly different padding/label
+// size (`p-4`/`text-label` vs `p-5`/`text-small`) than the other two,
+// which already matched each other. Replaced with the shared `StatCard`
+// so all three use one recipe; see DESIGN_TOKENS.md.
 
 // Phase 21 — a single label/value line for the co-debtor section below.
 // Skips rendering entirely when the value is empty, so an optional
@@ -867,40 +864,10 @@ function DetailField({
   );
 }
 
-function Th({
-  children,
-  className = '',
-}: {
-  children?: ReactNode;
-  className?: string;
-}) {
-  return (
-    <th
-      className={`h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted ${className}`}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  className = '',
-  muted = false,
-}: {
-  children: ReactNode;
-  className?: string;
-  muted?: boolean;
-}) {
-  return (
-    <td
-      className={
-        muted
-          ? `h-11 px-3.5 text-small text-mid ${className}`
-          : `h-11 px-3.5 text-small font-medium text-white ${className}`
-      }
-    >
-      {children}
-    </td>
-  );
-}
+// Local Th/Td removed (style cleanup, 2026-09-02) — replaced by the shared
+// components imported above. The old muted `Td` here used `text-mid`, one
+// shade darker than every other table's `text-muted` for the same
+// "secondary column" role — an inconsistency found while auditing every
+// table in the app; see DESIGN_TOKENS.md. If `text-mid` was actually
+// intentional for a specific column, it can take an explicit
+// `className="text-mid"` override instead.

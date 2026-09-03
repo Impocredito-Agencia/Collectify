@@ -1,7 +1,10 @@
 import { useState } from 'react';
 
+import { Button } from '@/components/ui/Button';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { Field } from '@/components/ui/Field';
+import { Modal } from '@/components/ui/Modal';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency } from '@/lib/format';
 import { ImageUploadError, uploadPaymentReceipt } from '@/lib/imageUpload';
@@ -180,146 +183,120 @@ export function BulkRegisterPaymentDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="max-h-[85vh] w-full max-w-[640px] overflow-y-auto rounded-lg border border-border bg-surface px-8 py-7">
-        <h2 className="text-[16px] font-medium text-white">
-          Registrar pago de {installments.length} cuotas
-        </h2>
-        <p className="mt-1 text-label text-muted">{loanLabel}</p>
+    <Modal maxWidth="max-w-[640px]" scroll maxHeight="max-h-[85vh]">
+      <h2 className="text-[16px] font-medium text-white">
+        Registrar pago de {installments.length} cuotas
+      </h2>
+      <p className="mt-1 text-label text-muted">{loanLabel}</p>
 
-        <div className="mt-5 border-t border-border" />
+      <div className="mt-5 border-t border-border" />
 
-        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3.5">
-          <div className="flex gap-4">
-            <Field label="Fecha de pago">
-              <DatePicker
-                value={paidAt}
-                onChange={setPaidAt}
-                className={inputClassName}
-              />
-            </Field>
-            <Field label="Observación (opcional)">
-              <input
-                type="text"
-                value={observation}
-                onChange={(event) => setObservation(event.target.value)}
-                placeholder="Ej: pago recibido en efectivo"
-                className={inputClassName}
-              />
-            </Field>
-          </div>
+      <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3.5">
+        <div className="flex gap-4">
+          <Field label="Fecha de pago">
+            <DatePicker
+              value={paidAt}
+              onChange={setPaidAt}
+              className={inputClassName}
+            />
+          </Field>
+          <Field label="Observación (opcional)">
+            <input
+              type="text"
+              value={observation}
+              onChange={(event) => setObservation(event.target.value)}
+              placeholder="Ej: pago recibido en efectivo"
+              className={inputClassName}
+            />
+          </Field>
+        </div>
 
-          <div className="flex flex-col gap-3">
-            {rows.map((row, index) => (
-              <div
-                key={row.installment.id}
-                className="rounded border border-border bg-input/40 p-3.5"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-small font-medium text-white">
-                    Cuota {row.installment.installmentNumber}
-                  </span>
-                  <span className="text-meta text-muted">
-                    Saldo {formatCurrency(row.installment.totalDue)}
-                  </span>
-                </div>
-                <div className="mt-2.5 flex flex-col gap-2.5">
-                  <Field label="Monto del pago">
-                    <CurrencyInput
-                      value={row.amountPaid}
-                      onChange={(value) => setRowAmount(index, value)}
-                      className={inputClassName}
-                    />
-                  </Field>
-                  <Field label="Fotos del comprobante (opcional)">
-                    {row.images.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-3">
-                        {row.images.map((image, imageIndex) => (
-                          <div
-                            key={image.previewUrl}
-                            className="flex flex-col items-center gap-1"
-                          >
-                            <img
-                              src={image.previewUrl}
-                              alt="Vista previa del comprobante"
-                              className="h-[42px] w-[42px] rounded border border-border object-cover"
-                            />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleRemoveImage(index, imageIndex)
-                              }
-                              className="text-meta text-subtle hover:text-white"
-                            >
-                              Quitar
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(event) => handleFileChange(index, event)}
-                      className="w-full text-control text-muted file:mr-3 file:rounded file:border file:border-border file:bg-input file:px-3 file:py-1.5 file:text-meta file:text-muted hover:file:text-white"
-                    />
-                  </Field>
-                </div>
+        <div className="flex flex-col gap-3">
+          {rows.map((row, index) => (
+            <div
+              key={row.installment.id}
+              className="rounded border border-border bg-input/40 p-3.5"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-small font-medium text-white">
+                  Cuota {row.installment.installmentNumber}
+                </span>
+                <span className="text-meta text-muted">
+                  Saldo {formatCurrency(row.installment.totalDue)}
+                </span>
               </div>
-            ))}
-          </div>
+              <div className="mt-2.5 flex flex-col gap-2.5">
+                <Field label="Monto del pago">
+                  <CurrencyInput
+                    value={row.amountPaid}
+                    onChange={(value) => setRowAmount(index, value)}
+                    className={inputClassName}
+                  />
+                </Field>
+                <Field label="Fotos del comprobante (opcional)">
+                  {row.images.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      {row.images.map((image, imageIndex) => (
+                        <div
+                          key={image.previewUrl}
+                          className="flex flex-col items-center gap-1"
+                        >
+                          <img
+                            src={image.previewUrl}
+                            alt="Vista previa del comprobante"
+                            className="h-[42px] w-[42px] rounded border border-border object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(index, imageIndex)}
+                            className="text-meta text-subtle hover:text-white"
+                          >
+                            Quitar
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(event) => handleFileChange(index, event)}
+                    className="w-full text-control text-muted file:mr-3 file:rounded file:border file:border-border file:bg-input file:px-3 file:py-1.5 file:text-meta file:text-muted hover:file:text-white"
+                  />
+                </Field>
+              </div>
+            </div>
+          ))}
+        </div>
 
-          {error && (
-            <p className="text-small text-red-400" role="alert">
-              {error}
-            </p>
-          )}
+        {error && (
+          <p className="text-small text-danger" role="alert">
+            {error}
+          </p>
+        )}
 
-          <div className="mt-2.5 border-t border-border" />
+        <div className="mt-2.5 border-t border-border" />
 
-          <div className="mt-2 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || isUploadingImages}
-              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isUploadingImages
-                ? 'Subiendo fotos…'
-                : isSubmitting
-                  ? 'Registrando…'
-                  : `Registrar ${installments.length} pagos`}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="mt-2 flex items-center justify-end gap-3">
+          <Button variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="submit" disabled={isSubmitting || isUploadingImages}>
+            {isUploadingImages
+              ? 'Subiendo fotos…'
+              : isSubmitting
+                ? 'Registrando…'
+                : `Registrar ${installments.length} pagos`}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
 const inputClassName =
   'h-[42px] w-full rounded border border-border bg-input px-3.5 text-control text-white placeholder-mid focus:border-subtle focus:outline-none';
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-1 flex-col gap-1.5">
-      <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
-        {label}
-      </span>
-      {children}
-    </div>
-  );
-}
+// Field now lives in @/components/ui/Field — see DESIGN_TOKENS.md's
+// "Component-based centralization" section.

@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Header } from '@/components/layout/Header';
+import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Select } from '@/components/ui/Select';
+import { StatCard } from '@/components/ui/StatCard';
+import { Td, Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { OverdueClientsSortBy } from '@/features/dashboard/dashboardApi';
 import {
@@ -92,7 +95,7 @@ export function DashboardPage() {
       <Header title="Dashboard" subtitle="Resumen general de la cartera" />
 
       <div className="flex flex-col gap-2.5">
-        <span className="text-section-label font-medium tracking-[0.36px] text-muted">
+        <span className="text-section-label font-normal tracking-normal text-subtle">
           KPIS
         </span>
 
@@ -134,8 +137,8 @@ export function DashboardPage() {
 
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
-          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-            CLIENTES EN MORA
+          <span className="text-section-label font-normal tracking-normal text-subtle">
+            Clientes en mora
           </span>
           <div className="flex items-center gap-2">
             <span className="text-label text-muted">Ordenar por</span>
@@ -151,7 +154,7 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded bg-surface">
+        <div className="overflow-hidden rounded-lg bg-surface">
           <table className="w-full">
             <thead className="bg-input">
               <tr>
@@ -176,30 +179,23 @@ export function DashboardPage() {
               )}
               {clients.map((client) => (
                 <tr key={client.clientId} className="border-t border-border">
-                  <td className="h-11 px-3.5 text-small font-medium text-white">
+                  <Td>
                     {client.firstName} {client.lastName}
-                  </td>
-                  <td className="h-11 px-3.5 text-small font-medium text-white">
-                    {formatCurrency(client.totalOverdueAmount)}
-                  </td>
-                  <td className="h-11 px-3.5 text-small text-muted">
-                    {client.overdueInstallmentsCount}
-                  </td>
-                  <td className="h-11 px-3.5">
+                  </Td>
+                  <Td>{formatCurrency(client.totalOverdueAmount)}</Td>
+                  <Td>{client.overdueInstallmentsCount}</Td>
+                  <Td>
                     <span
                       className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(client.maxOverdueDays)}`}
                     >
                       {client.maxOverdueDays} días
                     </span>
-                  </td>
-                  <td className="h-11 px-3.5">
-                    <Link
-                      to={`/clientes/${client.clientId}`}
-                      className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
-                    >
+                  </Td>
+                  <Td>
+                    <RowActionButton to={`/clientes/${client.clientId}`}>
                       Ver
-                    </Link>
-                  </td>
+                    </RowActionButton>
+                  </Td>
                 </tr>
               ))}
             </tbody>
@@ -243,8 +239,8 @@ export function DashboardPage() {
 
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
-          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-            REPORTE MENSUAL
+          <span className="text-section-label font-normal tracking-normal text-subtle">
+            Reporte mensual
           </span>
           <div className="flex items-center gap-2">
             <Select
@@ -295,22 +291,6 @@ export function DashboardPage() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border border-border bg-surface p-5">
-      <p className="text-small text-muted">{label}</p>
-      <p className="mt-1 text-kpi font-light text-white">{value}</p>
-    </div>
-  );
-}
-
-function Th({ children }: { children: ReactNode }) {
-  return (
-    <th className="h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted">
-      {children}
-    </th>
-  );
-}
 
 function EmptyRow({
   children,
@@ -323,7 +303,7 @@ function EmptyRow({
     <tr>
       <td
         colSpan={5}
-        className={`p-6 text-center text-small ${tone === 'error' ? 'text-red-400' : 'text-muted'}`}
+        className={`p-6 text-center text-small ${tone === 'error' ? 'text-danger' : 'text-muted'}`}
       >
         {children}
       </td>

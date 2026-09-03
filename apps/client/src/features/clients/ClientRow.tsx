@@ -1,9 +1,8 @@
-import { Link } from 'react-router-dom';
-
+import { RowActionButton } from '@/components/ui/RowActionButton';
+import { Td } from '@/components/ui/Table';
 import { formatPhoneNumber } from '@/lib/format';
 
 import type { Client } from '@/features/clients/clientsApi';
-import type { ReactNode } from 'react';
 
 interface ClientRowProps {
   client: Client;
@@ -36,7 +35,7 @@ export function ClientRow({
   return (
     <tr className="border-t border-border">
       <Td muted>{rowNumber}</Td>
-      <Td className="font-medium text-white">
+      <Td>
         {client.firstName} {client.lastName}
       </Td>
       <Td>{client.documentNumber}</Td>
@@ -55,77 +54,24 @@ export function ClientRow({
       <Td>
         {isActive ? (
           <div className="flex gap-2">
-            <RowAction to={`/clientes/${client.id}`}>Ver detalle</RowAction>
-            {isAdmin && <RowAction onClick={onEdit}>Editar</RowAction>}
+            <RowActionButton to={`/clientes/${client.id}`}>
+              Ver detalle
+            </RowActionButton>
             {isAdmin && (
-              <RowAction onClick={onDeactivate} tone="subtle">
+              <RowActionButton onClick={onEdit}>Editar</RowActionButton>
+            )}
+            {isAdmin && (
+              <RowActionButton onClick={onDeactivate} tone="subtle">
                 Desactivar
-              </RowAction>
+              </RowActionButton>
             )}
           </div>
         ) : isAdmin ? (
-          <RowAction onClick={onReactivate}>Reactivar</RowAction>
+          <RowActionButton onClick={onReactivate}>Reactivar</RowActionButton>
         ) : (
           <span className="text-meta text-mid">Sin acciones disponibles</span>
         )}
       </Td>
     </tr>
-  );
-}
-
-function Td({
-  children,
-  className = '',
-  muted = false,
-}: {
-  children: ReactNode;
-  className?: string;
-  // The "#" column is the one exception to the white/bold rule below —
-  // using a boolean instead of letting a className override the default
-  // avoids depending on Tailwind's utility ordering to "win".
-  muted?: boolean;
-}) {
-  return (
-    <td
-      className={
-        muted
-          ? `h-11 px-3.5 text-small text-muted ${className}`
-          : `h-11 px-3.5 text-small font-medium text-white ${className}`
-      }
-    >
-      {children}
-    </td>
-  );
-}
-
-function RowAction({
-  children,
-  onClick,
-  to,
-  tone = 'muted',
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-  to?: string;
-  tone?: 'muted' | 'subtle';
-}) {
-  const className = `rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta ${
-    tone === 'subtle'
-      ? 'text-subtle hover:text-muted'
-      : 'text-muted hover:text-white'
-  }`;
-
-  if (to) {
-    return (
-      <Link to={to} className={className}>
-        {children}
-      </Link>
-    );
-  }
-
-  return (
-    <button type="button" onClick={onClick} className={className}>
-      {children}
-    </button>
   );
 }

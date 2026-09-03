@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom';
-
+import { RowActionButton } from '@/components/ui/RowActionButton';
+import { Td } from '@/components/ui/Table';
 import {
   estadoBadge,
   moraBadgeClasses,
@@ -8,7 +8,6 @@ import { LoanStatus } from '@/features/loans/loansApi';
 import { formatCurrency } from '@/lib/format';
 
 import type { LoanSummary } from '@/features/loans/loansApi';
-import type { ReactNode } from 'react';
 
 interface LoanRowProps {
   loan: LoanSummary;
@@ -51,9 +50,11 @@ export function LoanRow({ loan, rowNumber }: LoanRowProps) {
       </Td>
       <Td>
         <div className="flex gap-2">
-          <RowAction to={`/prestamos/${loan.id}`}>Ver</RowAction>
+          <RowActionButton to={`/prestamos/${loan.id}`}>Ver</RowActionButton>
           {hasPendingInstallments ? (
-            <RowAction to={`/prestamos/${loan.id}?pago=1`}>Pago</RowAction>
+            <RowActionButton to={`/prestamos/${loan.id}?pago=1`}>
+              Pago
+            </RowActionButton>
           ) : (
             <span
               className="cursor-not-allowed rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-mid"
@@ -65,38 +66,5 @@ export function LoanRow({ loan, rowNumber }: LoanRowProps) {
         </div>
       </Td>
     </tr>
-  );
-}
-
-function Td({
-  children,
-  className = '',
-  muted = false,
-}: {
-  children: ReactNode;
-  className?: string;
-  muted?: boolean;
-}) {
-  return (
-    <td
-      className={
-        muted
-          ? `h-11 px-3.5 text-small text-muted ${className}`
-          : `h-11 px-3.5 text-small font-medium text-white ${className}`
-      }
-    >
-      {children}
-    </td>
-  );
-}
-
-function RowAction({ children, to }: { children: ReactNode; to: string }) {
-  return (
-    <Link
-      to={to}
-      className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
-    >
-      {children}
-    </Link>
   );
 }

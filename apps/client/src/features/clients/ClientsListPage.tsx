@@ -2,6 +2,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
+import { Button } from '@/components/ui/Button';
+import { FilterTab } from '@/components/ui/FilterTab';
+import { Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { ClientForm } from '@/features/clients/ClientForm';
 import { ClientRow } from '@/features/clients/ClientRow';
@@ -121,20 +124,18 @@ export function ClientsListPage() {
         <div className="flex-1" />
 
         {isAdmin && (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={() => setIsImportDialogOpen(true)}
-            className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
           >
             Importar Excel
-          </button>
+          </Button>
         )}
 
         {isAdmin && (
-          <button
-            type="button"
+          <Button
             onClick={() => setEditingClient('new')}
-            className="flex items-center gap-1.5 rounded bg-white px-4 py-2.5 text-body font-semibold text-background hover:bg-white/90"
+            className="flex items-center gap-1.5"
           >
             {/* An SVG here instead of a literal "+" character — the glyph
                 rendered visibly clipped at the bottom in this font/weight
@@ -152,7 +153,7 @@ export function ClientsListPage() {
               />
             </svg>
             Nuevo cliente
-          </button>
+          </Button>
         )}
       </div>
 
@@ -165,7 +166,7 @@ export function ClientsListPage() {
         />
       )}
 
-      <div className="overflow-hidden rounded bg-surface">
+      <div className="overflow-hidden rounded-lg bg-surface">
         <table className="w-full">
           <thead className="bg-input">
             <tr>
@@ -216,7 +217,7 @@ export function ClientsListPage() {
       </div>
 
       {reactivateError && (
-        <p className="text-small text-red-400" role="alert">
+        <p className="text-small text-danger" role="alert">
           {reactivateError}
         </p>
       )}
@@ -278,22 +279,6 @@ export function ClientsListPage() {
   );
 }
 
-function Th({
-  children,
-  className = '',
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <th
-      className={`h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted ${className}`}
-    >
-      {children}
-    </th>
-  );
-}
-
 function EmptyRow({
   children,
   tone = 'muted',
@@ -305,7 +290,7 @@ function EmptyRow({
     <tr>
       <td
         colSpan={6}
-        className={`p-6 text-center text-small ${tone === 'error' ? 'text-red-400' : 'text-muted'}`}
+        className={`p-6 text-center text-small ${tone === 'error' ? 'text-danger' : 'text-muted'}`}
       >
         {children}
       </td>
@@ -313,27 +298,6 @@ function EmptyRow({
   );
 }
 
-function FilterTab({
-  label,
-  isActive,
-  onClick,
-}: {
-  label: string;
-  isActive: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded px-3 py-[7px] text-small ${
-        isActive ? 'bg-border font-medium text-white' : 'bg-input text-muted'
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
 
 function PageButton({
   children,

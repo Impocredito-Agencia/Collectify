@@ -11,19 +11,119 @@
  * custom needed for those, just use the standard utilities.
  */
 @theme {
-  /* Inter, loaded via Google Fonts in index.html — matches Figma's library
-     (see DESIGN_TOKENS.md). Falls back to the system sans stack if the
-     webfont fails to load. Weights used across the app: 300/400/500/600. */
+  /* Font stack copied 1:1 from linear.app's own computed style (style
+     cleanup, 2026-09-02, third pass) — the client inspected their sidebar
+     directly with devtools and sent the exact `font-family` string.
+     One caveat, not visible from devtools alone: Linear's first name,
+     "Inter Variable", resolves for them because they self-host an actual
+     font file registered under that exact name. We don't — index.html
+     still loads Google Fonts' "Inter" (see its own comment there) — so
+     without a fallback, "Inter Variable" would silently fail to match
+     anything and every browser here would skip straight past it to "SF Pro
+     Display" (Mac-only) and then whatever system font is next, quietly
+     dropping our actual webfont. Inserted 'Inter' right after 'Inter
+     Variable' so it resolves to our real loaded font instead — same
+     practical result as Linear's stack, adjusted for how we load the font.
+     If we ever self-host Inter's true variable binary under the name
+     "Inter Variable" (Linear does; Google Fonts won't serve it under that
+     name), that inserted fallback stops being needed. */
   --font-sans:
-    'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    'Inter Variable', 'Inter', 'SF Pro Display', -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
+    'Open Sans', 'Helvetica Neue', sans-serif;
 
-  --color-background: #0a0a0a; /* Figma: Background — page canvas */
-  --color-surface: #141414; /* Figma: Surface — cards/panels */
-  --color-input: #1f1f1f; /* Figma: Input — form field background */
-  --color-border: #2a2a2a; /* Figma: Border — borders/dividers */
-  --color-mid: #3d3d3d; /* Figma: Mid — placeholders/icons */
-  --color-subtle: #4d4d4d; /* Figma: Subtle — very secondary text */
-  --color-muted: #888888; /* Figma: Text Secondary — subtitles/labels */
+  /* Neutral palette, re-tuned to match Linear's dark theme (style cleanup,
+     2026-09-02) — the client said Linear's blacks/grays looked "nicer" and
+     text read more clearly there, unsure if it was weight, font, or tone.
+     Inspected linear.app's actual computed styles (getComputedStyle over
+     its live DOM) rather than guessing: their page background is #08090A,
+     card surfaces sit at #0F1011 (barely lighter than the page — depth
+     comes from borders/shadow, not a flat gray fill like our old #141414),
+     and — the biggest single factor — body text isn't pure #FFFFFF, it's
+     #F7F8F8 with -webkit-font-smoothing: antialiased. Pure white on
+     near-black has harsh contrast that "vibrates"; the off-white plus
+     antialiasing is most of what reads as "clearer" here. See `white`
+     override and the font-smoothing rule below.
+     `mid` has no direct Linear equivalent (their sampled DOM only exposed
+     two distinct gray text tones) — interpolated between the new `border`
+     and `subtle` to keep icons/placeholders dimmer than either. */
+  --color-background: #08090a; /* was #0a0a0a — Linear's exact page bg */
+  --color-surface: #0f1011; /* was #141414 — Linear's exact card bg, much closer to background */
+  --color-input: #16171a; /* was #1f1f1f — Linear's "alt surface" tone, form fields */
+  --color-border: rgba(255, 255, 255, 0.08); /* was flat #2a2a2a — Linear
+    uses translucent white for every border/divider instead of a fixed gray,
+    so it blends correctly no matter which surface it sits on. Also used as
+    `bg-border` for chip/badge/pill fills app-wide (32 call sites) — those
+    read as soft overlays now instead of flat gray panels, matching
+    Linear's look. Flag this one for a visual pass — translucent fills can
+    read as too faint depending on what's underneath; happy to bump the
+    alpha if anything looks washed out. */
+  --color-mid: #4a4e54; /* was #3d3d3d — interpolated, see note above */
+  --color-subtle: #62666d; /* was #4d4d4d — Linear's dimmer/tertiary text tone, exact value */
+  --color-muted: #8a8f98; /* was #888888 — Linear's secondary text tone (their most-used gray), exact value */
+  /* New rung, sits between `muted` and `white` (style cleanup, 2026-09-02,
+     sixth pass) — client devtools-inspected Linear's own sidebar nav item
+     text directly: #D0D6E0, not the `white` we were using for active items
+     or `muted` for inactive ones. This is Linear's "emphasized secondary"
+     tone — nav item labels, tags, inline emphasis — exact value, not
+     interpolated. See Sidebar.tsx's NavLink for the one place it's used
+     so far. */
+  --color-strong: #d0d6e0;
+
+  /* Overrides Tailwind's built-in `white` (#ffffff) app-wide — every
+     existing `text-white`/`bg-white` utility picks this up automatically,
+     no call sites touched. Linear's primary text color, exact value. */
+  --color-white: #f7f8f8;
+
+  /* Semantic status colors (style cleanup, 2026-09-01) — see
+     apps/client/docs/DESIGN_TOKENS.md "Semantic color tokens" for the full
+     rationale and the "when to use which" guide. These were previously
+     scattered as raw hex (`bg-[#22c55e]`) or Tailwind-default classes
+     (`text-red-400`) copy-pasted across ~35 files — same hex values as
+     before (no visual change for most call sites), just centralized so a
+     future palette change is a one-line edit here instead of a
+     grep-and-replace across the app. `success`/`warning`/`danger` also
+     generate their own Tailwind utilities automatically (`bg-success`,
+     `text-danger/50`, `border-warning`, etc.) since Tailwind v4 derives
+     utilities from every `--color-*` var in `@theme`. */
+  --color-success: #22c55e; /* sent/paid/confirmed states, "0 días" mora tier */
+  --color-success-bg: #051e0e; /* badge background behind `success` text */
+  --color-warning: #eab308; /* "1–30 días" mora tier, unsaved-changes notices */
+  --color-mora-mid: #f97316; /* "31–60 días" mora tier only — no other use */
+  --color-danger: #ef4444; /* failed/blocked/error states, "+60 días" mora tier.
+    Also replaces the ad-hoc Tailwind `red-400`/`red-500` used for form
+    validation errors app-wide — those were a hair lighter (`red-400` is
+    `#f87171`), so this is a deliberate one-shade unification, not a pure
+    rename. */
+  --color-danger-bg: #240a0a; /* badge/banner background behind `danger` text */
+  --color-whatsapp-bg: #0a240a; /* WhatsApp message-bubble preview background
+    (MessageLogDrawer) — a close but genuinely different dark green from
+    `success-bg`, not the same token: this one means "this is a WhatsApp
+    bubble," not "this succeeded." Keep them separate even though they're
+    both dark green. */
+
+  /* Brand accent (visual polish, 2026-09-01) — approximated from Publi
+     Mark's own logo (client's business, shared as a reference image), not
+     invented. Replaces the flat white-on-black "primary action" look with
+     the client's own orange/blue instead of a generic borrowed palette
+     (e.g. a Linear-style violet). `accent` is the single primary-action
+     color per view (main CTA button, active nav item, focus ring);
+     `accent-secondary` is for secondary emphasis (text links, "ver
+     detalle"-style actions) — never both at full saturation in the same
+     spot. If Publi Mark's official brand hex codes turn up later (a style
+     guide, the logo's source file), swap these two lines only — everything
+     that reads `accent`/`accent-secondary` updates automatically. */
+  --color-accent: #f26522; /* Publi Mark orange — primary buttons, active nav, focus ring */
+  --color-accent-hover: #d9591c; /* accent, ~15% darker, for hover/active states */
+  --color-accent-secondary: #3f7fd1; /* Publi Mark blue — links, secondary emphasis */
+
+  /* Elevation (visual polish, 2026-09-01) — the app had no shadow anywhere;
+     every surface sat flush against the page. One soft shadow for panels
+     that should read as "raised" (cards, modals, popovers) — generates the
+     `shadow-card` utility the same way `--color-*` generates color
+     utilities. Not applied to inline/flat elements like table rows or
+     badges — those stay flush on purpose. */
+  --shadow-card: 0 4px 14px rgba(0, 0, 0, 0.35);
 
   --text-h1: 28px;
   --text-kpi: 24px;
@@ -34,13 +134,52 @@
   --text-card-title: 15px;
   --text-body: 13px;
   --text-small: 12px;
+  /* Split off from `text-small` (style cleanup, 2026-09-02, sixth pass) —
+     the client asked specifically that Sidebar nav item labels (Dashboard,
+     Clientes, Préstamos, etc.) get their own token, not share `text-small`
+     with everything else that happens to also be 12px. Value from
+     devtools-inspecting Linear's equivalent nav item directly: 13px, not
+     12. Only Sidebar.tsx's NavLink uses this — don't fold it back into
+     `text-small`. */
+  --text-nav-item: 13px;
   --text-label: 11px;
   --text-meta: 10px;
-  --text-section-label: 9px;
+  /* Bumped 9px → 12px (style cleanup, 2026-09-02, second pass) — the
+     client asked for a literal 1:1 copy of Linear's text after the first
+     pass didn't fully convince. Found Linear's one true analog for an
+     uppercase eyebrow-style label ("POWERING THE COMPANIES BUILDING THE
+     FUTURE") by inspecting their live DOM directly: 12px, weight 400,
+     letter-spacing `normal` — not smaller, not extra-tracked. See the
+     `font-normal`/`tracking-normal` note below for the other half of this. */
+  --text-section-label: 12px;
+  /* Split off from `section-label` (style cleanup, 2026-09-02, fifth pass)
+     — the client asked for these to be treated as a genuinely different
+     thing, not the same token reused: `section-label` is for in-page
+     section headers (Dashboard's "Kpis", ClientDetailPage's "Referencias",
+     etc.), while `nav-group-label` is only the Sidebar's 3 module-group
+     titles ("Menú", "Catálogos", "Administración"). Same 12px value today
+     — this is purely so the two can diverge independently later without a
+     find-and-replace, since the client's already said the other section
+     titles are getting a different format. Don't merge these back. */
+  --text-nav-group-label: 12px;
   /* Not in the library's named type scale, but used inline on every form
      control (inputs, buttons) in the Login component — kept as its own
      token since it'll recur constantly from Phase 3 onward. */
   --text-control: 14px;
+}
+
+/*
+ * Font smoothing (style cleanup, 2026-09-02) — the other half of the
+ * "Linear's text reads more clearly" fix, alongside the `white` override
+ * above. Without this, Chrome/Safari render text with subpixel/grayscale
+ * defaults that look noticeably fuzzier on a near-black background than
+ * Linear's antialiased rendering. Matches what linear.app itself sets on
+ * <body> (inspected directly, same as the palette above).
+ */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /*
@@ -49,16 +188,151 @@
  * doesn't exist anywhere in the Figma palette. Text inputs already set
  * their own `focus:border-*` per component and are unaffected by this.
  *
- * Fix: suppress the default ring, then restore a visible one — styled with
- * our own `subtle` token — only for keyboard navigation (:focus-visible),
- * so mouse clicks stay clean and Tab-navigation stays accessible.
+ * Fix: suppress the default ring, then restore a visible one — only for
+ * keyboard navigation (:focus-visible), so mouse clicks stay clean and
+ * Tab-navigation stays accessible.
+ *
+ * Color corrected (style cleanup, 2026-09-02) — originally every button/
+ * link got the `accent` orange ring unconditionally (visual polish,
+ * 2026-09-01). Client noticed this while Tab-ing through ClientForm:
+ * text inputs focus with a subtle gray border (`focus:border-subtle`),
+ * and `Select`/`DatePicker` are `<button>`s standing in for a form field
+ * — Tab-ing from a Cédula input to the Tipo de documento Select felt like
+ * a jarring gray→orange snap for something that's functionally still "a
+ * field", not an action.
+ *
+ * Client's own proposed rule, which is what's implemented below: default
+ * to the same neutral gray text inputs already use (`subtle`), and
+ * reserve the orange ring exclusively for buttons that are *themselves*
+ * orange (`bg-accent` — i.e. `Button`'s `primary` variant and
+ * LoginPage's "Entrar", the only two `bg-accent` buttons in the app) —
+ * not by role (field vs. action) but by the button's own resting color,
+ * which is simpler to state and to keep correct as new buttons are
+ * added. `bg-accent/15` (Sidebar's active-nav tint) doesn't match
+ * `.bg-accent` as a CSS class selector, so nav items are unaffected —
+ * correct, since a nav link isn't in the "orange button" category either
+ * way, it's a link.
+ *
+ * Extended to checkboxes/file inputs (style cleanup, 2026-09-02, same
+ * day) — client found a second gap while filling out ClientForm's
+ * Documentos section: the raw `<input type="checkbox">` (consent) and
+ * `<input type="file">` (ID photos) never went through this rule at all
+ * — only `button`/`a` did — so they still fell back to the browser's own
+ * default focus ring, a stark solid white/blue box, right next to
+ * buttons and inputs now all using the quiet gray one. Same gap exists
+ * on every other raw checkbox in the app (`ModuleChecklist.tsx`,
+ * `LoanForm.tsx`/`RefinanceLoanForm.tsx`'s co-debtor toggle,
+ * `LoanDetailPage.tsx`'s installment-select checkboxes) and every other
+ * raw file input (`RegisterPaymentDialog.tsx`,
+ * `BulkRegisterPaymentDialog.tsx`, `ImportClientsDialog.tsx`) — grepped
+ * for both `type="checkbox"` and `type="file"` app-wide to confirm this
+ * list is complete. Fixed at the same global level as buttons/links
+ * rather than touching each file, for the same reason: one rule, every
+ * instance, can't drift again.
  */
 button,
-a {
+a,
+input[type='checkbox'],
+input[type='radio'],
+input[type='file'] {
   outline: none;
 }
 button:focus-visible,
-a:focus-visible {
+a:focus-visible,
+input[type='checkbox']:focus-visible,
+input[type='radio']:focus-visible,
+input[type='file']:focus-visible {
   outline: 2px solid var(--color-subtle);
   outline-offset: 2px;
+}
+button.bg-accent:focus-visible {
+  outline-color: var(--color-accent);
+}
+
+/*
+ * Sidebar nav items: inset ring instead of the outward-facing default
+ * (style cleanup, 2026-09-02) — client screenshotted three states
+ * (Dashboard focused above the active Clientes, Clientes active above a
+ * focused Préstamos) and noticed the focus box overlapped the active
+ * item's tinted pill differently depending on which was on top: some of
+ * the active item's `bg-accent/15` bled into the bottom of the ring in
+ * one direction, nothing bled through in the other, but the ring visibly
+ * intruded on the neighbor's pill either way.
+ *
+ * Root cause: `Sidebar.tsx`'s nav items sit only `gap-0.5` (2px) apart,
+ * but the default rule above draws the ring 2px *outside* the element
+ * (`outline-offset: 2px`) and 2px thick — a 4px total reach, twice the
+ * available gap, so it always oversteps into whichever neighbor is on
+ * the other side. Which direction the color "bleeds" differs because
+ * outlines paint in DOM order: a focused item earlier in the list has
+ * its ring painted *before* the active item's own background below it
+ * (so that background paints over the ring, looking like it bleeds in);
+ * a focused item later in the list paints its ring *after* the active
+ * item above it (fully covering that sliver instead). Not a coincidence
+ * the client could fix by nudging pixels — outward rings and sub-4px
+ * gaps don't fit together at all.
+ *
+ * Fixed by switching just this one component to an *inset* ring —
+ * `box-shadow: inset ...` instead of `outline` — which draws entirely
+ * inside the element's own border box no matter how tight the
+ * neighboring gap is, so it can never overlap a sibling regardless of
+ * spacing. Needs its own selector (rather than a Tailwind
+ * `focus-visible:` class on the element) because the plain, unlayered
+ * `a:focus-visible` rule above always wins over Tailwind's own
+ * `@layer utilities` output under CSS's cascade-layer rules, layered
+ * always loses to unlayered regardless of source order or specificity —
+ * so the override has to be more plain CSS, not a utility class.
+ */
+.sidebar-nav-link:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-subtle);
+}
+
+/*
+ * Themed scrollbars (style cleanup, 2026-09-02) — client noticed that
+ * opening `Select.tsx`'s month dropdown (12 options, no max-height) grew
+ * tall enough to push `AppLayout.tsx`'s `<main>` — the app's actual
+ * scrolling container (`overflow-y-auto`) — into needing to scroll itself,
+ * which surfaced the browser's own default scrollbar: light gray, square
+ * corners, nothing like the rest of the app. Two separate problems, both
+ * fixed:
+ *
+ * 1. `Select.tsx`'s option list now has its own `max-h-[264px]
+ *    overflow-y-auto` (see that file) so a long option list scrolls inside
+ *    its own small popover instead of growing tall enough to affect
+ *    anything outside it.
+ * 2. Every OTHER `overflow-y-auto` container in the app (`<main>` itself,
+ *    the 15 Modal/drawer components, the concept-row lists in
+ *    LoanForm/RefinanceLoanForm, WhatsappInboundMessagesPage's message
+ *    list...) still uses the browser's native scrollbar whenever its
+ *    content is actually tall enough to need one — so themed globally
+ *    here rather than patched one container at a time. `scrollbar-width`/
+ *    `scrollbar-color` cover Firefox; the `::-webkit-scrollbar` rules
+ *    cover Chrome/Edge/Safari. Thumb uses `mid` (resting) / `subtle`
+ *    (hover) — the same two tones already used for icons/dimmer text —
+ *    over a transparent track, so an idle scrollbar reads as a faint gray
+ *    sliver rather than a boxed-in UI element, matching Linear's own thin,
+ *    low-contrast scrollbars.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-mid) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-mid);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-subtle);
 }

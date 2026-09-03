@@ -81,7 +81,7 @@ export function AuditLogDrawer({ entry, onClose }: AuditLogDrawerProps) {
         <div className="mt-5 border-t border-border" />
 
         <div className="mt-5 flex flex-col gap-1.5">
-          <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+          <span className="text-[10px] font-normal tracking-normal text-muted">
             DATOS DE LA SOLICITUD
           </span>
           <div className="rounded bg-input p-3">
@@ -104,7 +104,7 @@ export function AuditLogDrawer({ entry, onClose }: AuditLogDrawerProps) {
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+      <span className="text-[10px] font-normal tracking-normal text-muted">
         {label.toUpperCase()}
       </span>
       <span className="text-small text-white">{value}</span>

@@ -2,7 +2,9 @@ import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Select } from '@/components/ui/Select';
+import { Td, Th } from '@/components/ui/Table';
 import { AuditLogDrawer } from '@/features/auditLogs/AuditLogDrawer';
 import {
   formatAuditAction,
@@ -126,7 +128,7 @@ export function AuditLogsPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded bg-surface">
+      <div className="overflow-hidden rounded-lg bg-surface">
         <table className="w-full">
           <thead className="bg-input">
             <tr>
@@ -153,34 +155,28 @@ export function AuditLogsPage() {
                 {/* Was raw "client.create" — meaningless at a glance to
                     anyone who isn't reading the backend's @Audit()
                     decorators. See auditLogLabels.ts. */}
-                <Td className="text-muted">
-                  {formatAuditAction(entry.action)}
-                </Td>
+                <Td muted>{formatAuditAction(entry.action)}</Td>
                 {/* entityLabel ("Juana Pérez (CC 123456)", "Pagaré
                     #743") is what actually answers "which one?" — the
                     entityType alone just says which module. Falls back
                     to the old entityType + short id when no label could
                     be resolved (see AuditLog.entityLabel). */}
-                <Td className="text-muted">
+                <Td muted>
                   {entry.entityLabel ??
                     `${formatAuditEntityType(entry.entityType)}${
                       entry.entityId ? ` · ${entry.entityId.slice(0, 8)}` : ''
                     }`}
                 </Td>
-                <Td className="text-muted">
+                <Td muted>
                   {new Date(entry.createdAt).toLocaleString('es-CO', {
                     dateStyle: 'medium',
                     timeStyle: 'short',
                   })}
                 </Td>
                 <Td>
-                  <button
-                    type="button"
-                    onClick={() => setOpenEntry(entry)}
-                    className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
-                  >
+                  <RowActionButton onClick={() => setOpenEntry(entry)}>
                     Ver detalle
-                  </button>
+                  </RowActionButton>
                 </Td>
               </tr>
             ))}
@@ -229,29 +225,6 @@ export function AuditLogsPage() {
   );
 }
 
-function Th({ children }: { children: ReactNode }) {
-  return (
-    <th className="h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted">
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  className = '',
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <td
-      className={`h-11 px-3.5 text-small font-medium text-white ${className}`}
-    >
-      {children}
-    </td>
-  );
-}
 
 function EmptyRow({
   children,
@@ -264,7 +237,7 @@ function EmptyRow({
     <tr>
       <td
         colSpan={5}
-        className={`p-6 text-center text-small ${tone === 'error' ? 'text-red-400' : 'text-muted'}`}
+        className={`p-6 text-center text-small ${tone === 'error' ? 'text-danger' : 'text-muted'}`}
       >
         {children}
       </td>
