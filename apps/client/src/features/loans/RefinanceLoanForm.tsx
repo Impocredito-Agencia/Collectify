@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 
+import { Button } from '@/components/ui/Button';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { Field, FormSection } from '@/components/ui/Field';
+import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { useClients } from '@/features/clients/useClients';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
@@ -27,6 +30,7 @@ import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner
 import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
+import { inputClassName } from '@/lib/formStyles';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { Client } from '@/features/clients/clientsApi';
@@ -469,8 +473,8 @@ export function RefinanceLoanForm({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-[560px] overflow-y-auto rounded-lg border border-border bg-surface px-8 py-7">
+    <>
+      <Modal maxWidth="max-w-[560px]" scroll>
         <div className="flex items-center justify-between">
           <h2 className="text-[16px] font-medium text-white">
             Refinanciar préstamo
@@ -648,23 +652,20 @@ export function RefinanceLoanForm({
                   />
                 </Field>
                 <Field label="Periodicidad de cuotas">
-                  <select
+                  <Select
                     value={installmentFrequency}
-                    onChange={(event) => {
-                      setInstallmentFrequency(
-                        event.target.value as InstallmentFrequency,
-                      );
+                    onChange={(value) => {
+                      setInstallmentFrequency(value as InstallmentFrequency);
                       setPreview(null);
                     }}
-                    className={inputClassName(false)}
-                  >
-                    <option value={InstallmentFrequency.Monthly}>
-                      Mensual
-                    </option>
-                    <option value={InstallmentFrequency.Biweekly}>
-                      Quincenal
-                    </option>
-                  </select>
+                    options={[
+                      { value: InstallmentFrequency.Monthly, label: 'Mensual' },
+                      {
+                        value: InstallmentFrequency.Biweekly,
+                        label: 'Quincenal',
+                      },
+                    ]}
+                  />
                 </Field>
               </div>
             </FormSection>
@@ -734,7 +735,7 @@ export function RefinanceLoanForm({
                       <button
                         type="button"
                         onClick={() => removeConceptRow(row.rowId)}
-                        className="text-meta text-muted hover:text-red-400"
+                        className="text-meta text-muted hover:text-danger"
                       >
                         Quitar
                       </button>
@@ -822,7 +823,7 @@ export function RefinanceLoanForm({
                       <button
                         type="button"
                         onClick={() => removeMoratoryConceptRow(row.rowId)}
-                        className="text-meta text-muted hover:text-red-400"
+                        className="text-meta text-muted hover:text-danger"
                       >
                         Quitar
                       </button>
@@ -1038,7 +1039,7 @@ export function RefinanceLoanForm({
           </div>
 
           {formError && (
-            <p className="text-small text-red-400" role="alert">
+            <p className="text-small text-danger" role="alert">
               {formError}
             </p>
           )}
@@ -1046,23 +1047,18 @@ export function RefinanceLoanForm({
           <div className="mt-2.5 border-t border-border" />
 
           <div className="mt-2 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
-            >
+            <Button variant="secondary" onClick={onClose}>
               Cancelar
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
               disabled={isSubmitting || !hasUsableUsuryRate}
-              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting ? 'Refinanciando…' : 'Refinanciar préstamo'}
-            </button>
+            </Button>
           </div>
         </form>
-      </div>
+      </Modal>
 
       {showOverdueConfirm && (
         <ConfirmOverdueRefinanceDialog
@@ -1100,7 +1096,7 @@ export function RefinanceLoanForm({
           onClose={() => setNewConceptTypeTarget(null)}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -1123,45 +1119,33 @@ function ConfirmOverdueRefinanceDialog({
   useEscapeKey(onCancel);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-[420px] rounded-lg border border-border bg-surface px-8 py-7">
-        <h2 className="text-[16px] font-medium text-white">
-          Confirmar refinanciamiento
-        </h2>
-        <p className="mt-2.5 text-small text-white">
-          {installmentNumbers.length > 1
-            ? `Las cuotas ${formatInstallmentList(installmentNumbers)} están vencidas o próximas a vencer.`
-            : `La cuota ${formatInstallmentList(installmentNumbers)} está vencida o próxima a vencer.`}
-        </p>
-        <p className="mt-2.5 text-small text-muted">
-          El préstamo actual quedará como "Refinanciado": sus cuotas pendientes
-          se cancelan y a partir de ahí solo queda como historial — no se podrá
-          volver a registrar pagos ni hacer ninguna otra operación sobre él.
-          Esta acción no se puede deshacer.
-        </p>
+    <Modal maxWidth="max-w-[420px]">
+      <h2 className="text-[16px] font-medium text-white">
+        Confirmar refinanciamiento
+      </h2>
+      <p className="mt-2.5 text-small text-white">
+        {installmentNumbers.length > 1
+          ? `Las cuotas ${formatInstallmentList(installmentNumbers)} están vencidas o próximas a vencer.`
+          : `La cuota ${formatInstallmentList(installmentNumbers)} está vencida o próxima a vencer.`}
+      </p>
+      <p className="mt-2.5 text-small text-muted">
+        El préstamo actual quedará como "Refinanciado": sus cuotas pendientes se
+        cancelan y a partir de ahí solo queda como historial — no se podrá
+        volver a registrar pagos ni hacer ninguna otra operación sobre él. Esta
+        acción no se puede deshacer.
+      </p>
 
-        <div className="mt-6 border-t border-border" />
+      <div className="mt-6 border-t border-border" />
 
-        <div className="mt-5 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isSubmitting}
-            className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={isSubmitting}
-            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? 'Refinanciando…' : 'Sí, refinanciar'}
-          </button>
-        </div>
+      <div className="mt-5 flex items-center justify-end gap-3">
+        <Button variant="secondary" onClick={onCancel} disabled={isSubmitting}>
+          Cancelar
+        </Button>
+        <Button onClick={onConfirm} disabled={isSubmitting}>
+          {isSubmitting ? 'Refinanciando…' : 'Sí, refinanciar'}
+        </Button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1174,59 +1158,9 @@ function formatInstallmentList(numbers: number[]): string {
   return `${numbers.slice(0, -1).join(', ')} y ${numbers[numbers.length - 1]}`;
 }
 
-function inputClassName(hasError: boolean): string {
-  const base =
-    'h-[42px] w-full rounded border bg-input px-3.5 text-control text-white placeholder-mid focus:outline-none';
-  return hasError
-    ? `${base} border-red-500 focus:border-red-500`
-    : `${base} border-border focus:border-subtle`;
-}
-
-interface FieldProps {
-  label: string;
-  error?: string;
-  children: React.ReactNode;
-}
-
-function Field({ label, error, children }: FieldProps) {
-  return (
-    <div className="flex flex-1 flex-col gap-1.5">
-      <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
-        {label}
-      </span>
-      {children}
-      {error && (
-        <span className="text-meta text-red-400" role="alert">
-          {error}
-        </span>
-      )}
-    </div>
-  );
-}
-
-// Mirrors ClientForm.tsx's FormSection / LoanForm.tsx's copy of it — same
-// fix, same reason: this form's field labels (10px, muted) all read as one
-// undifferentiated wall of text with no way to tell where one group of
-// fields ends and the next begins. A bold, larger, underlined header per
-// group (reusing the same `text-label` token ClientDetailPage.tsx's
-// "PRÉSTAMOS"/"HISTORIAL DE MENSAJES" headers use) gives each an actual
-// title.
-function FormSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-3.5">
-      <span className="border-b border-border pb-1.5 text-label font-semibold tracking-[0.36px] text-white">
-        {title.toUpperCase()}
-      </span>
-      {children}
-    </div>
-  );
-}
+// inputClassName, Field, and FormSection now live in @/lib/formStyles and
+// @/components/ui/Field — see DESIGN_TOKENS.md's "Component-based
+// centralization" section.
 
 // Same chip treatment ClientForm.tsx's "+ Agregar referencia" fix
 // introduced — a bordered, backgrounded button instead of bare colored

@@ -17,12 +17,12 @@ export function HealthCheckPage() {
       <div className="mt-4 text-small">
         {isLoading && <span className="text-muted">Consultando…</span>}
         {isError && (
-          <span className="text-red-400">
+          <span className="text-danger">
             Error: {error instanceof Error ? error.message : 'desconocido'}
           </span>
         )}
         {data && (
-          <span className="font-medium text-green-500">
+          <span className="font-medium text-success">
             API responde: {data.status}
           </span>
         )}

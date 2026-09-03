@@ -1,10 +1,13 @@
 import { useState } from 'react';
 
+import { Button } from '@/components/ui/Button';
 import { CloseButton } from '@/components/ui/CloseButton';
+import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { ModuleChecklist } from '@/features/users/ModuleChecklist';
 import { USER_ROLE_LABELS } from '@/features/users/usersApi';
 import { ApiError } from '@/lib/apiClient';
+import { inputClassName } from '@/lib/formStyles';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { AppModule, UserRole } from '@/features/auth/authApi';
@@ -126,117 +129,104 @@ export function UserForm({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-[440px] rounded-lg border border-border bg-surface px-8 py-7">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[16px] font-medium text-white">Nuevo usuario</h2>
-          <CloseButton onClick={onClose} />
-        </div>
-
-        <p className="mt-1 text-label text-muted">
-          Solo administradores pueden crear cuentas — no hay autorregistro.
-        </p>
-
-        <div className="mt-5 border-t border-border" />
-
-        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3.5">
-          <Field label="Nombre completo" error={fieldErrors.fullName}>
-            <input
-              required
-              value={fullName}
-              onChange={(event) => {
-                setFullName(event.target.value);
-                setFieldErrors((prev) => ({ ...prev, fullName: undefined }));
-              }}
-              placeholder="Ej: Ana Torres"
-              className={inputClassName(Boolean(fieldErrors.fullName))}
-            />
-          </Field>
-
-          <Field label="Correo electrónico" error={fieldErrors.email}>
-            <input
-              required
-              type="email"
-              value={email}
-              onChange={(event) => {
-                setEmail(event.target.value);
-                setFieldErrors((prev) => ({ ...prev, email: undefined }));
-              }}
-              placeholder="Ej: ana.torres@collectify.com"
-              className={inputClassName(Boolean(fieldErrors.email))}
-            />
-          </Field>
-
-          <Field label="Contraseña" error={fieldErrors.password}>
-            <input
-              required
-              type="password"
-              value={password}
-              onChange={(event) => {
-                setPassword(event.target.value);
-                setFieldErrors((prev) => ({ ...prev, password: undefined }));
-              }}
-              placeholder="Mínimo 8 caracteres"
-              className={inputClassName(Boolean(fieldErrors.password))}
-            />
-          </Field>
-
-          <Field label="Rol">
-            <Select
-              value={role}
-              onChange={(value) => setRole(value as UserRole)}
-              options={ROLE_OPTIONS}
-              className="w-full"
-            />
-          </Field>
-
-          {role === 'collector' && (
-            <Field label="Módulos que puede ver y usar">
-              <ModuleChecklist selected={modules} onChange={setModules} />
-              <span className="mt-1 text-meta text-muted">
-                Sin ninguno marcado, este cobrador no podrá ver ningún módulo —
-                se puede ajustar después desde la lista.
-              </span>
-            </Field>
-          )}
-
-          {formError && (
-            <p className="text-small text-red-400" role="alert">
-              {formError}
-            </p>
-          )}
-
-          <div className="mt-1.5 border-t border-border" />
-
-          <div className="flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? 'Guardando…' : 'Guardar usuario'}
-            </button>
-          </div>
-        </form>
+    <Modal maxWidth="max-w-[440px]">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[16px] font-medium text-white">Nuevo usuario</h2>
+        <CloseButton onClick={onClose} />
       </div>
-    </div>
+
+      <p className="mt-1 text-label text-muted">
+        Solo administradores pueden crear cuentas — no hay autorregistro.
+      </p>
+
+      <div className="mt-5 border-t border-border" />
+
+      <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3.5">
+        <Field label="Nombre completo" error={fieldErrors.fullName}>
+          <input
+            required
+            value={fullName}
+            onChange={(event) => {
+              setFullName(event.target.value);
+              setFieldErrors((prev) => ({ ...prev, fullName: undefined }));
+            }}
+            placeholder="Ej: Ana Torres"
+            className={inputClassName(Boolean(fieldErrors.fullName))}
+          />
+        </Field>
+
+        <Field label="Correo electrónico" error={fieldErrors.email}>
+          <input
+            required
+            type="email"
+            value={email}
+            onChange={(event) => {
+              setEmail(event.target.value);
+              setFieldErrors((prev) => ({ ...prev, email: undefined }));
+            }}
+            placeholder="Ej: ana.torres@collectify.com"
+            className={inputClassName(Boolean(fieldErrors.email))}
+          />
+        </Field>
+
+        <Field label="Contraseña" error={fieldErrors.password}>
+          <input
+            required
+            type="password"
+            value={password}
+            onChange={(event) => {
+              setPassword(event.target.value);
+              setFieldErrors((prev) => ({ ...prev, password: undefined }));
+            }}
+            placeholder="Mínimo 8 caracteres"
+            className={inputClassName(Boolean(fieldErrors.password))}
+          />
+        </Field>
+
+        <Field label="Rol">
+          <Select
+            value={role}
+            onChange={(value) => setRole(value as UserRole)}
+            options={ROLE_OPTIONS}
+            className="w-full"
+          />
+        </Field>
+
+        {role === 'collector' && (
+          <Field label="Módulos que puede ver y usar">
+            <ModuleChecklist selected={modules} onChange={setModules} />
+            <span className="mt-1 text-meta text-muted">
+              Sin ninguno marcado, este cobrador no podrá ver ningún módulo — se
+              puede ajustar después desde la lista.
+            </span>
+          </Field>
+        )}
+
+        {formError && (
+          <p className="text-small text-danger" role="alert">
+            {formError}
+          </p>
+        )}
+
+        <div className="mt-1.5 border-t border-border" />
+
+        <div className="flex items-center justify-end gap-3">
+          <Button variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Guardando…' : 'Guardar usuario'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
-function inputClassName(hasError: boolean): string {
-  const base =
-    'h-[42px] w-full rounded border bg-input px-3.5 text-control text-white placeholder-mid focus:outline-none';
-  return hasError
-    ? `${base} border-red-500 focus:border-red-500`
-    : `${base} border-border focus:border-subtle`;
-}
+// inputClassName now lives in @/lib/formStyles — see DESIGN_TOKENS.md's
+// "Component-based centralization" section. Field stays local here: its
+// layout (no flex-1, always full-width/stacked) differs from the shared
+// component's default row layout.
 
 interface FieldProps {
   label: string;
@@ -247,12 +237,12 @@ interface FieldProps {
 function Field({ label, error, children }: FieldProps) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+      <span className="text-[10px] font-normal tracking-normal text-muted">
         {label}
       </span>
       {children}
       {error && (
-        <span className="text-meta text-red-400" role="alert">
+        <span className="text-meta text-danger" role="alert">
           {error}
         </span>
       )}

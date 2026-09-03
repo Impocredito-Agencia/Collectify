@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
+import { Button } from '@/components/ui/Button';
 import {
   useCloseConversation,
   useConversationState,
@@ -195,7 +196,7 @@ export function WhatsappInboundMessagesPage() {
         />
       </div>
 
-      <div className="flex h-[70vh] overflow-hidden rounded bg-surface">
+      <div className="flex h-[70vh] overflow-hidden rounded-lg bg-surface">
         <div className="flex w-[300px] shrink-0 flex-col overflow-y-auto border-r border-border">
           {isLoading && <SidebarMessage>Cargando…</SidebarMessage>}
           {isError && (
@@ -415,14 +416,14 @@ function ReplyBox({
   return (
     <div className="flex flex-col gap-1.5 border-t border-border pt-3">
       {replyMutation.isError && (
-        <p className="text-meta text-red-400" role="alert">
+        <p className="text-meta text-danger" role="alert">
           {replyMutation.error instanceof ApiError
             ? replyMutation.error.message
             : 'No se pudo enviar la respuesta.'}
         </p>
       )}
       {replyMutation.isSuccess && replyMutation.data === false && (
-        <p className="text-meta text-red-400" role="alert">
+        <p className="text-meta text-danger" role="alert">
           WhatsApp no confirmó el envío — revisá las credenciales de Meta.
         </p>
       )}
@@ -436,14 +437,13 @@ function ReplyBox({
           placeholder="Escribí una respuesta…"
           className="h-[38px] flex-1 rounded bg-input px-3 text-small text-white placeholder-mid focus:outline-none"
         />
-        <button
-          type="button"
+        <Button
           onClick={handleSend}
           disabled={replyMutation.isPending || !draft.trim()}
-          className="h-[38px] rounded bg-white px-4 text-small font-medium text-background disabled:opacity-50"
+          className="h-[38px]"
         >
           {replyMutation.isPending ? 'Enviando…' : 'Enviar'}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -458,7 +458,7 @@ function SidebarMessage({
 }) {
   return (
     <p
-      className={`p-4 text-small ${tone === 'error' ? 'text-red-400' : 'text-muted'}`}
+      className={`p-4 text-small ${tone === 'error' ? 'text-danger' : 'text-muted'}`}
     >
       {children}
     </p>

@@ -85,7 +85,7 @@ export function MessageTemplatesPage() {
 
       {isLoading && <p className="text-small text-muted">Cargando…</p>}
       {isError && (
-        <p className="text-small text-red-400" role="alert">
+        <p className="text-small text-danger" role="alert">
           No se pudieron cargar las plantillas.
         </p>
       )}
@@ -122,7 +122,7 @@ export function MessageTemplatesPage() {
         {templates?.map((template) => (
           <div
             key={template.id}
-            className="flex flex-col gap-3.5 rounded bg-surface p-5"
+            className="flex flex-col gap-3.5 rounded-lg bg-surface p-5"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-card-title font-medium text-white">
@@ -240,7 +240,7 @@ function FamilyCronControl({
         <div className="flex items-center gap-2">
           <span
             className={`size-2 shrink-0 rounded-full ${
-              cronStatus?.running ? 'bg-[#22c55e]' : 'bg-[#eab308]'
+              cronStatus?.running ? 'bg-success' : 'bg-warning'
             }`}
           />
           <span className="text-small font-medium text-white">
@@ -329,11 +329,11 @@ function FamilyCronControl({
           </button>
         </div>
         {isDirty && (
-          <span className="text-meta text-[#eab308]">Cambios sin guardar</span>
+          <span className="text-meta text-warning">Cambios sin guardar</span>
         )}
       </form>
       {scheduleError && (
-        <p className="text-meta text-red-400">{scheduleError}</p>
+        <p className="text-meta text-danger">{scheduleError}</p>
       )}
     </div>
   );

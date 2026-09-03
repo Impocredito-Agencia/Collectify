@@ -30,6 +30,26 @@ export function getInitials(fullName: string): string {
   return `${first?.charAt(0) ?? ''}${second?.charAt(0) ?? ''}`.toUpperCase();
 }
 
+// Sidebar footer's name+role column is only ~130-140px wide (style
+// cleanup, 2026-09-02) — a plain CSS `truncate` cuts a long full name off
+// mid-character ("Juan Miguel Rincón H..."), which the client said looked
+// bad. Rather than guess a pixel-perfect fit, this abbreviates only the
+// LAST word to an initial once the name is long enough to likely overflow
+// ("Juan Miguel Rincón Hernández" → "Juan Miguel Rincón H."), and leaves
+// short names untouched. The 20-char threshold is an approximation (~6px
+// average character width at the column's 11px font, ~130px budget), not
+// a measured pixel fit — `truncate` stays on the span as a safety net for
+// any name that's still too wide after this.
+export function formatSidebarName(fullName: string): string {
+  const trimmed = fullName.trim();
+  const parts = trimmed.split(/\s+/);
+  if (trimmed.length <= 20 || parts.length <= 1) {
+    return trimmed;
+  }
+  const last = parts[parts.length - 1];
+  return `${parts.slice(0, -1).join(' ')} ${last.charAt(0)}.`;
+}
+
 // Renders a date-ONLY string ('YYYY-MM-DD' — disbursedAt, installment
 // dueDate, payment paidAt: all Postgres 'date' columns, no time-of-day) for
 // display. `new Date('2026-10-01')` parses that as UTC midnight; calling

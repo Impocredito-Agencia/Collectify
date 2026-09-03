@@ -235,19 +235,35 @@ export function DatePicker({
 
   return (
     <div ref={containerRef} className="relative">
+      {/* Trigger hover added (style cleanup, 2026-09-02), then corrected
+          same day — same gap as Select.tsx's closed trigger before its
+          own fix: this button opens a popover, same as Select does, but
+          had no hover state at all. First attempt copied Select's
+          `hover:bg-border hover:text-strong` verbatim, but Select's own
+          resting text is `text-muted` (dimmer than `text-strong`), while
+          every DatePicker call site's `className` sets `text-white` for
+          the filled-in value (`inputClassName`/`formStyles.ts`) —
+          `text-strong` (#D0D6E0) is dimmer than white, so on hover the
+          date text visibly *darkened*, the opposite of the intended
+          effect. Client caught this. Dropped `hover:text-strong` from
+          the button itself; kept `hover:bg-border` for the box. The icon
+          keeps its own `group-hover:text-strong` — its resting color is
+          always the dimmer `text-mid` regardless of call site, so
+          brightening it on hover is correct everywhere, unlike the value
+          text whose resting color isn't ours to assume. */}
       <button
         type="button"
         aria-label={ariaLabel}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((current) => !current)}
-        className={`flex items-center justify-between gap-2 text-left focus:outline-none ${className}`}
+        className={`group flex items-center justify-between gap-2 text-left hover:bg-border focus:outline-none ${className}`}
       >
         <span className={value ? '' : 'text-mid'}>
           {value ? formatDateOnly(value) : placeholder}
         </span>
         <svg
-          className="size-3.5 shrink-0 text-mid"
+          className="size-3.5 shrink-0 text-mid transition-colors group-hover:text-strong"
           viewBox="0 0 20 20"
           fill="none"
           stroke="currentColor"

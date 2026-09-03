@@ -10,23 +10,904 @@ The dark neutral palette is custom (not a Tailwind default scale) — defined as
 
 | Token | Hex | Figma name | Use |
 |---|---|---|---|
-| `background` | `#0A0A0A` | Background | Page canvas |
-| `surface` | `#141414` | Surface | Cards / panels |
-| `input` | `#1F1F1F` | Input | Form field background |
-| `border` | `#2A2A2A` | Border | Borders / separators |
-| `mid` | `#3D3D3D` | Mid | Placeholders / icons |
-| `subtle` | `#4D4D4D` | Subtle | Very secondary text |
-| `muted` | `#888888` | Text Secondary | Subtitles / labels |
-| — | `#FFFFFF` | Text Primary | Use Tailwind's built-in `white` — no custom token |
+| `background` | `#08090A` | Background | Page canvas |
+| `surface` | `#0F1011` | Surface | Cards / panels |
+| `input` | `#16171A` | Input | Form field background |
+| `border` | `rgba(255,255,255,0.08)` | Border | Borders / separators / `bg-border` chip fills |
+| `mid` | `#4A4E54` | Mid | Placeholders / icons |
+| `subtle` | `#62666D` | Subtle | Very secondary text |
+| `muted` | `#8A8F98` | Text Secondary | Subtitles / labels |
+| `white` (override) | `#F7F8F8` | Text Primary | Overrides Tailwind's built-in `white` — every existing `text-white` picks this up automatically |
 
-**Status/severity colors are Tailwind's own defaults — no custom tokens needed:**
+**Font stack copied 1:1 (style cleanup, 2026-09-02, third pass):** the
+client inspected Linear's actual product sidebar with their own browser
+devtools (not the marketing site this time — their live app) and sent the
+exact computed `font-family` string:
+`"Inter Variable", "SF Pro Display", -apple-system, BlinkMacSystemFont,
+"Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica
+Neue", sans-serif`. Copied into `--font-sans` in `index.css`, with one
+addition: `'Inter'` inserted right after `'Inter Variable'`. Linear's first
+name resolves for them because they self-host a font file actually
+registered as "Inter Variable" — we still load Google Fonts' "Inter" (see
+`index.html`), which is a different registered name, so without the
+fallback the whole first name would silently miss and every browser here
+would fall through to system fonts instead of our webfont. Same devtools
+comparison also showed Linear's real sidebar group-label color is
+`#62666D` (our `subtle` token) — dimmer than the `muted` token this app's
+section labels used at the time. Client confirmed to apply it: every
+`text-section-label` usage app-wide (Sidebar, Dashboard, ClientDetailPage,
+LoanDetailPage — LoginPage's already used `subtle`) now pairs with
+`text-subtle` instead of `text-muted`, overriding the marketing-site-based
+guess from the previous pass with this more direct product evidence.
 
-| Meaning | Tailwind class | Hex (confirmed matches Figma) |
-|---|---|---|
-| Sin mora / al día / activo | `green-500` | `#22C55E` |
-| Mora baja | `yellow-500` | `#EAB308` |
-| Mora media | `orange-500` | `#F97316` |
-| Mora crítica / fallido | `red-500` | `#EF4444` |
+**Sentence case, not all-caps (style cleanup, 2026-09-02, fourth pass):**
+every `text-section-label` string in the app was hardcoded ALL CAPS
+("MENÚ", "KPIS", "REFERENCIAS", "HISTORIAL DE PAGOS", etc.) — the client
+said this read badly and asked for sentence case (first letter capital,
+rest lowercase) instead. Changed all of them, plus removed
+`item.groupLabel.toUpperCase()` in `Sidebar.tsx` (the source strings
+'Catálogos'/'Administración' were already in the requested casing — the
+`.toUpperCase()` call was actively undoing that). One deliberate literal
+follow of the instruction worth flagging: Dashboard's "KPIS" became "Kpis"
+rather than "KPIs" — technically an odd rendering of a well-known acronym,
+kept as asked rather than silently overridden; easy one-line revert if the
+client wants "KPIs" preserved instead.
+
+**Sidebar footer: two real rows instead of one shared row (style cleanup,
+2026-09-02, tenth→eleventh pass):** first attempt pinned Salir with
+`absolute bottom-3 right-3.5` against a `relative` row so it would sit
+next to the role line without eating into the name's width — worked for
+width, but the client caught the icon sitting 1-2px off from the role
+text's actual line (an absolute offset tuned by eye can't precisely match
+another element's real line box), and the name still wasn't reaching the
+full row width. Replaced with a structural fix instead of a better guess:
+name (with the avatar) and role (with Salir) are now two genuinely
+separate flex rows (`flex-col` on the outer wrapper), each sized and
+aligned independently.
+- Name's row has nothing else in it, so it takes the row's full width —
+  no more shared budget with Salir at all.
+- Role's row has Salir as a true flex sibling with `items-center`, so
+  they're vertically centered against each other exactly, the same
+  mechanism every nav item already uses for its own icon+label — nothing
+  to manually offset or get slightly wrong.
+- The role row gets `pl-[34px]` (avatar's 26px + the row's 8px gap) so
+  the role text still lines up visually under the name, matching the
+  original layout.
+- Role is now plain text, not a second link to `/perfil` — the name row
+  above already covers navigating to the profile page; duplicating that
+  as a second link on the role row would've been redundant.
+
+**Sidebar footer height trimmed (style cleanup, 2026-09-02, twelfth
+pass):** the two-row split above fixed alignment but made the block
+visibly taller — the 26px avatar used to be centered against the combined
+2-line name+role block (~36px, taller than the avatar, so it added no
+extra height on its own), but now sits alone in the name row and directly
+sets that row's height, plus there's a real gap between the two rows that
+didn't exist as added height before. `py-3` → `py-2` on the outer wrapper
+brings total height back down close to the original ~60px.
+
+**Sidebar footer: avatar re-centered against both lines, lines pulled
+tighter (style cleanup, 2026-09-02, thirteenth pass):** `py-2` alone
+wasn't enough — the client wanted the avatar back to visually centering
+between the name and role lines (as it did originally) and the two lines
+themselves closer together. The two-row split from the eleventh pass had
+made the avatar center against the name line alone (looked squashed to
+the top) since it was nested inside that row specifically. Restructured
+so the avatar is a sibling of a name+role column instead of being nested
+inside the name's own link — `items-center` on the outer row now centers
+it against the column's full 2-line height again, and the column's
+internal gap dropped to `gap-0`. Only the name text itself is a `NavLink`
+now (not the avatar, which is purely decorative) — Salir still can't
+nest inside any `<a>`, so this was the minimal restructure that restores
+the original centering without reintroducing that problem. One real
+behavior change: clicking the avatar no longer navigates to `/perfil`,
+only the name text does — flagged, not hidden; the name is still a large
+target right beside it.
+
+**Sidebar footer: fourteenth pass was wrong, reverted (style cleanup,
+2026-09-02):** tried `leading-none` on the name/role lines to fix the
+avatar's apparent low position, reasoning it was a line-height/visual-vs-
+geometric-center mismatch. The client caught it immediately: the avatar
+didn't move at all, and the name/role lines lost their normal spacing and
+looked broken/cramped. Reverted both `leading-none` additions in full.
+
+**Sidebar wordmark: faceted-diamond mark replaces the plain "C" (style
+cleanup, 2026-09-02, sixteenth pass):** client wanted the sidebar's
+letter-in-a-box mark replaced with something more original, with "más
+trasfondo" — pointed to Linear's mark (layered shapes at different
+opacities reading as one form with real depth) as the reference, not
+another flat line icon. Landed on a faceted diamond after showing several
+concepts (magnet, check-tag, bar chart, cycle, linked rings, stacked
+cards, then a second, more abstract round: pinwheel, diamond chip, signal
+rings, tilted stack) — the diamond read as the best fit for a shop selling
+phones/computers/printers/invoicing software: gem-cutting facets doubling
+as a chip/circuit motif for the tech side of the business. `CollectifyMark`
+in Sidebar.tsx: 4 triangular facets of the same white, each a different
+`fill-opacity` (0.22/0.95/0.55/0.75), which is what creates the layered
+depth instead of a flat single-tone icon. Sized `size-6` inside the
+existing `size-7` tile (barely any margin) per the client's ask to use the
+whole card, not a small icon centered with a lot of empty space around it.
+Tile background changed from flat `bg-white` to `bg-input` (#16171a) —
+reusing the existing "next surface up" token instead of introducing a new
+one-off hex, and it reads better against the dark sidebar than a stark
+white square did.
+
+**Wordmark: shared across Sidebar and LoginPage, Sidebar header enlarged
+(style cleanup, 2026-09-02, seventeenth pass):** two follow-ups once the
+diamond mark was confirmed. First, `CollectifyMark` moved out of
+Sidebar.tsx into `components/ui/CollectifyMark.tsx` (same pattern as
+`CloseButton.tsx` — a small shared UI component with a `className` prop
+for sizing) so LoginPage.tsx could use the same mark instead of keeping
+its own separate "C" tile; LoginPage's tile also switched from `bg-white`
+to `bg-input` for the same reason as the Sidebar's. Second, the client
+compared the Sidebar header against a screenshot and pointed out how much
+of the card's own width/height sat empty around a small logo + name.
+Sidebar's tile went `size-7` → `size-9`, its `CollectifyMark` → `size-7`,
+and "Collectify" → `text-[19px]` (was `text-[15px]`), `gap-2.5` →
+`gap-3` — row padding (`p-5`) untouched.
+
+**Sidebar header: sized up again (style cleanup, 2026-09-02, eighteenth
+pass):** client asked for another size increase after the seventeenth
+pass. Tile `size-9` → `size-10`, `CollectifyMark` → `size-8`, "Collectify"
+`text-[19px]` → `text-[22px]`. Same row padding/gap as the seventeenth
+pass, untouched.
+
+**Sidebar header: row height brought back down (style cleanup,
+2026-09-02, nineteenth pass):** the row's height is just its content plus
+padding, so growing the logo/text across the seventeenth/eighteenth passes
+grew the row's own height along with it. Client wants the row shorter
+without shrinking the logo/text back down — so only the vertical padding
+came down: `p-5` → `px-5 py-3`. Horizontal padding and the divider right
+below the row are untouched. Tile stays `size-10`, `CollectifyMark`
+`size-8`, "Collectify" `text-[22px]`.
+
+**Sidebar header: logo+wordmark centered in the row (style cleanup,
+2026-09-02, twentieth pass):** at this size the logo+wordmark no longer
+come close to filling the row's 220px width, so left-aligning them (the
+flex row's default, since it's the only thing in the row) read as
+lopsided — all the leftover space sitting on the right, pulling the whole
+lockup visually toward the left edge. Added `justify-center` to the row.
+
+**Sidebar header: dropped the tile around the mark (style cleanup,
+2026-09-02, twenty-first pass):** after centering, the client felt the
+lockup now leaned right instead. The `bg-input` tile (`size-10`) was
+bigger than the mark itself (`size-8`), so it added a bit of padding-driven
+weight on the icon side that the wordmark side didn't have — enough to
+throw off the centering by eye even though the row itself was genuinely
+centered. Removed the tile div; `CollectifyMark` now sits directly in the
+row at the same `size-8`, no background/container. The mark's white fill
+still reads fine straight against the sidebar's own dark background.
+
+**Sidebar header: centering reverted (style cleanup, 2026-09-02,
+twenty-second pass):** client compared the centered header against a
+screenshot of the full sidebar and didn't like it against every nav item
+below it, which are all left-aligned — a centered header over a
+left-aligned list read as more "off" than a header that simply isn't
+full-width. Removed `justify-center`, back to the row's default left
+alignment. The twenty-first pass's tile-less mark is unaffected and stays.
+LoginPage's own lockup was left
+at its original `size-7`/`text-body` scale — that card's visual scale is
+set by the Figma-matched heading below it (frame 16:2), not this logo row,
+and the client's size complaint was specifically about the Sidebar.
+
+**Cross-app centralization: tables and KPI/stat cards (style cleanup,
+2026-09-02):** client's ask this round wasn't a single screen — noticed
+Linear's consistency came partly from reusing the same few text
+size/color combinations everywhere, and asked to find every *repeated UI
+pattern* across the app (tables, KPI cards) and bring each one to a single
+typography recipe, using judgment rather than being handed a list of
+screens.
+
+Audited every `<table>` in the app (13 files) and every "label + big
+number" card. Two shared components came out of it:
+
+- `components/ui/Table.tsx` — `Th`/`Td`, matching the majority pattern
+  already shared byte-for-byte between `ClientRow.tsx` and `LoanRow.tsx`
+  (`Th`: `h-[38px] px-3.5 text-left text-label font-normal
+  tracking-normal text-muted`; `Td`: `h-11 px-3.5 text-small`, either
+  `font-medium text-white` by default or `text-muted` with a `muted`
+  prop for the row's secondary columns).
+- `components/ui/StatCard.tsx` — the "label + big number" card
+  (`text-small text-muted` label, `text-kpi font-light text-white`
+  value), already byte-identical between DashboardPage's and
+  ClientDetailPage's local copies.
+
+The audit found real drift, not just duplication — 8 separate local
+`Th`/`Td` pairs (`ClientsListPage`/`ClientRow`, `LoansListPage`/`LoanRow`,
+`UsersListPage`/`UserRow`, `AuditLogsPage`, `MessageLogsPage`,
+`LoanDetailPage`, `LoanQuotePage`) plus `ClientDetailPage`'s tables using
+no component at all (repeated inline `<td className="...">`), and
+`DashboardPage`'s second table doing the same. Once compared side by
+side:
+
+- `LoanQuotePage` used `h-11 px-4`/`h-12 px-4` — visibly taller,
+  wider-padded rows than every other table's `h-[38px] px-3.5`/`h-11
+  px-3.5`.
+- `UsuryRatesPage` had no size/color tokens at all — plain `px-5 py-3`,
+  default text color, no `bg-input` table header.
+- `LoanDetailPage`'s muted `Td` used `text-mid`, one shade darker than
+  every other table's `text-muted` for the same "secondary column" role.
+- `UsersListPage`'s `Td` had no `muted` prop — muted was the default and
+  the one white/bold column was reached with a className override, the
+  opposite API from `ClientRow`/`LoanRow`.
+- `AuditLogsPage`/`MessageLogsPage`'s `Td` had no `muted` prop either —
+  secondary columns got `className="text-muted"` layered on top of the
+  default `font-medium`, so those cells were bold-and-muted instead of
+  the regular-weight-and-muted every other table uses for that role.
+- `LoanDetailPage` also had its own third copy of the KPI card
+  (`KpiCard`, `p-4`/`text-label`/`gap-1.5`) — close to but not the same
+  as `StatCard`'s `p-5`/`text-small`/`mt-1`.
+
+Every table/card above now imports the shared component; the local
+copies are gone. Three compact installment-preview tables inside modals
+(`PayoffDialog`, `LoanForm`, `RefinanceLoanForm` — `text-meta`, `py-0.5`
+rows, no header background) were left as they are: they're already
+byte-identical to each other, and deliberately denser/smaller than a
+primary list table since they're a quick schedule preview inside a
+dialog, not a browsable table — a genuinely different pattern, not
+drift.
+
+**FilterTab: centralized + background matched to Linear's inspected value
+(style cleanup, 2026-09-02):** client pasted 7 devtools captures from
+Linear (a date-group label, a card title, a body paragraph, a relative
+timestamp, the "Popular" filter tab, an issue-row title, and an activity-
+feed line) asking for our own modules to be brought in line with them.
+Went looking for real matches rather than guessing at all seven at once.
+The clearest, concretely evidenced one: `ClientsListPage`'s and
+`UsersListPage`'s "Todos/Activos/Inactivos" tabs (byte-identical local
+`FilterTab` in both files) already matched Linear's "Popular" tab almost
+exactly — same 12px/`text-muted` at rest — except the background:
+Linear's inspected resting background is `#FFFFFF08` (~3% white wash),
+ours was a flat opaque `bg-input` (#16171a). Centralized into
+`components/ui/FilterTab.tsx` and switched the inactive background to
+`bg-white/[0.03]`, matching the inspected value; the active tab's
+`bg-border` (rgba(255,255,255,0.08)) already used the same "translucent
+wash" idea, just stronger, so it was left alone.
+
+The other six captures don't have an equally direct match in this app yet
+(a date-group divider, a 15px descriptive paragraph, a relative
+timestamp, an issue-row title, an activity-feed line — none of these UI
+shapes exist verbatim in Collectify's current screens), so nothing was
+force-fit to them. Flagged for the client rather than guessed at.
+
+**Table column headers: font size matched to a devtools-inspected Linear
+header (style cleanup, 2026-09-02):** client is now going module by
+module, comparing real devtools captures against our screens one element
+at a time, starting with Dashboard's table. Inspected a real Linear
+column header directly: 12px, `#8A8F98`. Our shared `Th`
+(`components/ui/Table.tsx`) already used that exact hex for color
+(`text-muted`) — only the size was off, `text-label` (11px) instead of
+`text-small` (12px). Changed once in the shared component, which is what
+propagates it to all 13 tables across the app that import it — this is
+the concrete payoff of the table-centralization pass earlier today: a
+column-header fix is now a one-line edit instead of a per-table sweep.
+Left the three compact modal preview tables (`PayoffDialog`, `LoanForm`,
+`RefinanceLoanForm`) untouched — they don't use the shared `Th`, by
+design (see the table-centralization entry above): they're a smaller,
+denser pattern for a quick installment-schedule preview inside a dialog,
+not a browsable list table.
+
+**Table cell content: default color matched to a devtools-inspected
+Linear cell (style cleanup, 2026-09-02):** same module-by-module pass,
+next capture — a real Linear table cell inspected directly: 12px (already
+matched, `text-small`), color `#D0D6E0`. That's the existing `strong`
+token, not pure white — so even Linear's "primary" cell content isn't
+full white. Changed the shared `Td`'s default (non-`muted`) branch from
+`text-white` to `text-strong` in `components/ui/Table.tsx`; propagates to
+all 13 tables. `muted` branch (`text-muted`, #8A8F98) untouched — this
+capture was about the cell that *isn't* the secondary/muted one.
+
+**Dashboard overdue-clients table: "Cuotas vencidas" un-muted (style
+cleanup, 2026-09-02):** client compared the live table against the
+previous change and pointed out "Cuotas vencidas" still looked visually
+set apart from "Cliente"/"Monto total en mora" — it had `muted` set,
+those didn't. Not a design decision, just a pre-existing per-column
+choice on this one table that predates today's pass. Removed `muted` on
+that cell so all three columns render the same `text-strong` cell color.
+"Días de mora" (badge) and "Acciones" (button) are unaffected — they're
+not plain `Td` text, they have their own explicit colors.
+
+**Clientes table: name column stuck on white (style cleanup,
+2026-09-02):** client noticed the "Nombre" column in the Clientes table
+still looked different from the rest after the `Td` default color change
+above. Cause: `ClientRow.tsx` had a leftover
+`className="font-medium text-white"` on that one cell, from before
+`Td`'s own default was white — a redundant override at the time, but
+once `Td`'s default became `text-strong` it silently pinned this one
+column back to white while every other default cell in the app moved to
+`text-strong`. Removed the override; swept the rest of the app for the
+same leftover pattern (`grep` for `text-white` on a `Td` className) and
+found no other occurrences — this was the only one.
+
+**Full table sweep for anything else fighting the shared tokens (style
+cleanup, 2026-09-02):** client asked to check every table in the app at
+once for the same class of problem, rather than one-by-one. Checked
+three things across all 13 tables:
+
+1. Any `Td`/`Th` `className` override reintroducing `text-white` /
+   `text-muted` / `text-strong` / `font-medium` on top of the shared
+   defaults — none found beyond the Clientes name column already fixed
+   above.
+2. Whether each table's `muted` choices are internally consistent with
+   tables of the same shape. Found one: `UsersListPage` — "Correo" and
+   "Rol" were `muted`, while the two structurally equivalent "management
+   list" tables (`ClientsListPage`: Documento/Teléfono, `LoansListPage`:
+   Pagaré/Cliente/montos) render their equivalent detail columns at full
+   `text-strong`, not muted — only the "#" row-number column is muted in
+   either. This wasn't something introduced during today's centralization;
+   `UsersListPage`'s columns were already muted-by-default before, and
+   the earlier pass preserved that existing look rather than judging it.
+   Un-muted "Correo"/"Rol" in `UserRow.tsx` to match the other two
+   management-list tables. (`AuditLogsPage`/`MessageLogsPage` are a
+   different table shape — one clear identifier column plus several
+   metadata columns — and keep their own muted metadata columns; that's
+   internally consistent within that family and wasn't touched.)
+3. Any remaining raw `<th className>`/`<td className>` outside the three
+   compact modal preview tables — none found; all 13 primary tables now
+   go through the shared `Th`/`Td`.
+
+**Select: closed trigger had no hover state at all (style cleanup,
+2026-09-02):** client compared Dashboard's "Ordenar por" and
+month/year dropdowns against Linear's — ours didn't light up at all on
+hover, box or text. Linear's does both: text goes `#8A8F98` → `#D0D6E0`
+(muted → strong, not all the way to white), and the box itself lights up
+too. `components/ui/Select.tsx`'s trigger `<button>` had zero `hover:`
+classes — only the *open* option list had one (`hover:bg-border
+hover:text-white`). Added `hover:bg-border hover:text-strong` to the
+trigger, reusing the same `bg-border` wash the option list's own hover
+already uses rather than inventing a new box color, plus `group`/
+`group-hover` so the chevron icon lights up together with the label. This
+is a single shared component (`LoansListPage`, `MessageLogsPage`,
+`ClientForm`, `LoanForm`, Dashboard's sort/month/year — every dropdown in
+the app), so the fix applies everywhere at once.
+
+**Row action buttons ("Ver", "Editar", "Reintentar"...): same hover gap
+as Select, same fix, plus new `RowActionButton` component (style cleanup,
+2026-09-02):** client compared the same Dashboard screenshot's "Ver"
+buttons against the Select fix above — hover lit up the text
+(`hover:text-white`) but never the surrounding box, same class of bug.
+This pattern (`rounded-[3px] border border-border bg-input px-1.75 py-1
+text-meta ...`) wasn't a shared component yet, though — it was 3 near-
+identical local `RowAction` components (`ClientRow.tsx`, `UserRow.tsx`,
+`LoanRow.tsx`) plus the same className string typed inline 6 more times
+(`DashboardPage`, `ClientDetailPage`, `LoanDetailPage`, `MessageLogsPage`,
+`AuditLogsPage`). Extracted `src/components/ui/RowActionButton.tsx`
+(`to`/`onClick` polymorphic — renders a `<Link>` or `<button>`; `tone:
+"muted" | "subtle"`; `disabled`/`title` for the one button that needs
+them, LoanDetailPage's order-locked "Pagar") and migrated all 9 call
+sites onto it, deleting the 3 local components. Added `hover:bg-border`
+to both tones — same wash `Select`'s trigger and option list already use
+— so the box and text light up together everywhere this component is
+used.
+
+Two things deliberately left alone during the sweep, not migrated:
+`MessageLogsPage`'s "Reintentado" badge (a static `<span>`, same base
+classes but no hover at all — it's a completed-state label, not a
+clickable action) and `LoanRow.tsx`'s disabled "Pago" placeholder (a
+`<span>` with `cursor-not-allowed`, shown when a loan has no pending
+installments — never interactive, so there's no hover state to fix).
+Both are visually similar to the real buttons on purpose (same pill
+shape) but aren't "buttons of this type" in the sense the client meant.
+
+**Same hover gap, two more repeated patterns: FilterTab and DatePicker's
+trigger (style cleanup, 2026-09-02):** client asked to check the rest of
+the app for the same "text lights up, box doesn't" bug found in
+RowActionButton/Select, specifically calling out the Activos/Inactivos/
+Todos tabs used everywhere and a dropdown on "Proyector rápido" that had
+no hover at all.
+
+- **`FilterTab.tsx`** had zero hover classes on its inactive branch. Fixed
+  the same way as `Select.tsx`'s option-list items — which this component
+  already mirrors exactly, active/selected vs. inactive — by adding
+  `hover:bg-border hover:text-white` to the inactive tab only; the active
+  tab is left alone, same reasoning as Select never re-highlighting the
+  option that's already chosen. Also found (not just fixed cosmetically)
+  a second, undetected copy of this exact component: `InterestConceptTypesPage.tsx`'s
+  "Activos"/"Desactivados" toggle was a hand-rolled duplicate with
+  slightly different padding (`py-1.5` vs `py-[7px]`) and a different
+  resting background (`bg-border`/nothing vs. `FilterTab`'s
+  inspected `bg-white/[0.03]`) — migrated it onto the shared `FilterTab`
+  instead of hover-patching the local copy, so it can't drift again.
+- **"Proyector rápido"'s "Periodicidad" field** (`LoanQuotePage.tsx`) was
+  a raw native `<select>` — the original gap the shared `Select.tsx` was
+  built to close (Phase 4-era), missed here because this screen (Phase 14)
+  was built after that component existed but this one field slipped
+  through. Replaced with `<Select>` (already imported in this file for
+  the "Cargos adicionales" row) so it inherits the same hover, and every
+  future fix to `Select.tsx` automatically. Flagged `RefinanceLoanForm.tsx`,
+  `LoanForm.tsx`, and `MessageTemplatesPage.tsx` as having the same raw
+  `<select>` gap, left unchanged this round since the client had only
+  pointed at this one screen.
+
+  **Follow-up, same day:** client caught the exact byte-identical
+  "Periodicidad de cuotas" field in `LoanForm.tsx` (loan creation) missing
+  hover too — same field, same label, same code, just not yet migrated.
+  Fixed that one and its twin in `RefinanceLoanForm.tsx` (both plain
+  `installmentFrequency` Monthly/Biweekly selects, already importing
+  `Select`). `MessageTemplatesPage.tsx`'s three raw `<select>`s are left
+  as the one remaining gap — they're a different shape from the others
+  (periodicity/day-of-week/day-of-month, chained conditionally, sitting in
+  a dense `h-9` row next to a native `<input type="time">`), not a
+  straightforward drop-in like the rest: `Select.tsx`'s trigger has a
+  fixed `h-[38px]`, so swapping just the `<select>`s in that row would
+  make them 2px taller than the time input and buttons beside them.
+  Worth doing, but as its own pass rather than folded into this one.
+
+**Date fields: same trigger-hover treatment as Select, once evaluated —
+then corrected (style cleanup, 2026-09-02):** client asked, as an open
+question rather than a firm instruction, whether `DatePicker.tsx`'s
+trigger (the box you click to open the calendar) should light up on
+hover too. Compared it against `Select.tsx` directly: functionally it's
+the same shape — a closed box that opens a popover on click —
+DatePicker's own popover (calendar days, month/year buttons) already has
+hover on every cell, same as Select's open option list did before its
+trigger was fixed; only the closed trigger itself had nothing. Concluded
+yes, for the same reason Select's trigger got fixed.
+
+First attempt copied Select's `hover:bg-border hover:text-strong` onto
+the trigger verbatim. Wrong: Select's own resting text is `text-muted`
+(#8A8F98), so `hover:text-strong` (#D0D6E0) brightens it — but every
+DatePicker call site's `className` sets the filled-in value's resting
+color to `text-white` (`inputClassName`/`formStyles.ts`), which is
+already brighter than `text-strong`. On hover the date text visibly
+*darkened* — the opposite of the intended effect, and the client caught
+it immediately. Fixed by dropping `hover:text-strong` from the trigger
+`<button>` itself, keeping only `hover:bg-border` for the box. The
+calendar icon keeps `group-hover:text-strong` — unlike the value text,
+its resting color is always the dimmer `text-mid` regardless of call
+site, so brightening it on hover is safe everywhere. Net effect: the box
+and the icon light up on hover; the value/placeholder text doesn't
+change color, since assuming a single "correct" hover direction for text
+whose resting color varies per call site (`text-white` in form fields,
+`text-muted` in the Desde/Hasta filter chips) isn't safe to bake into
+the shared component the way `hover:bg-border` is.
+
+**Filter tabs and Select's option list: hover was a 2-state binary,
+should be a real 3-tier off/hover/selected progression (style cleanup,
+2026-09-02):** client had watched Linear's own filter tabs (Activo/
+Inactivo/Todos' counterpart there) directly and reported back the exact
+computed values: resting text `#8A8F98`, hover text `#D0D6E0`, selected
+text `#F7F8F8` — three distinct steps, each brighter than the last, and
+the same three-step idea for the tab's background. Checked our own
+tokens against those values first: all three already exist verbatim —
+`muted` (#8a8f98), `strong` (#d0d6e0), `white` (#f7f8f8) — this was a
+wiring problem, not a missing-token problem.
+
+Both `FilterTab.tsx` and `Select.tsx`'s hover fixes from earlier today
+had the same bug: hover jumped straight to the *selected* look (`text-
+white`/`bg-border`) instead of stopping at a middle tier, so a hovered-
+but-not-selected tab/option was visually indistinguishable from an
+actually-selected one — exactly backwards from Linear's "closer you get,
+brighter it gets" logic. Fixed both: hover now targets `text-strong` +
+`bg-white/[0.05]` (a real middle value between the 3% resting wash and
+the 8% `bg-border` selected wash, not reusing either endpoint), reserving
+`text-white`/`bg-border` exclusively for the tab/option that's actually
+active. The selected item itself still has no hover rule — it's already
+at the top tier, nothing brighter to transition to on hover, same as
+before.
+
+Deliberately scoped to just these two components, not every
+`hover:text-white` in the app (there are dozens, e.g. `RowActionButton`,
+breadcrumb links, `Button.tsx`, `CloseButton.tsx`): this 3-tier
+progression is specifically for elements that persist in an "on" state
+after being clicked — a filter tab, a selected dropdown option. A plain
+one-shot action button ("Ver", "Editar", a breadcrumb link) never reaches
+a persistent third state, so its simple 2-state muted→white hover isn't
+the same bug wearing a different outfit — it's a different, valid
+pattern for a different interaction shape. Also checked Sidebar's own nav
+items, which look superficially similar (inactive/hover/active): left
+untouched, since that component's resting color was already deliberately
+set to `strong` (not `muted`) in an earlier, separately devtools-matched
+pass — a different, already-intentional design, not this same bug.
+
+**Select's month dropdown pushed the page into showing a native scrollbar
+(style cleanup, 2026-09-02):** client screenshotted the "Septiembre"
+sort-by-month dropdown before/after opening it — closed, everything looked
+right; opened, a plain light-gray browser scrollbar appeared down the
+right edge of the whole app. Two compounding causes:
+
+1. `Select.tsx`'s option-list popover had no height cap at all
+   (`overflow-hidden` on a `position: absolute` box just clips, it doesn't
+   scroll) — with 12 months at `py-2` each, the open panel got tall enough
+   to extend past `AppLayout.tsx`'s `<main>` (the app's real scrolling
+   container, `overflow-y-auto`), forcing that container to grow a
+   scrollbar of its own to reach the panel's own last few rows.
+2. That scrollbar — and every other `overflow-y-auto` container's, they
+   all shared the same problem — had never been themed, so it rendered as
+   the browser's stock light-gray scrollbar, jarring against the dark UI.
+
+Fixed both. `Select.tsx`'s popover now has `max-h-[264px] overflow-y-auto`
+of its own (~6.5 rows), so a long list scrolls inside its own small box
+instead of growing the page. Scrollbars themed globally in `index.css`
+(`scrollbar-width`/`scrollbar-color` for Firefox, `::-webkit-scrollbar`
+rules for Chrome/Edge/Safari) rather than per-container, since the same
+unstyled-scrollbar problem was latent in every other `overflow-y-auto`
+spot in the app (`<main>` itself, all 15 Modal/drawer components,
+LoanForm/RefinanceLoanForm's concept-row lists, the WhatsApp inbox
+message list...) even though only this one had actually been tall enough
+to trigger it yet. Thumb uses `mid` (resting) / `subtle` (hover) over a
+transparent track — the same two dim tones already used for icons and
+placeholder text, so an idle scrollbar reads as a faint sliver rather than
+a boxed-in control, matching Linear's own thin, low-contrast bars.
+
+**Keyboard focus ring: orange only on buttons that are themselves orange
+(style cleanup, 2026-09-02):** every button/link's `:focus-visible` ring
+was unconditionally `accent` orange (see "Buttons and links never got an
+explicit focus style" above, 2026-09-01). Client was Tab-ing through
+ClientForm's Cédula → Tipo de documento and found the jump jarring: the
+Cédula input focuses with a subtle gray border (`focus:border-subtle`,
+every text input's own convention), then Tab lands on the Tipo de
+documento `Select` — a `<button>` under the hood standing in for a form
+field — and the ring snaps to a saturated orange, even though nothing
+about what the element *is* changed from the user's point of view.
+
+Talked through three options before touching anything (soften the
+transition with a CSS `transition`, dim the orange ring everywhere, or
+split the treatment by element role) and asked the client's preference
+rather than picking one. Client's own rule, simpler than "field vs.
+action" and what's actually implemented: default every button/link's
+ring to the same `subtle` gray text inputs already use, and reserve the
+orange ring for whichever buttons are *themselves* orange —
+`bg-accent` in the resting state, currently just `Button`'s `primary`
+variant and LoginPage's own "Entrar" (the only two `bg-accent` buttons in
+the app; grepped to confirm). Implemented as a second, more specific
+plain-CSS rule in `index.css`: `button.bg-accent:focus-visible` overrides
+the outline color back to `accent`, keying off the class Tailwind already
+emits for `bg-accent` — no JSX changes needed in `Button.tsx` or anywhere
+else. Sidebar's active-nav tint (`bg-accent/15`) is a different literal
+class name, so it isn't caught by this selector, correctly — it's a link
+tint, not an orange button.
+
+**Same-day follow-up — checkboxes and file inputs never got the rule at
+all:** client filled out ClientForm's Documentos section as a real
+end-to-end test and found a second gap: the consent checkbox and the ID-
+photo `<input type="file">` fields still popped the browser's own default
+focus ring — a stark solid white/blue box — since the rule above only
+ever targeted `button`/`a`, and these are raw native `<input>` elements,
+neither buttons nor text inputs (which already handle their own focus via
+`focus:border-*` + `focus:outline-none` per component). Asked to check
+the rest of the app rather than just this one screen: grepped for every
+`type="checkbox"` and `type="file"` and found the same gap on all of
+them — `ModuleChecklist.tsx`, the co-debtor checkbox in
+`LoanForm.tsx`/`RefinanceLoanForm.tsx`, `LoanDetailPage.tsx`'s
+installment-select checkboxes, and the file inputs in
+`RegisterPaymentDialog.tsx`, `BulkRegisterPaymentDialog.tsx`, and
+`ImportClientsDialog.tsx`. Added `input[type='checkbox']`,
+`input[type='radio']` (none exist yet, included preemptively since it's
+the same category), and `input[type='file']` to both the `outline: none`
+reset and the `:focus-visible` rule in `index.css` — one shared rule again
+rather than a per-file patch.
+
+**Sidebar nav items: focus ring overlapped the active item's pill (style
+cleanup, 2026-09-02):** client screenshotted three states — Dashboard
+focused sitting above the active Clientes, and Clientes active sitting
+above a focused Préstamos — and noticed the focus box overlapped the
+active item's tinted pill differently depending on which was on top: in
+one direction a sliver of the active item's `bg-accent/15` bled into the
+bottom of the ring; in the other, nothing bled through, but the ring
+still visibly cut into the neighbor's pill. Correctly read this as one
+underlying bug producing two different-looking symptoms, not two bugs.
+
+Root cause: `Sidebar.tsx`'s nav items sit only `gap-0.5` (2px) apart, but
+the app's now-standard focus ring draws 2px outside the element
+(`outline-offset: 2px`) at 2px thick — 4px of total reach, twice the
+available gap, so it always oversteps into whichever neighbor happens to
+be on the other side. Which direction the color "bleeds" differs because
+outlines paint in DOM order: a focused item earlier in the list has its
+ring painted *before* the active item's own background below it (so that
+background paints over the ring, reading as bleed-through); a focused
+item later in the list paints its ring *after* the active item above it
+(fully covering that sliver instead of blending with it). Not something
+fixable by nudging the gap or offset by a pixel — an outward-facing ring
+and a sub-4px gap are fundamentally incompatible.
+
+Fixed by switching just Sidebar's nav links to an *inset* ring
+(`box-shadow: inset 0 0 0 2px var(--color-subtle)`) instead of the
+`outline` every other focusable element uses — inset box-shadows draw
+entirely inside the element's own border box, so they can't overlap a
+sibling no matter how tight the gap is, unlike an outline which always
+needs clearance beyond the box. Added via a new `.sidebar-nav-link`
+marker class (on `Sidebar.tsx`'s `NavLink`) rather than a Tailwind
+`focus-visible:` utility class, because Tailwind's utilities live in
+`@layer utilities`, which CSS's cascade-layer rules always rank below
+plain, unlayered CSS regardless of selector specificity or source order
+— the existing `a:focus-visible` rule in `index.css` is unlayered, so a
+Tailwind class could never have out-ranked it. The override had to be
+more plain CSS with higher specificity instead, same technique as the
+earlier `button.bg-accent:focus-visible` override.
+
+**Sidebar footer: avatar re-centered by shrinking Salir's padding (style
+cleanup, 2026-09-02, fifteenth pass):** re-diagnosed after the revert. The
+real cause wasn't the text's line-height at all — it was the Salir
+button's own padding. The role row is `<role text><Salir button>` in a
+flex row; the button (`p-1` padding around a 14px icon ≈ 22px tall) was
+taller than a plain 12px text line (~15-17px), so it — not the text —
+was what made the role row, and so the whole 2-line column, taller than
+it visually looked. `items-center` on the outer row centers the avatar
+against that inflated height, which is what made it look low. This is
+also *why* `leading-none` on the text changed nothing last pass — it
+never touched the actual tallest element in that row. Fixed by shrinking
+the button's own padding: `p-1` → `p-0.5`.
+
+**Sidebar footer typography unified with nav items (style cleanup,
+2026-09-02, ninth pass):** after the redesign above, the client said the
+name/role text still felt like a different typographic system from the
+module list right above it — "el diseño se rompe." Root cause: the name
+was still on `text-label` (11px) while the nav items sit at
+`text-nav-item` (13px), and the role was on its own one-off `text-meta`
+(10px)/`text-muted` combo shared with nothing else in the sidebar. Fixed
+by reusing the sidebar's own established tokens instead of these
+leftovers: the name now uses `text-nav-item font-medium text-white` —
+identical to an active nav item's treatment — and the role uses
+`text-nav-group-label font-normal tracking-normal text-subtle` — identical
+to "Menú"/"Catálogos"/"Administración". No new tokens needed; this was
+purely about not letting old pre-cleanup classes linger next to the new
+system.
+
+**Sidebar footer (user block) redesigned (style cleanup, 2026-09-02, eighth
+pass):** the client's own full name ("Juan Miguel Rincón H...") was
+getting cut off mid-character by a plain CSS `truncate` in a ~120px-wide
+column. Proposed three angles before touching code (per the client's
+request): trim the avatar circle, reformat the name, or reclaim space from
+the "Salir" button — client confirmed keeping the avatar (a self-contained
+initials pattern, not a commitment to profile-photo upload) and chose
+icon-only "Salir" over moving or removing it. Shipped:
+- `Sidebar.tsx`'s "Salir" button lost its text, now a small door icon
+  (`LogoutIcon`, `aria-label`/`title="Salir"` for accessibility) —
+  reclaims the width the word was taking without changing the row layout.
+- New `formatSidebarName()` in `lib/format.ts`: abbreviates only the last
+  word once a name is long enough to likely overflow ("Juan Miguel Rincón
+  Hernández" → "Juan Miguel Rincón H."), leaves short names untouched.
+  Threshold is a character-count approximation, not a measured pixel fit;
+  `truncate` stays as a safety net regardless.
+- Role label now reads `USER_ROLE_LABELS[user.role]` ("Admin"/"Cobrador")
+  instead of `.toUpperCase()` producing "ADMIN" — reuses the same label
+  map `UserForm.tsx`'s role dropdown already has, matching the sentence-case
+  rule from earlier in this pass instead of adding a second label set.
+
+**Sidebar module spacing tightened (style cleanup, 2026-09-02, seventh
+pass):** client compared the spacing between consecutive nav items
+(Dashboard/Clientes/Préstamos/...) against Linear's own (Pulse/Inbox/My
+issues/Reviews) and asked for ours closer together — explicitly *not*
+touching the gap between a group title ("Menú"/"Catálogos") and its first
+item, which was already right. The two gaps share an input
+(`NavLink`'s own vertical padding contributes to both), so shrinking one
+without the other took two coordinated edits: `NavLink`'s `py-2.5` → `py-1.5`
+(effective item-to-item whitespace 10+2+10=22px → 6+2+6=14px), and the
+group label's `mb-1` → `mb-2` to add back exactly what the padding cut
+lost, keeping title→first-item spacing at its original 14px. Math, not a
+guess — both numbers were computed from the actual Tailwind spacing scale
+before editing.
+
+**Sidebar nav item labels split out too (style cleanup, 2026-09-02, sixth
+pass):** same request as the nav-group-label split above, one level down —
+the client compared our active "Dashboard" nav link against Linear's
+equivalent item via devtools on both sides and asked that this be treated
+as its own thing too, not sharing `text-small` with whatever else in the
+app happens to also be 12px. Two new tokens: `--text-nav-item` (13px,
+Linear's real value — was `text-small`, 12px) and `--color-strong`
+(`#D0D6E0`, a new rung between `muted` and `white` — Linear's real nav-item
+text color) applied only to `Sidebar.tsx`'s `NavLink`. Judgment call worth
+flagging: the client's comparison paired our *active* Dashboard link
+(white text, accent background) against what looks like one of Linear's
+*inactive* items (no highlight, plain text) — so the font-family/size
+delta is solid evidence either way, but the color evidence really only
+speaks to the inactive state. Applied `strong` to the inactive state only;
+left the active state's `white` alone, since Linear's own selected item
+also reads brighter than its neighbors in the screenshots seen earlier in
+this pass. Flag if that read is wrong.
+
+**Nav-group labels split from section labels (style cleanup, 2026-09-02,
+fifth pass):** the client pushed back on treating these as the same thing.
+`text-section-label` (12px, `subtle`, `font-normal`, `tracking-normal`) was
+being reused for two conceptually different roles: the Sidebar's 3
+module-group titles ("Menú", "Catálogos", "Administración") and every
+in-page section header (Dashboard's "Kpis", ClientDetailPage's
+"Referencias", LoanDetailPage's "Cuotas", etc.). The client's plan is for
+the in-page section headers to get a different format later — so sharing
+one token would mean that future change either drags the Sidebar along
+with it or requires manually re-splitting them at that point. Split now,
+while the values are still identical, into two independent tokens:
+`--text-section-label` (unchanged, for in-page section headers) and
+`--text-nav-group-label` (new, Sidebar only — currently the same 12px
+value). Only `Sidebar.tsx`'s 3 labels moved to the new token; every other
+`text-section-label` usage is untouched. Don't merge these back — that's
+the whole point of the split.
+
+**1:1 typography pass (style cleanup, 2026-09-02, second pass):** the first
+pass (size/color fixes above) didn't fully convince the client — they asked
+for a literal copy of Linear's text, not an approximation, and specifically
+said they wanted this inspected via a real browser, not judged off a
+screenshot. So: opened linear.app in an actual browser and sampled
+`getComputedStyle` over ~35 real text elements on the page (their own
+interactive product demo, coincidentally the same one in the client's
+screenshot — "DRV-8852", "Faster app launch", etc. are literally that
+widget), recording font-size, weight, letter-spacing, and color for each,
+labeled by role (headings, nav, timestamps, code, uppercase eyebrow text).
+
+The one finding that mattered most: **not a single sample used positive
+letter-spacing.** Every value was either `normal` or negative (headings get
+slightly negative tracking, e.g. -0.24px at 20px; small UI text is mostly
+`normal`). Our app did the opposite everywhere — every section
+label/table-header/field-label pattern added *positive* tracking
+(`tracking-[0.36px]`, `[0.4px]`, `[0.55px]`, `[0.64px]`) on top of an
+already-small uppercase size, which is what was making them read as
+sparse/"flaco". Swept every one of those ~40 occurrences to
+`tracking-normal`, and switched the paired `font-medium` to `font-normal`
+to match Linear's one directly comparable uppercase-label sample (their
+"POWERING THE COMPANIES BUILDING THE FUTURE" eyebrow: 12px, weight 400,
+`letter-spacing: normal`). **Rule going forward: never add positive
+letter-spacing.** If a label needs more visual separation, that's a
+weight, size, or color decision — not tracking.
+
+**Type scale floor, re-tuned (style cleanup, 2026-09-02):** the client
+pointed at specific text as hard to read — the Sidebar's "MENÚ"/section
+labels and Dashboard's "KPIS" — describing sizes as inconsistent and some
+text as too thin. Checked Linear's real smallest rendered text directly
+(same DOM inspection as the palette above, sampled every element under
+14px): nothing on their page goes below 10px. `--text-section-label` was
+9px, and the Sidebar had its own hardcoded `text-[8px]` for "MENÚ" and the
+nav group labels plus the role tag — both under even Linear's floor, and
+the Sidebar's version also used `text-mid` (our dimmest gray) instead of
+`text-muted`, compounding the contrast problem. Fixed: bumped
+`text-section-label` to 11px (propagates to every section label
+app-wide — Dashboard's KPIS, ClientDetailPage's section headers,
+LoanDetailPage's, all through the one token); Sidebar's three hardcoded
+8px spans now use `text-section-label`/`text-meta` and `text-muted`
+instead of a one-off smaller, dimmer style. Font *weight* wasn't the
+actual issue — Linear's small text samples were mostly regular/medium
+(400-510), same as ours — the "flaco"/thin feeling was the undersized
+text plus the pre-antialiasing rendering (see font-smoothing above)
+combining to make already-small glyphs look sparse.
+
+**Re-tuned to match Linear's dark theme (style cleanup, 2026-09-02):** the
+client said Linear's blacks/grays looked nicer and text read more clearly
+there, unsure whether it was font weight, typeface, or tone. Rather than
+guess, inspected `linear.app`'s live DOM directly (`getComputedStyle` over
+its actual elements) and pulled the real values — the palette above is
+Linear's own, not an approximation, except `mid`, which is interpolated
+since Linear's sampled DOM only exposed two distinct gray text tones (no
+third "dimmest" tier to copy). The single biggest factor in "text reads
+more clearly": Linear's body text isn't pure `#FFFFFF`, it's the softer
+`#F7F8F8` off-white, combined with `-webkit-font-smoothing: antialiased`
+(added to `index.css`, was previously unset) — pure white on near-black
+has harsh contrast that "vibrates" at small sizes; off-white + antialiasing
+is most of the actual fix, not weight or a different typeface. `border`
+switched from a flat hex to translucent white — Linear's actual technique,
+so it reads correctly layered over either `background` or `surface`
+instead of one fixed gray. This also means every `bg-border` chip/pill/badge
+fill (32 call sites) now renders as a soft overlay instead of a flat gray
+panel — a visual change worth a look; if anything reads too faint, the fix
+is one line (`index.css`'s `--color-border` alpha value), not a per-file
+edit, same as any other token.
+
+**Status/severity colors, updated (style cleanup, 2026-09-01):** the row
+above ("Tailwind's own defaults — no custom tokens needed") was the original
+Phase-5 decision, but by this point it had produced ~35 files each picking
+their own literal color for the same handful of meanings — some as raw hex
+(`bg-[#22c55e]`), some as Tailwind's default `red-400`/`red-500` (two
+slightly different reds for the same "error" meaning, depending on which
+file you were in). Grepped the whole `src` tree and replaced every one of
+them with the semantic tokens below, added to `index.css`'s `@theme`
+alongside the neutral palette. Same rule as the neutral tokens: reach for
+one of these by name (`text-danger`, `bg-success-bg`, etc.) for anything
+that means "this succeeded/failed/is overdue" — never a raw hex or a bare
+Tailwind color class, so a future palette change is a one-line edit in
+`index.css` instead of another grep-and-replace across the app.
+
+| Token | Hex | Meaning | Also generates |
+|---|---|---|---|
+| `success` | `#22C55E` | Sin mora / al día / activo / enviado / confirmado | `text-success`, `bg-success`, `border-success` |
+| `success-bg` | `#051E0E` | Background behind `success` text in a badge | `bg-success-bg` |
+| `warning` | `#EAB308` | Mora baja (1–30 días) / avisos no destructivos | `text-warning`, `bg-warning`, `border-warning` |
+| `mora-mid` | `#F97316` | Mora media (31–60 días) — this specific tier only, no other use in the app | `text-mora-mid`, `bg-mora-mid` |
+| `danger` | `#EF4444` | Mora crítica (+60 días) / fallido / error / bloqueado / destructivo | `text-danger`, `bg-danger`, `border-danger` |
+| `danger-bg` | `#240A0A` | Background behind `danger` text in a badge/banner | `bg-danger-bg` |
+| `whatsapp-bg` | `#0A240A` | WhatsApp message-bubble preview background only (`MessageLogDrawer`) — a close but deliberately separate dark green from `success-bg`; don't merge them, they mean different things | `bg-whatsapp-bg` |
+
+Two shared components consume these instead of every page rolling its own
+markup, since the exact same badge/legend JSX had been copy-pasted
+verbatim into 3–5 files each:
+
+- **`src/components/ui/StatusBadge.tsx`** — the small pill used for
+  Enviado/Fallido, Autorización firmada/Sin autorización, Bloqueado por
+  mora, etc. Takes `tone: 'success' | 'danger' | 'neutral'`.
+- **`src/components/ui/Legend.tsx`** — the small dot + label used for the
+  mora-severity key under the Préstamos/Clientes tables and the "X
+  Fallidos" count on Mensajes. Takes `tone: 'success' | 'warning' |
+  'mora-mid' | 'danger'` instead of a raw color string.
+
+**Deliberately left as plain Tailwind `amber-*` classes, not migrated to a
+token:** `StaleUsuryRateBanner.tsx`, the stale-rate notice in
+`UsuryRatesPage.tsx`, and the confirmation warning in `PayoffDialog.tsx`.
+These are a visually distinct "soft banner" treatment (multiple amber
+shades at low opacity, tuned together) for a different kind of notice than
+the `warning` token's mora-severity yellow — judgment call made during the
+2026-09-01 cleanup rather than forcing a visual change nobody asked to
+review. Flagged here so it reads as a deliberate choice, not a spot the
+audit missed.
+
+**Brand accent & visual polish (2026-09-02):** the client described the
+original theme as "lúgubre" (gloomy). Rather than chase a generic
+inspiration palette, the accent color was derived from the client's own
+"Publi Mark" brand logo (shared as reference images, not exact brand
+guidelines) — orange as the primary accent, blue held in reserve as a
+secondary. If official brand hex codes surface later, only these four
+`index.css` lines need to change; nothing else in the app references a raw
+hex for these colors.
+
+| Token | Hex | Meaning | Also generates |
+|---|---|---|---|
+| `accent` | `#F26522` | Primary buttons, active nav item, focus ring — approximated from the Publi Mark logo's orange | `bg-accent`, `text-accent`, `border-accent` |
+| `accent-hover` | `#D9591C` | Hover/active state for `accent` (~15% darker) | `bg-accent-hover` |
+| `accent-secondary` | `#3F7FD1` | Reserved for links/secondary emphasis — approximated from the Publi Mark logo's blue, not yet applied anywhere | `bg-accent-secondary`, `text-accent-secondary` |
+| `shadow-card` | `0 4px 14px rgba(0,0,0,0.35)` | Soft elevation shadow on modal/dialog cards, replacing flat borderless surfaces | `shadow-card` |
+
+Applied app-wide as part of the same pass: every primary CTA button
+(previously `bg-white`/`text-background`, e.g. "Entrar", "Guardar
+cliente", "Crear préstamo") recolored to `bg-accent`/`text-white` with
+`hover:bg-accent-hover`; the active sidebar nav item uses `bg-accent/15`
+instead of a flat `bg-border`; the `:focus-visible` outline uses `accent`
+instead of `subtle`; every modal/dialog card (`rounded-lg border
+border-border bg-surface`, 15 files) gained `shadow-card`; page-level card
+and table containers that were still the plain 4px `rounded` were bumped
+to `rounded-lg` (modals were already `rounded-lg`/8px — a stale claim in
+this doc's own Spacing section said otherwise, corrected below).
+
+## Component-based centralization (style cleanup, 2026-09-02)
+
+The "Brand accent" pass above centralized *tokens* (CSS variables in
+`index.css`) but not *markup* — each button/modal/field was still its own
+copy-pasted Tailwind className string, so the accent-color sweep missed a
+couple of buttons whose className had drifted slightly from the others.
+The client caught this and asked for the design to be centralized properly:
+not just shared color variables, but shared components, so a future change
+is a one-line edit in one file instead of a grep-and-replace across dozens.
+
+Three shared pieces now exist. Use them instead of hand-rolling the
+underlying `className` string — that's the whole point:
+
+- **`src/components/ui/Button.tsx`** — `<Button variant="primary" |
+  "secondary" | "neutral" | "danger" | "dangerSolid">`. Covers every button
+  in the app: primary CTAs, "Cancelar" buttons, neutral chips, destructive
+  actions (outline `danger` and solid `dangerSolid`). A `className` prop
+  remains as an escape hatch for one-off sizing/spacing only (e.g. `h-[42px]
+  shrink-0`) — never for color or shape, those live in the variant.
+- **`src/components/ui/Modal.tsx`** — `<Modal maxWidth="max-w-[440px]"
+  scroll? maxHeight?>`. Wraps the fixed backdrop + centered card markup
+  shared by all 15 modal/dialog components. A dialog that renders a sibling
+  conditional (e.g. `LoanForm.tsx`, `RefinanceLoanForm.tsx`) wraps its JSX
+  in a Fragment around `<Modal>` rather than duplicating the backdrop.
+- **`src/components/ui/Field.tsx`** — `<Field label error? layout="row" |
+  "stack">` plus `<FormSection title>`. `row` (the default, `flex flex-1
+  flex-col`) matches most forms' side-by-side field groups; `stack` (no
+  `flex-1`) is for forms that lay fields out in a single full-width column.
+- **`src/lib/formStyles.ts`** — `inputClassName(hasError: boolean)`. Kept
+  as a plain function rather than a wrapped `<TextInput>` component, since
+  every input call site (`<input className={inputClassName(x)} ...>`)
+  stays otherwise unchanged — lower migration risk for the same result.
+- **`src/components/ui/RowActionButton.tsx`** — `<RowActionButton to? |
+  onClick? tone="muted" | "subtle" disabled? title?>`. The small pill-style
+  action button in every table's last column ("Ver", "Ver detalle",
+  "Editar", "Desactivar", "Reactivar"...). Added later (see the "Row
+  action buttons" entry under Typography below) once it turned out to be
+  the same copy-pasted-component problem as `Button`/`Modal`/`Field`.
+
+**Deliberately left local, not migrated to the shared `Field`:**
+`UserForm.tsx`, `ChangePasswordDialog.tsx`, and `EditLoanDialog.tsx` each
+still declare their own `Field`. Their layout is `flex flex-col gap-1.5`
+(no `flex-1`) — the `stack` variant — and rather than touch every call site
+in those specific forms to add `layout="stack"`, the smaller/lower-risk
+call was to leave them local. Each has a comment pointing back to this
+section. If one of these forms needs another edit anyway, migrating it to
+`layout="stack"` at that point is the natural cleanup.
+
+**The rule going forward:** if you need a button, a modal wrapper, a form
+field, or an input's base styling, import the shared component/function
+above. Don't copy an existing file's className string into a new one —
+that's exactly the drift that caused the original bug (two buttons quietly
+missed the accent-color rollout because they were slightly different
+copies of "a button").
 
 ## Typography
 
@@ -61,7 +942,13 @@ The entire spacing scale in the library (4/8/12/16/20/24/32/40/64px) is exactly 
 | 40 | `10` | Padding main (variant) |
 | 64 | `16` | Padding canvas |
 
-Border radius throughout is `4px` — Tailwind's default `rounded` (not `rounded-md`/`rounded-lg`).
+**Updated (style cleanup, 2026-09-02):** border radius is no longer
+uniformly 4px. Modal/dialog cards and page-level card/table containers now
+use `rounded-lg` (8px) as part of the visual-polish pass described above —
+modals already were `rounded-lg` even before this pass (this doc's earlier
+"4px throughout" claim was stale and didn't match the code). Smaller
+inline elements (inputs, small chips, table cells) remain the default
+`rounded` (4px) — only the two categories above were bumped.
 
 ## Components catalogued in the library (not all built yet)
 

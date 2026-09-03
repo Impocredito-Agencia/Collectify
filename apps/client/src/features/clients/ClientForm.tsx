@@ -1,9 +1,12 @@
 import { useState } from 'react';
 
+import { Button } from '@/components/ui/Button';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { Field, FormSection } from '@/components/ui/Field';
 import { FileUploadField } from '@/components/ui/FileUploadField';
+import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import {
   ClientReferenceType,
@@ -18,6 +21,7 @@ import {
   useUpdateClientReference,
 } from '@/features/clients/useClients';
 import { ApiError } from '@/lib/apiClient';
+import { inputClassName } from '@/lib/formStyles';
 import { ImageUploadError, uploadDocument } from '@/lib/imageUpload';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
@@ -560,567 +564,493 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
   const isBusy = isUploading || isSubmitting;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-[560px] overflow-y-auto rounded-lg border border-border bg-surface px-8 py-7">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[16px] font-medium text-white">
-            {isEditing ? 'Editar cliente' : 'Nuevo cliente'}
-          </h2>
-          <CloseButton onClick={onClose} />
-        </div>
+    <Modal maxWidth="max-w-[560px]" scroll>
+      <div className="flex items-center justify-between">
+        <h2 className="text-[16px] font-medium text-white">
+          {isEditing ? 'Editar cliente' : 'Nuevo cliente'}
+        </h2>
+        <CloseButton onClick={onClose} />
+      </div>
 
-        <p className="mt-1 text-label text-muted">
-          {isEditing
-            ? `Editando: ${client?.firstName} ${client?.lastName} · ID #${client?.id.slice(0, 8)}`
-            : 'Solo administradores pueden crear clientes.'}
-        </p>
+      <p className="mt-1 text-label text-muted">
+        {isEditing
+          ? `Editando: ${client?.firstName} ${client?.lastName} · ID #${client?.id.slice(0, 8)}`
+          : 'Solo administradores pueden crear clientes.'}
+      </p>
 
-        <div className="mt-5 border-t border-border" />
+      <div className="mt-5 border-t border-border" />
 
-        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-6">
-          <FormSection title="Datos personales">
-            <div className="flex gap-4">
-              <Field
-                label="Nombre"
-                error={fieldErrors.firstName}
-                id={fieldElementId('firstName')}
-              >
-                <input
-                  required
-                  value={firstName}
-                  onChange={(event) => {
-                    setFirstName(event.target.value);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      firstName: undefined,
-                    }));
-                  }}
-                  placeholder="Ej: Carlos"
-                  className={inputClassName(Boolean(fieldErrors.firstName))}
-                />
-              </Field>
-              <Field
-                label="Apellido"
-                error={fieldErrors.lastName}
-                id={fieldElementId('lastName')}
-              >
-                <input
-                  required
-                  value={lastName}
-                  onChange={(event) => {
-                    setLastName(event.target.value);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      lastName: undefined,
-                    }));
-                  }}
-                  placeholder="Ej: Mendoza"
-                  className={inputClassName(Boolean(fieldErrors.lastName))}
-                />
-              </Field>
-            </div>
-
-            <div className="flex gap-4">
-              <Field
-                label="Cédula"
-                error={fieldErrors.documentNumber}
-                id={fieldElementId('documentNumber')}
-              >
-                <input
-                  required
-                  value={documentNumber}
-                  onChange={(event) => {
-                    setDocumentNumber(event.target.value);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      documentNumber: undefined,
-                    }));
-                  }}
-                  placeholder="Ej: 1234567890"
-                  className={inputClassName(
-                    Boolean(fieldErrors.documentNumber),
-                  )}
-                />
-              </Field>
-              <Field
-                label="Tipo de documento"
-                error={fieldErrors.documentType}
-                id={fieldElementId('documentType')}
-              >
-                <Select
-                  value={documentType}
-                  onChange={(value) => {
-                    setDocumentType(value);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      documentType: undefined,
-                    }));
-                  }}
-                  options={DOCUMENT_TYPE_OPTIONS}
-                  placeholder="Selecciona un tipo"
-                  className="w-full"
-                />
-              </Field>
-            </div>
-
-            <div className="flex gap-4">
-              <Field label="Fecha de nacimiento (opcional)">
-                <DatePicker
-                  value={dateOfBirth}
-                  onChange={setDateOfBirth}
-                  className={inputClassName(false)}
-                />
-              </Field>
-              <Field label="Fecha de expedición (opcional)">
-                <DatePicker
-                  value={documentIssueDate}
-                  onChange={setDocumentIssueDate}
-                  className={inputClassName(false)}
-                />
-              </Field>
-              <Field label="Lugar de expedición (opcional)">
-                <input
-                  value={documentIssuePlace}
-                  onChange={(event) =>
-                    setDocumentIssuePlace(event.target.value)
-                  }
-                  placeholder="Ej: Cali"
-                  className={inputClassName(false)}
-                />
-              </Field>
-            </div>
-
-            <div className="flex gap-4">
-              <Field label="Ocupación (opcional)">
-                <input
-                  value={occupation}
-                  onChange={(event) => setOccupation(event.target.value)}
-                  placeholder="Ej: Comerciante"
-                  className={inputClassName(false)}
-                />
-              </Field>
-              <Field label="Empresa (opcional)">
-                <input
-                  value={employerName}
-                  onChange={(event) => setEmployerName(event.target.value)}
-                  placeholder="Ej: Almacén La Economía"
-                  className={inputClassName(false)}
-                />
-              </Field>
-            </div>
-
-            <div className="flex gap-4">
-              <Field label="Ingreso mensual (opcional)">
-                <CurrencyInput
-                  value={monthlyIncome}
-                  onChange={setMonthlyIncome}
-                  placeholder="Sin especificar"
-                  className={inputClassName(false)}
-                />
-              </Field>
-              <Field label="Cupo (opcional)">
-                <CurrencyInput
-                  value={creditLimit}
-                  onChange={setCreditLimit}
-                  placeholder="Sin cupo (ilimitado)"
-                  className={inputClassName(false)}
-                />
-              </Field>
-            </div>
-          </FormSection>
-
-          <FormSection title="Contacto">
-            <div className="flex gap-4">
-              <Field
-                label="Celular"
-                error={fieldErrors.phoneNumber}
-                id={fieldElementId('phoneNumber')}
-              >
-                <input
-                  required
-                  value={phoneNumber}
-                  onChange={(event) => {
-                    setPhoneNumber(event.target.value);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      phoneNumber: undefined,
-                    }));
-                  }}
-                  placeholder="Ej: +573158001234"
-                  className={inputClassName(Boolean(fieldErrors.phoneNumber))}
-                />
-              </Field>
-              <Field
-                label="Celular alterno (opcional)"
-                error={fieldErrors.alternatePhoneNumber}
-                id={fieldElementId('alternatePhoneNumber')}
-              >
-                <input
-                  value={alternatePhoneNumber}
-                  onChange={(event) => {
-                    setAlternatePhoneNumber(event.target.value);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      alternatePhoneNumber: undefined,
-                    }));
-                  }}
-                  placeholder="Ej: +573001234567"
-                  className={inputClassName(
-                    Boolean(fieldErrors.alternatePhoneNumber),
-                  )}
-                />
-              </Field>
-            </div>
-            <Field label="Correo electrónico (opcional)">
+      <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-6">
+        <FormSection title="Datos personales">
+          <div className="flex gap-4">
+            <Field
+              label="Nombre"
+              error={fieldErrors.firstName}
+              id={fieldElementId('firstName')}
+            >
               <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="Ej: cliente@correo.com"
+                required
+                value={firstName}
+                onChange={(event) => {
+                  setFirstName(event.target.value);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    firstName: undefined,
+                  }));
+                }}
+                placeholder="Ej: Carlos"
+                className={inputClassName(Boolean(fieldErrors.firstName))}
+              />
+            </Field>
+            <Field
+              label="Apellido"
+              error={fieldErrors.lastName}
+              id={fieldElementId('lastName')}
+            >
+              <input
+                required
+                value={lastName}
+                onChange={(event) => {
+                  setLastName(event.target.value);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    lastName: undefined,
+                  }));
+                }}
+                placeholder="Ej: Mendoza"
+                className={inputClassName(Boolean(fieldErrors.lastName))}
+              />
+            </Field>
+          </div>
+
+          <div className="flex gap-4">
+            <Field
+              label="Cédula"
+              error={fieldErrors.documentNumber}
+              id={fieldElementId('documentNumber')}
+            >
+              <input
+                required
+                value={documentNumber}
+                onChange={(event) => {
+                  setDocumentNumber(event.target.value);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    documentNumber: undefined,
+                  }));
+                }}
+                placeholder="Ej: 1234567890"
+                className={inputClassName(Boolean(fieldErrors.documentNumber))}
+              />
+            </Field>
+            <Field
+              label="Tipo de documento"
+              error={fieldErrors.documentType}
+              id={fieldElementId('documentType')}
+            >
+              <Select
+                value={documentType}
+                onChange={(value) => {
+                  setDocumentType(value);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    documentType: undefined,
+                  }));
+                }}
+                options={DOCUMENT_TYPE_OPTIONS}
+                placeholder="Selecciona un tipo"
+                className="w-full"
+              />
+            </Field>
+          </div>
+
+          <div className="flex gap-4">
+            <Field label="Fecha de nacimiento (opcional)">
+              <DatePicker
+                value={dateOfBirth}
+                onChange={setDateOfBirth}
                 className={inputClassName(false)}
               />
             </Field>
-          </FormSection>
-
-          <FormSection title="Direcciones">
-            <div
-              id={fieldElementId('address')}
-              className="flex flex-col gap-3.5"
-            >
-              <p className="text-meta text-muted">
-                Debes registrar al menos una de las dos direcciones.
-              </p>
-              <Field label="Dirección de residencia">
-                <input
-                  value={homeAddress}
-                  onChange={(event) => {
-                    setHomeAddress(event.target.value);
-                    setFieldErrors((prev) => ({ ...prev, address: undefined }));
-                  }}
-                  placeholder="Ej: Cra 10 #20-30"
-                  className={inputClassName(Boolean(fieldErrors.address))}
-                />
-              </Field>
-              <Field label="Dirección de trabajo">
-                <input
-                  value={workAddress}
-                  onChange={(event) => {
-                    setWorkAddress(event.target.value);
-                    setFieldErrors((prev) => ({ ...prev, address: undefined }));
-                  }}
-                  placeholder="Ej: Cl 5 #8-12, Local 3"
-                  className={inputClassName(Boolean(fieldErrors.address))}
-                />
-              </Field>
-              {fieldErrors.address && (
-                <span className="text-meta text-red-400" role="alert">
-                  {fieldErrors.address}
-                </span>
-              )}
-            </div>
-            <div className="flex gap-4">
-              <Field label="Barrio (opcional)">
-                <input
-                  value={neighborhood}
-                  onChange={(event) => setNeighborhood(event.target.value)}
-                  placeholder="Ej: San Fernando"
-                  className={inputClassName(false)}
-                />
-              </Field>
-              <Field label="Ciudad (opcional)">
-                <input
-                  value={city}
-                  onChange={(event) => setCity(event.target.value)}
-                  placeholder="Ej: Cali"
-                  className={inputClassName(false)}
-                />
-              </Field>
-            </div>
-          </FormSection>
-
-          <FormSection title="Referencias">
-            <div
-              id={fieldElementId('references')}
-              className="flex flex-col gap-3"
-            >
-              {referenceRows.length === 0 && (
-                <p className="text-meta text-muted">
-                  Sin referencias agregadas todavía.
-                </p>
-              )}
-              {referenceRows.map((row) => {
-                // Only flags it red once a submit attempt has actually
-                // failed (fieldErrors.references set) — otherwise every
-                // reference row would turn red the instant it's typed
-                // into, before the admin has even finished the number.
-                const phoneFormatInvalid =
-                  Boolean(fieldErrors.references) &&
-                  Boolean(row.phoneNumber.trim()) &&
-                  !CO_PHONE_REGEX.test(row.phoneNumber.trim());
-                return (
-                  <div
-                    key={row.rowId}
-                    className="flex flex-col gap-2 rounded border border-border bg-input p-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <Select
-                        value={row.type}
-                        onChange={(value) =>
-                          updateReferenceRow(row.rowId, {
-                            type: value as ClientReferenceType,
-                          })
-                        }
-                        options={Object.values(ClientReferenceType).map(
-                          (type) => ({
-                            value: type,
-                            label: CLIENT_REFERENCE_TYPE_LABELS[type],
-                          }),
-                        )}
-                        className="w-40"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeReferenceRow(row.rowId)}
-                        className="text-meta text-muted hover:text-red-400"
-                      >
-                        Quitar
-                      </button>
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        value={row.fullName}
-                        onChange={(event) =>
-                          updateReferenceRow(row.rowId, {
-                            fullName: event.target.value,
-                          })
-                        }
-                        placeholder="Nombre completo"
-                        className="h-9 flex-1 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
-                      />
-                      <input
-                        value={row.phoneNumber}
-                        onChange={(event) =>
-                          updateReferenceRow(row.rowId, {
-                            phoneNumber: event.target.value,
-                          })
-                        }
-                        placeholder="Teléfono — ej: +573001234567"
-                        className={`h-9 w-36 rounded border bg-background px-2.5 text-small text-white placeholder-mid focus:outline-none ${
-                          phoneFormatInvalid
-                            ? 'border-red-500 focus:border-red-500'
-                            : 'border-border focus:border-subtle'
-                        }`}
-                      />
-                    </div>
-                    <input
-                      value={row.relationship}
-                      onChange={(event) =>
-                        updateReferenceRow(row.rowId, {
-                          relationship: event.target.value,
-                        })
-                      }
-                      placeholder="Relación — ej: hermano, vecino, proveedor"
-                      className="h-9 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
-                    />
-                  </div>
-                );
-              })}
-              {fieldErrors.references && (
-                <span className="text-meta text-red-400" role="alert">
-                  {fieldErrors.references}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={addReferenceRow}
-                className="flex items-center gap-1.5 self-start rounded border border-border bg-input px-3.5 py-2 text-small text-muted hover:border-subtle hover:text-white"
-              >
-                {/* Matches the "+ Nuevo cliente"/"+ Nuevo préstamo" fix —
-                    a literal "+" character rendered visibly clipped at
-                    this size, an SVG icon doesn't. */}
-                <svg
-                  className="size-3.5 shrink-0"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  stroke="currentColor"
-                >
-                  <path
-                    d="M10 4v12M4 10h12"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                  />
-                </svg>
-                Agregar referencia
-              </button>
-            </div>
-          </FormSection>
-
-          <FormSection title="Documentos">
-            <Field label="Documento de identidad — frente (opcional, foto o PDF combinado)">
-              <FileUploadField
-                file={idDocumentFrontFile}
-                onFileChange={setIdDocumentFrontFile}
-                existingUrl={client?.idDocumentFrontUrl}
-                disabled={isBusy}
+            <Field label="Fecha de expedición (opcional)">
+              <DatePicker
+                value={documentIssueDate}
+                onChange={setDocumentIssueDate}
+                className={inputClassName(false)}
               />
             </Field>
-            <Field label="Documento de identidad — reverso (opcional)">
-              <FileUploadField
-                file={idDocumentBackFile}
-                onFileChange={setIdDocumentBackFile}
-                existingUrl={client?.idDocumentBackUrl}
-                disabled={isBusy}
+            <Field label="Lugar de expedición (opcional)">
+              <input
+                value={documentIssuePlace}
+                onChange={(event) => setDocumentIssuePlace(event.target.value)}
+                placeholder="Ej: Cali"
+                className={inputClassName(false)}
               />
             </Field>
-            <Field label="Selfie (opcional — el cliente tiene derecho a negarse a proporcionarla)">
-              <FileUploadField
-                file={selfieFile}
-                onFileChange={setSelfieFile}
-                existingUrl={client?.selfieImageUrl}
-                accept="image/*"
-                disabled={isBusy}
-              />
-            </Field>
-          </FormSection>
+          </div>
 
-          <FormSection title="Autorización de tratamiento de datos">
-            <label
-              id={fieldElementId('dataProcessingConsent')}
-              className="flex items-start gap-2.5"
+          <div className="flex gap-4">
+            <Field label="Ocupación (opcional)">
+              <input
+                value={occupation}
+                onChange={(event) => setOccupation(event.target.value)}
+                placeholder="Ej: Comerciante"
+                className={inputClassName(false)}
+              />
+            </Field>
+            <Field label="Empresa (opcional)">
+              <input
+                value={employerName}
+                onChange={(event) => setEmployerName(event.target.value)}
+                placeholder="Ej: Almacén La Economía"
+                className={inputClassName(false)}
+              />
+            </Field>
+          </div>
+
+          <div className="flex gap-4">
+            <Field label="Ingreso mensual (opcional)">
+              <CurrencyInput
+                value={monthlyIncome}
+                onChange={setMonthlyIncome}
+                placeholder="Sin especificar"
+                className={inputClassName(false)}
+              />
+            </Field>
+            <Field label="Cupo (opcional)">
+              <CurrencyInput
+                value={creditLimit}
+                onChange={setCreditLimit}
+                placeholder="Sin cupo (ilimitado)"
+                className={inputClassName(false)}
+              />
+            </Field>
+          </div>
+        </FormSection>
+
+        <FormSection title="Contacto">
+          <div className="flex gap-4">
+            <Field
+              label="Celular"
+              error={fieldErrors.phoneNumber}
+              id={fieldElementId('phoneNumber')}
             >
               <input
-                type="checkbox"
-                checked={dataProcessingConsent}
+                required
+                value={phoneNumber}
                 onChange={(event) => {
-                  setDataProcessingConsent(event.target.checked);
+                  setPhoneNumber(event.target.value);
                   setFieldErrors((prev) => ({
                     ...prev,
-                    dataProcessingConsent: undefined,
+                    phoneNumber: undefined,
                   }));
                 }}
-                className="mt-0.5 size-4 shrink-0 rounded border-border bg-input accent-white"
-              />
-              <span className="text-control text-white">
-                El cliente firmó la autorización de tratamiento de datos.
-              </span>
-            </label>
-            {fieldErrors.dataProcessingConsent && (
-              <span className="text-meta text-red-400" role="alert">
-                {fieldErrors.dataProcessingConsent}
-              </span>
-            )}
-            {client?.consentGivenAt && (
-              <p className="text-meta text-muted">
-                Registrado el{' '}
-                {new Date(client.consentGivenAt).toLocaleString('es-CO')}.
-              </p>
-            )}
-            <Field label="Evidencia de la autorización firmada (opcional)">
-              <FileUploadField
-                file={consentDocumentFile}
-                onFileChange={setConsentDocumentFile}
-                existingUrl={client?.consentDocumentUrl}
-                disabled={isBusy}
+                placeholder="Ej: +573158001234"
+                className={inputClassName(Boolean(fieldErrors.phoneNumber))}
               />
             </Field>
-          </FormSection>
+            <Field
+              label="Celular alterno (opcional)"
+              error={fieldErrors.alternatePhoneNumber}
+              id={fieldElementId('alternatePhoneNumber')}
+            >
+              <input
+                value={alternatePhoneNumber}
+                onChange={(event) => {
+                  setAlternatePhoneNumber(event.target.value);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    alternatePhoneNumber: undefined,
+                  }));
+                }}
+                placeholder="Ej: +573001234567"
+                className={inputClassName(
+                  Boolean(fieldErrors.alternatePhoneNumber),
+                )}
+              />
+            </Field>
+          </div>
+          <Field label="Correo electrónico (opcional)">
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="Ej: cliente@correo.com"
+              className={inputClassName(false)}
+            />
+          </Field>
+        </FormSection>
 
-          {formError && (
-            <p className="text-small text-red-400" role="alert">
-              {formError}
+        <FormSection title="Direcciones">
+          <div id={fieldElementId('address')} className="flex flex-col gap-3.5">
+            <p className="text-meta text-muted">
+              Debes registrar al menos una de las dos direcciones.
             </p>
-          )}
+            <Field label="Dirección de residencia">
+              <input
+                value={homeAddress}
+                onChange={(event) => {
+                  setHomeAddress(event.target.value);
+                  setFieldErrors((prev) => ({ ...prev, address: undefined }));
+                }}
+                placeholder="Ej: Cra 10 #20-30"
+                className={inputClassName(Boolean(fieldErrors.address))}
+              />
+            </Field>
+            <Field label="Dirección de trabajo">
+              <input
+                value={workAddress}
+                onChange={(event) => {
+                  setWorkAddress(event.target.value);
+                  setFieldErrors((prev) => ({ ...prev, address: undefined }));
+                }}
+                placeholder="Ej: Cl 5 #8-12, Local 3"
+                className={inputClassName(Boolean(fieldErrors.address))}
+              />
+            </Field>
+            {fieldErrors.address && (
+              <span className="text-meta text-danger" role="alert">
+                {fieldErrors.address}
+              </span>
+            )}
+          </div>
+          <div className="flex gap-4">
+            <Field label="Barrio (opcional)">
+              <input
+                value={neighborhood}
+                onChange={(event) => setNeighborhood(event.target.value)}
+                placeholder="Ej: San Fernando"
+                className={inputClassName(false)}
+              />
+            </Field>
+            <Field label="Ciudad (opcional)">
+              <input
+                value={city}
+                onChange={(event) => setCity(event.target.value)}
+                placeholder="Ej: Cali"
+                className={inputClassName(false)}
+              />
+            </Field>
+          </div>
+        </FormSection>
 
-          <div className="border-t border-border" />
-
-          <div className="flex items-center justify-end gap-3">
+        <FormSection title="Referencias">
+          <div
+            id={fieldElementId('references')}
+            className="flex flex-col gap-3"
+          >
+            {referenceRows.length === 0 && (
+              <p className="text-meta text-muted">
+                Sin referencias agregadas todavía.
+              </p>
+            )}
+            {referenceRows.map((row) => {
+              // Only flags it red once a submit attempt has actually
+              // failed (fieldErrors.references set) — otherwise every
+              // reference row would turn red the instant it's typed
+              // into, before the admin has even finished the number.
+              const phoneFormatInvalid =
+                Boolean(fieldErrors.references) &&
+                Boolean(row.phoneNumber.trim()) &&
+                !CO_PHONE_REGEX.test(row.phoneNumber.trim());
+              return (
+                <div
+                  key={row.rowId}
+                  className="flex flex-col gap-2 rounded border border-border bg-input p-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <Select
+                      value={row.type}
+                      onChange={(value) =>
+                        updateReferenceRow(row.rowId, {
+                          type: value as ClientReferenceType,
+                        })
+                      }
+                      options={Object.values(ClientReferenceType).map(
+                        (type) => ({
+                          value: type,
+                          label: CLIENT_REFERENCE_TYPE_LABELS[type],
+                        }),
+                      )}
+                      className="w-40"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeReferenceRow(row.rowId)}
+                      className="text-meta text-muted hover:text-danger"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      value={row.fullName}
+                      onChange={(event) =>
+                        updateReferenceRow(row.rowId, {
+                          fullName: event.target.value,
+                        })
+                      }
+                      placeholder="Nombre completo"
+                      className="h-9 flex-1 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
+                    />
+                    <input
+                      value={row.phoneNumber}
+                      onChange={(event) =>
+                        updateReferenceRow(row.rowId, {
+                          phoneNumber: event.target.value,
+                        })
+                      }
+                      placeholder="Teléfono — ej: +573001234567"
+                      className={`h-9 w-36 rounded border bg-background px-2.5 text-small text-white placeholder-mid focus:outline-none ${
+                        phoneFormatInvalid
+                          ? 'border-danger focus:border-danger'
+                          : 'border-border focus:border-subtle'
+                      }`}
+                    />
+                  </div>
+                  <input
+                    value={row.relationship}
+                    onChange={(event) =>
+                      updateReferenceRow(row.rowId, {
+                        relationship: event.target.value,
+                      })
+                    }
+                    placeholder="Relación — ej: hermano, vecino, proveedor"
+                    className="h-9 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
+                  />
+                </div>
+              );
+            })}
+            {fieldErrors.references && (
+              <span className="text-meta text-danger" role="alert">
+                {fieldErrors.references}
+              </span>
+            )}
             <button
               type="button"
-              onClick={onClose}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
+              onClick={addReferenceRow}
+              className="flex items-center gap-1.5 self-start rounded border border-border bg-input px-3.5 py-2 text-small text-muted hover:border-subtle hover:text-white"
             >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={isBusy}
-              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isUploading
-                ? 'Subiendo archivos…'
-                : isSubmitting
-                  ? 'Guardando…'
-                  : isEditing
-                    ? 'Guardar cambios'
-                    : 'Guardar cliente'}
+              {/* Matches the "+ Nuevo cliente"/"+ Nuevo préstamo" fix —
+                    a literal "+" character rendered visibly clipped at
+                    this size, an SVG icon doesn't. */}
+              <svg
+                className="size-3.5 shrink-0"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+              >
+                <path
+                  d="M10 4v12M4 10h12"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                />
+              </svg>
+              Agregar referencia
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+        </FormSection>
+
+        <FormSection title="Documentos">
+          <Field label="Documento de identidad — frente (opcional, foto o PDF combinado)">
+            <FileUploadField
+              file={idDocumentFrontFile}
+              onFileChange={setIdDocumentFrontFile}
+              existingUrl={client?.idDocumentFrontUrl}
+              disabled={isBusy}
+            />
+          </Field>
+          <Field label="Documento de identidad — reverso (opcional)">
+            <FileUploadField
+              file={idDocumentBackFile}
+              onFileChange={setIdDocumentBackFile}
+              existingUrl={client?.idDocumentBackUrl}
+              disabled={isBusy}
+            />
+          </Field>
+          <Field label="Selfie (opcional — el cliente tiene derecho a negarse a proporcionarla)">
+            <FileUploadField
+              file={selfieFile}
+              onFileChange={setSelfieFile}
+              existingUrl={client?.selfieImageUrl}
+              accept="image/*"
+              disabled={isBusy}
+            />
+          </Field>
+        </FormSection>
+
+        <FormSection title="Autorización de tratamiento de datos">
+          <label
+            id={fieldElementId('dataProcessingConsent')}
+            className="flex items-start gap-2.5"
+          >
+            <input
+              type="checkbox"
+              checked={dataProcessingConsent}
+              onChange={(event) => {
+                setDataProcessingConsent(event.target.checked);
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  dataProcessingConsent: undefined,
+                }));
+              }}
+              className="mt-0.5 size-4 shrink-0 rounded border-border bg-input accent-white"
+            />
+            <span className="text-control text-white">
+              El cliente firmó la autorización de tratamiento de datos.
+            </span>
+          </label>
+          {fieldErrors.dataProcessingConsent && (
+            <span className="text-meta text-danger" role="alert">
+              {fieldErrors.dataProcessingConsent}
+            </span>
+          )}
+          {client?.consentGivenAt && (
+            <p className="text-meta text-muted">
+              Registrado el{' '}
+              {new Date(client.consentGivenAt).toLocaleString('es-CO')}.
+            </p>
+          )}
+          <Field label="Evidencia de la autorización firmada (opcional)">
+            <FileUploadField
+              file={consentDocumentFile}
+              onFileChange={setConsentDocumentFile}
+              existingUrl={client?.consentDocumentUrl}
+              disabled={isBusy}
+            />
+          </Field>
+        </FormSection>
+
+        {formError && (
+          <p className="text-small text-danger" role="alert">
+            {formError}
+          </p>
+        )}
+
+        <div className="border-t border-border" />
+
+        <div className="flex items-center justify-end gap-3">
+          <Button variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="submit" disabled={isBusy}>
+            {isUploading
+              ? 'Subiendo archivos…'
+              : isSubmitting
+                ? 'Guardando…'
+                : isEditing
+                  ? 'Guardar cambios'
+                  : 'Guardar cliente'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
-// Shared input styling, switching to a red border when the field has a
-// validation or API error attached — keeps the error visually anchored to
-// the field it belongs to, not just a generic banner.
-function inputClassName(hasError: boolean): string {
-  const base =
-    'h-[42px] w-full rounded border bg-input px-3.5 text-control text-white placeholder-mid focus:outline-none';
-  return hasError
-    ? `${base} border-red-500 focus:border-red-500`
-    : `${base} border-border focus:border-subtle`;
-}
-
-interface FieldProps {
-  label: string;
-  error?: string;
-  children: React.ReactNode;
-  // Lets validation scroll straight to this field — see the fieldErrors
-  // effect in ClientForm, which jumps to `#${id}` for whichever invalid
-  // field appears first in FIELD_ORDER. Only set on fields that are
-  // actually validated; purely-optional fields don't need one.
-  id?: string;
-}
-
-function Field({ label, error, children, id }: FieldProps) {
-  return (
-    <div id={id} className="flex flex-1 flex-col gap-1.5">
-      <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
-        {label}
-      </span>
-      {children}
-      {error && (
-        <span className="text-meta text-red-400" role="alert">
-          {error}
-        </span>
-      )}
-    </div>
-  );
-}
-
-// Phase 21 — groups the form into the sections
-// docs/phasesClient/PHASE_21_CLIENT_PROFILE.md calls for, instead of one
-// flat list of fields. Reuses the same `text-section-label` token
-// ClientDetailPage.tsx's "PRÉSTAMOS"/"HISTORIAL DE MENSAJES" headers use.
-function FormSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-3.5">
-      {/* Bumped up from text-section-label (9px, muted) — at that size and
-          color it read as just another line of body text next to the
-          fields below it (e.g. "Sin referencias agregadas todavía."),
-          with no clear heading/content distinction. Larger, brighter, and
-          underlined gives each section an actual header. */}
-      <span className="border-b border-border pb-1.5 text-label font-semibold tracking-[0.36px] text-white">
-        {title.toUpperCase()}
-      </span>
-      {children}
-    </div>
-  );
-}
+// inputClassName, Field, and FormSection now live in @/lib/formStyles and
+// @/components/ui/Field — this file used to redeclare all three locally,
+// identically to LoanForm.tsx/RefinanceLoanForm.tsx/
+// InterestConceptTypeForm.tsx, which was the exact kind of copy-paste
+// drift that let a few buttons miss the 2026-09-02 accent-color rollout.
+// See DESIGN_TOKENS.md's "Component-based centralization" section.

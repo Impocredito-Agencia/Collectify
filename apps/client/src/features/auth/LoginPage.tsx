@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
+import { CollectifyMark } from '@/components/ui/CollectifyMark';
 import { useAuth } from '@/features/auth/useAuth';
 import { ApiError } from '@/lib/apiClient';
 
@@ -52,13 +53,21 @@ export function LoginPage() {
       <div className="w-full max-w-[440px] rounded border border-border bg-surface px-11 py-12">
         {/* Logo */}
         <div className="flex items-center gap-2.5">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded bg-white">
-            <span className="text-[14px] font-semibold text-background">C</span>
+          {/* Style cleanup (2026-09-02): swapped the old "C" letter-in-a-box
+              for the shared CollectifyMark used in Sidebar.tsx — same
+              bg-input tile instead of a flat white square. Kept this tile
+              at size-7, unlike the Sidebar's bigger size-9 — this lockup
+              already sits next to its own two-line "Collectify / Gestión de
+              cobros" wordmark, and the Figma-matched heading right below it
+              (frame 16:2) sets the visual scale for this card, not this
+              logo row. */}
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-input">
+            <CollectifyMark className="size-5" />
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-body text-white">Collectify</span>
-            <span className="text-section-label tracking-[0.54px] text-subtle">
-              GESTIÓN DE COBROS
+            <span className="text-section-label tracking-normal text-subtle">
+              Gestión de cobros
             </span>
           </div>
         </div>
@@ -77,7 +86,7 @@ export function LoginPage() {
           <div className="flex flex-col gap-1.5">
             <label
               htmlFor="email"
-              className="text-label font-medium tracking-[0.55px] text-muted"
+              className="text-label font-normal tracking-normal text-muted"
             >
               CORREO ELECTRÓNICO
             </label>
@@ -96,7 +105,7 @@ export function LoginPage() {
           <div className="mt-3 flex flex-col gap-1.5">
             <label
               htmlFor="password"
-              className="text-label font-medium tracking-[0.55px] text-muted"
+              className="text-label font-normal tracking-normal text-muted"
             >
               CONTRASEÑA
             </label>
@@ -113,7 +122,7 @@ export function LoginPage() {
           </div>
 
           {error && (
-            <p className="mt-2.5 text-small text-red-400" role="alert">
+            <p className="mt-2.5 text-small text-danger" role="alert">
               {error}
             </p>
           )}
@@ -130,18 +139,11 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="mt-6 h-12 w-full rounded bg-white text-control font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-6 h-12 w-full rounded-lg bg-accent text-control font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? 'Ingresando…' : 'Entrar'}
           </button>
         </form>
-
-        <div className="mt-4 flex items-center gap-2 rounded bg-border px-3.5 py-3">
-          <span className="size-[5px] shrink-0 rounded-full bg-muted" />
-          <p className="text-small text-muted">
-            Si ya tienes sesión activa, serás redirigido al dashboard.
-          </p>
-        </div>
 
         <div className="mt-6 border-t border-border" />
 

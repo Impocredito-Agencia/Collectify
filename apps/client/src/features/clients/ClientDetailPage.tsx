@@ -2,6 +2,12 @@ import { useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
+import { Legend } from '@/components/ui/Legend';
+import { Button } from '@/components/ui/Button';
+import { StatCard } from '@/components/ui/StatCard';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { RowActionButton } from '@/components/ui/RowActionButton';
+import { Td, Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { ClientForm } from '@/features/clients/ClientForm';
 import {
@@ -103,7 +109,7 @@ export function ClientDetailPage() {
   if (isError || !client) {
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-small text-red-400">
+        <p className="text-small text-danger">
           {
             'No se pudo cargar este cliente. Puede que no exista o esté desactivado (los clientes inactivos no tienen página de detalle — ver "Known design/backend gaps" en apps/client/docs/DESIGN_TOKENS.md).'
           }
@@ -175,12 +181,12 @@ export function ClientDetailPage() {
                 Activo
               </span>
               {client.isMoraBlocked && (
-                <span
+                <StatusBadge
+                  tone="danger"
                   title="Este cliente tiene una cuota con más de 30 días de mora y no puede recibir un nuevo préstamo."
-                  className="rounded-[3px] border border-[#ef4444] bg-[#240a0a] px-2 py-[3px] text-meta font-medium text-[#ef4444]"
                 >
                   Bloqueado por mora
-                </span>
+                </StatusBadge>
               )}
             </div>
           </div>
@@ -188,20 +194,12 @@ export function ClientDetailPage() {
 
         {isAdmin && (
           <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => setIsEditing(true)}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
-            >
+            <Button variant="secondary" onClick={() => setIsEditing(true)}>
               Editar
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsDeactivating(true)}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
-            >
+            </Button>
+            <Button variant="secondary" onClick={() => setIsDeactivating(true)}>
               Desactivar
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -235,7 +233,7 @@ export function ClientDetailPage() {
           created before this phase) doesn't show a wall of "—" lines. See
           docs/phasesClient/PHASE_21_CLIENT_PROFILE.md. */}
       <div className="flex flex-col gap-4">
-        <DetailSection title="DATOS PERSONALES">
+        <DetailSection title="Datos personales">
           {/* Repeats the cédula already shown in the header above — per
               client feedback, seeing it again here next to the rest of
               the identification fields (tipo, fechas, lugar) is more
@@ -279,7 +277,7 @@ export function ClientDetailPage() {
           />
         </DetailSection>
 
-        <DetailSection title="CONTACTO">
+        <DetailSection title="Contacto">
           {/* Repeats the celular already shown in the header above — same
               reasoning as the Cédula repeat in DATOS PERSONALES: right
               next to "Celular alterno" is more useful than the header. */}
@@ -298,7 +296,7 @@ export function ClientDetailPage() {
           <DetailField label="Correo electrónico" value={client.email} />
         </DetailSection>
 
-        <DetailSection title="DIRECCIONES">
+        <DetailSection title="Direcciones">
           <DetailField
             label="Dirección de residencia"
             value={client.homeAddress}
@@ -312,8 +310,8 @@ export function ClientDetailPage() {
         </DetailSection>
 
         <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
-          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-            REFERENCIAS
+          <span className="text-section-label font-normal tracking-normal text-subtle">
+            Referencias
           </span>
           {client.references.length === 0 ? (
             <p className="text-small text-muted">
@@ -349,8 +347,8 @@ export function ClientDetailPage() {
         </div>
 
         <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
-          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-            DOCUMENTOS
+          <span className="text-section-label font-normal tracking-normal text-subtle">
+            Documentos
           </span>
           {!client.idDocumentFrontUrl &&
           !client.idDocumentBackUrl &&
@@ -381,18 +379,16 @@ export function ClientDetailPage() {
         </div>
 
         <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
-          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-            AUTORIZACIÓN DE TRATAMIENTO DE DATOS
+          <span className="text-section-label font-normal tracking-normal text-subtle">
+            Autorización de tratamiento de datos
           </span>
           <div className="flex items-center gap-3">
             {client.dataProcessingConsent ? (
-              <span className="rounded-[3px] border border-[#22c55e] bg-[#051e0e] px-2 py-[3px] text-meta font-medium text-[#22c55e]">
-                Autorización firmada
-              </span>
+              <StatusBadge tone="success">Autorización firmada</StatusBadge>
             ) : (
-              <span className="rounded-[3px] border border-[#ef4444] bg-[#240a0a] px-2 py-[3px] text-meta font-medium text-[#ef4444]">
+              <StatusBadge tone="danger">
                 Sin autorización registrada
-              </span>
+              </StatusBadge>
             )}
             {client.consentGivenAt && (
               <span className="text-meta text-muted">
@@ -431,8 +427,8 @@ export function ClientDetailPage() {
 
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
-          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-            PRÉSTAMOS
+          <span className="text-section-label font-normal tracking-normal text-subtle">
+            Préstamos
           </span>
           {loans && loans.meta.total > displayedLoans.length && (
             // Plain link, not pre-filtered — LoansListPage's search box
@@ -447,12 +443,12 @@ export function ClientDetailPage() {
           )}
         </div>
 
-        <div className="overflow-hidden rounded bg-surface">
+        <div className="overflow-hidden rounded-lg bg-surface">
           {loansLoading && (
             <p className="p-4 text-small text-muted">Cargando préstamos…</p>
           )}
           {loansError && (
-            <p className="p-4 text-small text-red-400" role="alert">
+            <p className="p-4 text-small text-danger" role="alert">
               No se pudieron cargar los préstamos de este cliente.
             </p>
           )}
@@ -481,48 +477,37 @@ export function ClientDetailPage() {
                   const estado = estadoBadge(loan);
                   return (
                     <tr key={loan.id} className="border-t border-border">
-                      <td className="h-11 px-3.5 text-small text-muted">
-                        {index + 1}
-                      </td>
-                      <td className="h-11 px-3.5 text-small font-medium text-white">
-                        {loan.promissoryNoteNumber}
-                      </td>
-                      <td className="h-11 px-3.5 text-small font-medium text-white">
-                        {formatCurrency(loan.principalAmount)}
-                      </td>
-                      <td className="h-11 px-3.5 text-small font-medium text-white">
-                        {formatCurrency(loan.outstandingBalance)}
-                      </td>
-                      <td className="h-11 px-3.5 text-small font-medium text-white">
+                      <Td muted>{index + 1}</Td>
+                      <Td>{loan.promissoryNoteNumber}</Td>
+                      <Td>{formatCurrency(loan.principalAmount)}</Td>
+                      <Td>{formatCurrency(loan.outstandingBalance)}</Td>
+                      <Td>
                         {loan.installmentsPaid}/{loan.totalInstallments}
-                      </td>
-                      <td className="h-11 px-3.5">
+                      </Td>
+                      <Td>
                         <span
                           className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${estado.classes}`}
                         >
                           {estado.label}
                         </span>
-                      </td>
-                      <td className="h-11 px-3.5">
+                      </Td>
+                      <Td>
                         <span
                           className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(loan.overdueDays)}`}
                         >
                           {loan.overdueDays} días
                         </span>
-                      </td>
-                      <td className="h-11 px-3.5 text-small text-muted">
+                      </Td>
+                      <Td muted>
                         {loan.nextInstallmentDueDate
                           ? formatDateOnly(loan.nextInstallmentDueDate)
                           : '—'}
-                      </td>
-                      <td className="h-11 px-3.5">
-                        <Link
-                          to={`/prestamos/${loan.id}`}
-                          className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
-                        >
+                      </Td>
+                      <Td>
+                        <RowActionButton to={`/prestamos/${loan.id}`}>
                           Ver
-                        </Link>
-                      </td>
+                        </RowActionButton>
+                      </Td>
                     </tr>
                   );
                 })}
@@ -533,10 +518,10 @@ export function ClientDetailPage() {
 
         <div className="flex items-center gap-4 text-label text-muted">
           <span>Días mora:</span>
-          <Legend color="#22c55e" label="0 días" />
-          <Legend color="#eab308" label="1–30" />
-          <Legend color="#f97316" label="31–60" />
-          <Legend color="#ef4444" label="+60" />
+          <Legend tone="success" label="0 días" />
+          <Legend tone="warning" label="1–30" />
+          <Legend tone="mora-mid" label="31–60" />
+          <Legend tone="danger" label="+60" />
         </div>
       </div>
 
@@ -549,8 +534,8 @@ export function ClientDetailPage() {
           as a button, only in the history list below like any other type. */}
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
-          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-            HISTORIAL DE MENSAJES
+          <span className="text-section-label font-normal tracking-normal text-subtle">
+            Historial de mensajes
           </span>
           {isAdmin && (
             <div className="flex items-center gap-2">
@@ -601,34 +586,25 @@ export function ClientDetailPage() {
         </div>
 
         {sendError && (
-          <p className="text-small text-red-400" role="alert">
+          <p className="text-small text-danger" role="alert">
             {sendError}
           </p>
         )}
 
-        <div className="overflow-hidden rounded bg-surface">
+        <div className="overflow-hidden rounded-lg bg-surface">
           {failedMessages && failedMessages.items.length > 0 ? (
             <table className="w-full">
               <tbody>
                 {failedMessages.items.map((message) => (
                   <tr key={message.id} className="border-t border-border">
-                    <td className="h-11 px-3.5 text-small text-muted">
-                      {new Date(message.sentAt).toLocaleDateString('es-CO')}
-                    </td>
-                    <td className="h-11 px-3.5 text-small text-muted">
-                      {messageTypeLabel(message.type)}
-                    </td>
-                    <td className="h-11 px-3.5 text-right">
-                      <span
-                        className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${
-                          message.status === 'sent'
-                            ? 'border-[#22c55e] bg-[#051e0e] text-[#22c55e]'
-                            : 'border-[#ef4444] bg-[#240a0a] text-[#ef4444]'
-                        }`}
+                    <Td muted>{messageTypeLabel(message.type)}</Td>
+                    <Td className="text-right">
+                      <StatusBadge
+                        tone={message.status === 'sent' ? 'success' : 'danger'}
                       >
                         {message.status === 'sent' ? 'Enviado' : 'Fallido'}
-                      </span>
-                    </td>
+                      </StatusBadge>
+                    </Td>
                   </tr>
                 ))}
               </tbody>
@@ -670,49 +646,6 @@ export function ClientDetailPage() {
         />
       )}
     </div>
-  );
-}
-
-// Matches the pasted screenshot: a row of 4 KPI cards between the client
-// header and the loans table. Uses the same `kpi` (24px, light) type token
-// documented for KPI cards in DESIGN_TOKENS.md.
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border border-border bg-surface p-5">
-      <p className="text-small text-muted">{label}</p>
-      <p className="mt-1 text-kpi font-light text-white">{value}</p>
-    </div>
-  );
-}
-
-function Th({
-  children,
-  className = '',
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <th
-      className={`h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted ${className}`}
-    >
-      {children}
-    </th>
-  );
-}
-
-// Same as LoansListPage.tsx's Legend — kept as a local copy rather than a
-// shared import since both are small one-off presentational helpers, same
-// pattern as the Th duplication above.
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span
-        className="size-1.5 rounded-full"
-        style={{ backgroundColor: color }}
-      />
-      <span style={{ color }}>{label}</span>
-    </span>
   );
 }
 
@@ -777,8 +710,8 @@ function MessageFrequencySection({
 
   return (
     <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
-      <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-        FRECUENCIA DE MENSAJES
+      <span className="text-section-label font-normal tracking-normal text-subtle">
+        Frecuencia de mensajes
       </span>
       <p className="text-meta text-muted">
         Solo ajusta cada cuántos días como mínimo recibe recordatorios de mora o
@@ -835,7 +768,7 @@ function MessageFrequencySection({
                 type="button"
                 onClick={() => void handleClear()}
                 disabled={clearFrequency.isPending}
-                className="text-meta text-muted hover:text-red-400 disabled:opacity-50"
+                className="text-meta text-muted hover:text-danger disabled:opacity-50"
               >
                 {clearFrequency.isPending ? 'Quitando…' : 'Quitar'}
               </button>
@@ -859,7 +792,7 @@ function MessageFrequencySection({
           )}
         </div>
       )}
-      {error && <p className="text-meta text-red-400">{error}</p>}
+      {error && <p className="text-meta text-danger">{error}</p>}
     </div>
   );
 }
@@ -873,7 +806,7 @@ function DetailSection({
 }) {
   return (
     <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
-      <span className="text-section-label font-medium tracking-[0.36px] text-muted">
+      <span className="text-section-label font-normal tracking-normal text-subtle">
         {title}
       </span>
       <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-small">

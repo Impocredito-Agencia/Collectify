@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { usePayoffQuote } from '@/features/loans/useLoans';
 import { formatCurrency } from '@/lib/format';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -68,118 +70,107 @@ export function PayoffDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-[480px] overflow-y-auto rounded-lg border border-border bg-surface px-8 py-7">
-        <h2 className="text-[16px] font-medium text-white">
-          Liquidar anticipadamente
-        </h2>
-        <p className="mt-2.5 text-small text-muted">
-          {loanLabel} — esto cierra el préstamo por completo hoy. Lo ya causado
-          (mora y cargos adicionales de las cuotas vencidas) se cobra; las
-          cuotas futuras aún no vencidas se cobran solo por su capital.
+    <Modal maxWidth="max-w-[480px]" scroll>
+      <h2 className="text-[16px] font-medium text-white">
+        Liquidar anticipadamente
+      </h2>
+      <p className="mt-2.5 text-small text-muted">
+        {loanLabel} — esto cierra el préstamo por completo hoy. Lo ya causado
+        (mora y cargos adicionales de las cuotas vencidas) se cobra; las cuotas
+        futuras aún no vencidas se cobran solo por su capital.
+      </p>
+
+      <div className="mt-5 border-t border-border" />
+
+      {loadError && (
+        <p className="mt-5 text-small text-danger" role="alert">
+          {loadError}
         </p>
+      )}
+      {!quote && !loadError && (
+        <p className="mt-5 text-small text-muted">Calculando…</p>
+      )}
 
-        <div className="mt-5 border-t border-border" />
-
-        {loadError && (
-          <p className="mt-5 text-small text-red-400" role="alert">
-            {loadError}
-          </p>
-        )}
-        {!quote && !loadError && (
-          <p className="mt-5 text-small text-muted">Calculando…</p>
-        )}
-
-        {quote && (
-          <>
-            <div className="mt-5 max-h-[220px] overflow-y-auto">
-              <table className="w-full text-meta">
-                <thead>
-                  <tr className="text-muted">
-                    <th className="pb-1 text-left font-normal">Cuota</th>
-                    <th className="pb-1 text-right font-normal">Interés</th>
-                    <th className="pb-1 text-right font-normal">Capital</th>
-                    <th className="pb-1 text-right font-normal">Total</th>
+      {quote && (
+        <>
+          <div className="mt-5 max-h-[220px] overflow-y-auto">
+            <table className="w-full text-meta">
+              <thead>
+                <tr className="text-muted">
+                  <th className="pb-1 text-left font-normal">Cuota</th>
+                  <th className="pb-1 text-right font-normal">Interés</th>
+                  <th className="pb-1 text-right font-normal">Capital</th>
+                  <th className="pb-1 text-right font-normal">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quote.installments.map((installment) => (
+                  <tr key={installment.installmentId} className="text-white">
+                    <td className="py-0.5">{installment.installmentNumber}</td>
+                    <td className="py-0.5 text-right">
+                      {formatCurrency(installment.interestApplied)}
+                    </td>
+                    <td className="py-0.5 text-right">
+                      {formatCurrency(installment.principalApplied)}
+                    </td>
+                    <td className="py-0.5 text-right font-medium">
+                      {formatCurrency(installment.totalDue)}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {quote.installments.map((installment) => (
-                    <tr key={installment.installmentId} className="text-white">
-                      <td className="py-0.5">
-                        {installment.installmentNumber}
-                      </td>
-                      <td className="py-0.5 text-right">
-                        {formatCurrency(installment.interestApplied)}
-                      </td>
-                      <td className="py-0.5 text-right">
-                        {formatCurrency(installment.principalApplied)}
-                      </td>
-                      <td className="py-0.5 text-right font-medium">
-                        {formatCurrency(installment.totalDue)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-            <div className="mt-4 flex items-center justify-between rounded bg-input px-3.5 py-3">
-              <span className="text-small text-muted">Total a pagar hoy</span>
-              <span className="text-card-title font-medium text-white">
-                {formatCurrency(quote.totalDue)}
-              </span>
-            </div>
-          </>
-        )}
+          <div className="mt-4 flex items-center justify-between rounded bg-input px-3.5 py-3">
+            <span className="text-small text-muted">Total a pagar hoy</span>
+            <span className="text-card-title font-medium text-white">
+              {formatCurrency(quote.totalDue)}
+            </span>
+          </div>
+        </>
+      )}
 
-        {isConfirmingFinal && (
-          <p
-            className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-small text-amber-300"
-            role="alert"
+      {isConfirmingFinal && (
+        <p
+          className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-small text-amber-300"
+          role="alert"
+        >
+          ¿Estás seguro? Esta acción no se puede deshacer.
+        </p>
+      )}
+
+      {confirmError && (
+        <p className="mt-3 text-small text-danger" role="alert">
+          {confirmError}
+        </p>
+      )}
+
+      <div className="mt-6 border-t border-border" />
+
+      <div className="mt-5 flex items-center justify-end gap-3">
+        <Button
+          variant="secondary"
+          onClick={
+            isConfirmingFinal ? () => setIsConfirmingFinal(false) : onClose
+          }
+        >
+          Cancelar
+        </Button>
+        {isConfirmingFinal ? (
+          <Button
+            variant="dangerSolid"
+            onClick={() => void handleConfirm()}
+            disabled={isSubmitting}
           >
-            ¿Estás seguro? Esta acción no se puede deshacer.
-          </p>
+            {isSubmitting ? 'Liquidando…' : 'Sí, liquidar definitivamente'}
+          </Button>
+        ) : (
+          <Button onClick={() => setIsConfirmingFinal(true)} disabled={!quote}>
+            Confirmar liquidación
+          </Button>
         )}
-
-        {confirmError && (
-          <p className="mt-3 text-small text-red-400" role="alert">
-            {confirmError}
-          </p>
-        )}
-
-        <div className="mt-6 border-t border-border" />
-
-        <div className="mt-5 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={
-              isConfirmingFinal ? () => setIsConfirmingFinal(false) : onClose
-            }
-            className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
-          >
-            Cancelar
-          </button>
-          {isConfirmingFinal ? (
-            <button
-              type="button"
-              onClick={() => void handleConfirm()}
-              disabled={isSubmitting}
-              className="rounded bg-red-500 px-4 py-2.5 text-small font-semibold text-white hover:bg-red-500/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? 'Liquidando…' : 'Sí, liquidar definitivamente'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsConfirmingFinal(true)}
-              disabled={!quote}
-              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Confirmar liquidación
-            </button>
-          )}
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -2,7 +2,11 @@ import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { Legend } from '@/components/ui/Legend';
+import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Select } from '@/components/ui/Select';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { Td, Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { MessageLogDrawer } from '@/features/messageLogs/MessageLogDrawer';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
@@ -98,12 +102,12 @@ export function MessageLogsPage() {
   return (
     <div className="flex flex-col gap-5">
       <Header
-        title="Historial de mensajes"
+        title="Envíos fallidos"
         subtitle="Mensajes de WhatsApp que no se pudieron enviar"
       />
 
       {retryMessageLog.isError && (
-        <p className="text-small text-red-400" role="alert">
+        <p className="text-small text-danger" role="alert">
           {retryMessageLog.error instanceof ApiError
             ? retryMessageLog.error.message
             : 'No se pudo reintentar el mensaje.'}
@@ -156,13 +160,13 @@ export function MessageLogsPage() {
 
         <div className="flex items-center gap-3 text-label text-muted">
           <Legend
-            color="#ef4444"
+            tone="danger"
             label={`${failedCount?.meta.total ?? 0} Fallidos`}
           />
         </div>
       </div>
 
-      <div className="overflow-hidden rounded bg-surface">
+      <div className="overflow-hidden rounded-lg bg-surface">
         <table className="w-full">
           <thead className="bg-input">
             <tr>
@@ -192,61 +196,53 @@ export function MessageLogsPage() {
                 <Td>
                   {log.client.firstName} {log.client.lastName}
                 </Td>
-                <Td className="text-muted">
-                  {formatPhoneNumber(log.phoneNumber)}
-                </Td>
-                <Td className="text-muted">{messageTypeLabel(log.type)}</Td>
-                <Td className="text-muted">
+                <Td muted>{formatPhoneNumber(log.phoneNumber)}</Td>
+                <Td muted>{messageTypeLabel(log.type)}</Td>
+                <Td muted>
                   {new Date(log.sentAt).toLocaleString('es-CO', {
                     dateStyle: 'medium',
                     timeStyle: 'short',
                   })}
                 </Td>
                 <Td>
-                  <span
-                    className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${
+                  <StatusBadge
+                    tone={
                       log.status === MessageLogStatus.Sent
-                        ? 'border-[#22c55e] bg-[#051e0e] text-[#22c55e]'
-                        : 'border-[#ef4444] bg-[#240a0a] text-[#ef4444]'
-                    }`}
+                        ? 'success'
+                        : 'danger'
+                    }
                   >
                     {log.status === MessageLogStatus.Sent
                       ? 'Enviado'
                       : 'Fallido'}
-                  </span>
+                  </StatusBadge>
                 </Td>
-                <Td className="max-w-[280px] truncate text-muted">
+                <Td muted className="max-w-[280px] truncate">
                   {log.messageContent}
                 </Td>
                 <Td>
                   <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setOpenLog(log)}
-                      className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
-                    >
+                    <RowActionButton onClick={() => setOpenLog(log)}>
                       Ver completo
-                    </button>
+                    </RowActionButton>
                     {isAdmin &&
                       (log.retriedAt ? (
                         <span className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-subtle">
                           Reintentado
                         </span>
                       ) : (
-                        <button
-                          type="button"
+                        <RowActionButton
                           onClick={() => retryMessageLog.mutate(log.id)}
                           disabled={
                             retryMessageLog.isPending &&
                             retryMessageLog.variables === log.id
                           }
-                          className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white disabled:opacity-50"
                         >
                           {retryMessageLog.isPending &&
                           retryMessageLog.variables === log.id
                             ? 'Reintentando…'
                             : 'Reintentar'}
-                        </button>
+                        </RowActionButton>
                       ))}
                   </div>
                 </Td>
@@ -297,30 +293,6 @@ export function MessageLogsPage() {
   );
 }
 
-function Th({ children }: { children: ReactNode }) {
-  return (
-    <th className="h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted">
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  className = '',
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <td
-      className={`h-11 px-3.5 text-small font-medium text-white ${className}`}
-    >
-      {children}
-    </td>
-  );
-}
-
 function EmptyRow({
   children,
   tone = 'muted',
@@ -332,23 +304,11 @@ function EmptyRow({
     <tr>
       <td
         colSpan={7}
-        className={`p-6 text-center text-small ${tone === 'error' ? 'text-red-400' : 'text-muted'}`}
+        className={`p-6 text-center text-small ${tone === 'error' ? 'text-danger' : 'text-muted'}`}
       >
         {children}
       </td>
     </tr>
-  );
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span
-        className="size-1.5 rounded-full"
-        style={{ backgroundColor: color }}
-      />
-      <span style={{ color }}>{label}</span>
-    </span>
   );
 }
 

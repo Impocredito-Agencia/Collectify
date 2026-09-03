@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
+import { Button } from '@/components/ui/Button';
+import { Td, Th } from '@/components/ui/Table';
 import {
   useCurrentUsuryRate,
   useSetUsuryRate,
@@ -68,13 +70,13 @@ export function UsuryRatesPage() {
 
       {isLoadingCurrent && <p className="text-small text-muted">Cargando…</p>}
       {isCurrentError && (
-        <p className="text-small text-red-400" role="alert">
+        <p className="text-small text-danger" role="alert">
           No se pudo cargar la tasa vigente.
         </p>
       )}
 
       {!isLoadingCurrent && !isCurrentError && (
-        <div className="rounded bg-surface px-5 py-4">
+        <div className="rounded-lg bg-surface px-5 py-4">
           {current ? (
             <div className="flex flex-col gap-1">
               <span className="text-meta text-muted">
@@ -106,14 +108,14 @@ export function UsuryRatesPage() {
 
       <form
         onSubmit={handleSubmit}
-        className="flex flex-col gap-3.5 rounded bg-surface px-5 py-4"
+        className="flex flex-col gap-3.5 rounded-lg bg-surface px-5 py-4"
       >
-        <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+        <span className="text-[10px] font-normal tracking-normal text-muted">
           Registrar nueva tasa mensual
         </span>
         <div className="flex items-end gap-3">
           <div className="flex flex-1 flex-col gap-1.5">
-            <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+            <span className="text-[10px] font-normal tracking-normal text-muted">
               Mes certificado
             </span>
             <input
@@ -124,7 +126,7 @@ export function UsuryRatesPage() {
             />
           </div>
           <div className="flex flex-1 flex-col gap-1.5">
-            <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+            <span className="text-[10px] font-normal tracking-normal text-muted">
               Tasa certificada (%)
             </span>
             <input
@@ -137,23 +139,23 @@ export function UsuryRatesPage() {
               className="h-[42px] w-full rounded border border-border bg-input px-3.5 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
             />
           </div>
-          <button
+          <Button
             type="submit"
             disabled={isSubmitting}
-            className="h-[42px] shrink-0 rounded bg-white px-4 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-[42px] shrink-0"
           >
             {isSubmitting ? 'Guardando…' : 'Guardar'}
-          </button>
+          </Button>
         </div>
         {formError && (
-          <p className="text-small text-red-400" role="alert">
+          <p className="text-small text-danger" role="alert">
             {formError}
           </p>
         )}
       </form>
 
       <div className="flex flex-col gap-2.5">
-        <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+        <span className="text-[10px] font-normal tracking-normal text-muted">
           Historial
         </span>
         {isLoadingHistory && <p className="text-small text-muted">Cargando…</p>}
@@ -163,26 +165,24 @@ export function UsuryRatesPage() {
           </p>
         )}
         {!isLoadingHistory && history && history.length > 0 && (
-          <div className="overflow-x-auto rounded bg-surface">
-            <table className="w-full text-small">
-              <thead>
-                <tr className="border-b border-border text-muted">
-                  <th className="px-5 py-3 text-left font-normal">Mes</th>
-                  <th className="px-5 py-3 text-right font-normal">Tasa</th>
+          <div className="overflow-hidden rounded-lg bg-surface">
+            <table className="w-full">
+              {/* Style cleanup (2026-09-02): this table had no size/color
+                  tokens at all — plain `px-5 py-3`, default text color,
+                  no `bg-input` header — found while auditing every table
+                  in the app for typography drift. Now matches every other
+                  list table (`Th`/`Td`, `bg-input` header). */}
+              <thead className="bg-input">
+                <tr>
+                  <Th>Mes</Th>
+                  <Th className="text-right">Tasa</Th>
                 </tr>
               </thead>
               <tbody>
                 {history.map((rate) => (
-                  <tr
-                    key={rate.id}
-                    className="border-b border-border last:border-0"
-                  >
-                    <td className="px-5 py-3 text-white">
-                      {formatMonth(rate.effectiveMonth)}
-                    </td>
-                    <td className="px-5 py-3 text-right text-white">
-                      {rate.ratePercentage}%
-                    </td>
+                  <tr key={rate.id} className="border-t border-border">
+                    <Td>{formatMonth(rate.effectiveMonth)}</Td>
+                    <Td className="text-right">{rate.ratePercentage}%</Td>
                   </tr>
                 ))}
               </tbody>

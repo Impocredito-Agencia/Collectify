@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
+import { Button } from '@/components/ui/Button';
+import { FilterTab } from '@/components/ui/FilterTab';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
 import {
   ConceptCalculationType,
@@ -53,13 +55,12 @@ export function InterestConceptTypesPage() {
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
         <Header
-          title="Cargos adicionales"
+          title="Tipos de cargo"
           subtitle="Catálogo de cargos corrientes y moratorios usado al crear préstamos"
         />
-        <button
-          type="button"
+        <Button
           onClick={() => setFormTarget('new')}
-          className="flex items-center gap-1.5 rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90"
+          className="flex items-center gap-1.5"
         >
           {/* Matches the "+ Nuevo cliente"/"+ Nuevo préstamo" buttons —
               this one was missing the icon entirely. */}
@@ -76,29 +77,25 @@ export function InterestConceptTypesPage() {
             />
           </svg>
           Nuevo cargo
-        </button>
+        </Button>
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
+        <FilterTab
+          label="Activos"
+          isActive={!showInactive}
           onClick={() => setShowInactive(false)}
-          className={`rounded px-3 py-1.5 text-small ${!showInactive ? 'bg-border text-white' : 'text-muted hover:text-white'}`}
-        >
-          Activos
-        </button>
-        <button
-          type="button"
+        />
+        <FilterTab
+          label="Desactivados"
+          isActive={showInactive}
           onClick={() => setShowInactive(true)}
-          className={`rounded px-3 py-1.5 text-small ${showInactive ? 'bg-border text-white' : 'text-muted hover:text-white'}`}
-        >
-          Desactivados
-        </button>
+        />
       </div>
 
       {isLoading && <p className="text-small text-muted">Cargando…</p>}
       {isError && (
-        <p className="text-small text-red-400" role="alert">
+        <p className="text-small text-danger" role="alert">
           No se pudieron cargar los cargos adicionales.
         </p>
       )}
@@ -114,7 +111,7 @@ export function InterestConceptTypesPage() {
         {conceptTypes?.map((conceptType) => (
           <div
             key={conceptType.id}
-            className="flex items-center justify-between rounded bg-surface px-5 py-3.5"
+            className="flex items-center justify-between rounded-lg bg-surface px-5 py-3.5"
           >
             <div className="flex flex-col gap-0.5">
               <div className="flex items-center gap-2">
@@ -124,7 +121,7 @@ export function InterestConceptTypesPage() {
                 <span
                   className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                     conceptType.category === ConceptCategory.Moratorio
-                      ? 'bg-red-500/15 text-red-400'
+                      ? 'bg-danger/15 text-danger'
                       : 'bg-white/10 text-muted'
                   }`}
                 >
@@ -153,7 +150,7 @@ export function InterestConceptTypesPage() {
                 <button
                   type="button"
                   onClick={() => deactivateConceptType.mutate(conceptType.id)}
-                  className="text-meta text-muted hover:text-red-400"
+                  className="text-meta text-muted hover:text-danger"
                 >
                   Desactivar
                 </button>

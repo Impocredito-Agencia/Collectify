@@ -37,7 +37,7 @@ export function ProfilePage() {
 
       <div className="grid grid-cols-2 gap-6">
         <div className="rounded border border-border bg-surface p-5">
-          <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
+          <span className="text-[10px] font-normal tracking-normal text-muted">
             INFORMACIÓN DE CUENTA
           </span>
 

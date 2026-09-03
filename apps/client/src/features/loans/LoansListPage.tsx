@@ -1,7 +1,10 @@
 import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
+import { Button } from '@/components/ui/Button';
+import { Legend } from '@/components/ui/Legend';
 import { Select } from '@/components/ui/Select';
+import { Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { LoanForm } from '@/features/loans/LoanForm';
 import { LoanRow } from '@/features/loans/LoanRow';
@@ -89,10 +92,9 @@ export function LoansListPage() {
         <div className="flex-1" />
 
         {canCreateLoan && (
-          <button
-            type="button"
+          <Button
             onClick={() => setIsCreating(true)}
-            className="flex items-center gap-1.5 rounded bg-white px-4 py-2.5 text-body font-semibold text-background hover:bg-white/90"
+            className="flex items-center gap-1.5"
           >
             {/* An SVG here instead of a literal "+" character — the glyph
                 rendered visibly clipped at the bottom in this font/weight
@@ -110,11 +112,11 @@ export function LoansListPage() {
               />
             </svg>
             Nuevo préstamo
-          </button>
+          </Button>
         )}
       </div>
 
-      <div className="overflow-hidden rounded bg-surface">
+      <div className="overflow-hidden rounded-lg bg-surface">
         <table className="w-full">
           <thead className="bg-input">
             <tr>
@@ -152,10 +154,10 @@ export function LoansListPage() {
 
       <div className="flex items-center gap-4 text-label text-muted">
         <span>Días mora:</span>
-        <Legend color="#22c55e" label="0 días" />
-        <Legend color="#eab308" label="1–30" />
-        <Legend color="#f97316" label="31–60" />
-        <Legend color="#ef4444" label="+60" />
+        <Legend tone="success" label="0 días" />
+        <Legend tone="warning" label="1–30" />
+        <Legend tone="mora-mid" label="31–60" />
+        <Legend tone="danger" label="+60" />
       </div>
 
       {meta && meta.total > 0 && (
@@ -202,22 +204,6 @@ export function LoansListPage() {
   );
 }
 
-function Th({
-  children,
-  className = '',
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <th
-      className={`h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted ${className}`}
-    >
-      {children}
-    </th>
-  );
-}
-
 function EmptyRow({
   children,
   tone = 'muted',
@@ -229,23 +215,11 @@ function EmptyRow({
     <tr>
       <td
         colSpan={9}
-        className={`p-6 text-center text-small ${tone === 'error' ? 'text-red-400' : 'text-muted'}`}
+        className={`p-6 text-center text-small ${tone === 'error' ? 'text-danger' : 'text-muted'}`}
       >
         {children}
       </td>
     </tr>
-  );
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span
-        className="size-1.5 rounded-full"
-        style={{ backgroundColor: color }}
-      />
-      <span style={{ color }}>{label}</span>
-    </span>
   );
 }
 
