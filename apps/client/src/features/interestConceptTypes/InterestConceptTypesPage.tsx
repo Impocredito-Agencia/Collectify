@@ -129,6 +129,14 @@ export function InterestConceptTypesPage() {
                     ? 'Moratorio'
                     : 'Corriente'}
                 </span>
+                {conceptType.isUsuryRateConcept && (
+                  <span
+                    className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white"
+                    title="Aparece siempre, sin poder quitarse, en todo préstamo de esta categoría."
+                  >
+                    Obligatorio (usura)
+                  </span>
+                )}
               </div>
               <span className="text-meta text-muted">
                 {conceptType.defaultCalculationType ===

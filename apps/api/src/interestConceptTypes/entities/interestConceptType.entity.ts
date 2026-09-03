@@ -79,6 +79,18 @@ export class InterestConceptType {
   @Column({ default: true })
   isActive!: boolean;
 
+  // Added 2026-09-03, human bug report: at most one Percentage concept per
+  // category can carry this flag (enforced in
+  // InterestConceptTypesService.create/update — setting it on one concept
+  // unsets it on any other in the same category, not a DB constraint, same
+  // pattern as this project's other "one active X" rules). LoansService
+  // requires this concept's id to be present in the corresponding
+  // concepts/moratoryConcepts list on every loan create/refinance/preview —
+  // it's the mandatory, non-removable usury-rate row the loan form always
+  // shows. See docs/phases/PHASE_24_USURY_MANDATORY.md.
+  @Column({ default: false })
+  isUsuryRateConcept!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 

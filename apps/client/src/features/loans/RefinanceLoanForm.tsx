@@ -22,6 +22,7 @@ import {
   subtractMonthsFromDateString,
 } from '@/features/loans/dueDateMath';
 import { InstallmentFrequency } from '@/features/loans/loansApi';
+import { MandatoryConceptRow } from '@/features/loans/MandatoryConceptRow';
 import {
   usePreviewSchedule,
   useRefinanceQuote,
@@ -64,7 +65,6 @@ interface ConceptRow extends LoanConceptAssignment {
 type FieldName =
   | 'promissoryNoteNumber'
   | 'principalAmount'
-  | 'interestRate'
   | 'firstDueDate'
   | 'totalInstallments'
   | 'concepts'
@@ -103,7 +103,6 @@ export function RefinanceLoanForm({
   const [principalAmount, setPrincipalAmount] = useState(0);
   const [additionalPrincipalPayment, setAdditionalPrincipalPayment] =
     useState(0);
-  const [interestRate, setInterestRate] = useState('');
   const [firstDueDate, setFirstDueDate] = useState('');
   const [installmentFrequency, setInstallmentFrequency] = useState(
     InstallmentFrequency.Monthly,
@@ -259,6 +258,26 @@ export function RefinanceLoanForm({
     }),
   );
 
+  // Bug fix, 2026-09-03 — see LoanForm.tsx's identical fields. Filtered out
+  // of `concepts`/`moratoryConcepts` wherever they're rendered/submitted
+  // below (removableConcepts/removableMoratoryConcepts,
+  // toConceptAssignments) — the refinance-quote pre-fill effect above can
+  // legitimately suggest the same concept the old loan already had, which
+  // would otherwise show up twice: once as the locked MandatoryConceptRow,
+  // once as a normal removable row.
+  const mandatoryCorrienteType = corrienteConceptTypes.find(
+    (conceptType) => conceptType.isUsuryRateConcept,
+  );
+  const mandatoryMoratoryType = moratoryConceptTypes.find(
+    (conceptType) => conceptType.isUsuryRateConcept,
+  );
+  const removableConcepts = concepts.filter(
+    (row) => row.conceptTypeId !== mandatoryCorrienteType?.id,
+  );
+  const removableMoratoryConcepts = moratoryConcepts.filter(
+    (row) => row.conceptTypeId !== mandatoryMoratoryType?.id,
+  );
+
   const addConceptRow = () => {
     const firstType = corrienteConceptTypes[0];
     setConcepts((prev) => [
@@ -324,15 +343,6 @@ export function RefinanceLoanForm({
     if (!(principal > 0)) {
       errors.principalAmount = 'El monto debe ser mayor a 0.';
     }
-    const rate = parseFloat(interestRate);
-    if (
-      interestRate.trim() === '' ||
-      Number.isNaN(rate) ||
-      rate < 0 ||
-      rate > 100
-    ) {
-      errors.interestRate = 'La tasa debe estar entre 0 y 100.';
-    }
     if (!firstDueDate) {
       errors.firstDueDate = 'La fecha de la primera cuota es obligatoria.';
     }
@@ -342,10 +352,16 @@ export function RefinanceLoanForm({
     if (concepts.some((row) => !row.conceptTypeId)) {
       errors.concepts =
         'Selecciona un tipo para cada cargo adicional agregado.';
+    } else if (!mandatoryCorrienteType) {
+      errors.concepts =
+        'No hay un cargo obligatorio de tasa de usura configurado para cargos corrientes — configúralo en "Tipos de cargo".';
     }
     if (moratoryConcepts.some((row) => !row.conceptTypeId)) {
       errors.moratoryConcepts =
         'Selecciona un tipo para cada cargo moratorio agregado.';
+    } else if (!mandatoryMoratoryType) {
+      errors.moratoryConcepts =
+        'No hay un cargo obligatorio de tasa de usura configurado para cargos moratorios — configúralo en "Tipos de cargo".';
     }
     if (hasCoDebtor && !coDebtorClient) {
       errors.coDebtorClientId = 'Selecciona un cliente como codeudor.';
@@ -365,19 +381,45 @@ export function RefinanceLoanForm({
       ? subtractMonthsFromDateString(firstDueDate, 1)
       : subtractDaysFromDateString(firstDueDate, 14);
 
-  const toConceptAssignments = (): LoanConceptAssignment[] =>
-    concepts.map(({ conceptTypeId, calculationType, value }) => ({
+  // See LoanForm.tsx's identical helpers — the mandatory concept is
+  // prepended here (derived, not user-editable), and removableConcepts/
+  // removableMoratoryConcepts already excludes it from the user-added
+  // rows to avoid submitting it twice.
+  const toConceptAssignments = (): LoanConceptAssignment[] => [
+    ...(mandatoryCorrienteType
+      ? [
+          {
+            conceptTypeId: mandatoryCorrienteType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: currentUsuryRate?.ratePercentage ?? 0,
+          },
+        ]
+      : []),
+    ...removableConcepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
       value,
-    }));
+    })),
+  ];
 
-  const toMoratoryConceptAssignments = (): LoanConceptAssignment[] =>
-    moratoryConcepts.map(({ conceptTypeId, calculationType, value }) => ({
-      conceptTypeId,
-      calculationType,
-      value,
-    }));
+  const toMoratoryConceptAssignments = (): LoanConceptAssignment[] => [
+    ...(mandatoryMoratoryType
+      ? [
+          {
+            conceptTypeId: mandatoryMoratoryType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: currentUsuryRate?.ratePercentage ?? 0,
+          },
+        ]
+      : []),
+    ...removableMoratoryConcepts.map(
+      ({ conceptTypeId, calculationType, value }) => ({
+        conceptTypeId,
+        calculationType,
+        value,
+      }),
+    ),
+  ];
 
   const handlePreview = async () => {
     const errors = validate();
@@ -431,7 +473,8 @@ export function RefinanceLoanForm({
       await onSubmit({
         promissoryNoteNumber,
         principalAmount: principal,
-        interestRate: parseFloat(interestRate),
+        // Bug fix, 2026-09-03 — see LoanForm.tsx's identical comment.
+        interestRate: 0,
         disbursedAt: computeDisbursedAt(),
         installmentFrequency,
         totalInstallments: count,
@@ -519,29 +562,6 @@ export function RefinanceLoanForm({
                     placeholder="Ej: #1000"
                     className={inputClassName(
                       Boolean(fieldErrors.promissoryNoteNumber),
-                    )}
-                  />
-                </Field>
-                <Field
-                  label="Tasa de interés moratorio (%)"
-                  error={fieldErrors.interestRate}
-                >
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.1"
-                    value={interestRate}
-                    onChange={(event) => {
-                      setInterestRate(event.target.value);
-                      setFieldErrors((prev) => ({
-                        ...prev,
-                        interestRate: undefined,
-                      }));
-                    }}
-                    placeholder="Ej: 6"
-                    className={inputClassName(
-                      Boolean(fieldErrors.interestRate),
                     )}
                   />
                 </Field>
@@ -673,14 +693,19 @@ export function RefinanceLoanForm({
             <FormSection title="Cargos adicionales y cronograma">
               <Field label="Cargos adicionales" error={fieldErrors.concepts}>
                 <div className="flex flex-col gap-2">
-                  {concepts.length === 0 && (
-                    <p className="text-meta text-muted">
-                      Sin cargos adicionales — el préstamo se financiará solo
-                      con capital. La tasa moratoria de arriba es aparte y solo
-                      aplica si una cuota queda vencida.
+                  {mandatoryCorrienteType ? (
+                    <MandatoryConceptRow
+                      name={mandatoryCorrienteType.name}
+                      ratePercentage={currentUsuryRate?.ratePercentage}
+                    />
+                  ) : (
+                    <p className="text-meta text-danger">
+                      No hay un cargo obligatorio de tasa de usura configurado
+                      para cargos corrientes — configúralo en "Tipos de cargo"
+                      antes de refinanciar préstamos.
                     </p>
                   )}
-                  {concepts.map((row) => (
+                  {removableConcepts.map((row) => (
                     <div key={row.rowId} className="flex items-center gap-2">
                       <Select
                         value={row.conceptTypeId}
@@ -757,18 +782,23 @@ export function RefinanceLoanForm({
               </Field>
 
               <Field
-                label="Cargos moratorios (opcional)"
+                label="Cargos moratorios"
                 error={fieldErrors.moratoryConcepts}
               >
                 <div className="flex flex-col gap-2">
-                  {moratoryConcepts.length === 0 && (
-                    <p className="text-meta text-muted">
-                      Sin cargos moratorios — la mora seguirá calculándose con
-                      la tasa moratoria de arriba. Si agregás al menos uno acá,
-                      esa tasa deja de aplicarse.
+                  {mandatoryMoratoryType ? (
+                    <MandatoryConceptRow
+                      name={mandatoryMoratoryType.name}
+                      ratePercentage={currentUsuryRate?.ratePercentage}
+                    />
+                  ) : (
+                    <p className="text-meta text-danger">
+                      No hay un cargo obligatorio de tasa de usura configurado
+                      para cargos moratorios — configúralo en "Tipos de cargo"
+                      antes de refinanciar préstamos.
                     </p>
                   )}
-                  {moratoryConcepts.map((row) => (
+                  {removableMoratoryConcepts.map((row) => (
                     <div key={row.rowId} className="flex items-center gap-2">
                       <Select
                         value={row.conceptTypeId}

@@ -36,6 +36,13 @@ export interface InterestConceptType {
   category: ConceptCategory;
   fixedAmountDistribution: FixedAmountDistribution | null;
   isActive: boolean;
+  // Bug fix, 2026-09-03 — the mandatory, non-removable usury-rate concept
+  // for its category. At most one true per category (enforced
+  // server-side — setting it on one unsets it on any other in the same
+  // category). Only allowed when defaultCalculationType is percentage.
+  // LoanForm/RefinanceLoanForm always include this concept as a locked
+  // row; LoansService rejects a loan create/refinance/preview missing it.
+  isUsuryRateConcept: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -55,6 +62,7 @@ export interface CreateInterestConceptTypeInput {
   // defaultCalculationType is FixedAmount and category is Corriente.
   fixedAmountDistribution?: FixedAmountDistribution;
   defaultValue?: number;
+  isUsuryRateConcept?: boolean;
 }
 
 export type UpdateInterestConceptTypeInput =

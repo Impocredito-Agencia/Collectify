@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsNumber,
@@ -55,4 +56,13 @@ export class CreateInterestConceptTypeDto {
   @IsNumber()
   @Min(0)
   defaultValue?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Marks this as the mandatory, non-removable usury-rate concept for its category — the loan form always includes it, and LoansService rejects a loan create/refinance/preview missing it. At most one per category; setting this true unsets it on any other concept in the same category (enforced service-side). Only allowed when defaultCalculationType is percentage. See docs/phases/PHASE_24_USURY_MANDATORY.md.',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isUsuryRateConcept?: boolean;
 }
