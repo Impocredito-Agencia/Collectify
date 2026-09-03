@@ -60,6 +60,8 @@ Update `docs/DATABASE.md`'s `usury_rates`/`loans` sections and "Enforcement" lan
 
 **Bug fix, 2026-09-03** (human report): "auto-priced whenever a percentage concept exists" left a gap — a loan could still be created with zero moratory concepts at all, silently falling back to the pre-Phase-14 `Loan.interestRate` formula via a separate, confusing UI input the client wanted removed. `interest_concept_types` gained `isUsuryRateConcept`, a mandatory, non-removable concept per category (`corriente`/`moratorio`) that `LoansService` now requires on every create/refinance/preview. See `docs/DATABASE.md`'s "Bug fix, 2026-09-03 — mandatory usury-rate concept" section for the full design.
 
+**Follow-up fix, 2026-09-03** (human report, same day): the mandatory-concept mechanism above still required an admin to manually create and flag a concept before any loan could be created, which the client flagged as a regression — the usury rate was already auto-applying, so this should require no setup. A migration now seeds one flagged "Tasa de usura" concept per category automatically. See `docs/DATABASE.md`'s "Follow-up fix, 2026-09-03" note under the same section.
+
 ## Related documents
 
 - `docs/phases/PHASE_15_USURY_RATE.md` — the warning-only model this phase replaces
