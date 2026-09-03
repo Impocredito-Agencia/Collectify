@@ -633,6 +633,14 @@ Two human reports on the self-service menu's breakdown message (`renderBreakdown
 
 No schema or query change — `findPendingInstallmentsBreakdown` (`breakdownQueries.ts`) still returns every pending installment across a client's active loans; all three fixes are presentation-layer only. Verified via unit tests in `messageRenderer.spec.ts` and the new `selfServiceMenuMessages.spec.ts`.
 
+## Bug fix, 2026-09-03 — reminder cron jobs ran in the server's time zone, not Colombia's
+
+Human report: rescheduled the "Cuotas vencidas"/"Cuotas próximas a vencer" family cron to 14:40 via the admin panel's hour/minute picker; nothing fired, and no request appeared in the Railway log around that time at all.
+
+`WhatsappCronService.registerJob()` constructed every `CronJob` (the `cron` npm package) without an explicit `timeZone`, so the cron fields were evaluated against the **server's own** system time zone — UTC on Railway — while `cronScheduleUtils.ts`'s picker builds its hour/minute from the admin's own local clock, assumed to be Colombia's (IMPROCRÉDITO operates out of Pasto — see the city baked into the new-loan template body). A picked "14:40" was actually scheduled for 14:40 UTC = 09:40 Colombia time, which had already passed earlier that same day by the time the admin checked at their own 14:40 — explaining both the silent no-send and the missing log line.
+
+Fixed by pinning every `CronJob` explicitly to `America/Bogota` (Colombia has no DST, so no seasonal edge case) in `whatsappCron.service.ts`, regardless of what time zone the Node process itself runs in. Single-tenant, single-city business — hardcoded, not an env var. Verified directly against the `cron` package with `TZ=UTC`: `"40 14 * * *"` next-fires at `2026-09-04T14:40:00.000Z` without the fix vs. `2026-09-04T14:40:00.000-05:00` (i.e. the actually-intended Colombia wall-clock time) with it.
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above

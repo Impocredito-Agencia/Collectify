@@ -36,6 +36,18 @@ const SCHEDULE_OWNER: Record<
   [ReminderFamily.UpcomingDue]: UPCOMING_FAMILY_TYPES[0],
 };
 
+// Bug fix, 2026-09-03 (human report): a schedule saved via the admin
+// panel's hour/minute picker (cronScheduleUtils.ts) never fired at the
+// wall-clock time the admin actually picked. `CronJob` without an explicit
+// timeZone runs the cron fields against the SERVER's local time zone
+// (UTC on Railway) — but the picker builds its hour/minute assuming the
+// admin's own local time, and IMPROCRÉDITO operates out of Pasto,
+// Colombia (see the "Pasto" mention baked into the new-loan template
+// body). Every job here is pinned to Colombia's zone explicitly so the
+// two agree regardless of what time zone the Node process itself runs
+// in. Colombia has no DST, so this needs no seasonal handling.
+const COLOMBIA_TIME_ZONE = 'America/Bogota';
+
 @Injectable()
 export class WhatsappCronService implements OnModuleInit {
   private readonly logger = new Logger(WhatsappCronService.name);
@@ -131,11 +143,17 @@ export class WhatsappCronService implements OnModuleInit {
       this.schedulerRegistry.deleteCronJob(jobName);
     }
 
-    const job = new CronJob(expression, () => {
-      void this.runFor(family).catch((error: unknown) => {
-        this.logger.error(`${family} cron job failed`, error);
-      });
-    });
+    const job = new CronJob(
+      expression,
+      () => {
+        void this.runFor(family).catch((error: unknown) => {
+          this.logger.error(`${family} cron job failed`, error);
+        });
+      },
+      undefined,
+      undefined,
+      COLOMBIA_TIME_ZONE,
+    );
 
     this.schedulerRegistry.addCronJob(jobName, job);
     job.start();

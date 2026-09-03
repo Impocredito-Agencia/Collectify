@@ -124,11 +124,30 @@ describe('WhatsappCronService', () => {
       expect(cronJobMock).toHaveBeenCalledWith(
         '0 7 * * *',
         expect.any(Function) as unknown,
+        undefined,
+        undefined,
+        'America/Bogota',
       );
       expect(cronJobMock).toHaveBeenCalledWith(
         '0 8 * * *',
         expect.any(Function) as unknown,
+        undefined,
+        undefined,
+        'America/Bogota',
       );
+    });
+
+    // Bug fix, 2026-09-03 (human report): a schedule picked in the admin
+    // panel never fired at the wall-clock time the admin actually set —
+    // CronJob defaults to the server's own time zone (UTC on Railway),
+    // not the admin's (Colombia).
+    it('pins every job to Colombia time, not the server default', async () => {
+      await service.onModuleInit();
+
+      const cronJobMock = CronJob as unknown as jest.Mock;
+      for (const call of cronJobMock.mock.calls as unknown[][]) {
+        expect(call[4]).toBe('America/Bogota');
+      }
     });
   });
 
