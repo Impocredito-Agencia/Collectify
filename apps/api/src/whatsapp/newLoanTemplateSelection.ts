@@ -20,6 +20,17 @@ function money(amount: number): string {
   return `$${formatCurrency(amount)}`;
 }
 
+// WhatsApp's template API rejects a text parameter that's an empty string
+// outright — "(#131008) Required parameter is missing" — so `description`
+// (optional on CreateLoanDto, and the admin can also submit it as an
+// empty/whitespace string) can never be forwarded as-is into the {{4}}
+// "Detalle del producto" placeholder. Bug found 2026-09-03: every new-loan
+// message silently failed to send whenever the admin left this field blank.
+function descriptionOrFallback(description: string | null): string {
+  const trimmed = description?.trim();
+  return trimmed ? trimmed : 'No especificado';
+}
+
 export interface NewLoanTemplateInstallment {
   amount: number;
   dueDate: string;
@@ -82,7 +93,7 @@ export function selectNewLoanTemplate(
         tratamiento,
         input.promissoryNoteNumber,
         formatDateEs(input.disbursedAt),
-        input.description ?? '',
+        descriptionOrFallback(input.description),
         money(totalWithInitialPayment),
         // +1 to count the cuota inicial alongside the tracked installments
         // in the intro's "diferido en N cuotas" — see the worked example
@@ -107,7 +118,7 @@ export function selectNewLoanTemplate(
       tratamiento,
       input.promissoryNoteNumber,
       formatDateEs(input.disbursedAt),
-      input.description ?? '',
+      descriptionOrFallback(input.description),
       money(trackedTotal),
       String(input.installments.length),
       frequency,
