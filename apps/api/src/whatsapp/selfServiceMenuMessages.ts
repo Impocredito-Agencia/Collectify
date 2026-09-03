@@ -85,6 +85,18 @@ export function renderBreakdownMessage(
     return `Hola ${clientFullName}, no tienes cuotas pendientes en este momento. 🎉`;
   }
 
+  // Bug fix, 2026-09-03 (human report): findPendingInstallmentsBreakdown
+  // returns every pending installment, overdue or not, so a client with
+  // only future (not-yet-due) installments and nothing overdue was still
+  // getting the full desglose — reading as an alarm for a debt that isn't
+  // actually late. If none are overdue, say so plainly instead.
+  const hasOverdueInstallment = installments.some(
+    (installment) => installment.overdueDays > 0,
+  );
+  if (!hasOverdueInstallment) {
+    return `Hola ${clientFullName}, estás al día con tus pagos. 🎉`;
+  }
+
   return renderAccountSummaryMessage(
     BREAKDOWN_TEMPLATE,
     clientFullName,

@@ -27,6 +27,19 @@ const NUMBER_EMOJIS = [
   '🔟',
 ];
 
+const DIGIT_EMOJIS: Record<string, string> = {
+  '0': '0️⃣',
+  '1': '1️⃣',
+  '2': '2️⃣',
+  '3': '3️⃣',
+  '4': '4️⃣',
+  '5': '5️⃣',
+  '6': '6️⃣',
+  '7': '7️⃣',
+  '8': '8️⃣',
+  '9': '9️⃣',
+};
+
 export interface OverdueInstallmentForMessage {
   installmentNumber: number;
   promissoryNoteNumber: string;
@@ -38,8 +51,20 @@ export function formatCurrency(amount: number): string {
   return Math.round(amount).toLocaleString('es-CO');
 }
 
+// Bug fix, 2026-09-03 (human report): past the 10th item, this fell back
+// to plain "11.", "12." text, breaking the emoji-bullet look of the list.
+// There's no single keycap emoji for two-digit numbers, so past 10 we
+// compose one from the individual digit keycaps instead (e.g. 11 ->
+// 1️⃣1️⃣, 12 -> 1️⃣2️⃣) — same visual family as 1️⃣-🔟.
 function bulletForIndex(index: number): string {
-  return NUMBER_EMOJIS[index] ?? `${index + 1}.`;
+  const number = index + 1;
+  if (index < NUMBER_EMOJIS.length) {
+    return NUMBER_EMOJIS[index];
+  }
+  return String(number)
+    .split('')
+    .map((digit) => DIGIT_EMOJIS[digit])
+    .join('');
 }
 
 function renderInstallmentLine(
@@ -212,10 +237,35 @@ function renderAccountSummaryInstallmentLine(
         ? `vence en ${item.daysUntilDue} días`
         : 'vence hoy';
 
+  // No longer repeats "del pagaré #X" per line — the pagaré is now the
+  // group header (see groupByPromissoryNote below), so it would just be
+  // noise on every single line.
   return (
-    `${bulletForIndex(index)} La cuota No. ${item.installmentNumber} del pagaré ` +
-    `#${item.promissoryNoteNumber} por $${formatCurrency(item.totalDue)} ${statusPhrase}.`
+    `${bulletForIndex(index)} Cuota No. ${item.installmentNumber} ` +
+    `por $${formatCurrency(item.totalDue)} ${statusPhrase}.`
   );
+}
+
+// Bug fix, 2026-09-03 (human report): findPendingInstallmentsBreakdown
+// orders installments by dueDate across every one of a client's loans, so
+// a client with more than one pagaré saw them interleaved in a confusing,
+// hard-to-follow order. Groups by pagaré instead — in first-appearance
+// order, i.e. the pagaré with the earliest due installment listed first,
+// since the input is already dueDate-sorted — with the bullet numbering
+// restarting inside each group.
+function groupByPromissoryNote(
+  installments: AccountSummaryInstallmentForMessage[],
+): Map<string, AccountSummaryInstallmentForMessage[]> {
+  const groups = new Map<string, AccountSummaryInstallmentForMessage[]>();
+  for (const installment of installments) {
+    const group = groups.get(installment.promissoryNoteNumber);
+    if (group) {
+      group.push(installment);
+    } else {
+      groups.set(installment.promissoryNoteNumber, [installment]);
+    }
+  }
+  return groups;
 }
 
 export function calculateAccountSummaryTotal(
@@ -229,9 +279,15 @@ export function renderAccountSummaryMessage(
   clientFullName: string,
   installments: AccountSummaryInstallmentForMessage[],
 ): string {
-  const installmentsList = installments
-    .map(renderAccountSummaryInstallmentLine)
-    .join('\n');
+  const groups = groupByPromissoryNote(installments);
+  const installmentsList = Array.from(groups.entries())
+    .map(([promissoryNoteNumber, groupInstallments]) => {
+      const lines = groupInstallments
+        .map(renderAccountSummaryInstallmentLine)
+        .join('\n');
+      return `Pagaré #${promissoryNoteNumber}:\n${lines}`;
+    })
+    .join('\n\n');
   const grandTotal = formatCurrency(calculateAccountSummaryTotal(installments));
 
   return templateContent

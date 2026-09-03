@@ -623,6 +623,16 @@ Human report (production): created a loan, no `nuevo_pagar_cliente_nuevo` messag
 
 Fixed with `descriptionOrFallback()` in `newLoanTemplateSelection.ts`: trims `description` and substitutes the literal `"No especificado"` whenever it's null or blank/whitespace-only, for both the plain and "cuota inicial" new-loan template variants. No schema change — this is a pure template-parameter fix. Verified via unit tests (`newLoanTemplateSelection.spec.ts`) asserting the fallback for both `null` and whitespace-only description.
 
+## Bug fix, 2026-09-03 — self-service "Ver mis cuotas" desglose
+
+Two human reports on the self-service menu's breakdown message (`renderBreakdownMessage`/`renderAccountSummaryMessage` in `apps/api/src/whatsapp/messageRenderer.ts` and `selfServiceMenuMessages.ts` — reached from "Estado de cuenta"/"Cuotas pendientes" in the "Mi cuenta" submenu):
+
+- **Emoji bullet numbering broke past the 10th installment.** `bulletForIndex()` only had emoji glyphs for 1-10 (`1️⃣`…`🔟`) and fell back to plain `"11."`, `"12."` text past that, breaking the visual consistency of the list. Fixed by composing a bullet from the individual digit keycap emojis for any two-digit number (e.g. `11` → `1️⃣1️⃣`, `12` → `1️⃣2️⃣`) instead of falling back to plain text.
+- **Installments from different pagarés were interleaved by due date**, hard to follow at a glance for a client with more than one loan. `renderAccountSummaryMessage` now groups installments by `promissoryNoteNumber` under a `Pagaré #X:` header (first-appearance order, i.e. whichever pagaré has the earliest due installment listed first — the input is already dueDate-sorted), with the bullet numbering restarting inside each group and the redundant `"del pagaré #X"` phrase dropped from each line since the header already says it.
+- **A client with only future (not-yet-due) installments and nothing overdue was shown the full desglose**, reading like an alarm for a debt that isn't actually late. `renderBreakdownMessage` now checks whether any returned installment has `overdueDays > 0`; if none do, it replies with a plain "estás al día con tus pagos" instead of listing them.
+
+No schema or query change — `findPendingInstallmentsBreakdown` (`breakdownQueries.ts`) still returns every pending installment across a client's active loans; all three fixes are presentation-layer only. Verified via unit tests in `messageRenderer.spec.ts` and the new `selfServiceMenuMessages.spec.ts`.
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above
