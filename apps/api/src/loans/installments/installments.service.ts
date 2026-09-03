@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -16,6 +17,7 @@ import {
 } from 'typeorm';
 
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
+import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { Loan, LoanStatus } from '../entities/loan.entity';
 import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entity';
@@ -35,6 +37,8 @@ const DEFAULT_PAGE_SIZE = 20;
 
 @Injectable()
 export class InstallmentsService {
+  private readonly logger = new Logger(InstallmentsService.name);
+
   constructor(
     @InjectRepository(Installment)
     private readonly installmentsRepository: Repository<Installment>,
@@ -47,6 +51,7 @@ export class InstallmentsService {
     @InjectRepository(PaymentImage)
     private readonly paymentImagesRepository: Repository<PaymentImage>,
     private readonly dataSource: DataSource,
+    private readonly paymentConfirmationService: PaymentConfirmationService,
   ) {}
 
   async findAll(
@@ -171,11 +176,15 @@ export class InstallmentsService {
           { id: installmentId },
           { status: InstallmentStatus.Paid },
         );
-        await this.cascadeLoanStatusIfFullyPaid(
+        const paidInFull = await this.cascadeLoanStatusIfFullyPaid(
           installment.loanId,
           this.installmentsRepository,
           this.loansRepository,
         );
+        await this.sendPaymentConfirmationSafely(installmentId);
+        if (paidInFull) {
+          await this.sendPaidInFullSafely(installment.loanId);
+        }
       }
     }
 
@@ -194,101 +203,121 @@ export class InstallmentsService {
   async registerBulkPayments(
     entries: BulkPaymentEntryDto[],
   ): Promise<Payment[]> {
-    return this.dataSource.transaction(async (manager: EntityManager) => {
-      const installmentsRepository = manager.getRepository(Installment);
-      const paymentsRepository = manager.getRepository(Payment);
-      const loansRepository = manager.getRepository(Loan);
-      const paymentImagesRepository = manager.getRepository(PaymentImage);
+    const paidInFullLoanIds = new Set<string>();
 
-      const savedPayments: Payment[] = [];
-      const loanIdsToCascade = new Set<string>();
+    const savedPayments = await this.dataSource.transaction(
+      async (manager: EntityManager) => {
+        const installmentsRepository = manager.getRepository(Installment);
+        const paymentsRepository = manager.getRepository(Payment);
+        const loansRepository = manager.getRepository(Loan);
+        const paymentImagesRepository = manager.getRepository(PaymentImage);
 
-      // Phase 32 — process in installment_number order (not submission
-      // order) so the sequential-payment rule below can't false-positive
-      // against an earlier installment that's ALSO part of this same
-      // batch: by the time that earlier entry's turn comes up, it's
-      // already been marked Paid within this transaction, so the query
-      // sees it correctly. Only a lookup pass (installmentNumber only) —
-      // the full fetch + status/amount checks below stay per-entry, same
-      // as before, so a bad entry still rolls back the whole batch.
-      const installmentsForSorting = await installmentsRepository.find({
-        where: { id: In(entries.map((entry) => entry.installmentId)) },
-        select: { id: true, installmentNumber: true },
-      });
-      const installmentNumberById = new Map(
-        installmentsForSorting.map((installment) => [
-          installment.id,
-          installment.installmentNumber,
-        ]),
-      );
-      const sortedEntries = [...entries].sort(
-        (a, b) =>
-          (installmentNumberById.get(a.installmentId) ?? 0) -
-          (installmentNumberById.get(b.installmentId) ?? 0),
-      );
+        const savedPayments: Payment[] = [];
+        const loanIdsToCascade = new Set<string>();
 
-      for (const entry of sortedEntries) {
-        const installment = await installmentsRepository.findOneBy({
-          id: entry.installmentId,
+        // Phase 32 — process in installment_number order (not submission
+        // order) so the sequential-payment rule below can't false-positive
+        // against an earlier installment that's ALSO part of this same
+        // batch: by the time that earlier entry's turn comes up, it's
+        // already been marked Paid within this transaction, so the query
+        // sees it correctly. Only a lookup pass (installmentNumber only) —
+        // the full fetch + status/amount checks below stay per-entry, same
+        // as before, so a bad entry still rolls back the whole batch.
+        const installmentsForSorting = await installmentsRepository.find({
+          where: { id: In(entries.map((entry) => entry.installmentId)) },
+          select: { id: true, installmentNumber: true },
         });
-        if (!installment) {
-          throw new NotFoundException(
-            `Installment with id ${entry.installmentId} not found`,
+        const installmentNumberById = new Map(
+          installmentsForSorting.map((installment) => [
+            installment.id,
+            installment.installmentNumber,
+          ]),
+        );
+        const sortedEntries = [...entries].sort(
+          (a, b) =>
+            (installmentNumberById.get(a.installmentId) ?? 0) -
+            (installmentNumberById.get(b.installmentId) ?? 0),
+        );
+
+        for (const entry of sortedEntries) {
+          const installment = await installmentsRepository.findOneBy({
+            id: entry.installmentId,
+          });
+          if (!installment) {
+            throw new NotFoundException(
+              `Installment with id ${entry.installmentId} not found`,
+            );
+          }
+          if (installment.status !== InstallmentStatus.Pending) {
+            throw new BadRequestException(
+              `Installment ${installment.installmentNumber} (id ${installment.id}) is not pending — it cannot be paid again.`,
+            );
+          }
+          await this.assertNoEarlierPendingInstallment(
+            installment,
+            installmentsRepository,
           );
-        }
-        if (installment.status !== InstallmentStatus.Pending) {
-          throw new BadRequestException(
-            `Installment ${installment.installmentNumber} (id ${installment.id}) is not pending — it cannot be paid again.`,
+
+          const totalPaidBefore = await this.sumPayments(
+            entry.installmentId,
+            paymentsRepository,
           );
-        }
-        await this.assertNoEarlierPendingInstallment(
-          installment,
-          installmentsRepository,
-        );
+          const totalPaidAfter = totalPaidBefore + entry.amountPaid;
+          if (totalPaidAfter < installment.amount) {
+            throw new BadRequestException(
+              `The amount for installment ${installment.installmentNumber} (id ${installment.id}) does not cover its remaining balance — a bulk payment must fully settle every selected installment. Use the single-installment flow for a partial payment.`,
+            );
+          }
 
-        const totalPaidBefore = await this.sumPayments(
-          entry.installmentId,
-          paymentsRepository,
-        );
-        const totalPaidAfter = totalPaidBefore + entry.amountPaid;
-        if (totalPaidAfter < installment.amount) {
-          throw new BadRequestException(
-            `The amount for installment ${installment.installmentNumber} (id ${installment.id}) does not cover its remaining balance — a bulk payment must fully settle every selected installment. Use the single-installment flow for a partial payment.`,
+          const payment = paymentsRepository.create({
+            installmentId: entry.installmentId,
+            amountPaid: entry.amountPaid,
+            paidAt: entry.paidAt,
+            observation: entry.observation ?? null,
+            imageUrl: null,
+          });
+          const savedPayment = await paymentsRepository.save(payment);
+          await this.savePaymentImages(
+            savedPayment.id,
+            entry.imageUrls,
+            paymentImagesRepository,
           );
+          savedPayments.push(savedPayment);
+
+          await installmentsRepository.update(
+            { id: entry.installmentId },
+            { status: InstallmentStatus.Paid },
+          );
+          loanIdsToCascade.add(installment.loanId);
         }
 
-        const payment = paymentsRepository.create({
-          installmentId: entry.installmentId,
-          amountPaid: entry.amountPaid,
-          paidAt: entry.paidAt,
-          observation: entry.observation ?? null,
-          imageUrl: null,
-        });
-        const savedPayment = await paymentsRepository.save(payment);
-        await this.savePaymentImages(
-          savedPayment.id,
-          entry.imageUrls,
-          paymentImagesRepository,
-        );
-        savedPayments.push(savedPayment);
+        for (const loanId of loanIdsToCascade) {
+          const paidInFull = await this.cascadeLoanStatusIfFullyPaid(
+            loanId,
+            installmentsRepository,
+            loansRepository,
+          );
+          if (paidInFull) {
+            paidInFullLoanIds.add(loanId);
+          }
+        }
 
-        await installmentsRepository.update(
-          { id: entry.installmentId },
-          { status: InstallmentStatus.Paid },
-        );
-        loanIdsToCascade.add(installment.loanId);
-      }
+        return savedPayments;
+      },
+    );
 
-      for (const loanId of loanIdsToCascade) {
-        await this.cascadeLoanStatusIfFullyPaid(
-          loanId,
-          installmentsRepository,
-          loansRepository,
-        );
-      }
+    // Fired only after the transaction has actually committed — see
+    // sendPaymentConfirmationSafely's doc comment. Every entry in a bulk
+    // payment always fully settles its installment (enforced above), so
+    // every one of them gets a confirmation, not just some.
+    for (const payment of savedPayments) {
+      await this.sendPaymentConfirmationSafely(payment.installmentId);
+    }
+    for (const loanId of paidInFullLoanIds) {
+      await this.sendPaidInFullSafely(loanId);
+    }
 
-      return savedPayments;
-    });
+    return savedPayments;
   }
 
   // Phase 32 — shared by registerPayment and registerBulkPayments. Takes
@@ -343,11 +372,14 @@ export class InstallmentsService {
     return payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
   }
 
+  // Returns whether this call is what just fully paid off the loan — lets
+  // callers fire PaymentConfirmationService.sendPaidInFull exactly once,
+  // right when it happens, per docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md.
   private async cascadeLoanStatusIfFullyPaid(
     loanId: string,
     installmentsRepository: Repository<Installment>,
     loansRepository: Repository<Loan>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const installments = await installmentsRepository.find({
       where: { loanId },
     });
@@ -358,12 +390,42 @@ export class InstallmentsService {
       );
 
     if (!allPaid) {
-      return;
+      return false;
     }
 
-    await loansRepository.update(
+    const result = await loansRepository.update(
       { id: loanId, status: LoanStatus.Active },
       { status: LoanStatus.Paid },
     );
+    return (result.affected ?? 0) > 0;
+  }
+
+  // Never lets a messaging failure affect the payment that was just
+  // registered — same principle as LoansService.sendNewLoanMessageSafely.
+  // See docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md.
+  private async sendPaymentConfirmationSafely(
+    installmentId: string,
+  ): Promise<void> {
+    try {
+      await this.paymentConfirmationService.sendPaymentConfirmation(
+        installmentId,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send payment confirmation WhatsApp message for installment ${installmentId}`,
+        error,
+      );
+    }
+  }
+
+  private async sendPaidInFullSafely(loanId: string): Promise<void> {
+    try {
+      await this.paymentConfirmationService.sendPaidInFull(loanId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send paid-in-full WhatsApp message for loan ${loanId}`,
+        error,
+      );
+    }
   }
 }

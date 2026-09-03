@@ -9,6 +9,8 @@ import {
 import {
   MESSAGE_TYPE_LABELS,
   MessageType,
+  NEW_LOAN_FAMILY_TYPES,
+  REMINDER_FAMILY_TYPES,
 } from '@/features/messageTemplates/messageTemplatesApi';
 import { useMessageTemplates } from '@/features/messageTemplates/useMessageTemplates';
 import {
@@ -17,6 +19,7 @@ import {
   useResumeCron,
   useUpdateCronSchedule,
 } from '@/features/whatsapp/useWhatsapp';
+import { ReminderFamily } from '@/features/whatsapp/whatsappApi';
 import { ApiError } from '@/lib/apiClient';
 
 import type {
@@ -25,42 +28,53 @@ import type {
 } from '@/features/messageTemplates/cronScheduleUtils';
 import type { MessageTemplate } from '@/features/messageTemplates/messageTemplatesApi';
 
-// content stays read-only after the backend refactor (main, PR #16 on the
-// backend side) — templates are fixed per message type, editable only via
-// a migration, since WhatsApp only lets a business initiate a conversation
-// through a Meta-approved template. See docs/DATABASE.md "Changed after
-// Phase 9".
+// content stays read-only — templates are fixed per message type, editable
+// only via a migration, since WhatsApp only lets a business initiate a
+// conversation through a Meta-approved template. See docs/DATABASE.md
+// "Changed after Phase 9".
 //
-// Phase 18 added an admin-editable cron schedule per template — kept.
-// It also added a curated audience (group of clients) per template,
-// **retired as of Phase 27** (see docs/phases/PHASE_27_MESSAGE_FREQUENCY.md):
-//   - new_loan has NO schedule at all — it's sent exactly once,
-//     synchronously, at loan creation.
-//   - account_summary has NO audience — it's sent automatically to every
-//     client with an active loan, but keeps its schedule.
-//   - overdue/upcoming_due keep their schedule; the audience-as-required-
-//     filter design is gone (every dynamically-qualifying client is
-//     messaged again), replaced by a per-client frequency whitelist
-//     managed from that client's own profile, not from here.
-// Grid pairing, distinct from MESSAGE_TYPE_ORDER (used elsewhere for
-// filter dropdowns etc.) — new_loan is the only short card now (no
-// schedule at all); the other three are the same height (schedule only).
-const GRID_DISPLAY_ORDER: MessageType[] = [
-  MessageType.NewLoan,
-  MessageType.AccountSummary,
-  MessageType.UpcomingDue,
-  MessageType.Overdue,
-];
+// Phase 33 replaced the old 4-type catalog (new_loan/upcoming_due/
+// overdue/account_summary) with 13 real Meta-approved templates, and
+// moved the admin-editable cron schedule (Phase 18) from per-template to
+// per-FAMILY — "vencida" now spans 4 templates, "próxima a vencer" spans
+// 2, sharing one schedule each (see apps/api/src/whatsapp/reminderFamily.ts).
+// A schedule is no longer a property of an individual template card, so
+// it's shown once per family above the grid (FamilyCronControl below),
+// not embedded in each of the 13 cards. new-loan/refinance and
+// payment-confirmation templates have no schedule at all — sent
+// synchronously at their triggering event, per
+// docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md's "Technical decisions".
+// The curated-audience concept (Phase 18) stays retired, per
+// docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.
+
+const FAMILY_LABELS: Record<ReminderFamily, string> = {
+  [ReminderFamily.Overdue]: 'Cuotas vencidas',
+  [ReminderFamily.UpcomingDue]: 'Cuotas próximas a vencer',
+};
+
+// The "schedule owner" row per family — matches
+// apps/api/src/whatsapp/whatsappCron.service.ts's SCHEDULE_OWNER exactly.
+// PATCH /whatsapp/cron/:family/schedule persists on this template's
+// cronExpression; the other templates in the family share it without
+// carrying their own.
+const FAMILY_SCHEDULE_OWNER: Record<ReminderFamily, MessageType> = {
+  [ReminderFamily.Overdue]: MessageType.SingleOverdueInstallment,
+  [ReminderFamily.UpcomingDue]: MessageType.SingleUpcomingInstallment,
+};
+
+function triggerDescription(type: MessageType): string {
+  if (NEW_LOAN_FAMILY_TYPES.includes(type)) {
+    return 'Se envía automáticamente, una sola vez, al crear o refinanciar el préstamo — no tiene horario ni reintento programado.';
+  }
+  if (REMINDER_FAMILY_TYPES.includes(type)) {
+    return 'Se envía por el horario automático de su familia de recordatorio (ver arriba). La frecuencia de envío para un cliente puntual se ajusta desde su propio perfil.';
+  }
+  // PaymentConfirmation / PaidInFull
+  return 'Se envía automáticamente al registrar el pago correspondiente — no tiene horario ni reintento programado.';
+}
 
 export function MessageTemplatesPage() {
   const { data: templates, isLoading, isError } = useMessageTemplates();
-  const orderedTemplates = templates
-    ? [...templates].sort(
-        (a, b) =>
-          GRID_DISPLAY_ORDER.indexOf(a.type) -
-          GRID_DISPLAY_ORDER.indexOf(b.type),
-      )
-    : templates;
 
   return (
     <div className="flex flex-col gap-5">
@@ -75,12 +89,37 @@ export function MessageTemplatesPage() {
           No se pudieron cargar las plantillas.
         </p>
       )}
+
+      {!isLoading && !isError && (
+        <div className="flex flex-col gap-3.5 rounded bg-surface p-5">
+          <span className="text-card-title font-medium text-white">
+            Recordatorios automáticos
+          </span>
+          <div className="grid grid-cols-2 gap-4">
+            {Object.values(ReminderFamily).map((family) => (
+              <div key={family} className="rounded border border-border p-3.5">
+                <span className="mb-2 block text-small font-medium text-white">
+                  {FAMILY_LABELS[family]}
+                </span>
+                <FamilyCronControl
+                  family={family}
+                  scheduleOwner={templates?.find(
+                    (template) =>
+                      template.type === FAMILY_SCHEDULE_OWNER[family],
+                  )}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!isLoading && !isError && templates?.length === 0 && (
         <p className="text-small text-muted">Todavía no hay plantillas.</p>
       )}
 
       <div className="grid grid-cols-2 items-start gap-4">
-        {orderedTemplates?.map((template) => (
+        {templates?.map((template) => (
           <div
             key={template.id}
             className="flex flex-col gap-3.5 rounded-lg bg-surface p-5"
@@ -98,33 +137,9 @@ export function MessageTemplatesPage() {
             </p>
 
             <div className="border-t border-border pt-3">
-              {template.type === MessageType.NewLoan ? (
-                <p className="text-meta text-muted">
-                  Se envía automáticamente, una sola vez, al crear el préstamo —
-                  no tiene horario ni reintento programado.
-                </p>
-              ) : (
-                <TemplateCronControl template={template} />
-              )}
-            </div>
-
-            <div className="border-t border-border pt-3">
-              {template.type === MessageType.NewLoan ? (
-                <p className="text-meta text-muted">
-                  No usa grupo de destinatarios.
-                </p>
-              ) : template.type === MessageType.AccountSummary ? (
-                <p className="text-meta text-muted">
-                  Sin grupo — le llega automáticamente a todos los clientes con
-                  crédito activo.
-                </p>
-              ) : (
-                <p className="text-meta text-muted">
-                  Sin grupo — le llega a todos los clientes que califiquen (mora
-                  o cuota por vencer). La frecuencia de envío para un cliente
-                  puntual se ajusta desde su propio perfil.
-                </p>
-              )}
+              <p className="text-meta text-muted">
+                {triggerDescription(template.type)}
+              </p>
             </div>
           </div>
         ))}
@@ -161,17 +176,26 @@ function pad2(value: number): string {
 
 // A friendly periodicity+time picker instead of a raw cron expression
 // (added after client QA, 2026-08-18 — see docs/phasesClient/PHASE_18_MESSAGE_AUDIENCES.md).
-// Not offered for new_loan, which has no schedule at all — see the parent
-// component.
-function TemplateCronControl({ template }: { template: MessageTemplate }) {
-  const { data: cronStatus } = useCronStatus(template.type);
-  const pauseCron = usePauseCron(template.type);
-  const resumeCron = useResumeCron(template.type);
-  const updateSchedule = useUpdateCronSchedule(template.type);
+// Phase 33: parametrized by FAMILY, not template — one schedule now
+// covers several templates. `scheduleOwner` is that family's schedule-
+// owner row (FAMILY_SCHEDULE_OWNER above), read only for its
+// cronExpression seed; undefined while templates are still loading.
+function FamilyCronControl({
+  family,
+  scheduleOwner,
+}: {
+  family: ReminderFamily;
+  scheduleOwner: MessageTemplate | undefined;
+}) {
+  const { data: cronStatus } = useCronStatus(family);
+  const pauseCron = usePauseCron(family);
+  const resumeCron = useResumeCron(family);
+  const updateSchedule = useUpdateCronSchedule(family);
 
   const [config, setConfig] = useState<ScheduleConfig>(
     () =>
-      parseCronExpression(template.cronExpression) ?? DEFAULT_SCHEDULE_CONFIG,
+      parseCronExpression(scheduleOwner?.cronExpression ?? null) ??
+      DEFAULT_SCHEDULE_CONFIG,
   );
   const [isDirty, setIsDirty] = useState(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
@@ -180,10 +204,11 @@ function TemplateCronControl({ template }: { template: MessageTemplate }) {
   // changed it) without fighting the admin's own in-progress edits.
   useEffect(() => {
     setConfig(
-      parseCronExpression(template.cronExpression) ?? DEFAULT_SCHEDULE_CONFIG,
+      parseCronExpression(scheduleOwner?.cronExpression ?? null) ??
+        DEFAULT_SCHEDULE_CONFIG,
     );
     setIsDirty(false);
-  }, [template.cronExpression]);
+  }, [scheduleOwner?.cronExpression]);
 
   const updateConfig = (changes: Partial<ScheduleConfig>) => {
     setConfig((prev) => ({ ...prev, ...changes }));

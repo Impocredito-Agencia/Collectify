@@ -1,13 +1,12 @@
-import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 
-import { AccountSummaryService } from './accountSummary.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { OverdueReminderService } from './overdueReminder.service';
+import { OVERDUE_FAMILY_TYPES, ReminderFamily } from './reminderFamily';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
 import { WhatsappCronService } from './whatsappCron.service';
 
@@ -31,20 +30,10 @@ jest.mock('cron', () => ({
   ),
 }));
 
-// new_loan has no cron job (corrected after client QA, 2026-08-18 — see
-// docs/phases/PHASE_18_MESSAGE_AUDIENCES.md "Extended after client QA"):
-// it's sent synchronously at loan creation only.
-const CRON_SUPPORTED_TYPES = [
-  MessageType.Overdue,
-  MessageType.UpcomingDue,
-  MessageType.AccountSummary,
-];
-
 describe('WhatsappCronService', () => {
   let service: WhatsappCronService;
   let overdueReminderService: { runWeeklyReminder: jest.Mock };
   let upcomingDueReminderService: { runDailyReminder: jest.Mock };
-  let accountSummaryService: { runActiveClientSummaries: jest.Mock };
   let messageTemplatesService: {
     findByTypeOrThrow: jest.Mock;
     updateCronExpression: jest.Mock;
@@ -60,7 +49,6 @@ describe('WhatsappCronService', () => {
   beforeEach(async () => {
     overdueReminderService = { runWeeklyReminder: jest.fn() };
     upcomingDueReminderService = { runDailyReminder: jest.fn() };
-    accountSummaryService = { runActiveClientSummaries: jest.fn() };
     messageTemplatesService = {
       findByTypeOrThrow: jest.fn().mockResolvedValue({ cronExpression: null }),
       updateCronExpression: jest.fn(),
@@ -87,7 +75,6 @@ describe('WhatsappCronService', () => {
           provide: UpcomingDueReminderService,
           useValue: upcomingDueReminderService,
         },
-        { provide: AccountSummaryService, useValue: accountSummaryService },
         {
           provide: MessageTemplatesService,
           useValue: messageTemplatesService,
@@ -98,7 +85,6 @@ describe('WhatsappCronService', () => {
             get: jest.fn().mockReturnValue({
               overdueReminderExpression: '0 9 * * 1,3,5',
               upcomingDueReminderExpression: '0 8 * * *',
-              accountSummaryReminderExpression: '0 8 1 * *',
             }),
           },
         },
@@ -110,24 +96,25 @@ describe('WhatsappCronService', () => {
   });
 
   describe('onModuleInit', () => {
-    it('registers and starts one job per cron-supported message type, skipping new_loan', async () => {
+    it('registers and starts one job per family', async () => {
       await service.onModuleInit();
 
-      expect(schedulerRegistry.addCronJob).toHaveBeenCalledTimes(3);
-      for (const type of CRON_SUPPORTED_TYPES) {
-        const job = jobs.get(WhatsappCronService.jobName(type));
+      expect(schedulerRegistry.addCronJob).toHaveBeenCalledTimes(2);
+      for (const family of [
+        ReminderFamily.Overdue,
+        ReminderFamily.UpcomingDue,
+      ]) {
+        const job = jobs.get(WhatsappCronService.jobName(family));
         expect(job?.isActive).toBe(true);
       }
-      expect(jobs.has(WhatsappCronService.jobName(MessageType.NewLoan))).toBe(
-        false,
-      );
     });
 
-    it('uses the template cronExpression when set, falling back to the code default otherwise', async () => {
+    it('uses the schedule-owner template cronExpression when set, falling back to the code default otherwise', async () => {
       messageTemplatesService.findByTypeOrThrow.mockImplementation(
         (type: MessageType) =>
           Promise.resolve({
-            cronExpression: type === MessageType.Overdue ? '0 7 * * *' : null,
+            cronExpression:
+              type === OVERDUE_FAMILY_TYPES[0] ? '0 7 * * *' : null,
           }),
       );
 
@@ -151,55 +138,27 @@ describe('WhatsappCronService', () => {
     });
 
     it('reports the running state', () => {
-      expect(service.getStatus(MessageType.Overdue)).toEqual({
+      expect(service.getStatus(ReminderFamily.Overdue)).toEqual({
         running: true,
       });
     });
 
     it('pauses a job', async () => {
-      await service.pause(MessageType.Overdue);
+      await service.pause(ReminderFamily.Overdue);
 
-      expect(service.getStatus(MessageType.Overdue)).toEqual({
+      expect(service.getStatus(ReminderFamily.Overdue)).toEqual({
         running: false,
       });
     });
 
     it('resumes a paused job', async () => {
-      await service.pause(MessageType.Overdue);
+      await service.pause(ReminderFamily.Overdue);
 
-      service.resume(MessageType.Overdue);
+      service.resume(ReminderFamily.Overdue);
 
-      expect(service.getStatus(MessageType.Overdue)).toEqual({
+      expect(service.getStatus(ReminderFamily.Overdue)).toEqual({
         running: true,
       });
-    });
-  });
-
-  // Confirmed with the human (2026-08-18): new_loan is sent synchronously
-  // at loan creation only, with no cron job to control.
-  describe('new_loan has no cron job', () => {
-    it('rejects getStatus', () => {
-      expect(() => service.getStatus(MessageType.NewLoan)).toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('rejects pause', async () => {
-      await expect(service.pause(MessageType.NewLoan)).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('rejects resume', () => {
-      expect(() => service.resume(MessageType.NewLoan)).toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('rejects reschedule', async () => {
-      await expect(
-        service.reschedule(MessageType.NewLoan, '0 9 * * *'),
-      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -208,26 +167,26 @@ describe('WhatsappCronService', () => {
       await service.onModuleInit();
     });
 
-    it('persists the new expression and replaces the running job', async () => {
+    it('persists the new expression on the schedule-owner template and replaces the running job', async () => {
       messageTemplatesService.updateCronExpression.mockResolvedValue({
-        type: MessageType.Overdue,
+        type: OVERDUE_FAMILY_TYPES[0],
         cronExpression: '0 10 * * *',
       });
 
       const result = await service.reschedule(
-        MessageType.Overdue,
+        ReminderFamily.Overdue,
         '0 10 * * *',
       );
 
       expect(messageTemplatesService.updateCronExpression).toHaveBeenCalledWith(
-        MessageType.Overdue,
+        OVERDUE_FAMILY_TYPES[0],
         '0 10 * * *',
       );
       expect(result.cronExpression).toBe('0 10 * * *');
       expect(schedulerRegistry.deleteCronJob).toHaveBeenCalledWith(
-        WhatsappCronService.jobName(MessageType.Overdue),
+        WhatsappCronService.jobName(ReminderFamily.Overdue),
       );
-      expect(service.getStatus(MessageType.Overdue)).toEqual({
+      expect(service.getStatus(ReminderFamily.Overdue)).toEqual({
         running: true,
       });
     });
@@ -236,7 +195,7 @@ describe('WhatsappCronService', () => {
   describe('cron job execution', () => {
     it('invokes runWeeklyReminder when the overdue job ticks', async () => {
       await service.onModuleInit();
-      const job = jobs.get(WhatsappCronService.jobName(MessageType.Overdue));
+      const job = jobs.get(WhatsappCronService.jobName(ReminderFamily.Overdue));
       overdueReminderService.runWeeklyReminder.mockResolvedValue(undefined);
 
       job?.onTick();
@@ -244,18 +203,16 @@ describe('WhatsappCronService', () => {
       expect(overdueReminderService.runWeeklyReminder).toHaveBeenCalled();
     });
 
-    it('invokes runActiveClientSummaries when the account_summary job ticks', async () => {
+    it('invokes runDailyReminder when the upcoming_due job ticks', async () => {
       await service.onModuleInit();
       const job = jobs.get(
-        WhatsappCronService.jobName(MessageType.AccountSummary),
+        WhatsappCronService.jobName(ReminderFamily.UpcomingDue),
       );
-      accountSummaryService.runActiveClientSummaries.mockResolvedValue(
-        undefined,
-      );
+      upcomingDueReminderService.runDailyReminder.mockResolvedValue(undefined);
 
       job?.onTick();
 
-      expect(accountSummaryService.runActiveClientSummaries).toHaveBeenCalled();
+      expect(upcomingDueReminderService.runDailyReminder).toHaveBeenCalled();
     });
   });
 });

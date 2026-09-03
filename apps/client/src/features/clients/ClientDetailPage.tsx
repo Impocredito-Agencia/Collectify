@@ -29,11 +29,9 @@ import {
 import { useLoans } from '@/features/loans/useLoans';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
-import { MESSAGE_TYPE_LABELS } from '@/features/messageTemplates/messageTemplatesApi';
+import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
 import {
-  useSendAccountSummary,
   useSendReminder,
-  useSendTestMenu,
   useSendUpcomingDueReminder,
 } from '@/features/whatsapp/useWhatsapp';
 import { ApiError } from '@/lib/apiClient';
@@ -98,8 +96,6 @@ export function ClientDetailPage() {
   });
   const sendReminder = useSendReminder();
   const sendUpcomingDueReminder = useSendUpcomingDueReminder();
-  const sendAccountSummary = useSendAccountSummary();
-  const sendTestMenu = useSendTestMenu();
   const [sendError, setSendError] = useState<string | null>(null);
 
   if (!id) {
@@ -585,58 +581,6 @@ export function ClientDetailPage() {
                   ? 'Enviando…'
                   : 'Enviar aviso'}
               </button>
-              <button
-                type="button"
-                disabled={sendAccountSummary.isPending}
-                onClick={async () => {
-                  setSendError(null);
-                  try {
-                    await sendAccountSummary.mutateAsync(client.id);
-                  } catch (err) {
-                    setSendError(
-                      err instanceof ApiError
-                        ? err.message
-                        : 'No se pudo enviar el estado de cuenta.',
-                    );
-                  }
-                }}
-                className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {sendAccountSummary.isPending
-                  ? 'Enviando…'
-                  : 'Enviar resumen de cuenta'}
-              </button>
-              {/* TEST-ONLY — see docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md.
-                  Sends the hardcoded "1/2" numbered menu so this can be
-                  tested end-to-end without waiting for the real
-                  button-flow/"menu" catalog. Rip out alongside the rest of
-                  that scaffolding once it ships. */}
-              <button
-                type="button"
-                disabled={sendTestMenu.isPending}
-                onClick={async () => {
-                  setSendError(null);
-                  try {
-                    const { sent } = await sendTestMenu.mutateAsync(client.id);
-                    if (!sent) {
-                      setSendError(
-                        'WhatsApp no confirmó el envío — revisá las credenciales de Meta.',
-                      );
-                    }
-                  } catch (err) {
-                    setSendError(
-                      err instanceof ApiError
-                        ? err.message
-                        : 'No se pudo enviar el menú de prueba.',
-                    );
-                  }
-                }}
-                className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {sendTestMenu.isPending
-                  ? 'Enviando…'
-                  : 'Enviar menú de prueba (1/2)'}
-              </button>
             </div>
           )}
         </div>
@@ -653,10 +597,8 @@ export function ClientDetailPage() {
               <tbody>
                 {failedMessages.items.map((message) => (
                   <tr key={message.id} className="border-t border-border">
-                    <Td muted>
-                      {new Date(message.sentAt).toLocaleDateString('es-CO')}
                     </Td>
-                    <Td muted>{MESSAGE_TYPE_LABELS[message.type]}</Td>
+                    <Td muted>{messageTypeLabel(message.type)}</Td>
                     <Td className="text-right">
                       <StatusBadge
                         tone={message.status === 'sent' ? 'success' : 'danger'}

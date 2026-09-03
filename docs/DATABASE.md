@@ -329,52 +329,20 @@ Added Phase 14 — one row per interest/fee concept applied to a specific instal
 
 ### `message_templates`
 
+**Changed after Phase 33** — replaces the 4-value catalog below with the 13 real Meta-approved templates the client wrote; `account_summary` is retired outright with no replacement. See `docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md` for the full template catalog (every body, parameter order, and button spec) and `docs/phases/PHASE_9_MESSAGE_TYPES.md` for the superseded model this replaces.
+
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
-| `name` | VARCHAR | |
-| `type` | ENUM (`new_loan`, `upcoming_due`, `overdue`, `account_summary`), **UNIQUE** | which message flow this template renders — exactly one row per type, see `docs/phases/PHASE_9_MESSAGE_TYPES.md` |
-| `content` | TEXT | supports placeholders — see below. **Not admin-editable — see "Changed after Phase 9" below.** |
-| `cron_expression` | VARCHAR, nullable | Added Phase 18 — admin-editable cron schedule for this type's job. `NULL` falls back to a per-type code default (env-configurable) — see `WhatsappCronService` and `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
+| `name` | VARCHAR | admin-facing label, e.g. "Una cuota vencida (días 1-8)" |
+| `type` | ENUM (13 values, matching the Meta template names literally — `nuevo_pagar_cliente_nuevo`, `nuevo_pagar_cuota_inicial_cliente_nuevo`, `nuevo_pagar_cliente_existent`, `nuevo_pagar_cuota_inicial`, `refinanciamiento_un_solo_pagar`, `una_cuota_proxima_vencer`, `varias_cuota_proxima_vencer`, `una_cuota_vencida`, `una_cuota_vencida_en_mora`, `varias_cuota_vencida`, `proxima_vencer_y_vencida`, `confirmacion_pago`, `pago_completo_paz_y_salvo`), **UNIQUE** | which Meta template this row is for — exactly one row per type |
+| `content` | TEXT | the literal approved body text, for reference/display only — the actual send uses `meta_template_name` + ordered component parameters via `WhatsAppService.sendTemplateMessage`, not this column. **Not admin-editable** — updating it is a migration, like any other data change. |
+| `meta_template_name` | VARCHAR | Added Phase 33 — the real Meta template name this row sends. Always identical to `type`'s string value in practice, but kept as its own column since the two are allowed to drift. |
+| `meta_language_code` | VARCHAR | Added Phase 33 — the language code selected when the template was submitted to Meta. Confirmed `es` for all 13 as of Phase 33 — must match exactly or the send is rejected. |
+| `cron_expression` | VARCHAR, nullable | Admin-editable cron schedule. As of Phase 33 this only applies to the two "schedule owner" rows — one per reminder family (see `WhatsappCronService` and `reminderFamily.ts`) — every other row leaves this `NULL` and has no cron job at all (new-loan/refinance and payment-confirmation types send synchronously at their triggering event; the remaining reminder-family rows share their family's single schedule). |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
-**Template placeholders** — the per-installment line format is fixed per message type (matches the confirmed real message formats); the outer template (greeting, where the list/total go) is fixed too — see "Changed after Phase 9" below for why.
-
-`overdue` (real message format shared by the client):
-
-```
-{{clientFullName}}
-{{installmentsList}}   -- rendered block, one line per overdue installment:
-                          "La cuota No. {{number}} del pagaré #{{promissoryNoteNumber}}
-                           por ${{totalDue}} (incluidos intereses) venció hace {{overdueDays}} días."
-{{grandTotal}}          -- sum of totalDueForInstallment across all included installments,
-                           substituted WITH a leading "$" already included (e.g. "$158.000") —
-                           template authors should not type a $ before this placeholder.
-```
-
-The real message format numbers each overdue installment with an emoji (1️⃣, 2️⃣...) and ends with "El valor a pagar hoy es $X". See `ARCHITECTURE.md` for how the `whatsapp` module renders this.
-
-`new_loan` (sent once, at loan creation — see Phase 9):
-
-```
-{{clientFullName}} {{promissoryNoteNumber}} {{loanDescription}}
-{{disbursedAt}} {{totalInstallments}} {{installmentsSummary}}
-```
-
-`upcoming_due` (sent as an installment approaches its due date — see Phase 9; same list structure as `overdue` but "vence en N días" instead of "venció hace N días", and **no grand total** — not present in the real "Aviso" example):
-
-```
-{{clientFullName}}
-{{installmentsList}}   -- one line per upcoming installment
-```
-
-`account_summary` (on-demand full statement — see Phase 9; every pending installment, overdue or not, ending in a grand total):
-
-```
-{{clientFullName}}
-{{installmentsList}}
-{{grandTotal}}          -- also includes the leading "$" automatically, same as `overdue`
-```
+**Template selection** — which of the 13 templates a given send uses is decided in code, not stored: `newLoanTemplateSelection.ts` (new loan / refinance, by new-vs-existing client and with/without cuota inicial), `reminderTemplateSelection.ts` (overdue / upcoming-due / the mixed template, by count and days), and `paymentConfirmationTemplateSelection.ts` (payment confirmation / paid-in-full). Every reminder template (4 through 10) shares one closing-line mechanism — "nota adicional" (`notaAdicional.ts`) — filled with one of three fixed strings (normal / saldo pendiente / saldo a favor) since Meta templates can't show or hide a line conditionally.
 
 ### `message_logs`
 
@@ -384,9 +352,9 @@ One row per reminder **actually sent to a client** — not per installment.
 |---|---|---|
 | `id` | UUID | PK |
 | `client_id` | UUID | FK → `clients.id` |
-| `type` | ENUM (`new_loan`, `upcoming_due`, `overdue`, `account_summary`) | which message flow produced this log — added in Phase 9; historical rows backfilled to `overdue` |
+| `type` | ENUM — widened after Phase 33 to the union of the old 4 values and the new 13, since this table is append-only history: existing rows keep whichever value they already had, only new rows use the 13-value catalog | which message flow produced this log |
 | `phone_number` | VARCHAR | snapshot at send time |
-| `message_content` | TEXT | the full rendered message, exactly as sent (all installments included, formatted) |
+| `message_content` | TEXT | Phase 33 — for a Template Message send, this is the ordered list of body parameters joined for reference (the actual WhatsApp body text is Meta's, assembled from `meta_template_name` + these parameters, not stored verbatim here) |
 | `status` | ENUM (`sent`, `failed`) | |
 | `sent_at` | TIMESTAMPTZ | |
 | `retried_at` | TIMESTAMPTZ, nullable | Added Phase 18 — set on the ORIGINAL (failed) row once it's manually retried. Still append-only: this is a stamp on the historical row, not an edit of what was actually sent. |
@@ -487,7 +455,26 @@ Added Phase 22 — append-only, one row per inbound WhatsApp event Meta's webhoo
 
 **Phone number matching:** Meta sends the sender's number without a leading `+` (e.g. `573001234567`); `clients.phone_number` is stored E.164 with one (e.g. `+573001234567`). `client_id` is resolved by prepending `+` when absent, then matching against `clients.phone_number` exactly — see `normalizeIncomingPhoneNumber` in `apps/api/src/whatsapp/webhook/`.
 
-**What's not yet built:** the button-flow/"menu" catalog that would turn a button tap into an automatic triggered action, whether an inbound signal persists as a standing client preference, and any automated handling of unprompted free text beyond logging it — all explicitly blocked on open questions with the human, see `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
+**What's not yet built:** whether an inbound signal (e.g. a "No") persists as a standing client preference — still open, see `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`. The button-flow/"menu" catalog and automated handling of unprompted free text are now built — see `whatsapp_conversation_states` below and `docs/phases/PHASE_34_INTERACTIVE_MENU.md`.
+
+### `whatsapp_conversation_states`
+
+Added Phase 34 — one row per phone number currently mid-conversation with the self-service menu (main menu, "Mi cuenta" submenu, awaiting a payment receipt, or handed off to a human), tracking which screen a client is on so "Volver al menú" returns to the right one. Unlike `whatsapp_inbound_messages`, this is **not** append-only — one row per `phone_number`, upserted on every menu-navigation event, and not soft-deleted (ephemeral state, not a historical record). See `docs/phases/PHASE_34_INTERACTIVE_MENU.md`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `phone_number` | VARCHAR, unique | one active state per number |
+| `client_id` | UUID, nullable | FK → `clients.id`, `ON DELETE SET NULL` — same "log even if unrecognized" convention as `whatsapp_inbound_messages`, though in practice this table is only written for known clients (see below) |
+| `current_menu` | ENUM (`main`, `mi_cuenta_submenu`, `awaiting_receipt`, `handed_off_to_human`) | which screen the client is on. `handed_off_to_human` added 2026-09-02 (bug fix) — a client tapping "Reportar un pago"/"Ya pagué" (once the receipt image arrives) or "Hablar con asesor" used to keep re-triggering an automated reply on every further message; both now transition here instead, where the bot goes silent until an admin explicitly closes the conversation (`WhatsappWebhookService.closeConversation`, `POST /whatsapp/inbound-messages/close-conversation`), which sends a generic closing message and clears the row. |
+| `expires_at` | TIMESTAMPTZ | refreshed to now + 24h on every write, matching Meta's own session window — a row past this is treated as "no state" by query, not physically deleted |
+| `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+**Only written for known clients:** `SelfServiceMenuService` requires a resolved `Client` to look up installments/payments for the breakdown and history actions, so an inbound event from an unrecognized phone number gets no automated menu reply and no row here — it's still logged in `whatsapp_inbound_messages` as before, per Phase 22's existing behavior.
+
+**Reading it from the panel:** `GET /whatsapp/inbound-messages/conversation-state?phoneNumber=...` backs the inbound-messages inbox's "Responder"/"Cerrar conversación" gating (`apps/client`'s `WhatsappInboundMessagesPage.tsx`) — the manual reply box and close button are only shown while a number is in `awaiting_receipt` or `handed_off_to_human`.
+
+**Cleanup:** expired rows are simply ignored by `WhatsappConversationStateService.getActive()` rather than deleted by a scheduled job — the simplest option, revisit if row volume ever becomes a real concern.
 
 ## Refinancing
 
@@ -596,7 +583,7 @@ npm run migration:revert
 - `whatsapp_inbound_messages` — Collectify's first inbound WhatsApp capability, a webhook that receives what clients send back instead of only ever sending. See "`whatsapp_inbound_messages`" above.
 - Two new env vars: `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN` (Meta's handshake token) and `META_WHATSAPP_APP_SECRET` (signs `X-Hub-Signature-256`) — see `ENVIRONMENT_VARIABLES.md`.
 - `GET`/`POST /api/v1/whatsapp/webhook` — the one deliberate `@Public()` exception in the `whatsapp` module; the API's global JSON-response envelope (`{success,data}`) is bypassed on the `GET` handshake's success path only, since Meta requires the bare `hub.challenge` string back.
-- Only the not-blocked half of the phase shipped — the button-flow catalog, preference persistence, and any automated reply logic remain open questions, not yet built. See `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
+- Only the not-blocked half of the phase shipped at the time — the button-flow catalog and automated reply logic shipped later, in Phase 34; preference persistence remains an open question. See `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
 
 ## Added/changed in Phase 26
 
@@ -606,6 +593,14 @@ npm run migration:revert
 - **`document_number` and address are now required at interactive client creation.** `ClientsService.create()` rejects a request missing `document_number`, or missing both `home_address` and `work_address` — application-level validation, not a DB `NOT NULL` constraint, same pattern as `data_processing_consent`/`document_type` (Phase 21). Unlike those two, **this rule is unconditional — it also applies to Excel-imported clients**, per explicit instruction from the business (documented as an exception to the Phase 21 bulk-import exemption precedent). The Excel import template (`clientLoanImportTemplate.ts`) documents both as conditionally required in its column hints.
 - `GET /loans/:id` resolves `co_debtor_client_id` into a full client summary (`coDebtorClient`) on read, via `ClientsService.findByIdIncludingDeleted()` — deliberately permissive (never throws, includes soft-deleted) so a loan whose co-debtor was later deactivated still renders instead of breaking the detail view. This is a stricter/looser split from write-time validation (`ClientsService.findOne()`, which throws for a missing or soft-deleted id) — you can't newly attach a deactivated client as co-debtor, but an already-attached one deactivating later doesn't retroactively break the loan.
 - The legacy, unused `POST /clients/import` endpoint and its supporting `clientsImportParser.ts` (superseded by the `ClientLoanImportService` bulk import flow, which the frontend actually calls) were removed as orphaned code, unrelated to the co-debtor/required-fields work above but done in the same phase.
+
+## Added in Phase 34
+
+- `whatsapp_conversation_states` — per-phone-number self-service menu state, closing Phase 22's "button-flow catalog" open question. See "`whatsapp_conversation_states`" above and `docs/phases/PHASE_34_INTERACTIVE_MENU.md`.
+- No new endpoints or env vars — this phase is entirely webhook-driven, dispatched from the existing `POST /whatsapp/webhook`.
+- Still open, unresolved by this phase: whether an inbound "No" persists as a standing preference (likely intersects `client_message_frequencies`, see "`client_message_frequencies`" above), and the exact Meta button-payload strings for Templates 4-8 — until confirmed, taps on a *template's own* buttons don't trigger anything (the free-text-triggered menu is unaffected). See `docs/phases/PHASE_34_INTERACTIVE_MENU.md`'s open questions.
+
+**Bug fix, 2026-09-02**: `current_menu` gained a fourth value, `handed_off_to_human` (see "`whatsapp_conversation_states`" above), plus two new admin endpoints — `GET`/`POST /whatsapp/inbound-messages/conversation-state` and `.../close-conversation` — and the corresponding `apps/client` UI ("Cerrar conversación" button on the inbound-messages inbox, replacing a stale reply-box gate that scanned for a literal `"1"` text left over from before the real menu existed).
 
 ## Related documents
 

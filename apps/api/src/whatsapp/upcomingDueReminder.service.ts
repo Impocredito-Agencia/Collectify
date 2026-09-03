@@ -11,25 +11,29 @@ import { In, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { Configuration } from '../config/configuration';
 import { addDaysToDateString, todayDateString } from '../loans/dueDateSchedule';
-import {
-  Installment,
-  InstallmentStatus,
-} from '../loans/entities/installment.entity';
-import { LoanStatus } from '../loans/entities/loan.entity';
-import { calculateDaysUntilDue } from '../loans/installments/installmentCalculations';
+import { Installment } from '../loans/entities/installment.entity';
+import { Payment } from '../loans/entities/payment.entity';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
-import { renderUpcomingDueMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
-import { MessageType } from './messageType.enum';
+import { NotaAdicionalInput, NotaAdicionalState } from './notaAdicional';
+import { UPCOMING_FAMILY_TYPES } from './reminderFamily';
+import {
+  findClientIdsWithUpcomingInstallments,
+  findOverdueInstallmentsForClient,
+  findUpcomingInstallmentsForClient,
+} from './reminderInstallmentQueries';
+import { selectReminderTemplate } from './reminderTemplateSelection';
+import { computeSaldoPendiente } from './saldoPendiente';
 import { WhatsAppService } from './whatsapp.service';
 
-// Daily job — sends the "Aviso" reminder as an installment approaches its
-// due date, at the configurable day thresholds (UPCOMING_DUE_REMINDER_DAYS,
-// default 5/3/1). Same "group by client, across all their active loans"
-// rule as the overdue reminder. See docs/phases/PHASE_9_MESSAGE_TYPES.md.
+// Phase 33 rewrite — picks among SingleUpcomingInstallment,
+// MultipleUpcomingInstallments, and UpcomingAndOverdueMixed, see
+// reminderTemplateSelection.ts. Unlike OverdueReminderService's weekly
+// job, the daily job here does NOT exclude anyone — it's the one that owns
+// the mixed picture (see OverdueReminderService's doc comment for why).
 @Injectable()
 export class UpcomingDueReminderService {
   private readonly logger = new Logger(UpcomingDueReminderService.name);
@@ -39,6 +43,8 @@ export class UpcomingDueReminderService {
     private readonly clientsRepository: Repository<Client>,
     @InjectRepository(Installment)
     private readonly installmentsRepository: Repository<Installment>,
+    @InjectRepository(Payment)
+    private readonly paymentsRepository: Repository<Payment>,
     @InjectRepository(MessageLog)
     private readonly messageLogsRepository: Repository<MessageLog>,
     @InjectRepository(MessageLogItem)
@@ -49,20 +55,15 @@ export class UpcomingDueReminderService {
     private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
-  // Phase 27 reverses Phase 18's "curated audience is a required filter"
-  // design: every client who dynamically qualifies (an installment
-  // approaching due date) is messaged again, with no group to populate
-  // first. A whitelisted client's frequency is then throttled — see
-  // MessageFrequencyThrottleService — but the whitelist only narrows
-  // further, it never adds eligibility, and an empty/nonexistent
-  // whitelist never blocks anyone. See
-  // docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.
   async runDailyReminder(): Promise<void> {
-    const dynamicClientIds = await this.findClientIdsWithUpcomingInstallments();
+    const dynamicClientIds = await findClientIdsWithUpcomingInstallments(
+      this.installmentsRepository,
+      this.upcomingTargetDates(),
+    );
     const clientIds =
       await this.messageFrequencyThrottleService.filterOutThrottledClients(
         dynamicClientIds,
-        MessageType.UpcomingDue,
+        UPCOMING_FAMILY_TYPES,
       );
     this.logger.log(
       `Daily upcoming-due reminder: ${clientIds.length} client(s) to notify`,
@@ -80,12 +81,6 @@ export class UpcomingDueReminderService {
     }
   }
 
-  // allowEmpty (default false, unchanged for the manual on-demand controller
-  // endpoint): every client the daily cron now calls this with already
-  // dynamically qualifies (the audience filter only narrows, never adds),
-  // so it never needs allowEmpty. Still used by the manual "retry a failed
-  // message" flow (MessageLogsService), which resends regardless of the
-  // client's current status. See docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
   async sendReminderForClient(
     clientId: string,
     options?: { allowEmpty?: boolean },
@@ -95,103 +90,107 @@ export class UpcomingDueReminderService {
       throw new NotFoundException(`Client with id ${clientId} not found`);
     }
 
-    const upcomingInstallments =
-      await this.gatherUpcomingInstallments(clientId);
-    if (upcomingInstallments.length === 0 && !options?.allowEmpty) {
+    const upcoming = await findUpcomingInstallmentsForClient(
+      this.installmentsRepository,
+      clientId,
+      this.upcomingTargetDates(),
+    );
+    if (upcoming.length === 0 && !options?.allowEmpty) {
       throw new BadRequestException(
         `Client ${clientId} has no installments approaching their due date across their active loans`,
       );
     }
+    const overdue = await findOverdueInstallmentsForClient(
+      this.installmentsRepository,
+      clientId,
+    );
+    // See OverdueReminderService's identical guard for why this can't be
+    // relaxed further by allowEmpty — there's no "nothing to report"
+    // template in the catalog.
+    if (overdue.length === 0 && upcoming.length === 0) {
+      throw new BadRequestException(
+        `Client ${clientId} has no overdue or upcoming installments to report`,
+      );
+    }
+
+    const notaAdicional = await this.resolveNotaAdicional(overdue, upcoming);
+    const selection = selectReminderTemplate(
+      `${client.firstName} ${client.lastName}`,
+      overdue,
+      upcoming,
+      notaAdicional,
+    );
 
     const template = await this.messageTemplatesService.findByTypeOrThrow(
-      MessageType.UpcomingDue,
+      selection.type,
     );
-    const messageContent = renderUpcomingDueMessage(
-      template.content,
-      `${client.firstName} ${client.lastName}`,
-      upcomingInstallments,
-    );
-
-    const sent = await this.whatsAppService.sendTextMessage(
+    const sent = await this.whatsAppService.sendTemplateMessage(
       client.phoneNumber,
-      messageContent,
+      template.metaTemplateName,
+      template.metaLanguageCode,
+      selection.bodyParameters,
     );
 
     const messageLog = this.messageLogsRepository.create({
       clientId,
-      type: MessageType.UpcomingDue,
+      type: selection.type,
       phoneNumber: client.phoneNumber,
-      messageContent,
+      messageContent: selection.bodyParameters.join(' | '),
       status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
       sentAt: new Date(),
     });
     const savedLog = await this.messageLogsRepository.save(messageLog);
 
-    // overdueDaysSnapshot/interestSnapshot are legitimately 0 — none of
-    // these installments are overdue yet. "Days until due" isn't stored as
-    // a separate column; it's preserved in messageContent. See
-    // docs/DATABASE.md "Added in Phase 9".
-    const items = upcomingInstallments.map((installment) =>
-      this.messageLogItemsRepository.create({
-        messageLogId: savedLog.id,
-        installmentId: installment.id,
-        overdueDaysSnapshot: 0,
-        interestSnapshot: 0,
-      }),
-    );
+    const items = [
+      ...overdue.map((installment) =>
+        this.messageLogItemsRepository.create({
+          messageLogId: savedLog.id,
+          installmentId: installment.id,
+          overdueDaysSnapshot: installment.overdueDays,
+          interestSnapshot: installment.totalDue - installment.amount,
+        }),
+      ),
+      ...upcoming.map((installment) =>
+        this.messageLogItemsRepository.create({
+          messageLogId: savedLog.id,
+          installmentId: installment.id,
+          overdueDaysSnapshot: 0,
+          interestSnapshot: 0,
+        }),
+      ),
+    ];
     await this.messageLogItemsRepository.save(items);
 
     return savedLog;
   }
 
-  private async gatherUpcomingInstallments(clientId: string) {
-    const today = todayDateString();
-    const { upcomingDueReminderDays } = this.configService.get('cron', {
-      infer: true,
+  private async resolveNotaAdicional(
+    overdue: { id: string; amount: number }[],
+    upcoming: { id: string; amount: number }[],
+  ): Promise<NotaAdicionalInput> {
+    const installmentIds = [...overdue, ...upcoming].map((i) => i.id);
+    if (installmentIds.length === 0) {
+      return { state: NotaAdicionalState.Normal };
+    }
+    const payments = await this.paymentsRepository.find({
+      where: { installmentId: In(installmentIds) },
     });
-    const targetDates = upcomingDueReminderDays.map((days) =>
-      addDaysToDateString(today, days),
+    const saldoPendiente = computeSaldoPendiente(
+      [...overdue, ...upcoming],
+      payments,
     );
-
-    const installments = await this.installmentsRepository.find({
-      where: {
-        status: InstallmentStatus.Pending,
-        dueDate: In(targetDates),
-        loan: { clientId, status: LoanStatus.Active },
-      },
-      relations: { loan: true },
-      order: { dueDate: 'ASC' },
-    });
-
-    return installments.map((installment) => ({
-      id: installment.id,
-      installmentNumber: installment.installmentNumber,
-      promissoryNoteNumber: installment.loan.promissoryNoteNumber,
-      amount: installment.amount,
-      daysUntilDue: calculateDaysUntilDue(new Date(installment.dueDate)),
-    }));
+    return saldoPendiente > 0
+      ? { state: NotaAdicionalState.SaldoPendiente, amount: saldoPendiente }
+      : { state: NotaAdicionalState.Normal };
   }
 
-  private async findClientIdsWithUpcomingInstallments(): Promise<string[]> {
+  private upcomingTargetDates(): string[] {
     const today = todayDateString();
     const { upcomingDueReminderDays } = this.configService.get('cron', {
       infer: true,
     });
-    const targetDates = upcomingDueReminderDays.map((days) =>
+    return upcomingDueReminderDays.map((days) =>
       addDaysToDateString(today, days),
     );
-
-    const installments = await this.installmentsRepository.find({
-      where: {
-        status: InstallmentStatus.Pending,
-        dueDate: In(targetDates),
-        loan: { status: LoanStatus.Active },
-      },
-      relations: { loan: true },
-    });
-
-    return [
-      ...new Set(installments.map((installment) => installment.loan.clientId)),
-    ];
   }
 }

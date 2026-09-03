@@ -18,6 +18,12 @@ export function useWhatsappInboundSocket(): void {
       void queryClient.invalidateQueries({
         queryKey: ['whatsappInboundMessages'],
       });
+      // A new inbound event can flip a phone number's self-service-menu
+      // state (e.g. a receipt arriving moves it to handed_off_to_human) —
+      // keep the "Responder"/"Cerrar conversación" gating live too.
+      void queryClient.invalidateQueries({
+        queryKey: ['whatsappConversationState'],
+      });
     });
 
     return () => {

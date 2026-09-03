@@ -29,6 +29,17 @@ export interface WhatsappInboundMessage {
   createdAt: string;
 }
 
+// Matches apps/api/src/whatsapp/entities/whatsappConversationState.entity.ts's
+// ConversationMenu — where a known client currently is in the self-service
+// menu (Phase 34). null (no active/expired row) means no automated
+// conversation is in progress for that number.
+export enum ConversationMenu {
+  Main = 'main',
+  MiCuentaSubmenu = 'mi_cuenta_submenu',
+  AwaitingReceipt = 'awaiting_receipt',
+  HandedOffToHuman = 'handed_off_to_human',
+}
+
 export interface WhatsappInboundMessagesQueryParams {
   clientId?: string;
   type?: WhatsappInboundMessageType;
@@ -69,11 +80,33 @@ export const whatsappInboundMessagesApi = {
 
   // Manual reply — free-form session message, only meaningful once the
   // client has messaged in and opened the 24h window. See
-  // WhatsappInboundMessagesPage.tsx's TEST_MENU_HUMAN_OPTION.
+  // WhatsappInboundMessagesPage.tsx's humanReplyEnabled.
   reply: async (phoneNumber: string, message: string): Promise<boolean> => {
     const { data } = await apiClient.post<{ sent: boolean }>(
       '/whatsapp/inbound-messages/reply',
       { phoneNumber, message },
+    );
+    return data.sent;
+  },
+
+  // Backs the "Responder"/"Cerrar conversación" gating — see
+  // WhatsappInboundMessagesPage.tsx.
+  getConversationState: async (
+    phoneNumber: string,
+  ): Promise<ConversationMenu | null> => {
+    const { data } = await apiClient.get<{
+      currentMenu: ConversationMenu | null;
+    }>('/whatsapp/inbound-messages/conversation-state', { phoneNumber });
+    return data.currentMenu;
+  },
+
+  // Admin-triggered: sends a generic closing message and clears the
+  // self-service-menu state, so the client's next message gets the real
+  // menu fresh instead of the bot staying silent.
+  closeConversation: async (phoneNumber: string): Promise<boolean> => {
+    const { data } = await apiClient.post<{ sent: boolean }>(
+      '/whatsapp/inbound-messages/close-conversation',
+      { phoneNumber },
     );
     return data.sent;
   },
