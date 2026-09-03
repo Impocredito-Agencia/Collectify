@@ -67,6 +67,7 @@ describe('ClientLoanImportService', () => {
     category: ConceptCategory.Corriente,
     fixedAmountDistribution: null,
     isActive: true,
+    isUsuryRateConcept: false,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,

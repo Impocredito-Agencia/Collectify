@@ -55,7 +55,10 @@ describe('LoansService', () => {
     save: jest.Mock;
     find: jest.Mock;
   };
-  let interestConceptTypesService: { findOneOrThrow: jest.Mock };
+  let interestConceptTypesService: {
+    findOneOrThrow: jest.Mock;
+    findMandatoryUsuryConcept: jest.Mock;
+  };
   let usuryRateService: { getCurrentRate: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
   let clientsService: {
@@ -66,6 +69,11 @@ describe('LoansService', () => {
   };
   let dataSource: { transaction: jest.Mock };
 
+  // Bug fix, 2026-09-03 — flagged isUsuryRateConcept: true so it doubles
+  // as "the mandatory concept" for existing tests below without every one
+  // of them needing an individual update; findMandatoryUsuryConcept's
+  // default mock (below) returns this one for Corriente and
+  // mockMoratoryConceptType for Moratorio.
   const mockConceptType: InterestConceptType = {
     id: 'concept-type-1',
     name: 'Interés remuneratorio',
@@ -74,6 +82,21 @@ describe('LoansService', () => {
     category: ConceptCategory.Corriente,
     fixedAmountDistribution: null,
     isActive: true,
+    isUsuryRateConcept: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  };
+
+  const mockMoratoryConceptType: InterestConceptType = {
+    id: 'moratory-concept-type-1',
+    name: 'Interés moratorio',
+    defaultCalculationType: ConceptCalculationType.Percentage,
+    defaultValue: 2,
+    category: ConceptCategory.Moratorio,
+    fixedAmountDistribution: null,
+    isActive: true,
+    isUsuryRateConcept: true,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -136,7 +159,24 @@ describe('LoansService', () => {
       find: jest.fn().mockResolvedValue([]),
     };
     interestConceptTypesService = {
-      findOneOrThrow: jest.fn().mockResolvedValue(mockConceptType),
+      findOneOrThrow: jest
+        .fn()
+        .mockImplementation((id: string) =>
+          Promise.resolve(
+            id === mockMoratoryConceptType.id
+              ? mockMoratoryConceptType
+              : mockConceptType,
+          ),
+        ),
+      findMandatoryUsuryConcept: jest
+        .fn()
+        .mockImplementation((category: ConceptCategory) =>
+          Promise.resolve(
+            category === ConceptCategory.Moratorio
+              ? mockMoratoryConceptType
+              : mockConceptType,
+          ),
+        ),
     };
     // Default: a valid, non-stale current-month rate — every pre-existing
     // test below implicitly depends on loan creation/preview succeeding
@@ -252,7 +292,24 @@ describe('LoansService', () => {
       disbursedAt: '2026-01-01',
       installmentFrequency: InstallmentFrequency.Monthly,
       totalInstallments: 3,
-      concepts: [],
+      // Bug fix, 2026-09-03 — every loan must now include the mandatory
+      // usury-rate concept per category; mockConceptType/
+      // mockMoratoryConceptType are the ones findMandatoryUsuryConcept's
+      // default mock resolves to.
+      concepts: [
+        {
+          conceptTypeId: mockConceptType.id,
+          calculationType: ConceptCalculationType.Percentage,
+          value: 20,
+        },
+      ],
+      moratoryConcepts: [
+        {
+          conceptTypeId: mockMoratoryConceptType.id,
+          calculationType: ConceptCalculationType.Percentage,
+          value: 20,
+        },
+      ],
     };
 
     beforeEach(() => {
@@ -277,23 +334,26 @@ describe('LoansService', () => {
     it('generates one installment per amount with sequential numbers and monthly due dates', async () => {
       await service.create(createDto);
 
+      // Amounts reflect createDto's mandatory 20% corriente concept
+      // (declining-balance) — not principal-only, since that concept is
+      // now required on every loan (bug fix, 2026-09-03).
       expect(installmentsRepository.save).toHaveBeenCalledWith([
         expect.objectContaining({
           installmentNumber: 1,
-          amount: 300000,
-          principalPortion: 300000,
+          amount: 427252.75,
+          principalPortion: 247252.75,
           dueDate: '2026-02-01',
         }),
         expect.objectContaining({
           installmentNumber: 2,
-          amount: 300000,
-          principalPortion: 300000,
+          amount: 427252.75,
+          principalPortion: 296703.3,
           dueDate: '2026-03-01',
         }),
         expect.objectContaining({
           installmentNumber: 3,
-          amount: 300000,
-          principalPortion: 300000,
+          amount: 427252.74,
+          principalPortion: 356043.95,
           dueDate: '2026-04-01',
         }),
       ]);
@@ -435,11 +495,16 @@ describe('LoansService', () => {
         ],
       });
 
-      expect(loanInstallmentConceptsRepository.save).toHaveBeenCalledWith([
-        expect.objectContaining({ value: 20 }),
-        expect.objectContaining({ value: 20 }),
-        expect.objectContaining({ value: 20 }),
-      ]);
+      // arrayContaining, not exact equality — this test only cares that
+      // every percentage row's value got forced to 20 (the mocked current
+      // rate), regardless of what was requested. Exact computedAmount per
+      // installment (declining balance) and the interleaved mandatory
+      // moratorio rows are covered by other tests.
+      const calls = loanInstallmentConceptsRepository.save.mock
+        .calls as unknown[][];
+      const savedRows = calls[0][0] as Array<{ value: number }>;
+      expect(savedRows.length).toBeGreaterThan(0);
+      expect(savedRows.every((row) => row.value === 20)).toBe(true);
     });
 
     it('propagates NotFoundException when a concept references an unknown concept type', async () => {
@@ -452,7 +517,13 @@ describe('LoansService', () => {
       await expect(
         service.create({
           ...createDto,
+          // Includes the mandatory concept's id too — the mandatory-concept
+          // check itself doesn't call findOneOrThrow (mocked separately via
+          // findMandatoryUsuryConcept), so it still passes here; this test
+          // is about the unknown-id lookup failing once resolveConcepts
+          // gets to it.
           concepts: [
+            ...createDto.concepts,
             {
               conceptTypeId: 'missing',
               calculationType: ConceptCalculationType.Percentage,
@@ -488,6 +559,10 @@ describe('LoansService', () => {
         ],
       });
 
+      // Interleaved corriente/moratorio per installment — moratoryConcepts
+      // still carries the mandatory moratorio row from createDto (spread
+      // above), always computedAmount: 0 (never baked into
+      // installment.amount, see persistLoanWithInstallments).
       expect(loanInstallmentConceptsRepository.save).toHaveBeenCalledWith([
         expect.objectContaining({
           installmentId: 'installment-1',
@@ -498,12 +573,29 @@ describe('LoansService', () => {
           computedAmount: 18000, // 900000 * 2%
         }),
         expect.objectContaining({
+          installmentId: 'installment-1',
+          interestConceptTypeId: mockMoratoryConceptType.id,
+          computedAmount: 0,
+        }),
+        expect.objectContaining({
           installmentId: 'installment-2',
+          interestConceptTypeId: mockConceptType.id,
           computedAmount: 12118.42,
         }),
         expect.objectContaining({
+          installmentId: 'installment-2',
+          interestConceptTypeId: mockMoratoryConceptType.id,
+          computedAmount: 0,
+        }),
+        expect.objectContaining({
           installmentId: 'installment-3',
+          interestConceptTypeId: mockConceptType.id,
           computedAmount: 6119.2,
+        }),
+        expect.objectContaining({
+          installmentId: 'installment-3',
+          interestConceptTypeId: mockMoratoryConceptType.id,
+          computedAmount: 0,
         }),
       ]);
     });
@@ -629,6 +721,41 @@ describe('LoansService', () => {
       expect(clientsService.hasMoraBlock).toHaveBeenCalledWith('client-1');
       expect(clientsService.getCreditUsage).toHaveBeenCalledWith('client-1');
     });
+
+    // Bug fix, 2026-09-03 — every loan's concepts/moratoryConcepts must
+    // include the category's designated mandatory usury-rate concept. See
+    // LoansService.assertMandatoryUsuryConceptIncluded.
+    describe('mandatory usury concept', () => {
+      it('rejects when the corriente concepts list omits the mandatory concept', async () => {
+        await expect(
+          service.create({ ...createDto, concepts: [] }),
+        ).rejects.toThrow(BadRequestException);
+        expect(loansRepository.save).not.toHaveBeenCalled();
+      });
+
+      it('rejects when the moratoryConcepts list omits the mandatory concept', async () => {
+        await expect(
+          service.create({ ...createDto, moratoryConcepts: [] }),
+        ).rejects.toThrow(BadRequestException);
+        expect(loansRepository.save).not.toHaveBeenCalled();
+      });
+
+      it('rejects when no concept is designated as mandatory for a category', async () => {
+        interestConceptTypesService.findMandatoryUsuryConcept.mockResolvedValue(
+          null,
+        );
+
+        await expect(service.create(createDto)).rejects.toThrow(
+          BadRequestException,
+        );
+      });
+
+      it('succeeds when both mandatory concepts are included', async () => {
+        const result = await service.create(createDto);
+
+        expect(result.id).toBe('loan-2');
+      });
+    });
   });
 
   describe('refinance', () => {
@@ -639,7 +766,20 @@ describe('LoansService', () => {
       disbursedAt: '2026-07-10',
       installmentFrequency: InstallmentFrequency.Monthly,
       totalInstallments: 2,
-      concepts: [],
+      concepts: [
+        {
+          conceptTypeId: mockConceptType.id,
+          calculationType: ConceptCalculationType.Percentage,
+          value: 20,
+        },
+      ],
+      moratoryConcepts: [
+        {
+          conceptTypeId: mockMoratoryConceptType.id,
+          calculationType: ConceptCalculationType.Percentage,
+          value: 20,
+        },
+      ],
     };
 
     const newLoanRecord: Loan = {
@@ -695,9 +835,11 @@ describe('LoansService', () => {
           totalInstallments: 2,
         }),
       );
+      // Amounts reflect refinanceDto's mandatory 20% corriente concept
+      // (declining-balance) — see the equivalent create() test's comment.
       expect(installmentsRepository.save).toHaveBeenCalledWith([
-        expect.objectContaining({ installmentNumber: 1, amount: 300000 }),
-        expect.objectContaining({ installmentNumber: 2, amount: 300000 }),
+        expect.objectContaining({ installmentNumber: 1, amount: 392727.27 }),
+        expect.objectContaining({ installmentNumber: 2, amount: 392727.28 }),
       ]);
     });
 
@@ -1402,6 +1544,13 @@ describe('LoansService', () => {
             value: 2,
           },
         ],
+        moratoryConcepts: [
+          {
+            conceptTypeId: mockMoratoryConceptType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: 2,
+          },
+        ],
       });
 
       expect(result.installments).toEqual([
@@ -1415,6 +1564,11 @@ describe('LoansService', () => {
               name: mockConceptType.name,
               amount: 18000,
               category: ConceptCategory.Corriente,
+            },
+            {
+              name: mockMoratoryConceptType.name,
+              amount: 0,
+              category: ConceptCategory.Moratorio,
             },
           ],
         }),
@@ -1462,6 +1616,13 @@ describe('LoansService', () => {
             value: 5,
           },
         ],
+        moratoryConcepts: [
+          {
+            conceptTypeId: mockMoratoryConceptType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: 5,
+          },
+        ],
       });
 
       // Uses the default beforeEach rate (20%), not the requested 5%.
@@ -1470,6 +1631,11 @@ describe('LoansService', () => {
           name: mockConceptType.name,
           amount: 180000,
           category: ConceptCategory.Corriente,
+        },
+        {
+          name: mockMoratoryConceptType.name,
+          amount: 0,
+          category: ConceptCategory.Moratorio,
         },
       ]);
     });
@@ -1487,7 +1653,14 @@ describe('LoansService', () => {
           disbursedAt: '2026-01-01',
           installmentFrequency: InstallmentFrequency.Monthly,
           totalInstallments: 3,
+          // Includes the mandatory concept's id too — see the equivalent
+          // comment on the create() version of this test above.
           concepts: [
+            {
+              conceptTypeId: mockConceptType.id,
+              calculationType: ConceptCalculationType.Percentage,
+              value: 2,
+            },
             {
               conceptTypeId: 'missing',
               calculationType: ConceptCalculationType.Percentage,

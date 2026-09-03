@@ -1101,6 +1101,11 @@ export class LoansService {
     concepts: LoanConceptAssignmentDto[],
     currentRate: CurrentUsuryRate,
   ): Promise<ConceptAssignment[]> {
+    await this.assertMandatoryUsuryConceptIncluded(
+      concepts,
+      ConceptCategory.Corriente,
+    );
+
     const distinctConceptTypeIds = new Set(
       concepts.map((concept) => concept.conceptTypeId),
     );
@@ -1163,6 +1168,11 @@ export class LoansService {
       value: number;
     }[]
   > {
+    await this.assertMandatoryUsuryConceptIncluded(
+      concepts,
+      ConceptCategory.Moratorio,
+    );
+
     const distinctConceptTypeIds = new Set(
       concepts.map((concept) => concept.conceptTypeId),
     );
@@ -1188,6 +1198,33 @@ export class LoansService {
           ? currentRate.ratePercentage
           : concept.value,
     }));
+  }
+
+  // Bug fix, 2026-09-03 (human report) — every corriente concepts list and
+  // every moratoryConcepts list must include the category's designated
+  // "usury rate" concept (InterestConceptType.isUsuryRateConcept). Called
+  // from resolveConcepts/resolveMoratoryConcepts, which every entry point
+  // (create, refinance, previewSchedule) already funnels through, so this
+  // enforces the rule everywhere concepts are resolved without needing a
+  // separate call per entry point. See docs/phases/PHASE_24_USURY_MANDATORY.md.
+  private async assertMandatoryUsuryConceptIncluded(
+    concepts: LoanConceptAssignmentDto[],
+    category: ConceptCategory,
+  ): Promise<void> {
+    const mandatory =
+      await this.interestConceptTypesService.findMandatoryUsuryConcept(
+        category,
+      );
+    if (!mandatory) {
+      throw new BadRequestException(
+        `No hay un cargo de tasa de usura obligatorio configurado para la categoría "${category}" — configúralo en Cargos adicionales antes de crear o refinanciar préstamos.`,
+      );
+    }
+    if (!concepts.some((concept) => concept.conceptTypeId === mandatory.id)) {
+      throw new BadRequestException(
+        `El cargo obligatorio "${mandatory.name}" debe estar incluido en los cargos de categoría "${category}".`,
+      );
+    }
   }
 
   // A failed/skipped "new loan" WhatsApp message must never fail the loan

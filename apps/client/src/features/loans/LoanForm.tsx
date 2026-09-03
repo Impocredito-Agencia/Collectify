@@ -23,6 +23,7 @@ import {
   subtractMonthsFromDateString,
 } from '@/features/loans/dueDateMath';
 import { InstallmentFrequency } from '@/features/loans/loansApi';
+import { MandatoryConceptRow } from '@/features/loans/MandatoryConceptRow';
 import { usePreviewSchedule } from '@/features/loans/useLoans';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
 import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
@@ -56,7 +57,6 @@ type FieldName =
   | 'clientId'
   | 'promissoryNoteNumber'
   | 'principalAmount'
-  | 'interestRate'
   | 'firstDueDate'
   | 'totalInstallments'
   | 'concepts'
@@ -73,11 +73,16 @@ function makeRowId(): string {
 // As of Phase 14 (docs/phases/PHASE_14_INTEREST_CONCEPTS.md), the API
 // generates the installment schedule from principalAmount,
 // totalInstallments, and concepts — this form no longer collects or splits
-// installmentAmounts by hand. interestRate is kept (still required by the
-// API) but now only drives moratory interest on overdue installments, not
-// the cost of the loan itself — see the relabeled field below. Concepts
-// apply to every installment for the whole term of the loan and cannot
-// vary per installment — set once here, at creation.
+// installmentAmounts by hand. Concepts apply to every installment for the
+// whole term of the loan and cannot vary per installment — set once here,
+// at creation.
+//
+// Bug fix, 2026-09-03: the standalone "Tasa de interés moratorio (%)"
+// input (interestRate) is gone — every loan now carries a mandatory,
+// non-removable moratorio concept instead (MandatoryConceptRow below),
+// making that legacy fallback field permanently unreachable for loans
+// created through this form. interestRate is still sent as a fixed 0,
+// since the API keeps it required — see handleSubmit.
 export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const { user } = useAuth();
   // Phase 23 — "los cobradores no miren el amortizador pero sí deben poder
@@ -114,7 +119,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
 
   const [promissoryNoteNumber, setPromissoryNoteNumber] = useState('');
   const [principalAmount, setPrincipalAmount] = useState(0);
-  const [interestRate, setInterestRate] = useState('');
   const [firstDueDate, setFirstDueDate] = useState('');
   const [installmentFrequency, setInstallmentFrequency] = useState(
     InstallmentFrequency.Monthly,
@@ -202,6 +206,19 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     }),
   );
 
+  // Bug fix, 2026-09-03 — the mandatory, non-removable usury-rate concept
+  // per category (docs/phases/PHASE_24_USURY_MANDATORY.md's "Resolved").
+  // Always included in the submitted concepts/moratoryConcepts, rendered
+  // as a locked row the admin can't remove — see MandatoryConceptRow.
+  // undefined when the admin hasn't designated one for that category yet
+  // (validate() below blocks submit in that case).
+  const mandatoryCorrienteType = corrienteConceptTypes.find(
+    (conceptType) => conceptType.isUsuryRateConcept,
+  );
+  const mandatoryMoratoryType = moratoryConceptTypes.find(
+    (conceptType) => conceptType.isUsuryRateConcept,
+  );
+
   const addConceptRow = () => {
     const firstType = corrienteConceptTypes[0];
     setConcepts((prev) => [
@@ -282,15 +299,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     if (!(principal > 0)) {
       errors.principalAmount = 'El monto debe ser mayor a 0.';
     }
-    const rate = parseFloat(interestRate);
-    if (
-      interestRate.trim() === '' ||
-      Number.isNaN(rate) ||
-      rate < 0 ||
-      rate > 100
-    ) {
-      errors.interestRate = 'La tasa debe estar entre 0 y 100.';
-    }
     if (!firstDueDate) {
       errors.firstDueDate = 'La fecha de la primera cuota es obligatoria.';
     }
@@ -300,10 +308,16 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     if (concepts.some((row) => !row.conceptTypeId)) {
       errors.concepts =
         'Selecciona un tipo para cada cargo adicional agregado.';
+    } else if (!mandatoryCorrienteType) {
+      errors.concepts =
+        'No hay un cargo obligatorio de tasa de usura configurado para cargos corrientes — configúralo en Cargos adicionales.';
     }
     if (moratoryConcepts.some((row) => !row.conceptTypeId)) {
       errors.moratoryConcepts =
         'Selecciona un tipo para cada cargo moratorio agregado.';
+    } else if (!mandatoryMoratoryType) {
+      errors.moratoryConcepts =
+        'No hay un cargo obligatorio de tasa de usura configurado para cargos moratorios — configúralo en Cargos adicionales.';
     }
     if (hasCoDebtor && !coDebtorClient) {
       errors.coDebtorClientId = 'Selecciona un cliente como codeudor.';
@@ -324,19 +338,44 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
       ? subtractMonthsFromDateString(firstDueDate, 1)
       : subtractDaysFromDateString(firstDueDate, 14);
 
-  const toConceptAssignments = (): LoanConceptAssignment[] =>
-    concepts.map(({ conceptTypeId, calculationType, value }) => ({
+  // The mandatory concept is prepended here, not held in `concepts` state —
+  // it's derived (not user-editable), so this is the one place it needs to
+  // exist as a real LoanConceptAssignment for the API. `value` doesn't
+  // matter for a percentage concept (forced server-side to the current
+  // usury rate regardless) but currentUsuryRate is the best guess to show.
+  const toConceptAssignments = (): LoanConceptAssignment[] => [
+    ...(mandatoryCorrienteType
+      ? [
+          {
+            conceptTypeId: mandatoryCorrienteType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: currentUsuryRate?.ratePercentage ?? 0,
+          },
+        ]
+      : []),
+    ...concepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
       value,
-    }));
+    })),
+  ];
 
-  const toMoratoryConceptAssignments = (): LoanConceptAssignment[] =>
-    moratoryConcepts.map(({ conceptTypeId, calculationType, value }) => ({
+  const toMoratoryConceptAssignments = (): LoanConceptAssignment[] => [
+    ...(mandatoryMoratoryType
+      ? [
+          {
+            conceptTypeId: mandatoryMoratoryType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: currentUsuryRate?.ratePercentage ?? 0,
+          },
+        ]
+      : []),
+    ...moratoryConcepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
       value,
-    }));
+    })),
+  ];
 
   const handlePreview = async () => {
     const errors = validate();
@@ -380,7 +419,16 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         clientId: selectedClient!.id,
         promissoryNoteNumber,
         principalAmount: principal,
-        interestRate: parseFloat(interestRate),
+        // Bug fix, 2026-09-03 — the standalone moratory-rate input is gone
+        // (see the removed "Tasa de interés moratorio" field below); the
+        // mandatory moratorio concept is now always present, so this
+        // legacy field's only remaining use (the pre-Phase-23 fallback for
+        // a loan with zero moratory concepts, see enrichInstallment.ts)
+        // never applies to a loan created through this form. Still
+        // required by the API — sent as a fixed 0 rather than removed
+        // there, to avoid a wider migration for a value that no longer
+        // does anything for new loans.
+        interestRate: 0,
         disbursedAt: computeDisbursedAt(),
         installmentFrequency,
         totalInstallments: count,
@@ -539,35 +587,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                     )}
                   />
                 </Field>
-                <Field
-                  label="Tasa de interés moratorio (%)"
-                  error={fieldErrors.interestRate}
-                >
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.1"
-                    value={interestRate}
-                    onChange={(event) => {
-                      setInterestRate(event.target.value);
-                      setFieldErrors((prev) => ({
-                        ...prev,
-                        interestRate: undefined,
-                      }));
-                    }}
-                    placeholder="Ej: 6"
-                    className={inputClassName(
-                      Boolean(fieldErrors.interestRate),
-                    )}
-                  />
-                </Field>
               </div>
-              <p className="-mt-2 text-meta text-muted">
-                Solo se usa si el préstamo no tiene cargos moratorios asignados
-                abajo — si agregás al menos uno, esta tasa deja de aplicarse y
-                la mora se calcula solo con esos cargos.
-              </p>
 
               <div className="flex gap-4">
                 <Field label="Monto" error={fieldErrors.principalAmount}>
@@ -643,11 +663,16 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             <FormSection title="Cargos adicionales y cronograma">
               <Field label="Cargos adicionales" error={fieldErrors.concepts}>
                 <div className="flex flex-col gap-2">
-                  {concepts.length === 0 && (
-                    <p className="text-meta text-muted">
-                      Sin cargos adicionales — el préstamo se financiará solo
-                      con capital. La tasa moratoria de arriba es aparte y solo
-                      aplica si una cuota queda vencida.
+                  {mandatoryCorrienteType ? (
+                    <MandatoryConceptRow
+                      name={mandatoryCorrienteType.name}
+                      ratePercentage={currentUsuryRate?.ratePercentage}
+                    />
+                  ) : (
+                    <p className="text-meta text-danger">
+                      No hay un cargo obligatorio de tasa de usura configurado
+                      para cargos corrientes — configúralo en "Tipos de cargo"
+                      antes de crear préstamos.
                     </p>
                   )}
                   {concepts.map((row) => (
@@ -727,15 +752,20 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               </Field>
 
               <Field
-                label="Cargos moratorios (opcional)"
+                label="Cargos moratorios"
                 error={fieldErrors.moratoryConcepts}
               >
                 <div className="flex flex-col gap-2">
-                  {moratoryConcepts.length === 0 && (
-                    <p className="text-meta text-muted">
-                      Sin cargos moratorios — la mora seguirá calculándose con
-                      la tasa moratoria de arriba. Si agregás al menos uno acá,
-                      esa tasa deja de aplicarse.
+                  {mandatoryMoratoryType ? (
+                    <MandatoryConceptRow
+                      name={mandatoryMoratoryType.name}
+                      ratePercentage={currentUsuryRate?.ratePercentage}
+                    />
+                  ) : (
+                    <p className="text-meta text-danger">
+                      No hay un cargo obligatorio de tasa de usura configurado
+                      para cargos moratorios — configúralo en "Tipos de cargo"
+                      antes de crear préstamos.
                     </p>
                   )}
                   {moratoryConcepts.map((row) => (
