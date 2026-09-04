@@ -57,7 +57,7 @@ export class LoanInstallmentConcept {
 
   // Snapshotted from the type at assignment time, same as nameSnapshot/
   // calculationType. Distinguishes corriente rows (real computedAmount,
-  // baked into the installment's level payment) from moratorio rows (a
+  // baked into the installment's amount) from moratorio rows (a
   // pure assignment record — see computedAmount's own comment below).
   @Column({ type: 'enum', enum: ConceptCategory })
   category!: ConceptCategory;

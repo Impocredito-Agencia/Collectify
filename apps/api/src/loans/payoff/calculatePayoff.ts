@@ -72,10 +72,11 @@ export interface CalculatePayoffOptions {
 //   - A matured installment (due today or already overdue) contributes its
 //     full concept charges plus any moratory interest, in addition to its
 //     principal.
-//   - The "cuota inicial" (Phase 13) never appears here at all — it's a
-//     Loan-level informational field, not one of its installments (see
-//     docs/phases/PHASE_13_INITIAL_INSTALLMENT.md, corrected after client
-//     QA), so it has no bearing on what a loan's installments still owe.
+//   - The "cuota inicial" (down payment) is installment #1 like any other
+//     when a loan has one (see Installment.isDownPayment) — it's
+//     interest-free by construction (no concepts assigned to it), so it
+//     naturally contributes only its own principalPortion here once
+//     matured, same as every other installment. No special-casing needed.
 //   - Allocation across multiple installments is interest-globally-then-
 //     principal-globally, not a per-installment waterfall — see the phase
 //     doc's "Resolved" point 2 for why this doesn't change the numbers
