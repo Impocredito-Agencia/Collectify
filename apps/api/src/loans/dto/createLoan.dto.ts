@@ -11,6 +11,7 @@ import {
   IsPositive,
   IsString,
   IsUUID,
+  Matches,
   Max,
   Min,
   ValidateNested,
@@ -29,9 +30,19 @@ export class CreateLoanDto {
   @IsUUID()
   clientId!: string;
 
-  @ApiProperty({ example: '#743' })
+  // Style cleanup (2026-09-03) — standardized to #0000 (zero-padded, min 4
+  // digits) going forward, confirmed with the human. Only applies to new
+  // loans created from now on; the ~1190 pre-existing loans are NOT being
+  // reformatted, so they stay whatever shape they already had ("1", "124",
+  // "#743"...) — see docs/GLOSSARY.md "Loan / Pagaré". \d{4,} (not a fixed
+  // {4}) so the format keeps validating once the count eventually passes
+  // 9999 and a 5th digit is needed — nothing to change here that day.
+  @ApiProperty({ example: '#1191' })
   @IsString()
   @IsNotEmpty()
+  @Matches(/^#\d{4,}$/, {
+    message: 'El número de pagaré debe tener el formato #0000.',
+  })
   promissoryNoteNumber!: string;
 
   @ApiProperty({ example: 900000 })
@@ -82,15 +93,58 @@ export class CreateLoanDto {
   @Type(() => LoanConceptAssignmentDto)
   moratoryConcepts?: LoanConceptAssignmentDto[];
 
+  // Redesign, 2026-09-03 — the loan's own corriente/moratorio interest,
+  // system-generated (not a catalog pick, see LoansService.
+  // resolveConceptsWithInterest). Omit to default to the current usury
+  // ceiling; either way it can never exceed that ceiling.
   @ApiPropertyOptional({
-    example: 50000,
+    example: 2.1,
     description:
-      'The "cuota inicial" — a down payment the client already made outside the credit system to cover the part of the purchase this loan doesn\'t finance. Purely informational: it is not one of the loan\'s installments, has no due date, and never affects the amortization schedule. Omit if there was no down payment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.',
+      'Corriente interest rate for this loan. Defaults to, and is capped at, the current usury ceiling.',
   })
   @IsOptional()
   @IsNumber()
   @Min(0)
-  initialPayment?: number;
+  @Max(100)
+  corrienteInterestRate?: number;
+
+  @ApiPropertyOptional({
+    example: 2.1,
+    description:
+      'Moratory interest rate for this loan. Defaults to, and is capped at, the current usury ceiling.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  moratoryInterestRate?: number;
+
+  // Redesign, 2026-09-03 — the previous "cuota inicial" (initialPayment)
+  // was purely informational and never affected the schedule, which didn't
+  // match how it's actually used: a real down payment negotiated up front,
+  // collectible on its own date, interest-free, with the rest of the
+  // capital financed normally from installment 2 onward. Replaced with
+  // this pair of fields; must be provided together or omitted together
+  // (enforced in LoansService, same convention as coDebtorClientId/
+  // coDebtorRelationship above) — see loans.service.ts persistLoanWithInstallments.
+  @ApiPropertyOptional({
+    example: 1000000,
+    description:
+      "Down payment amount, collected as the loan's own installment 1 with zero ordinary interest. Requires downPaymentDueDate. Omit if there is no down payment.",
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  downPaymentAmount?: number;
+
+  @ApiPropertyOptional({
+    example: '2026-09-10',
+    description:
+      "Due date for the down payment installment, freely chosen and independent of the periodic schedule — must be before the second installment's due date. Requires downPaymentAmount.",
+  })
+  @IsOptional()
+  @IsDateString()
+  downPaymentDueDate?: string;
 
   @ApiPropertyOptional({
     example:

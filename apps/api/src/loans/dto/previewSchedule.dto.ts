@@ -5,8 +5,10 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsPositive,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -16,8 +18,7 @@ import { InstallmentFrequency } from '../entities/loan.entity';
 import { LoanConceptAssignmentDto } from './loanConceptAssignment.dto';
 
 // Same shape as the schedule-relevant subset of CreateLoanDto — no
-// clientId/promissoryNoteNumber/interestRate, since nothing is persisted
-// and moratory interestRate doesn't affect the generated schedule.
+// clientId/promissoryNoteNumber, since nothing is persisted here.
 export class PreviewScheduleDto {
   @ApiProperty({ example: 900000 })
   @IsPositive()
@@ -52,4 +53,20 @@ export class PreviewScheduleDto {
   @ValidateNested({ each: true })
   @Type(() => LoanConceptAssignmentDto)
   moratoryConcepts?: LoanConceptAssignmentDto[];
+
+  // See CreateLoanDto — same system-generated interest field, previewed
+  // the same way a real create would resolve it.
+  @ApiPropertyOptional({ example: 2.1 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  corrienteInterestRate?: number;
+
+  @ApiPropertyOptional({ example: 2.1 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  moratoryInterestRate?: number;
 }

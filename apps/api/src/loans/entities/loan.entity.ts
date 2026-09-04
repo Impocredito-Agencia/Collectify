@@ -74,22 +74,6 @@ export class Loan {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  // The "cuota inicial" — a down payment the client already made outside
-  // the credit system to cover the part of the purchase this loan doesn't
-  // finance. Purely informational: not one of this loan's installments,
-  // has no due date, accrues no interest, and never affects the
-  // amortization schedule. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md
-  // (corrected after client QA — this was originally, incorrectly,
-  // modeled as flagging one of the generated installments).
-  @Column({
-    type: 'decimal',
-    precision: 12,
-    scale: 2,
-    nullable: true,
-    transformer: decimalTransformer,
-  })
-  initialPayment!: number | null;
-
   // Set once the "new loan" WhatsApp message actually succeeds — either
   // from the synchronous send at creation/refinance time, or from the
   // Phase 18 retry cron picking up a loan whose synchronous send failed.

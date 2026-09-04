@@ -11,6 +11,7 @@ import {
   IsPositive,
   IsString,
   IsUUID,
+  Matches,
   Max,
   Min,
   ValidateNested,
@@ -26,12 +27,17 @@ import { LoanConceptAssignmentDto } from './loanConceptAssignment.dto';
 // here: the new loan always belongs to the same client as the loan being
 // refinanced.
 export class RefinanceLoanDto {
+  // Style cleanup (2026-09-03) — same #0000 format rule as CreateLoanDto;
+  // see that file's comment for the full reasoning.
   @ApiProperty({
-    example: '#1000',
+    example: '#1191',
     description: "The new loan's own promissory note number.",
   })
   @IsString()
   @IsNotEmpty()
+  @Matches(/^#\d{4,}$/, {
+    message: 'El número de pagaré debe tener el formato #0000.',
+  })
   promissoryNoteNumber!: string;
 
   @ApiProperty({
@@ -86,15 +92,50 @@ export class RefinanceLoanDto {
   @Type(() => LoanConceptAssignmentDto)
   moratoryConcepts?: LoanConceptAssignmentDto[];
 
+  // See CreateLoanDto — same system-generated interest field.
   @ApiPropertyOptional({
-    example: 50000,
+    example: 2.1,
     description:
-      'The new loan\'s own "cuota inicial" — see CreateLoanDto. Purely informational, unrelated to the loan being refinanced.',
+      'Corriente interest rate for the new loan. Defaults to, and is capped at, the current usury ceiling.',
   })
   @IsOptional()
   @IsNumber()
   @Min(0)
-  initialPayment?: number;
+  @Max(100)
+  corrienteInterestRate?: number;
+
+  @ApiPropertyOptional({
+    example: 2.1,
+    description:
+      'Moratory interest rate for the new loan. Defaults to, and is capped at, the current usury ceiling.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  moratoryInterestRate?: number;
+
+  // See CreateLoanDto — same down-payment-as-real-installment redesign,
+  // 2026-09-03. Unrelated to the loan being refinanced; applies only to
+  // the new loan this refinance creates.
+  @ApiPropertyOptional({
+    example: 1000000,
+    description:
+      "The new loan's own down payment amount — see CreateLoanDto. Requires downPaymentDueDate.",
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  downPaymentAmount?: number;
+
+  @ApiPropertyOptional({
+    example: '2026-09-10',
+    description:
+      "Due date for the new loan's down payment installment — see CreateLoanDto. Requires downPaymentAmount.",
+  })
+  @IsOptional()
+  @IsDateString()
+  downPaymentDueDate?: string;
 
   @ApiPropertyOptional({
     example: 'Refinanciación del pagaré anterior',
