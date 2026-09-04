@@ -214,12 +214,6 @@ export const LOAN_COLUMNS: ColumnDefinition[] = [
     type: 'number',
   },
   {
-    key: 'initialPayment',
-    aliases: ['cuota inicial', 'initial payment'],
-    required: false,
-    type: 'number',
-  },
-  {
     key: 'description',
     aliases: ['descripcion del credito', 'descripcion', 'description'],
     required: false,

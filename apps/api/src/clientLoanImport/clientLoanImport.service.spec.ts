@@ -17,8 +17,13 @@ jest.mock('./clientLoanImportParser');
 
 const mockParse = parseClientLoanWorkbook as jest.Mock;
 
+// promissoryNoteNumber needs a real CreateLoanDto#0000-format value — Phase
+// 231 added a validator requiring exactly 4 digits after "#", and this
+// fixture (a stray 3-digit '#743') was never updated to match, so every
+// test in this file was failing loanDto validation before it ever reached
+// the behavior each test actually means to exercise.
 const REQUIRED_LOAN_FIELDS = {
-  promissoryNoteNumber: '#743',
+  promissoryNoteNumber: '#0743',
   principalAmount: 900000,
   interestRate: 6,
   disbursedAt: '2026-08-01',
@@ -67,7 +72,6 @@ describe('ClientLoanImportService', () => {
     category: ConceptCategory.Corriente,
     fixedAmountDistribution: null,
     isActive: true,
-    isUsuryRateConcept: false,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -110,7 +114,7 @@ describe('ClientLoanImportService', () => {
     });
     loansService.create.mockResolvedValue({});
 
-    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+    const result = await service.importFromExcel(Buffer.from(''));
 
     expect(result).toEqual({ totalRows: 1, created: 1, skipped: [] });
     expect(clientsService.create).toHaveBeenCalledWith(
@@ -121,7 +125,6 @@ describe('ClientLoanImportService', () => {
       expect.objectContaining({
         clientId: '11111111-1111-4111-8111-111111111111',
       }),
-      { skipCreditCheck: false },
     );
   });
 
@@ -139,26 +142,12 @@ describe('ClientLoanImportService', () => {
       ),
     );
 
-    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+    const result = await service.importFromExcel(Buffer.from(''));
 
     expect(loansService.create).not.toHaveBeenCalled();
     expect(result.created).toBe(0);
     expect(result.skipped).toHaveLength(1);
     expect(result.skipped[0].reason).toMatch(/al menos una dirección/i);
-  });
-
-  it('passes skipCreditCheck: true in historical mode', async () => {
-    mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
-    clientsService.create.mockResolvedValue({
-      id: '11111111-1111-4111-8111-111111111111',
-    });
-    loansService.create.mockResolvedValue({});
-
-    await service.importFromExcel(Buffer.from(''), 'historical');
-
-    expect(loansService.create).toHaveBeenCalledWith(expect.anything(), {
-      skipCreditCheck: true,
-    });
   });
 
   it('reuses an existing client (matching fields) instead of creating a duplicate', async () => {
@@ -172,14 +161,19 @@ describe('ClientLoanImportService', () => {
     mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
     loansService.create.mockResolvedValue({});
 
-    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+    const result = await service.importFromExcel(Buffer.from(''));
 
     expect(clientsService.create).not.toHaveBeenCalled();
+    // Single argument only — "modo histórico" (which used to pass a second
+    // { skipCreditCheck: true } options object here) was removed
+    // 2026-09-03 (see the comment on the real call site in
+    // clientLoanImport.service.ts); this assertion's trailing
+    // expect.anything() was a leftover from before that removal and was
+    // masked by an unrelated pre-existing failure until now.
     expect(loansService.create).toHaveBeenCalledWith(
       expect.objectContaining({
         clientId: '22222222-2222-4222-8222-222222222222',
       }),
-      expect.anything(),
     );
     expect(result.created).toBe(1);
   });
@@ -194,7 +188,7 @@ describe('ClientLoanImportService', () => {
     clientsService.findByDocumentNumber.mockResolvedValue(existing);
     mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
 
-    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+    const result = await service.importFromExcel(Buffer.from(''));
 
     expect(clientsService.create).not.toHaveBeenCalled();
     expect(loansService.create).not.toHaveBeenCalled();
@@ -216,7 +210,7 @@ describe('ClientLoanImportService', () => {
     mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
     loansService.create.mockResolvedValue({});
 
-    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+    const result = await service.importFromExcel(Buffer.from(''));
 
     expect(result.created).toBe(1);
     expect(result.skipped).toEqual([]);
@@ -238,7 +232,7 @@ describe('ClientLoanImportService', () => {
       errors: [],
     });
 
-    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+    const result = await service.importFromExcel(Buffer.from(''));
 
     expect(clientsService.create).not.toHaveBeenCalled();
     expect(result.created).toBe(0);
@@ -254,7 +248,7 @@ describe('ClientLoanImportService', () => {
       new Error("This loan's principal exceeds the client's available cupo."),
     );
 
-    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+    const result = await service.importFromExcel(Buffer.from(''));
 
     expect(clientsRepository.delete).toHaveBeenCalledWith({
       id: '11111111-1111-4111-8111-111111111111',
@@ -277,7 +271,7 @@ describe('ClientLoanImportService', () => {
       new Error('duplicate promissory note'),
     );
 
-    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+    const result = await service.importFromExcel(Buffer.from(''));
 
     expect(clientsRepository.delete).not.toHaveBeenCalled();
     expect(result.created).toBe(0);
@@ -290,7 +284,7 @@ describe('ClientLoanImportService', () => {
       errors: [{ row: 3, reason: 'Falta valor para: Cédula', rawValues: {} }],
     });
 
-    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+    const result = await service.importFromExcel(Buffer.from(''));
 
     expect(result).toEqual({
       totalRows: 1,

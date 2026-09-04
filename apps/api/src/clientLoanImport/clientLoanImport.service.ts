@@ -22,8 +22,6 @@ import {
   buildImportTemplateWorkbook,
 } from './clientLoanImportTemplate';
 
-export type ClientLoanImportMode = 'normal' | 'historical';
-
 export interface ClientLoanImportResult {
   totalRows: number;
   created: number;
@@ -76,10 +74,7 @@ export class ClientLoanImportService {
   // fails for any reason, the client from that same row is not left
   // behind either (see the compensating delete below) — a row is either
   // fully applied or fully skipped, never half.
-  async importFromExcel(
-    buffer: Buffer,
-    mode: ClientLoanImportMode,
-  ): Promise<ClientLoanImportResult> {
+  async importFromExcel(buffer: Buffer): Promise<ClientLoanImportResult> {
     const parsed = await parseClientLoanWorkbook(buffer).catch((error) => {
       throw error instanceof Error
         ? error
@@ -98,7 +93,6 @@ export class ClientLoanImportService {
     for (const row of parsed.rows) {
       const rowError = await this.processRow(
         row,
-        mode,
         importedClientsByDocumentNumber,
       );
       if (rowError) {
@@ -117,7 +111,6 @@ export class ClientLoanImportService {
 
   private async processRow(
     row: ParsedClientLoanRow,
-    mode: ClientLoanImportMode,
     importedClientsByDocumentNumber: Map<string, Client>,
   ): Promise<RowError | null> {
     const fail = (reason: string): RowError => ({
@@ -212,13 +205,13 @@ export class ClientLoanImportService {
 
     // 4. Create the loan, reusing LoansService.create() exactly as the
     // manual "Crear préstamo" flow does — same amortization engine, same
-    // promissory-note-uniqueness and usury-warning checks. Only the
-    // mora/cupo guard is conditional, per "modo histórico" (confirmed
-    // with the client, 2026-08-19).
+    // promissory-note-uniqueness, usury-warning, and mora/cupo checks.
+    // "Modo histórico" (skipCreditCheck: true, confirmed with the client
+    // 2026-08-19) was removed 2026-09-03 — client feedback: never used in
+    // practice, just clutter in the upload dialog. Every import now goes
+    // through the same guard as creating a loan by hand.
     try {
-      await this.loansService.create(loanDto, {
-        skipCreditCheck: mode === 'historical',
-      });
+      await this.loansService.create(loanDto);
     } catch (error) {
       await this.rollbackNewClientIfAny(createdNewClientId);
       return fail(

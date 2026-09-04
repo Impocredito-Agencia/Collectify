@@ -3,7 +3,6 @@ import {
   Body,
   Controller,
   Post,
-  Query,
   Res,
   UploadedFile,
   UseInterceptors,
@@ -14,14 +13,13 @@ import {
   ApiBody,
   ApiConsumes,
   ApiOperation,
-  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 
 import { Audit } from '../auditLog/decorators/audit.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../users/entities/user.entity';
+import { RequireModule } from '../auth/decorators/requireModule.decorator';
+import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import {
   ClientLoanImportResult,
@@ -29,7 +27,6 @@ import {
 } from './clientLoanImport.service';
 import { RowError } from './clientLoanImportParser';
 
-import type { ClientLoanImportMode } from './clientLoanImport.service';
 import type { Response } from 'express';
 
 const XLSX_MIME_TYPE =
@@ -48,10 +45,10 @@ export class ClientLoanImportController {
   constructor(private readonly importService: ClientLoanImportService) {}
 
   @Post('import-template')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @ApiOperation({
     summary:
-      'Download an empty .xlsx template for the combined clients+loans import (admin only)',
+      'Download an empty .xlsx template for the combined clients+loans import (admin or granted the clients module)',
     description:
       'Columns always match what POST /clients/import-with-loans accepts — both are built from the ' +
       'same column definitions, so they cannot drift apart. One row = one credit: a client with ' +
@@ -69,7 +66,7 @@ export class ClientLoanImportController {
   }
 
   @Post('import-with-loans')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @Audit('clientLoanImport.execute', 'clientLoanImport')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -77,16 +74,6 @@ export class ClientLoanImportController {
     }),
   )
   @ApiConsumes('multipart/form-data')
-  @ApiQuery({
-    name: 'mode',
-    enum: ['normal', 'historical'],
-    required: false,
-    description:
-      '"normal" (default) enforces the same mora/cupo guard as creating a loan by hand. ' +
-      '"historical" skips that guard, for loading a past loan book where the credit already ' +
-      'happened — the promissory-note-uniqueness check and the usury-ceiling warning always run ' +
-      'regardless of mode.',
-  })
   @ApiBody({
     schema: {
       type: 'object',
@@ -95,7 +82,7 @@ export class ClientLoanImportController {
   })
   @ApiOperation({
     summary:
-      'Bulk-import clients and their initial loan from an .xlsx file (admin only)',
+      'Bulk-import clients and their initial loan from an .xlsx file (admin or granted the clients module)',
     description:
       'One row = one credit — the same cédula can repeat across rows for a client with several ' +
       'loans. All-or-nothing per row: if the loan fails, the client from that same row is not left ' +
@@ -110,7 +97,6 @@ export class ClientLoanImportController {
   })
   async importClientsWithLoans(
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Query('mode') mode: ClientLoanImportMode = 'normal',
   ): Promise<ClientLoanImportResult> {
     if (!file) {
       throw new BadRequestException('No file uploaded');
@@ -118,17 +104,14 @@ export class ClientLoanImportController {
     if (file.mimetype !== XLSX_MIME_TYPE) {
       throw new BadRequestException('Only .xlsx files are supported');
     }
-    if (mode !== 'normal' && mode !== 'historical') {
-      throw new BadRequestException('mode must be "normal" or "historical"');
-    }
-    return this.importService.importFromExcel(file.buffer, mode);
+    return this.importService.importFromExcel(file.buffer);
   }
 
   @Post('import-errors-export')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @ApiOperation({
     summary:
-      'Regenerate a downloadable .xlsx of just the rows that failed a given import attempt (admin only)',
+      'Regenerate a downloadable .xlsx of just the rows that failed a given import attempt (admin or granted the clients module)',
     description:
       'Stateless — pass back the exact `skipped` array from a prior POST /clients/import-with-loans ' +
       'response. Pre-fills each failed row plus a "Motivo del error" column, using the same columns ' +
