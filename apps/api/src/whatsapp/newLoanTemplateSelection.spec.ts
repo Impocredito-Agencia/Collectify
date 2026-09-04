@@ -17,7 +17,7 @@ describe('selectNewLoanTemplate', () => {
       { amount: 300000, dueDate: '2026-09-01' },
       { amount: 300000, dueDate: '2026-10-01' },
     ],
-    initialPayment: null,
+    downPayment: null,
   };
 
   it('picks NewLoanNewClient for a new client with no cuota inicial', () => {
@@ -76,7 +76,7 @@ describe('selectNewLoanTemplate', () => {
         { amount: 400000, dueDate: '2026-09-10' },
         { amount: 400000, dueDate: '2026-10-10' },
       ],
-      initialPayment: 1400000,
+      downPayment: { amount: 1400000, dueDate: '2026-09-01' },
     });
 
     expect(result.type).toBe(MessageType.NewLoanNewClientInitialInstallment);
@@ -99,7 +99,7 @@ describe('selectNewLoanTemplate', () => {
     const result = selectNewLoanTemplate({
       ...baseInput,
       isNewClient: false,
-      initialPayment: 500000,
+      downPayment: { amount: 500000, dueDate: '2026-08-25' },
     });
 
     expect(result.type).toBe(

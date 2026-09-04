@@ -22,6 +22,23 @@ export function useLoans(params: LoansQueryParams) {
   });
 }
 
+// Style cleanup (2026-09-03) — suggested next #0000-style pagaré number,
+// fetched automatically whenever LoanForm/RefinanceLoanForm mount (both
+// only ever mount when actually needed, so no `enabled` guard required).
+// A useQuery rather than a mutation like usePayoffQuote/useRefinanceQuote
+// above — this isn't triggered by a button, it should just be there by
+// the time the admin looks at the field.
+export function useNextPromissoryNoteNumber() {
+  return useQuery({
+    queryKey: ['loans', 'next-promissory-note-number'],
+    queryFn: loansApi.getNextPromissoryNoteNumber,
+    // The suggestion only needs to reflect reality at the moment the form
+    // opens — no need to refetch on window refocus etc. mid-fill, which
+    // could otherwise yank the field out from under someone mid-edit.
+    staleTime: Infinity,
+  });
+}
+
 export function useLoan(id: string) {
   return useQuery({
     queryKey: ['loans', id],

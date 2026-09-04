@@ -36,6 +36,18 @@ export class Installment {
   @Column()
   installmentNumber!: number;
 
+  // True only for the single "cuota inicial" (down payment) installment a
+  // loan may have — always installmentNumber 1 when present. Interest-free
+  // by construction (no corriente concepts are generated for it) and due
+  // on a date the admin picks freely, independent of the periodic schedule
+  // that governs installment 2 onward. Mora still applies if missed, so
+  // this does NOT skip moratorio concepts. Replaces loans.initial_payment
+  // — see migrations/1786700000000-ReplaceInitialPaymentWithDownPaymentInstallment.ts
+  // for why a per-installment flag is correct here, unlike Phase 13's
+  // earlier is_initial attempt.
+  @Column({ default: false })
+  isDownPayment!: boolean;
+
   @Column({
     type: 'decimal',
     precision: 12,
