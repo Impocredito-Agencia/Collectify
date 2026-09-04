@@ -11,13 +11,18 @@ interface CloseButtonProps {
 // Shared across every modal's close button (ClientForm, LoanForm,
 // MessageTemplateForm, MessageLogDrawer) so this is fixed once, not
 // per-copy.
+//
+// hover:bg-border added 2026-09-04 — same fix as Button.tsx's secondary
+// variant and RowActionButton: this rests on a visible bg-input box, but
+// hover only lit up the text, leaving the box looking inert. bg-border is
+// the same translucent white wash used everywhere else for this.
 export function CloseButton({ onClick, className = '' }: CloseButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label="Cerrar"
-      className={`flex size-6 shrink-0 items-center justify-center rounded bg-input text-muted hover:text-white ${className}`}
+      className={`flex size-6 shrink-0 items-center justify-center rounded bg-input text-muted hover:bg-border hover:text-white ${className}`}
     >
       <svg
         className="size-3"

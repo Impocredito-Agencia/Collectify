@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { ChipButton } from '@/components/ui/ChipButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { Field } from '@/components/ui/Field';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { PlusIcon } from '@/components/ui/PlusIcon';
 import { Select } from '@/components/ui/Select';
 import { Td, Th } from '@/components/ui/Table';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
@@ -17,7 +19,9 @@ import {
   useInterestConceptTypes,
 } from '@/features/interestConceptTypes/useInterestConceptTypes';
 import { InstallmentFrequency } from '@/features/loans/loansApi';
+import { SystemInterestRateRow } from '@/features/loans/MandatoryConceptRow';
 import { usePreviewSchedule } from '@/features/loans/useLoans';
+import { exceedsUsuryCeiling } from '@/features/loans/usuryCeiling';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
 import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
@@ -49,6 +53,11 @@ import type {
 // No Figma frame exists for this screen — flagged as a gap like every
 // other no-frame build in this codebase, per docs/DESIGN_TOKENS.md
 // convention.
+//
+// Redesign, 2026-09-03 — same system-generated corriente interest field as
+// LoanForm.tsx/RefinanceLoanForm.tsx, defaulting to and capped at the usury
+// ceiling. No moratorio equivalent here (confirmed with the human): this
+// tool only ever quotes corriente concepts, see corrienteConceptTypes below.
 interface ConceptRow extends LoanConceptAssignment {
   rowId: string;
 }
@@ -70,6 +79,14 @@ export function LoanQuotePage() {
     InstallmentFrequency.Monthly,
   );
   const [disbursedAt, setDisbursedAt] = useState(todayDateString());
+  // Redesign, 2026-09-03 — same "cuota inicial" (down payment) concept as
+  // LoanForm.tsx/RefinanceLoanForm.tsx, mirrored here purely for display:
+  // this tool persists nothing, so there's no submission payload to build
+  // — just a synthetic first row prepended to the preview table below
+  // (numbering shifted +1), and folded into "Total a pagar".
+  const [hasDownPayment, setHasDownPayment] = useState(false);
+  const [downPaymentAmount, setDownPaymentAmount] = useState(0);
+  const [downPaymentDueDate, setDownPaymentDueDate] = useState('');
   const [concepts, setConcepts] = useState<ConceptRow[]>([]);
   const [showNewConceptTypeForm, setShowNewConceptTypeForm] = useState(false);
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
@@ -87,12 +104,34 @@ export function LoanQuotePage() {
     currentUsuryRate && !currentUsuryRate.isStale,
   );
 
+  // Redesign, 2026-09-03 — same system-generated corriente interest field
+  // as LoanForm.tsx/RefinanceLoanForm.tsx (corrienteInterestRate), defaults
+  // to and is capped at the usury ceiling. No moratory equivalent here —
+  // this tool only quotes corriente concepts, see the comment above
+  // corrienteConceptTypes below.
+  const [corrienteInterestRate, setCorrienteInterestRate] = useState<
+    number | ''
+  >('');
+  const hasPrefilledInterestRate = useRef(false);
+  useEffect(() => {
+    if (currentUsuryRate && !hasPrefilledInterestRate.current) {
+      hasPrefilledInterestRate.current = true;
+      setCorrienteInterestRate(currentUsuryRate.ratePercentage);
+    }
+  }, [currentUsuryRate]);
+  const exceedsCeiling = Boolean(
+    currentUsuryRate &&
+    exceedsUsuryCeiling(corrienteInterestRate, currentUsuryRate.ratePercentage),
+  );
+
   const count = parseInt(totalInstallments, 10) || 0;
   const canCalculate =
     principalAmount > 0 &&
     count > 0 &&
     disbursedAt !== '' &&
-    hasUsableUsuryRate;
+    hasUsableUsuryRate &&
+    !exceedsCeiling &&
+    (!hasDownPayment || (downPaymentAmount > 0 && downPaymentDueDate !== ''));
 
   // Phase 23 — this tool only quotes corriente concepts; moratory ones
   // always preview at amount 0 (nothing is overdue in a hypothetical), so
@@ -106,17 +145,20 @@ export function LoanQuotePage() {
     label: conceptType.name,
   }));
 
+  // Style fix, 2026-09-03 — see LoanForm.tsx's addConceptRow for the full
+  // explanation: new rows start unselected instead of defaulting to
+  // corrienteConceptTypes[0].
   const addConceptRow = () => {
-    const firstType = corrienteConceptTypes[0];
+    if (corrienteConceptTypes.length === 0) {
+      return;
+    }
     setConcepts((prev) => [
       ...prev,
       {
         rowId: makeRowId(),
-        conceptTypeId: firstType?.id ?? '',
-        calculationType:
-          firstType?.defaultCalculationType ??
-          ConceptCalculationType.Percentage,
-        value: firstType?.defaultValue ?? 0,
+        conceptTypeId: '',
+        calculationType: ConceptCalculationType.Percentage,
+        value: 0,
       },
     ]);
   };
@@ -149,6 +191,7 @@ export function LoanQuotePage() {
           calculationType,
           value,
         })),
+        corrienteInterestRate: corrienteInterestRate || undefined,
       });
       setPreview(result);
     } catch {
@@ -156,16 +199,19 @@ export function LoanQuotePage() {
     }
   };
 
-  // Cuota fija (Phase 14 correction) — every installment has the same
-  // amount except possibly the last one, which absorbs the rounding
-  // remainder. The first installment is the representative "this is what
-  // you'd pay" headline number a prospect actually wants to hear.
+  // Capital fijo, smoothed — the API averages the true declining-balance
+  // interest across every installment and rounds it to the nearest
+  // $1,000 (see generateSchedule.ts), so every installment.amount is
+  // already identical, including the last. Any one of them is a valid
+  // headline "cuota" figure.
   const monthlyAmount = preview?.installments[0]?.amount ?? null;
   const totalToPay =
-    preview?.installments.reduce(
-      (sum, installment) => sum + installment.amount,
-      0,
-    ) ?? null;
+    preview === null
+      ? null
+      : preview.installments.reduce(
+          (sum, installment) => sum + installment.amount,
+          0,
+        ) + (hasDownPayment ? downPaymentAmount : 0);
 
   const frequencyLabel =
     installmentFrequency === InstallmentFrequency.Monthly
@@ -185,7 +231,59 @@ export function LoanQuotePage() {
 
       <div className="grid grid-cols-[420px_1fr] gap-8">
         <div className="flex flex-col gap-3.5 rounded-lg bg-surface p-5">
-          <Field label="Monto a financiar">
+          {/* Redesign, 2026-09-03 — same "cuota inicial" checkbox as
+              LoanForm.tsx, purely for display here: this tool persists
+              nothing (see the file's own top comment), so there's no
+              submission payload to build — just numbers folded into the
+              headline/preview table below. */}
+          <div className="flex flex-col gap-3 rounded border border-border bg-input p-3">
+            <label className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                checked={hasDownPayment}
+                onChange={(event) => {
+                  setHasDownPayment(event.target.checked);
+                  if (!event.target.checked) {
+                    setDownPaymentAmount(0);
+                    setDownPaymentDueDate('');
+                  }
+                  setPreview(null);
+                }}
+                className="size-4 shrink-0 rounded border-border bg-background accent-white"
+              />
+              <span className="text-control text-white">
+                Tiene cuota inicial
+              </span>
+            </label>
+
+            {hasDownPayment && (
+              <div className="flex gap-3">
+                <Field label="Valor">
+                  <CurrencyInput
+                    value={downPaymentAmount}
+                    onChange={(value) => {
+                      setDownPaymentAmount(value);
+                      setPreview(null);
+                    }}
+                    placeholder="Ej: $1.000.000"
+                    className={inputClassName}
+                  />
+                </Field>
+                <Field label="Fecha">
+                  <DatePicker
+                    value={downPaymentDueDate}
+                    onChange={(next) => {
+                      setDownPaymentDueDate(next);
+                      setPreview(null);
+                    }}
+                    className={inputClassName}
+                  />
+                </Field>
+              </div>
+            )}
+          </div>
+
+          <Field label="Capital a financiar">
             <CurrencyInput
               value={principalAmount}
               onChange={(value) => {
@@ -239,6 +337,12 @@ export function LoanQuotePage() {
 
           <Field label="Cargos adicionales">
             <div className="flex flex-col gap-2">
+              <SystemInterestRateRow
+                name="Intereses corrientes"
+                value={corrienteInterestRate}
+                onChange={setCorrienteInterestRate}
+                exceedsCeiling={exceedsCeiling}
+              />
               {concepts.length === 0 && (
                 <p className="text-meta text-muted">
                   Sin cargos adicionales — se cotizará solo el capital.
@@ -260,48 +364,49 @@ export function LoanQuotePage() {
                       });
                     }}
                     options={conceptTypeOptions}
+                    placeholder="Selecciona un cargo"
                     className="flex-1"
                   />
                   <input
                     type="number"
                     min={0}
-                    step="0.01"
-                    disabled={
-                      row.calculationType === ConceptCalculationType.Percentage
-                    }
-                    value={
-                      row.calculationType === ConceptCalculationType.Percentage
-                        ? (currentUsuryRate?.ratePercentage ?? '')
-                        : row.value
-                    }
+                    // step="any" — a percentage concept's value can carry
+                    // more decimals than a native step="0.01" tolerates (see
+                    // MandatoryConceptRow.tsx's own comment for the full
+                    // explanation).
+                    step="any"
+                    value={row.value}
                     onChange={(event) =>
                       updateConceptRow(row.rowId, {
                         value: parseFloat(event.target.value) || 0,
                       })
-                    }
-                    title={
-                      row.calculationType === ConceptCalculationType.Percentage
-                        ? 'Se aplica la tasa de usura vigente automáticamente — no editable.'
-                        : undefined
                     }
                     placeholder={
                       row.calculationType === ConceptCalculationType.Percentage
                         ? '%'
                         : '$'
                     }
-                    className="h-9 w-20 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    className="h-[38px] w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                   />
                   <button
                     type="button"
                     onClick={() => removeConceptRow(row.rowId)}
-                    className="text-meta text-muted hover:text-danger"
+                    className="w-[42px] shrink-0 text-center text-meta text-muted hover:text-danger"
                   >
                     Quitar
                   </button>
                 </div>
               ))}
               <div className="mt-1 flex items-center gap-3">
-                <ChipButton onClick={addConceptRow}>
+                <ChipButton
+                  onClick={addConceptRow}
+                  disabled={corrienteConceptTypes.length === 0}
+                  title={
+                    corrienteConceptTypes.length === 0
+                      ? 'Crea un tipo de cargo primero'
+                      : undefined
+                  }
+                >
                   <PlusIcon />
                   Agregar cargo
                 </ChipButton>
@@ -344,7 +449,7 @@ export function LoanQuotePage() {
                   {monthlyAmount !== null ? formatCurrency(monthlyAmount) : '—'}
                 </p>
                 <p className="mt-3 text-small text-muted">
-                  {count} cuota(s) · Total a pagar:{' '}
+                  {count + (hasDownPayment ? 1 : 0)} cuota(s) · Total a pagar:{' '}
                   <span className="font-medium text-white">
                     {totalToPay !== null ? formatCurrency(totalToPay) : '—'}
                   </span>
@@ -355,24 +460,50 @@ export function LoanQuotePage() {
                 <table className="w-full border-collapse">
                   <thead className="bg-input">
                     <tr className="divide-x divide-border">
-                      <Th>Cuota</Th>
-                      <Th>Vence</Th>
-                      <Th className="text-right">Capital</Th>
-                      <Th className="text-right">Total</Th>
+                      <Th compact>Cuota</Th>
+                      <Th compact>Vence</Th>
+                      <Th compact className="text-right">
+                        Capital
+                      </Th>
+                      <Th compact className="text-right">
+                        Total
+                      </Th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
+                    {/* See LoanForm.tsx's identical block — a synthetic
+                        first row for the down payment, rest renumbered
+                        +1. */}
+                    {hasDownPayment && (
+                      <tr className="divide-x divide-border">
+                        <Td compact>1</Td>
+                        <Td compact>
+                          {downPaymentDueDate
+                            ? formatDateOnly(downPaymentDueDate)
+                            : '—'}
+                        </Td>
+                        <Td compact className="text-right">
+                          {formatCurrency(downPaymentAmount)}
+                        </Td>
+                        <Td compact className="text-right">
+                          {formatCurrency(downPaymentAmount)}
+                        </Td>
+                      </tr>
+                    )}
                     {preview.installments.map((installment) => (
                       <tr
                         key={installment.installmentNumber}
                         className="divide-x divide-border"
                       >
-                        <Td muted>{installment.installmentNumber}</Td>
-                        <Td muted>{formatDateOnly(installment.dueDate)}</Td>
-                        <Td muted className="text-right">
+                        <Td compact>
+                          {installment.installmentNumber +
+                            (hasDownPayment ? 1 : 0)}
+                        </Td>
+                        <Td compact>{formatDateOnly(installment.dueDate)}</Td>
+                        <Td compact className="text-right">
                           {formatCurrency(installment.principalPortion)}
                         </Td>
-                        <Td className="text-right">
+                        <Td compact className="text-right">
                           {formatCurrency(installment.amount)}
                         </Td>
                       </tr>
@@ -409,45 +540,9 @@ export function LoanQuotePage() {
 const inputClassName =
   'h-[42px] w-full rounded border border-border bg-input px-3.5 text-control text-white placeholder-mid focus:border-subtle focus:outline-none';
 
-// Field now lives in @/components/ui/Field — see DESIGN_TOKENS.md's
-// "Component-based centralization" section.
-
-// Same chip treatment as LoanForm.tsx/RefinanceLoanForm.tsx — a bordered,
-// backgrounded button instead of bare colored text, which made these easy
-// to miss as actual clickable actions.
-function ChipButton({
-  onClick,
-  disabled,
-  children,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex items-center gap-1.5 self-start rounded border border-border bg-input px-3.5 py-2 text-small text-muted hover:border-subtle hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      {children}
-    </button>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg
-      className="size-3.5 shrink-0"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-    >
-      <path d="M10 4v12M4 10h12" strokeWidth="1.75" strokeLinecap="round" />
-    </svg>
-  );
-}
+// Field now lives in @/components/ui/Field, ChipButton/PlusIcon in
+// @/components/ui/ChipButton and @/components/ui/PlusIcon — see
+// DESIGN_TOKENS.md's "Component-based centralization" section.
 
 // Local Th/Td removed (style cleanup, 2026-09-02) — this table used
 // `h-11 px-4`/`h-12 px-4`, visibly taller/wider-padded rows than every

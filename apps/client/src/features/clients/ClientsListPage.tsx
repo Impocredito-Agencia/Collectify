@@ -43,7 +43,14 @@ const STATUS_FILTER_TO_IS_ACTIVE: Record<StatusFilter, boolean | 'all'> = {
 
 export function ClientsListPage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  // Phase 20 — was isAdmin. Gates "Nuevo cliente"/"Importar Excel"
+  // (ClientsController/ClientLoanImportController) and the row actions
+  // passed down to ClientRow — both migrated to
+  // @RequireModule(AppModule.Clients). See
+  // docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
+  const canManageClient = Boolean(
+    user && (user.role === 'admin' || user.modules.includes('clients')),
+  );
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
@@ -123,7 +130,7 @@ export function ClientsListPage() {
 
         <div className="flex-1" />
 
-        {isAdmin && (
+        {canManageClient && (
           <Button
             variant="secondary"
             onClick={() => setIsImportDialogOpen(true)}
@@ -132,7 +139,7 @@ export function ClientsListPage() {
           </Button>
         )}
 
-        {isAdmin && (
+        {canManageClient && (
           <Button
             onClick={() => setEditingClient('new')}
             className="flex items-center gap-1.5"
@@ -195,7 +202,7 @@ export function ClientsListPage() {
                 // Purely a display sequence, not a backend field. See F-10
                 // in the requirements table.
                 rowNumber={rowNumberOffset + index + 1}
-                isAdmin={isAdmin}
+                canManageClient={canManageClient}
                 onEdit={() => setEditingClient(client)}
                 onDeactivate={() => setDeactivatingClient(client)}
                 onReactivate={async () => {
@@ -228,30 +235,26 @@ export function ClientsListPage() {
             Mostrando {clients.length} de {meta.total} clientes
           </p>
           <div className="flex items-center gap-1">
-            <PageButton
+            <FilterTab
+              label="←"
+              isActive={false}
               disabled={page <= 1}
               onClick={() => setPage((current) => current - 1)}
-            >
-              ←
-            </PageButton>
-            {Array.from(
-              { length: meta.totalPages },
-              (_, index) => index + 1,
-            ).map((pageNumber) => (
-              <PageButton
-                key={pageNumber}
-                isActive={pageNumber === page}
-                onClick={() => setPage(pageNumber)}
-              >
-                {pageNumber}
-              </PageButton>
+            />
+            {buildPageWindow(page, meta.totalPages).map((entry) => (
+              <FilterTab
+                key={entry}
+                label={entry}
+                isActive={entry === page}
+                onClick={() => setPage(entry)}
+              />
             ))}
-            <PageButton
+            <FilterTab
+              label="→"
+              isActive={false}
               disabled={page >= meta.totalPages}
               onClick={() => setPage((current) => current + 1)}
-            >
-              →
-            </PageButton>
+            />
           </div>
         </div>
       )}
@@ -298,29 +301,32 @@ function EmptyRow({
   );
 }
 
-function PageButton({
-  children,
-  onClick,
-  isActive = false,
-  disabled = false,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  isActive?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded px-2.5 py-1.5 text-label ${
-        isActive
-          ? 'bg-border font-medium text-white'
-          : 'border border-border bg-input text-muted disabled:opacity-40'
-      }`}
-    >
-      {children}
-    </button>
-  );
+// Style cleanup (2026-09-03): the pager used to render one PageButton per
+// page with no truncation — fine for a handful of pages, but at the
+// client's real client count (~400, ~8 pages at the new 50/page default,
+// and would only get worse as the list grows) a flat row of buttons reads
+// as clutter and eventually wraps awkwardly.
+//
+// Went through two designs before landing here — see mockup shown to the
+// client comparing all three side by side:
+//   1. First attempt: pin page 1 + last page, plus a ±1 window around the
+//      current page, collapsing gaps into "…" (e.g. page 5 of 20 →
+//      [1, …, 4, 5, 6, …, 20]). Client's reaction: "eso no se ve mal?"
+//      ("doesn't that look bad?") — didn't like the two-ellipsis look.
+//   2. Client's own proposal, confirmed after seeing it live: a sliding
+//      window of 5 CONSECUTIVE page numbers centered on the current page,
+//      clamped to stay inside [1, total] — no pinned first/last, no "…".
+//      E.g. total=20: page 1 → 1 2 3 4 5; page 5 → 3 4 5 6 7; page 20 →
+//      16 17 18 19 20. This is what's implemented below.
+function buildPageWindow(current: number, total: number): number[] {
+  const windowSize = Math.min(5, total);
+  let start = current - Math.floor(windowSize / 2);
+  start = Math.max(1, Math.min(start, total - windowSize + 1));
+  return Array.from({ length: windowSize }, (_, i) => start + i);
 }
+
+// Pagination controls now use the shared FilterTab component instead of
+// this local PageButton — same 2026-09-04 consolidation sweep that fixed
+// LoansListPage's near-identical copy. Note: this drops the inactive-state
+// `border border-border` PageButton had (LoansListPage's copy never had
+// it), so the two lists' pagers now match each other exactly.

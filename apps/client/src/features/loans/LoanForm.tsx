@@ -1,12 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
+import { ChipButton } from '@/components/ui/ChipButton';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { Field, FormSection } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
+import { PlusIcon } from '@/components/ui/PlusIcon';
 import { Select } from '@/components/ui/Select';
+import { Td, Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { useClient, useClients } from '@/features/clients/useClients';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
@@ -22,9 +25,16 @@ import {
   subtractDaysFromDateString,
   subtractMonthsFromDateString,
 } from '@/features/loans/dueDateMath';
-import { InstallmentFrequency } from '@/features/loans/loansApi';
-import { MandatoryConceptRow } from '@/features/loans/MandatoryConceptRow';
-import { usePreviewSchedule } from '@/features/loans/useLoans';
+import {
+  InstallmentFrequency,
+  PROMISSORY_NOTE_NUMBER_PATTERN,
+} from '@/features/loans/loansApi';
+import { SystemInterestRateRow } from '@/features/loans/MandatoryConceptRow';
+import {
+  useNextPromissoryNoteNumber,
+  usePreviewSchedule,
+} from '@/features/loans/useLoans';
+import { exceedsUsuryCeiling } from '@/features/loans/usuryCeiling';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
 import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { ApiError } from '@/lib/apiClient';
@@ -61,7 +71,9 @@ type FieldName =
   | 'totalInstallments'
   | 'concepts'
   | 'moratoryConcepts'
-  | 'coDebtorClientId';
+  | 'coDebtorClientId'
+  | 'downPaymentAmount'
+  | 'downPaymentDueDate';
 type FieldErrors = Partial<Record<FieldName, string>>;
 
 let nextRowId = 0;
@@ -77,12 +89,12 @@ function makeRowId(): string {
 // whole term of the loan and cannot vary per installment — set once here,
 // at creation.
 //
-// Bug fix, 2026-09-03: the standalone "Tasa de interés moratorio (%)"
-// input (interestRate) is gone — every loan now carries a mandatory,
-// non-removable moratorio concept instead (MandatoryConceptRow below),
-// making that legacy fallback field permanently unreachable for loans
-// created through this form. interestRate is still sent as a fixed 0,
-// since the API keeps it required — see handleSubmit.
+// Redesign, 2026-09-03: the loan's own corriente/moratorio interest is a
+// system field (corrienteInterestRate/moratoryInterestRate), not a catalog
+// pick — see SystemInterestRateRow below. It replaces both the old
+// standalone "Tasa de interés moratorio (%)" input (interestRate) and the
+// earlier "mandatory catalog concept" mechanism. interestRate is still
+// sent as a fixed 0, since the API keeps it required — see handleSubmit.
 export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const { user } = useAuth();
   // Phase 23 — "los cobradores no miren el amortizador pero sí deben poder
@@ -118,6 +130,20 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const isMoraBlocked = Boolean(selectedClientDetail?.isMoraBlocked);
 
   const [promissoryNoteNumber, setPromissoryNoteNumber] = useState('');
+  // Style cleanup (2026-09-03) — pre-fills with the suggested next #0000
+  // number as soon as it loads, but only once (hasPrefilledNumber guards
+  // against clobbering it again later — e.g. if this query ever refetches
+  // — after the admin may have already edited or cleared the field by
+  // hand; it stays fully editable either way). See
+  // useNextPromissoryNoteNumber/loansApi.getNextPromissoryNoteNumber.
+  const { data: suggestedPromissoryNoteNumber } = useNextPromissoryNoteNumber();
+  const hasPrefilledNumber = useRef(false);
+  useEffect(() => {
+    if (suggestedPromissoryNoteNumber && !hasPrefilledNumber.current) {
+      hasPrefilledNumber.current = true;
+      setPromissoryNoteNumber(suggestedPromissoryNoteNumber);
+    }
+  }, [suggestedPromissoryNoteNumber]);
   const [principalAmount, setPrincipalAmount] = useState(0);
   const [firstDueDate, setFirstDueDate] = useState('');
   const [installmentFrequency, setInstallmentFrequency] = useState(
@@ -126,14 +152,20 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const [totalInstallments, setTotalInstallments] = useState('');
   const [concepts, setConcepts] = useState<ConceptRow[]>([]);
   // Phase 23 — moratory concepts, a separate list from corriente ones
-  // above. Never affect the schedule preview/level payment — they only
+  // above. Never affect the schedule preview — they only
   // take effect once an installment is overdue. See
   // docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
   const [moratoryConcepts, setMoratoryConcepts] = useState<ConceptRow[]>([]);
-  // The "cuota inicial" — a down payment the client already made outside
-  // the credit system, purely informational and unrelated to the
-  // generated schedule. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
-  const [initialPayment, setInitialPayment] = useState(0);
+  // Redesign, 2026-09-03 — the "cuota inicial" (down payment) is now a
+  // real, interest-free installment 1 with its own due date, instead of a
+  // purely informational figure. Off by default; checking it reveals the
+  // amount/date fields, and shifts the schedule's own numbering (and the
+  // "Fecha de la primera cuota" label below) by one. The old
+  // purely-informational field this replaces is described in
+  // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md — superseded.
+  const [hasDownPayment, setHasDownPayment] = useState(false);
+  const [downPaymentAmount, setDownPaymentAmount] = useState(0);
+  const [downPaymentDueDate, setDownPaymentDueDate] = useState('');
   const [description, setDescription] = useState('');
 
   // Phase 26 — optional codeudor, off by default so the common
@@ -176,15 +208,33 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const { data: conceptTypes } = useInterestConceptTypes({ isActive: true });
   const createConceptType = useCreateInterestConceptType();
   const previewSchedule = usePreviewSchedule();
-  // Phase 24 — a percentage concept's value is always this rate, forced
-  // server-side regardless of what's submitted; the row's own input is
-  // disabled and shows this instead of being freely typed. A missing/stale
-  // rate also blocks submission entirely (StaleUsuryRateBanner explains
-  // why). See docs/phases/PHASE_24_USURY_MANDATORY.md.
+  // Redesign, 2026-09-03 — corrienteInterestRate/moratoryInterestRate
+  // (below) default to this ceiling and can only be edited downward, never
+  // above it (validated client-side via exceedsUsuryCeiling, and again
+  // server-side). A missing/stale rate still blocks submission entirely
+  // (StaleUsuryRateBanner explains why).
   const { data: currentUsuryRate } = useCurrentUsuryRate();
   const hasUsableUsuryRate = Boolean(
     currentUsuryRate && !currentUsuryRate.isStale,
   );
+  // Starts empty and pre-fills to the ceiling once, same "only once, stays
+  // editable after" guard as suggestedPromissoryNoteNumber above, so it
+  // doesn't clobber a value the admin already lowered by hand if this
+  // query ever refetches.
+  const [corrienteInterestRate, setCorrienteInterestRate] = useState<
+    number | ''
+  >('');
+  const [moratoryInterestRate, setMoratoryInterestRate] = useState<number | ''>(
+    '',
+  );
+  const hasPrefilledInterestRates = useRef(false);
+  useEffect(() => {
+    if (currentUsuryRate && !hasPrefilledInterestRates.current) {
+      hasPrefilledInterestRates.current = true;
+      setCorrienteInterestRate(currentUsuryRate.ratePercentage);
+      setMoratoryInterestRate(currentUsuryRate.ratePercentage);
+    }
+  }, [currentUsuryRate]);
 
   const principal = principalAmount;
   const count = parseInt(totalInstallments, 10) || 0;
@@ -206,30 +256,24 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     }),
   );
 
-  // Bug fix, 2026-09-03 — the mandatory, non-removable usury-rate concept
-  // per category (docs/phases/PHASE_24_USURY_MANDATORY.md's "Resolved").
-  // Always included in the submitted concepts/moratoryConcepts, rendered
-  // as a locked row the admin can't remove — see MandatoryConceptRow.
-  // undefined when the admin hasn't designated one for that category yet
-  // (validate() below blocks submit in that case).
-  const mandatoryCorrienteType = corrienteConceptTypes.find(
-    (conceptType) => conceptType.isUsuryRateConcept,
-  );
-  const mandatoryMoratoryType = moratoryConceptTypes.find(
-    (conceptType) => conceptType.isUsuryRateConcept,
-  );
-
+  // Style fix, 2026-09-03 — this used to prefill the new row with
+  // corrienteConceptTypes[0], so clicking "Agregar cargo" silently added
+  // whichever concept type happened to be first (or re-added the same one
+  // already used), instead of prompting the admin to actually choose one.
+  // New rows now start unselected (conceptTypeId ''), and the Select below
+  // shows a "Selecciona un cargo" placeholder for that state. The button
+  // itself is disabled with no concept types at all — see corrienteConceptTypes.length === 0 below.
   const addConceptRow = () => {
-    const firstType = corrienteConceptTypes[0];
+    if (corrienteConceptTypes.length === 0) {
+      return;
+    }
     setConcepts((prev) => [
       ...prev,
       {
         rowId: makeRowId(),
-        conceptTypeId: firstType?.id ?? '',
-        calculationType:
-          firstType?.defaultCalculationType ??
-          ConceptCalculationType.Percentage,
-        value: firstType?.defaultValue ?? 0,
+        conceptTypeId: '',
+        calculationType: ConceptCalculationType.Percentage,
+        value: 0,
       },
     ]);
     setFieldErrors((prev) => ({ ...prev, concepts: undefined }));
@@ -247,16 +291,16 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   };
 
   const addMoratoryConceptRow = () => {
-    const firstType = moratoryConceptTypes[0];
+    if (moratoryConceptTypes.length === 0) {
+      return;
+    }
     setMoratoryConcepts((prev) => [
       ...prev,
       {
         rowId: makeRowId(),
-        conceptTypeId: firstType?.id ?? '',
-        calculationType:
-          firstType?.defaultCalculationType ??
-          ConceptCalculationType.Percentage,
-        value: firstType?.defaultValue ?? 0,
+        conceptTypeId: '',
+        calculationType: ConceptCalculationType.Percentage,
+        value: 0,
       },
     ]);
     setFieldErrors((prev) => ({ ...prev, moratoryConcepts: undefined }));
@@ -295,12 +339,32 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     }
     if (!promissoryNoteNumber.trim()) {
       errors.promissoryNoteNumber = 'El número de pagaré es obligatorio.';
+    } else if (
+      !PROMISSORY_NOTE_NUMBER_PATTERN.test(promissoryNoteNumber.trim())
+    ) {
+      errors.promissoryNoteNumber =
+        'El número de pagaré debe tener el formato #0000 (ej: #1191).';
     }
     if (!(principal > 0)) {
       errors.principalAmount = 'El monto debe ser mayor a 0.';
     }
     if (!firstDueDate) {
-      errors.firstDueDate = 'La fecha de la primera cuota es obligatoria.';
+      errors.firstDueDate = hasDownPayment
+        ? 'La fecha de la segunda cuota es obligatoria.'
+        : 'La fecha de la primera cuota es obligatoria.';
+    }
+    if (hasDownPayment) {
+      if (!(downPaymentAmount > 0)) {
+        errors.downPaymentAmount =
+          'El valor de la cuota inicial debe ser mayor a 0.';
+      }
+      if (!downPaymentDueDate) {
+        errors.downPaymentDueDate =
+          'La fecha de la cuota inicial es obligatoria.';
+      } else if (firstDueDate && downPaymentDueDate >= firstDueDate) {
+        errors.downPaymentDueDate =
+          'La fecha de la cuota inicial debe ser anterior a la fecha de la segunda cuota.';
+      }
     }
     if (!(count > 0)) {
       errors.totalInstallments = 'El número de cuotas debe ser mayor a 0.';
@@ -308,16 +372,25 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     if (concepts.some((row) => !row.conceptTypeId)) {
       errors.concepts =
         'Selecciona un tipo para cada cargo adicional agregado.';
-    } else if (!mandatoryCorrienteType) {
-      errors.concepts =
-        'No hay un cargo obligatorio de tasa de usura configurado para cargos corrientes — configúralo en Cargos adicionales.';
     }
     if (moratoryConcepts.some((row) => !row.conceptTypeId)) {
       errors.moratoryConcepts =
         'Selecciona un tipo para cada cargo moratorio agregado.';
-    } else if (!mandatoryMoratoryType) {
-      errors.moratoryConcepts =
-        'No hay un cargo obligatorio de tasa de usura configurado para cargos moratorios — configúralo en Cargos adicionales.';
+    }
+    if (
+      currentUsuryRate &&
+      exceedsUsuryCeiling(
+        corrienteInterestRate,
+        currentUsuryRate.ratePercentage,
+      )
+    ) {
+      errors.concepts = `Los intereses corrientes no pueden superar la tasa de usura vigente (${currentUsuryRate.ratePercentage}%).`;
+    }
+    if (
+      currentUsuryRate &&
+      exceedsUsuryCeiling(moratoryInterestRate, currentUsuryRate.ratePercentage)
+    ) {
+      errors.moratoryConcepts = `Los intereses moratorios no pueden superar la tasa de usura vigente (${currentUsuryRate.ratePercentage}%).`;
     }
     if (hasCoDebtor && !coDebtorClient) {
       errors.coDebtorClientId = 'Selecciona un cliente como codeudor.';
@@ -333,49 +406,34 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     return errors;
   };
 
+  // firstDueDate always means "the date the schedule's own installment 1
+  // (unshifted) is due" — unaffected by hasDownPayment. When there's a
+  // down payment it's stored as installment 1 and this schedule installment
+  // becomes installment 2 (see the "Fecha de la primera/segunda cuota"
+  // label below), but the date math and this field are unchanged either
+  // way — the API does the same unshifted-index due-date calculation.
   const computeDisbursedAt = (): string =>
     installmentFrequency === InstallmentFrequency.Monthly
       ? subtractMonthsFromDateString(firstDueDate, 1)
       : subtractDaysFromDateString(firstDueDate, 14);
 
-  // The mandatory concept is prepended here, not held in `concepts` state —
-  // it's derived (not user-editable), so this is the one place it needs to
-  // exist as a real LoanConceptAssignment for the API. `value` doesn't
-  // matter for a percentage concept (forced server-side to the current
-  // usury rate regardless) but currentUsuryRate is the best guess to show.
-  const toConceptAssignments = (): LoanConceptAssignment[] => [
-    ...(mandatoryCorrienteType
-      ? [
-          {
-            conceptTypeId: mandatoryCorrienteType.id,
-            calculationType: ConceptCalculationType.Percentage,
-            value: currentUsuryRate?.ratePercentage ?? 0,
-          },
-        ]
-      : []),
-    ...concepts.map(({ conceptTypeId, calculationType, value }) => ({
+  // concepts/moratoryConcepts are now purely optional catalog fees — the
+  // loan's own corriente/moratorio interest goes through
+  // corrienteInterestRate/moratoryInterestRate as top-level fields
+  // instead (see handleSubmit/handlePreview).
+  const toConceptAssignments = (): LoanConceptAssignment[] =>
+    concepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
       value,
-    })),
-  ];
+    }));
 
-  const toMoratoryConceptAssignments = (): LoanConceptAssignment[] => [
-    ...(mandatoryMoratoryType
-      ? [
-          {
-            conceptTypeId: mandatoryMoratoryType.id,
-            calculationType: ConceptCalculationType.Percentage,
-            value: currentUsuryRate?.ratePercentage ?? 0,
-          },
-        ]
-      : []),
-    ...moratoryConcepts.map(({ conceptTypeId, calculationType, value }) => ({
+  const toMoratoryConceptAssignments = (): LoanConceptAssignment[] =>
+    moratoryConcepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
       value,
-    })),
-  ];
+    }));
 
   const handlePreview = async () => {
     const errors = validate();
@@ -394,6 +452,8 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         totalInstallments: count,
         concepts: toConceptAssignments(),
         moratoryConcepts: toMoratoryConceptAssignments(),
+        corrienteInterestRate: corrienteInterestRate || undefined,
+        moratoryInterestRate: moratoryInterestRate || undefined,
       });
       setPreview(result);
     } catch {
@@ -419,22 +479,27 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         clientId: selectedClient!.id,
         promissoryNoteNumber,
         principalAmount: principal,
-        // Bug fix, 2026-09-03 — the standalone moratory-rate input is gone
-        // (see the removed "Tasa de interés moratorio" field below); the
-        // mandatory moratorio concept is now always present, so this
-        // legacy field's only remaining use (the pre-Phase-23 fallback for
-        // a loan with zero moratory concepts, see enrichInstallment.ts)
-        // never applies to a loan created through this form. Still
-        // required by the API — sent as a fixed 0 rather than removed
-        // there, to avoid a wider migration for a value that no longer
-        // does anything for new loans.
+        // corrienteInterestRate/moratoryInterestRate (below) are the
+        // loan's real interest now — this legacy field's only remaining
+        // use (the pre-Phase-23 fallback for a loan with zero moratory
+        // concepts, see enrichInstallment.ts) never applies to a loan
+        // created through this form. Still required by the API — sent as
+        // a fixed 0 rather than removed there, to avoid a wider migration
+        // for a value that no longer does anything for new loans.
         interestRate: 0,
         disbursedAt: computeDisbursedAt(),
         installmentFrequency,
         totalInstallments: count,
         concepts: toConceptAssignments(),
         moratoryConcepts: toMoratoryConceptAssignments(),
-        initialPayment: initialPayment > 0 ? initialPayment : undefined,
+        corrienteInterestRate: corrienteInterestRate || undefined,
+        moratoryInterestRate: moratoryInterestRate || undefined,
+        ...(hasDownPayment
+          ? {
+              downPaymentAmount,
+              downPaymentDueDate,
+            }
+          : {}),
         description: description.trim() || undefined,
         ...(hasCoDebtor && coDebtorClient
           ? {
@@ -456,6 +521,12 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
           // distinct English messages (see loans.service.ts's
           // assertClientCanTakeNewLoan); matched here and translated,
           // anchored to the field the admin needs to look at.
+          // Format check duplicated server-side (@Matches on
+          // CreateLoanDto) — normally caught by the client-side check in
+          // validate() first, but this covers it too (e.g. a stale form
+          // left open across a deploy).
+        } else if (err.statusCode === 400 && /pagaré/i.test(err.message)) {
+          setFieldErrors({ promissoryNoteNumber: err.message });
         } else if (err.statusCode === 400 && /overdue/i.test(err.message)) {
           setFieldErrors({
             clientId:
@@ -478,7 +549,10 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
 
   return (
     <>
-      <Modal maxWidth="max-w-[560px]" scroll>
+      {/* Widened 560px → 640px, style fix 2026-09-03 — the amortizador
+          preview table needed more room to not feel cramped; see the
+          table's own comment below. */}
+      <Modal maxWidth="max-w-[640px]" scroll>
         <div className="flex items-center justify-between">
           <h2 className="text-[16px] font-medium text-white">Nuevo préstamo</h2>
           <CloseButton onClick={onClose} />
@@ -581,7 +655,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                         promissoryNoteNumber: undefined,
                       }));
                     }}
-                    placeholder="Ej: #743"
+                    placeholder="#0000"
                     className={inputClassName(
                       Boolean(fieldErrors.promissoryNoteNumber),
                     )}
@@ -589,8 +663,97 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                 </Field>
               </div>
 
+              {/* Redesign, 2026-09-03 — the down payment ("cuota inicial")
+                  checkbox lives here, before capital/cuotas/fecha, per the
+                  confirmed flow: marking it reveals its own amount/date,
+                  then everything below (capital a financiar, plazo,
+                  fecha) describes the remaining, interest-bearing part of
+                  the loan. Replaces the old purely-informational
+                  "Cuota inicial (opcional)" field that used to live in
+                  "Detalles adicionales" — see
+                  docs/phases/PHASE_13_INITIAL_INSTALLMENT.md, superseded:
+                  that model didn't reflect how a down payment is actually
+                  negotiated and collected. */}
+              <div className="flex flex-col gap-3.5 rounded border border-border bg-input p-3">
+                <label className="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={hasDownPayment}
+                    onChange={(event) => {
+                      setHasDownPayment(event.target.checked);
+                      if (!event.target.checked) {
+                        setDownPaymentAmount(0);
+                        setDownPaymentDueDate('');
+                      }
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        downPaymentAmount: undefined,
+                        downPaymentDueDate: undefined,
+                      }));
+                      setPreview(null);
+                    }}
+                    className="size-4 shrink-0 rounded border-border bg-background accent-white"
+                  />
+                  <span className="text-control text-white">
+                    Este préstamo tiene cuota inicial
+                  </span>
+                </label>
+
+                {hasDownPayment && (
+                  <div className="flex gap-4">
+                    <Field
+                      label="Valor de la cuota inicial"
+                      error={fieldErrors.downPaymentAmount}
+                    >
+                      <CurrencyInput
+                        value={downPaymentAmount}
+                        onChange={(value) => {
+                          setDownPaymentAmount(value);
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            downPaymentAmount: undefined,
+                          }));
+                        }}
+                        placeholder="Ej: $1.000.000"
+                        className={inputClassName(
+                          Boolean(fieldErrors.downPaymentAmount),
+                        )}
+                      />
+                    </Field>
+                    <Field
+                      label="Fecha de la cuota inicial"
+                      error={fieldErrors.downPaymentDueDate}
+                    >
+                      <DatePicker
+                        value={downPaymentDueDate}
+                        onChange={(next) => {
+                          setDownPaymentDueDate(next);
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            downPaymentDueDate: undefined,
+                          }));
+                        }}
+                        className={inputClassName(
+                          Boolean(fieldErrors.downPaymentDueDate),
+                        )}
+                      />
+                    </Field>
+                  </div>
+                )}
+                {hasDownPayment && (
+                  <span className="text-meta text-muted">
+                    Se cobra sin interés, como la primera cuota del pagaré. El
+                    capital y las cuotas de abajo son solo por el resto a
+                    financiar.
+                  </span>
+                )}
+              </div>
+
               <div className="flex gap-4">
-                <Field label="Monto" error={fieldErrors.principalAmount}>
+                <Field
+                  label={hasDownPayment ? 'Capital a financiar' : 'Capital'}
+                  error={fieldErrors.principalAmount}
+                >
                   <CurrencyInput
                     value={principalAmount}
                     onChange={(value) => {
@@ -623,7 +786,11 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
 
               <div className="flex gap-4">
                 <Field
-                  label="Fecha de la primera cuota"
+                  label={
+                    hasDownPayment
+                      ? 'Fecha de la segunda cuota'
+                      : 'Fecha de la primera cuota'
+                  }
                   error={fieldErrors.firstDueDate}
                 >
                   <DatePicker
@@ -663,18 +830,19 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             <FormSection title="Cargos adicionales y cronograma">
               <Field label="Cargos adicionales" error={fieldErrors.concepts}>
                 <div className="flex flex-col gap-2">
-                  {mandatoryCorrienteType ? (
-                    <MandatoryConceptRow
-                      name={mandatoryCorrienteType.name}
-                      ratePercentage={currentUsuryRate?.ratePercentage}
-                    />
-                  ) : (
-                    <p className="text-meta text-danger">
-                      No hay un cargo obligatorio de tasa de usura configurado
-                      para cargos corrientes — configúralo en "Tipos de cargo"
-                      antes de crear préstamos.
-                    </p>
-                  )}
+                  <SystemInterestRateRow
+                    name="Intereses corrientes"
+                    value={corrienteInterestRate}
+                    onChange={setCorrienteInterestRate}
+                    exceedsCeiling={
+                      currentUsuryRate
+                        ? exceedsUsuryCeiling(
+                            corrienteInterestRate,
+                            currentUsuryRate.ratePercentage,
+                          )
+                        : false
+                    }
+                  />
                   {concepts.map((row) => (
                     <div key={row.rowId} className="flex items-center gap-2">
                       <Select
@@ -692,32 +860,22 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                           });
                         }}
                         options={conceptTypeOptions}
+                        placeholder="Selecciona un cargo"
                         className="flex-1"
                       />
                       <input
                         type="number"
                         min={0}
-                        step="0.01"
-                        disabled={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                        }
-                        value={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                            ? (currentUsuryRate?.ratePercentage ?? '')
-                            : row.value
-                        }
+                        // step="any" — a percentage concept's value can
+                        // carry more decimals than a native step="0.01"
+                        // tolerates (see MandatoryConceptRow.tsx's own
+                        // comment for the full explanation).
+                        step="any"
+                        value={row.value}
                         onChange={(event) =>
                           updateConceptRow(row.rowId, {
                             value: parseFloat(event.target.value) || 0,
                           })
-                        }
-                        title={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                            ? 'Se aplica la tasa de usura vigente automáticamente — no editable.'
-                            : undefined
                         }
                         placeholder={
                           row.calculationType ===
@@ -725,19 +883,27 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                             ? '%'
                             : '$'
                         }
-                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                        className="h-[38px] w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
                       />
                       <button
                         type="button"
                         onClick={() => removeConceptRow(row.rowId)}
-                        className="text-meta text-muted hover:text-danger"
+                        className="w-[42px] shrink-0 text-center text-meta text-muted hover:text-danger"
                       >
                         Quitar
                       </button>
                     </div>
                   ))}
                   <div className="mt-1 flex items-center gap-4">
-                    <ChipButton onClick={addConceptRow}>
+                    <ChipButton
+                      onClick={addConceptRow}
+                      disabled={corrienteConceptTypes.length === 0}
+                      title={
+                        corrienteConceptTypes.length === 0
+                          ? 'Crea un tipo de cargo primero'
+                          : undefined
+                      }
+                    >
                       <PlusIcon />
                       Agregar cargo
                     </ChipButton>
@@ -756,18 +922,19 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                 error={fieldErrors.moratoryConcepts}
               >
                 <div className="flex flex-col gap-2">
-                  {mandatoryMoratoryType ? (
-                    <MandatoryConceptRow
-                      name={mandatoryMoratoryType.name}
-                      ratePercentage={currentUsuryRate?.ratePercentage}
-                    />
-                  ) : (
-                    <p className="text-meta text-danger">
-                      No hay un cargo obligatorio de tasa de usura configurado
-                      para cargos moratorios — configúralo en "Tipos de cargo"
-                      antes de crear préstamos.
-                    </p>
-                  )}
+                  <SystemInterestRateRow
+                    name="Intereses moratorios"
+                    value={moratoryInterestRate}
+                    onChange={setMoratoryInterestRate}
+                    exceedsCeiling={
+                      currentUsuryRate
+                        ? exceedsUsuryCeiling(
+                            moratoryInterestRate,
+                            currentUsuryRate.ratePercentage,
+                          )
+                        : false
+                    }
+                  />
                   {moratoryConcepts.map((row) => (
                     <div key={row.rowId} className="flex items-center gap-2">
                       <Select
@@ -785,32 +952,22 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                           });
                         }}
                         options={moratoryConceptTypeOptions}
+                        placeholder="Selecciona un cargo"
                         className="flex-1"
                       />
                       <input
                         type="number"
                         min={0}
-                        step="0.01"
-                        disabled={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                        }
-                        value={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                            ? (currentUsuryRate?.ratePercentage ?? '')
-                            : row.value
-                        }
+                        // step="any" — a percentage concept's value can
+                        // carry more decimals than a native step="0.01"
+                        // tolerates (see MandatoryConceptRow.tsx's own
+                        // comment for the full explanation).
+                        step="any"
+                        value={row.value}
                         onChange={(event) =>
                           updateMoratoryConceptRow(row.rowId, {
                             value: parseFloat(event.target.value) || 0,
                           })
-                        }
-                        title={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                            ? 'Se aplica la tasa de usura vigente automáticamente — no editable.'
-                            : undefined
                         }
                         placeholder={
                           row.calculationType ===
@@ -818,19 +975,27 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                             ? '%'
                             : '$'
                         }
-                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                        className="h-[38px] w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
                       />
                       <button
                         type="button"
                         onClick={() => removeMoratoryConceptRow(row.rowId)}
-                        className="text-meta text-muted hover:text-danger"
+                        className="w-[42px] shrink-0 text-center text-meta text-muted hover:text-danger"
                       >
                         Quitar
                       </button>
                     </div>
                   ))}
                   <div className="mt-1 flex items-center gap-4">
-                    <ChipButton onClick={addMoratoryConceptRow}>
+                    <ChipButton
+                      onClick={addMoratoryConceptRow}
+                      disabled={moratoryConceptTypes.length === 0}
+                      title={
+                        moratoryConceptTypes.length === 0
+                          ? 'Crea un tipo de cargo primero'
+                          : undefined
+                      }
+                    >
                       <PlusIcon />
                       Agregar cargo moratorio
                     </ChipButton>
@@ -845,60 +1010,90 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               </Field>
 
               {canViewAmortizador && count > 0 && (
-                <div className="rounded border border-border bg-input p-3">
-                  <div className="flex items-center justify-between">
-                    <ChipButton
-                      onClick={handlePreview}
-                      disabled={
-                        previewSchedule.isPending || !hasUsableUsuryRate
-                      }
-                    >
-                      {previewSchedule.isPending
-                        ? 'Calculando…'
-                        : 'Previsualizar cronograma de cuotas'}
-                    </ChipButton>
-                  </div>
+                <div className="flex flex-col gap-2.5">
+                  <ChipButton
+                    onClick={handlePreview}
+                    disabled={previewSchedule.isPending || !hasUsableUsuryRate}
+                  >
+                    {previewSchedule.isPending
+                      ? 'Calculando…'
+                      : 'Previsualizar cronograma de cuotas'}
+                  </ChipButton>
+                  {/* Style fix, 2026-09-03 — was a cramped hand-rolled table
+                      (no cell borders, text-meta everywhere) inside a
+                      second nested box. Now the same Th/Td + grid-line
+                      treatment every other table in the app uses (see
+                      LoanQuotePage's own preview table), in its own
+                      bordered surface instead of double-boxed. Every column
+                      uses the default (non-muted) Td — matches how a real
+                      data table like LoanRow.tsx colors its columns: only a
+                      genuinely decorative index gets `muted`, not amounts or
+                      dates that are part of the actual data being shown. */}
                   {preview && (
-                    <div className="mt-2.5 max-h-[180px] overflow-y-auto">
-                      <table className="w-full text-meta">
-                        <thead>
-                          <tr className="text-muted">
-                            <th className="pb-1 text-left font-normal">
-                              Cuota
-                            </th>
-                            <th className="pb-1 text-left font-normal">
-                              Vence
-                            </th>
-                            <th className="pb-1 text-right font-normal">
-                              Capital
-                            </th>
-                            <th className="pb-1 text-right font-normal">
-                              Total
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {preview.installments.map((installment) => (
-                            <tr
-                              key={installment.installmentNumber}
-                              className="text-white"
-                            >
-                              <td className="py-0.5">
-                                {installment.installmentNumber}
-                              </td>
-                              <td className="py-0.5">
-                                {formatDateOnly(installment.dueDate)}
-                              </td>
-                              <td className="py-0.5 text-right">
-                                {formatCurrency(installment.principalPortion)}
-                              </td>
-                              <td className="py-0.5 text-right font-medium">
-                                {formatCurrency(installment.amount)}
-                              </td>
+                    <div className="overflow-hidden rounded border border-border bg-surface">
+                      <div className="max-h-[280px] overflow-y-auto">
+                        <table className="w-full border-collapse">
+                          <thead className="sticky top-0 bg-input">
+                            <tr className="divide-x divide-border">
+                              <Th compact>Cuota</Th>
+                              <Th compact>Vence</Th>
+                              <Th compact className="text-right">
+                                Capital
+                              </Th>
+                              <Th compact className="text-right">
+                                Total
+                              </Th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {/* Redesign, 2026-09-03 — the down payment isn't
+                                part of this preview response (it has no
+                                interest/amortization to compute, see
+                                PreviewScheduleInput), so it's rendered here
+                                as a synthetic first row, with the schedule's
+                                own installments renumbered +1 to match what
+                                the API will actually store — mirrors
+                                LoansService.persistLoanWithInstallments'
+                                own +1 offset exactly. */}
+                            {hasDownPayment && (
+                              <tr className="divide-x divide-border">
+                                <Td compact>1</Td>
+                                <Td compact>
+                                  {downPaymentDueDate
+                                    ? formatDateOnly(downPaymentDueDate)
+                                    : '—'}
+                                </Td>
+                                <Td compact className="text-right">
+                                  {formatCurrency(downPaymentAmount)}
+                                </Td>
+                                <Td compact className="text-right">
+                                  {formatCurrency(downPaymentAmount)}
+                                </Td>
+                              </tr>
+                            )}
+                            {preview.installments.map((installment) => (
+                              <tr
+                                key={installment.installmentNumber}
+                                className="divide-x divide-border"
+                              >
+                                <Td compact>
+                                  {installment.installmentNumber +
+                                    (hasDownPayment ? 1 : 0)}
+                                </Td>
+                                <Td compact>
+                                  {formatDateOnly(installment.dueDate)}
+                                </Td>
+                                <Td compact className="text-right">
+                                  {formatCurrency(installment.principalPortion)}
+                                </Td>
+                                <Td compact className="text-right">
+                                  {formatCurrency(installment.amount)}
+                                </Td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -906,20 +1101,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             </FormSection>
 
             <FormSection title="Detalles adicionales">
-              <Field label="Cuota inicial (opcional)">
-                <CurrencyInput
-                  value={initialPayment}
-                  onChange={setInitialPayment}
-                  placeholder="Ej: $200.000"
-                  className={inputClassName(false)}
-                />
-                <span className="mt-1 text-meta text-muted">
-                  Valor que el cliente ya pagó por fuera del crédito para cubrir
-                  parte de la compra — es solo informativo, no hace parte de las
-                  cuotas ni afecta el cronograma.
-                </span>
-              </Field>
-
               <Field label="Descripción (opcional)">
                 <textarea
                   value={description}
@@ -1144,43 +1325,6 @@ function ClientCapacityNotice({
 }
 
 // inputClassName, Field, and FormSection now live in @/lib/formStyles and
-// @/components/ui/Field — see DESIGN_TOKENS.md's "Component-based
+// @/components/ui/Field, ChipButton/PlusIcon in @/components/ui/ChipButton
+// and @/components/ui/PlusIcon — see DESIGN_TOKENS.md's "Component-based
 // centralization" section.
-
-// Same chip treatment ClientForm.tsx's "+ Agregar referencia" fix
-// introduced — a bordered, backgrounded button instead of bare colored
-// text sitting right next to plain muted body copy, which made it easy to
-// miss as an actual clickable action.
-function ChipButton({
-  onClick,
-  disabled,
-  children,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex items-center gap-1.5 self-start rounded border border-border bg-input px-3.5 py-2 text-small text-muted hover:border-subtle hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      {children}
-    </button>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg
-      className="size-3.5 shrink-0"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-    >
-      <path d="M10 4v12M4 10h12" strokeWidth="1.75" strokeLinecap="round" />
-    </svg>
-  );
-}

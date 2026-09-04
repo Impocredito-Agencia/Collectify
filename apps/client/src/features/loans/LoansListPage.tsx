@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { FilterTab } from '@/components/ui/FilterTab';
 import { Legend } from '@/components/ui/Legend';
 import { Select } from '@/components/ui/Select';
 import { Th } from '@/components/ui/Table';
@@ -123,8 +124,10 @@ export function LoansListPage() {
               <Th className="w-12">#</Th>
               <Th>ID</Th>
               <Th>Cliente</Th>
-              <Th>Monto (s/inc.)</Th>
-              <Th>Saldo (c/inc.)</Th>
+              <Th>Capital inicial</Th>
+              <Th className="whitespace-nowrap">
+                Saldo total (capital + incremento)
+              </Th>
               <Th>Cuotas</Th>
               <Th>Días mora</Th>
               <Th>Estado</Th>
@@ -166,30 +169,29 @@ export function LoansListPage() {
             Mostrando {loans.length} de {meta.total} préstamos
           </p>
           <div className="flex items-center gap-1">
-            <PageButton
+            <FilterTab
+              label="←"
+              isActive={false}
               disabled={page <= 1}
               onClick={() => setPage((current) => current - 1)}
-            >
-              ←
-            </PageButton>
+            />
             {Array.from(
               { length: meta.totalPages },
               (_, index) => index + 1,
             ).map((pageNumber) => (
-              <PageButton
+              <FilterTab
                 key={pageNumber}
+                label={pageNumber}
                 isActive={pageNumber === page}
                 onClick={() => setPage(pageNumber)}
-              >
-                {pageNumber}
-              </PageButton>
+              />
             ))}
-            <PageButton
+            <FilterTab
+              label="→"
+              isActive={false}
               disabled={page >= meta.totalPages}
               onClick={() => setPage((current) => current + 1)}
-            >
-              →
-            </PageButton>
+            />
           </div>
         </div>
       )}
@@ -223,29 +225,7 @@ function EmptyRow({
   );
 }
 
-function PageButton({
-  children,
-  onClick,
-  isActive = false,
-  disabled = false,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  isActive?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded px-2.5 py-1.5 text-label ${
-        isActive
-          ? 'bg-border font-medium text-white'
-          : 'bg-input text-muted disabled:opacity-40'
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
+// Pagination controls (prev/next + page numbers) now use the shared
+// FilterTab component — was a local PageButton with its own hover-less
+// styling, one of the raw-button holdouts found in the 2026-09-04
+// consolidation sweep. See FilterTab.tsx's `disabled` prop comment.

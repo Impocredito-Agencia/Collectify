@@ -19,14 +19,25 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
     'rounded-lg bg-accent px-4 py-2.5 text-small font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60',
   // "Cancelar" — the low-emphasis dismiss action next to every primary
   // button in a modal/form.
+  //
+  // hover:bg-border added 2026-09-04 — same fix RowActionButton.tsx and
+  // Select.tsx already had (see RowActionButton's own comment): text alone
+  // lighting up on hover reads as broken, since the box around it stays
+  // dark and inert. bg-border is the same translucent white wash used
+  // app-wide for this exact "the box lights up too" hover.
   secondary:
-    'rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-60',
+    'rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:bg-border hover:text-white disabled:cursor-not-allowed disabled:opacity-60',
   // Mid-emphasis confirm for a reversible action that isn't the form's
   // main CTA but also isn't destructive — "Sí, desactivar" (a client/user
   // can be reactivated later), "Subir archivo" in the Excel import
   // dialog.
+  //
+  // hover:bg-white/10 added 2026-09-04, same reason as secondary above —
+  // this variant had no hover state at all. Already rests on bg-border
+  // (the wash secondary hovers *to*), so it needs a step further; bg-white/10
+  // is the next shade up from that same translucent-white family.
   neutral:
-    'rounded border border-subtle bg-border px-4 py-2.5 text-small text-white disabled:cursor-not-allowed disabled:opacity-60',
+    'rounded border border-subtle bg-border px-4 py-2.5 text-small text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60',
   // Destructive action, soft/outline treatment — "Sí, eliminar" in
   // DeleteLoanDialog.
   danger:

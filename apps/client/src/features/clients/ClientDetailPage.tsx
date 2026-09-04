@@ -57,7 +57,16 @@ export function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  // Phase 20 — was a single isAdmin, split in two since Editar/Desactivar/
+  // frecuencia-de-mensajes (ClientsController) and Enviar recordatorio/aviso
+  // (WhatsappController) migrated to two different modules — see
+  // docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
+  const canManageClient = Boolean(
+    user && (user.role === 'admin' || user.modules.includes('clients')),
+  );
+  const canSendMessage = Boolean(
+    user && (user.role === 'admin' || user.modules.includes('messages')),
+  );
 
   const [isEditing, setIsEditing] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
@@ -192,7 +201,7 @@ export function ClientDetailPage() {
           </div>
         </div>
 
-        {isAdmin && (
+        {canManageClient && (
           <div className="flex items-center gap-2.5">
             <Button variant="secondary" onClick={() => setIsEditing(true)}>
               Editar
@@ -207,7 +216,7 @@ export function ClientDetailPage() {
       <div className="grid grid-cols-5 gap-4">
         <StatCard label="Préstamos totales" value={String(totalLoans)} />
         <StatCard
-          label="Monto prestado"
+          label="Capital prestado"
           value={formatCurrency(totalPrincipal)}
         />
         <StatCard label="En mora" value={formatCurrency(totalOverdueBalance)} />
@@ -422,7 +431,7 @@ export function ClientDetailPage() {
             ))}
         </div>
 
-        <MessageFrequencySection client={client} isAdmin={isAdmin} />
+        <MessageFrequencySection client={client} canManage={canManageClient} />
       </div>
 
       <div className="flex flex-col gap-2.5">
@@ -463,8 +472,10 @@ export function ClientDetailPage() {
                 <tr>
                   <Th className="w-12">#</Th>
                   <Th>ID</Th>
-                  <Th>Monto (s/inc.)</Th>
-                  <Th>Saldo (c/inc.)</Th>
+                  <Th>Capital inicial</Th>
+                  <Th className="whitespace-nowrap">
+                    Saldo total (capital + incremento)
+                  </Th>
                   <Th>Cuotas</Th>
                   <Th>Estado</Th>
                   <Th>Días mora</Th>
@@ -537,10 +548,9 @@ export function ClientDetailPage() {
           <span className="text-section-label font-normal tracking-normal text-subtle">
             Historial de mensajes
           </span>
-          {isAdmin && (
+          {canSendMessage && (
             <div className="flex items-center gap-2">
-              <button
-                type="button"
+              <RowActionButton
                 disabled={sendReminder.isPending}
                 onClick={async () => {
                   setSendError(null);
@@ -554,14 +564,12 @@ export function ClientDetailPage() {
                     );
                   }
                 }}
-                className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {sendReminder.isPending
                   ? 'Enviando…'
                   : 'Enviar recordatorio de mora'}
-              </button>
-              <button
-                type="button"
+              </RowActionButton>
+              <RowActionButton
                 disabled={sendUpcomingDueReminder.isPending}
                 onClick={async () => {
                   setSendError(null);
@@ -575,12 +583,11 @@ export function ClientDetailPage() {
                     );
                   }
                 }}
-                className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {sendUpcomingDueReminder.isPending
                   ? 'Enviando…'
                   : 'Enviar aviso'}
-              </button>
+              </RowActionButton>
             </div>
           )}
         </div>
@@ -658,16 +665,18 @@ export function ClientDetailPage() {
 // editor (Phase 18, MessageTemplatesPage.tsx), which controlled whether a
 // client was reminded at all. This instead throttles HOW OFTEN an already-
 // qualifying client is reminded — it never changes eligibility. Visible to
-// every role (so a cobrador can see a client is on the whitelist), but
-// only an admin can set/clear it, matching the backend's @Roles(Admin) on
-// PUT/DELETE /clients/:id/message-frequency. See
-// docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.
+// every role (so a cobrador can see a client is on the whitelist), but only
+// an admin or someone granted the clients module can set/clear it — Phase
+// 20 migrated PUT/DELETE /clients/:id/message-frequency to
+// @RequireModule(AppModule.Clients) (was @Roles(Admin)). See
+// docs/phases/PHASE_27_MESSAGE_FREQUENCY.md and
+// docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
 function MessageFrequencySection({
   client,
-  isAdmin,
+  canManage,
 }: {
   client: ClientDetail;
-  isAdmin: boolean;
+  canManage: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [days, setDays] = useState(
@@ -732,13 +741,13 @@ function MessageFrequencySection({
             className="h-9 w-20 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
           />
           <span className="text-small text-white">días como mínimo</span>
-          <button
+          <Button
             type="submit"
+            variant="secondary"
             disabled={setFrequency.isPending}
-            className="rounded border border-border bg-input px-3 py-1.5 text-meta text-white hover:border-subtle disabled:opacity-50"
           >
             {setFrequency.isPending ? 'Guardando…' : 'Guardar'}
-          </button>
+          </Button>
           <button
             type="button"
             onClick={() => setIsEditing(false)}
@@ -752,7 +761,7 @@ function MessageFrequencySection({
           <span className="rounded-[3px] border border-border bg-input px-2 py-[3px] text-meta font-medium text-white">
             Cada {client.messageFrequency.minimumDaysBetweenMessages} días
           </span>
-          {isAdmin && (
+          {canManage && (
             <>
               <button
                 type="button"
@@ -781,7 +790,7 @@ function MessageFrequencySection({
             Sin frecuencia personalizada — recibe todos los envíos que
             califiquen.
           </span>
-          {isAdmin && (
+          {canManage && (
             <button
               type="button"
               onClick={() => setIsEditing(true)}
@@ -864,7 +873,7 @@ function DocumentThumbnail({
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="flex h-[52px] w-[52px] items-center justify-center rounded border border-border bg-input text-meta text-muted hover:border-subtle hover:text-white"
+          className="flex h-[52px] w-[52px] items-center justify-center rounded border border-border bg-input text-meta text-muted hover:border-subtle hover:bg-border hover:text-white"
         >
           PDF
         </a>
