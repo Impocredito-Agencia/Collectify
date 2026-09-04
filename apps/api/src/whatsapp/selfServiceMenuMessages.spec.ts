@@ -56,6 +56,10 @@ describe('renderBreakdownMessage', () => {
       '1️⃣ Cuota No. 3 por $520.800 venció hace 45 días.',
     );
     expect(message).toContain('2️⃣ Cuota No. 4 por $300.000 vence en 10 días.');
+    // 520800 + 300000 = 820800. Bug fix, 2026-09-03 (human report): matches
+    // the confirmed real overdue-reminder phrasing/closing line.
+    expect(message).toContain('El valor a pagar hoy es $820.800 🚨');
+    expect(message).toContain('Quedamos atentos a cualquier consulta.');
   });
 
   // Bug fix, 2026-09-03 (human report): installments from different
