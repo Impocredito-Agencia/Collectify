@@ -42,11 +42,23 @@ export const ACTION_LABELS: Record<string, string> = {
   'user.reactivate': 'Reactivó un usuario',
   // Phase 20 — same gap: added when the module-permissions matrix shipped.
   'user.updatePermissions': 'Actualizó los permisos de un usuario',
+  // Phase 20 follow-up — same gap: added when permanent user deletion
+  // shipped, caught by the client after seeing the raw "user.delete" in
+  // the Auditoría screen.
+  'user.delete': 'Eliminó un usuario',
   'usuryRate.create': 'Creó una tasa de usura',
   // Phase 8 — same gap: the Excel import endpoint has always had this
   // decorator, but this map was only ever backfilled for actions added
   // from Phase 11 onward.
   'clientLoanImport.execute': 'Importó clientes y préstamos desde Excel',
+  // Style cleanup, 2026-09-04 — same sync gap yet again: the
+  // interestConceptType @Audit() calls were only added 2026-09-03 (see
+  // DATABASE.md), and this map was never backfilled, so the client saw raw
+  // "interestConceptType.create" etc. in Auditoría.
+  'interestConceptType.create': 'Creó un tipo de cargo',
+  'interestConceptType.update': 'Editó un tipo de cargo',
+  'interestConceptType.deactivate': 'Desactivó un tipo de cargo',
+  'interestConceptType.delete': 'Eliminó un tipo de cargo',
 };
 
 // Mirrors the entityType values @Audit()-decorated endpoints actually use
@@ -62,6 +74,8 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   usuryRate: 'Tasa de usura',
   // Phase 32 — same sync gap as ACTION_LABELS above.
   clientLoanImport: 'Importación de clientes',
+  // Style cleanup, 2026-09-04 — same sync gap as ACTION_LABELS above.
+  interestConceptType: 'Tipo de cargo',
 };
 
 export function formatAuditAction(action: string): string {

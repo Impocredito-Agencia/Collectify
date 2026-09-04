@@ -13,7 +13,10 @@ import { Repository } from 'typeorm';
 
 import { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
 import { Client } from '../clients/entities/client.entity';
+import { InterestConceptType } from '../interestConceptTypes/entities/interestConceptType.entity';
+import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
+import { User } from '../users/entities/user.entity';
 
 import { AuditLogService } from './auditLog.service';
 import { AUDIT_KEY, AuditMetadata } from './decorators/audit.decorator';
@@ -65,9 +68,39 @@ export class AuditLogInterceptor implements NestInterceptor {
     // params.id, mirroring the client fallback above.
     @InjectRepository(Loan)
     private readonly loansRepository: Repository<Loan>,
+    // Same reasoning again, for user.delete (Phase 20 follow-up) — but
+    // fetched BEFORE the handler runs, not after like the two above.
+    // UsersService.remove() does a real SQL DELETE (confirmed with the
+    // human, not a soft-delete), so by the time this interceptor's tap()
+    // callback would run its post-response lookup, the row is gone for
+    // good — a withDeleted-style fallback query would find nothing. See
+    // intercept() below.
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
+    // Same reasoning again, for interestConceptType.delete (2026-09-03,
+    // human report — this entityType had no @Audit at all until this
+    // point). InterestConceptTypesService.remove() does a real SQL DELETE
+    // (only allowed once deactivated and never used on a loan), so — same
+    // as usersRepository above — this has to be fetched BEFORE the handler
+    // runs, not after.
+    @InjectRepository(InterestConceptType)
+    private readonly interestConceptTypesRepository: Repository<InterestConceptType>,
+    // Human report, 2026-09-04: "Registró un pago" entries only showed the
+    // amount and date ("Pago de $ 110.667 el 2026-09-03"), with no way to
+    // tell which loan/installment it was for. Payment's own response
+    // carries only `installmentId` (see payment.entity.ts) — no
+    // installmentNumber or promissoryNoteNumber — so resolveEntityLabel's
+    // 'payment' case looks this up after the handler runs, same pattern as
+    // the client/loan fallbacks above (not before, like user/
+    // interestConceptType — payments are never hard-deleted).
+    @InjectRepository(Installment)
+    private readonly installmentsRepository: Repository<Installment>,
   ) {}
 
-  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+  async intercept(
+    context: ExecutionContext,
+    next: CallHandler,
+  ): Promise<Observable<unknown>> {
     const audit = this.reflector.get<AuditMetadata | undefined>(
       AUDIT_KEY,
       context.getHandler(),
@@ -77,6 +110,23 @@ export class AuditLogInterceptor implements NestInterceptor {
     }
 
     const request = context.switchToHttp().getRequest<AuditableRequest>();
+
+    // Captured before next.handle() runs — see the constructor comment on
+    // usersRepository for why this can't wait until after like
+    // resolveEntityLabel's client/loan fallbacks do. Cheap enough to always
+    // look up for every 'user'-entityType action (create has no params.id,
+    // so this just stays null there), rather than special-casing only
+    // user.delete.
+    const preFetchedUser =
+      audit.entityType === 'user' && request.params.id
+        ? await this.usersRepository.findOneBy({ id: request.params.id })
+        : null;
+    const preFetchedInterestConceptType =
+      audit.entityType === 'interestConceptType' && request.params.id
+        ? await this.interestConceptTypesRepository.findOneBy({
+            id: request.params.id,
+          })
+        : null;
 
     // tap's success callback only fires when the handler actually emits a
     // value — a thrown exception skips it entirely, so a failed request
@@ -98,6 +148,8 @@ export class AuditLogInterceptor implements NestInterceptor {
             audit.entityType,
             request.params,
             response,
+            preFetchedUser,
+            preFetchedInterestConceptType,
           );
           await this.auditLogService.record({
             actorUserId: request.user?.id ?? null,
@@ -131,6 +183,8 @@ export class AuditLogInterceptor implements NestInterceptor {
     entityType: string,
     params: Record<string, string>,
     response: unknown,
+    preFetchedUser: User | null,
+    preFetchedInterestConceptType: InterestConceptType | null,
   ): Promise<string | null> {
     const entity = this.unwrapEntity(response);
 
@@ -170,17 +224,46 @@ export class AuditLogInterceptor implements NestInterceptor {
           return null;
         }
         const amount = this.formatCurrencyCop(entity.amountPaid);
-        return typeof entity.paidAt === 'string'
-          ? `Pago de ${amount} el ${entity.paidAt}`
-          : `Pago de ${amount}`;
+        const base =
+          typeof entity.paidAt === 'string'
+            ? `Pago de ${amount} el ${entity.paidAt}`
+            : `Pago de ${amount}`;
+        // Added 2026-09-04 — see the installmentsRepository comment in the
+        // constructor. Only payment.register's single-Payment response has
+        // an installmentId to look up; payment.registerBulk's response is
+        // an array (entity.amountPaid above is already false for it, so
+        // this line is unreached there — bulk payments keep the plain
+        // amount/date label, same as before this change).
+        const installmentId =
+          typeof entity.installmentId === 'string'
+            ? entity.installmentId
+            : null;
+        if (!installmentId) {
+          return base;
+        }
+        const installment = await this.installmentsRepository.findOne({
+          where: { id: installmentId },
+          withDeleted: true,
+          relations: { loan: true },
+        });
+        if (!installment) {
+          return base;
+        }
+        return `${base} — cuota ${installment.installmentNumber} del pagaré #${installment.loan.promissoryNoteNumber}`;
       }
       case 'user': {
-        if (!entity || typeof entity.fullName !== 'string') {
-          return null;
+        if (entity && typeof entity.fullName === 'string') {
+          return typeof entity.email === 'string'
+            ? `${entity.fullName} (${entity.email})`
+            : entity.fullName;
         }
-        return typeof entity.email === 'string'
-          ? `${entity.fullName} (${entity.email})`
-          : entity.fullName;
+        // user.delete (Phase 20 follow-up): UsersController.remove()
+        // returns void (204), and the row is genuinely gone by now (real
+        // SQL DELETE) — preFetchedUser is the pre-handler snapshot from
+        // intercept() above, the only place this data still existed.
+        return preFetchedUser
+          ? `${preFetchedUser.fullName} (${preFetchedUser.email})`
+          : null;
       }
       case 'usuryRate': {
         if (!entity || typeof entity.ratePercentage !== 'number') {
@@ -189,6 +272,17 @@ export class AuditLogInterceptor implements NestInterceptor {
         return typeof entity.effectiveMonth === 'string'
           ? `${entity.ratePercentage}% desde ${entity.effectiveMonth}`
           : `${entity.ratePercentage}%`;
+      }
+      case 'interestConceptType': {
+        if (entity && typeof entity.name === 'string') {
+          return entity.name;
+        }
+        // interestConceptType.delete: InterestConceptTypesController.remove()
+        // returns void (204), and the row is genuinely gone by now (real
+        // SQL DELETE) — preFetchedInterestConceptType is the pre-handler
+        // snapshot from intercept() above, the only place this data still
+        // existed. Same shape as the 'user' case above.
+        return preFetchedInterestConceptType?.name ?? null;
       }
       default:
         // No labeling rule for this entityType yet — falls back to
