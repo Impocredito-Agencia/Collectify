@@ -6,9 +6,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
-import { UserRole } from '../users/entities/user.entity';
+import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import { AuditLogService } from './auditLog.service';
 import { QueryAuditLogDto } from './dto/queryAuditLog.dto';
@@ -21,9 +21,10 @@ export class AuditLogController {
   constructor(private readonly auditLogService: AuditLogService) {}
 
   @Get()
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.AuditLog)
   @ApiOperation({
-    summary: 'List audit log entries (paginated, filterable, admin only)',
+    summary:
+      'List audit log entries (paginated, filterable, admin or granted the audit_log module)',
     description:
       'Filters: actorUserId, action (exact match, e.g. "client.create"), ' +
       'entityType (exact match), dateFrom/dateTo (createdAt range). ' +
@@ -34,7 +35,10 @@ export class AuditLogController {
     status: 200,
     description: 'Returns a page of audit log entries.',
   })
-  @ApiResponse({ status: 403, description: 'Requires the admin role.' })
+  @ApiResponse({
+    status: 403,
+    description: 'Requires the admin role or the audit_log module.',
+  })
   findAll(
     @Query() query: QueryAuditLogDto,
   ): Promise<PaginatedResult<AuditLog>> {

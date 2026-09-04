@@ -15,9 +15,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
-import { UserRole } from '../users/entities/user.entity';
+import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import { UpdateCronScheduleDto } from './dto/updateCronSchedule.dto';
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
@@ -35,7 +35,10 @@ import { WhatsappCronService } from './whatsappCron.service';
 
 @ApiTags('whatsapp')
 @ApiBearerAuth()
-@Roles(UserRole.Admin)
+// Phase 20 — folded into the "messages" module per the human's decision:
+// WhatsApp cron/automation control is part of managing message sends, not
+// a separate concern. Was @Roles(UserRole.Admin).
+@RequireModule(AppModule.Messages)
 @Controller('whatsapp')
 export class WhatsappController {
   constructor(
@@ -48,7 +51,7 @@ export class WhatsappController {
   @Get('inbound-messages')
   @ApiOperation({
     summary:
-      'List inbound WhatsApp messages (admin only) — paginated, filter by client/type/search',
+      'List inbound WhatsApp messages (admin or granted the messages module) — paginated, filter by client/type/search',
     description:
       "Every button tap or free-text message received via the webhook, whether or not it matched a known client. search matches the matched client's first/last name — see docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md.",
   })
@@ -64,7 +67,8 @@ export class WhatsappController {
 
   @Post('inbound-messages/reply')
   @ApiOperation({
-    summary: 'Manually reply to an inbound WhatsApp conversation (admin only)',
+    summary:
+      'Manually reply to an inbound WhatsApp conversation (admin or granted the messages module)',
     description:
       'Sends a free-form session message — valid because the recipient already messaged in, opening the 24h window. Not tied to any template. See docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md\'s "Noted for later" section — this is the manual-reply half of that, ahead of the full human-handoff/queue flow.',
   })
@@ -84,7 +88,8 @@ export class WhatsappController {
 
   @Get('inbound-messages/conversation-state')
   @ApiOperation({
-    summary: "One phone number's current self-service-menu state (admin only)",
+    summary:
+      "One phone number's current self-service-menu state (admin or granted the messages module)",
     description:
       'Backs the "Responder"/"Cerrar conversación" gating on the inbound-messages inbox — null when there\'s no active (or an expired) conversation. See docs/phases/PHASE_34_INTERACTIVE_MENU.md.',
   })
@@ -103,7 +108,8 @@ export class WhatsappController {
 
   @Post('inbound-messages/close-conversation')
   @ApiOperation({
-    summary: 'Close a hand-off conversation (admin only)',
+    summary:
+      'Close a hand-off conversation (admin or granted the messages module)',
     description:
       "Sends a generic closing message and clears the self-service-menu state, so the client's next message gets the menu fresh instead of the bot staying silent — see docs/phases/PHASE_34_INTERACTIVE_MENU.md.",
   })
@@ -122,7 +128,8 @@ export class WhatsappController {
 
   @Get('cron/:family/status')
   @ApiOperation({
-    summary: "Whether a reminder family's cron job is running (admin only)",
+    summary:
+      "Whether a reminder family's cron job is running (admin or granted the messages module)",
     description:
       'One job per family (overdue, upcoming_due) as of Phase 33 — each family internally picks among several exact templates per client. new_loan/refinance and payment-confirmation types have no cron job at all, they send synchronously at their triggering event. See docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md.',
   })
@@ -134,7 +141,10 @@ export class WhatsappController {
   }
 
   @Post('cron/:family/pause')
-  @ApiOperation({ summary: "Pause a reminder family's cron job (admin only)" })
+  @ApiOperation({
+    summary:
+      "Pause a reminder family's cron job (admin or granted the messages module)",
+  })
   @ApiResponse({ status: 200, description: 'The job is paused.' })
   pauseCron(
     @Param('family', new ParseEnumPipe(ReminderFamily)) family: ReminderFamily,
@@ -143,7 +153,10 @@ export class WhatsappController {
   }
 
   @Post('cron/:family/resume')
-  @ApiOperation({ summary: "Resume a reminder family's cron job (admin only)" })
+  @ApiOperation({
+    summary:
+      "Resume a reminder family's cron job (admin or granted the messages module)",
+  })
   @ApiResponse({ status: 200, description: 'The job is running again.' })
   resumeCron(
     @Param('family', new ParseEnumPipe(ReminderFamily)) family: ReminderFamily,
@@ -153,7 +166,8 @@ export class WhatsappController {
 
   @Patch('cron/:family/schedule')
   @ApiOperation({
-    summary: "Change a reminder family's cron schedule (admin only)",
+    summary:
+      "Change a reminder family's cron schedule (admin or granted the messages module)",
     description:
       "Persists the new expression on the family's schedule-owner MessageTemplate.cronExpression and reschedules the running job immediately, without a restart.",
   })
@@ -168,7 +182,7 @@ export class WhatsappController {
   @Post('clients/:clientId/send-reminder')
   @ApiOperation({
     summary:
-      'Manually trigger the overdue reminder for one client (admin only)',
+      'Manually trigger the overdue reminder for one client (admin or granted the messages module)',
     description:
       'Same grouping/rendering logic as the weekly job, triggered on demand.',
   })
@@ -185,7 +199,7 @@ export class WhatsappController {
   @Post('clients/:clientId/send-upcoming-due')
   @ApiOperation({
     summary:
-      'Manually trigger the upcoming-due reminder for one client (admin only)',
+      'Manually trigger the upcoming-due reminder for one client (admin or granted the messages module)',
     description:
       'Same grouping/rendering logic as the daily job, triggered on demand.',
   })

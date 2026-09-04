@@ -29,7 +29,7 @@ export class QueryClientsDto {
   @Min(1)
   page?: number;
 
-  @ApiPropertyOptional({ default: 20 })
+  @ApiPropertyOptional({ default: 50 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()

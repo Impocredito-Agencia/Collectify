@@ -19,9 +19,9 @@ import {
 } from '@nestjs/swagger';
 
 import { Audit } from '../auditLog/decorators/audit.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
-import { UserRole } from '../users/entities/user.entity';
+import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import { ClientDetail, ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/createClient.dto';
@@ -64,10 +64,10 @@ export class ClientsController {
   }
 
   @Post()
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @Audit('client.create', 'client')
   @ApiOperation({
-    summary: 'Create a client (admin only)',
+    summary: 'Create a client (admin or granted the clients module)',
     description:
       'dataProcessingConsent must be true — the client must have signed the data-processing ' +
       'authorization before being saved. documentNumber is required (CreateClientDto), and at ' +
@@ -88,9 +88,11 @@ export class ClientsController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @Audit('client.update', 'client')
-  @ApiOperation({ summary: 'Update a client (admin only)' })
+  @ApiOperation({
+    summary: 'Update a client (admin or granted the clients module)',
+  })
   @ApiResponse({ status: 200, description: 'The client was updated.' })
   @ApiResponse({ status: 404, description: 'Client not found.' })
   @ApiResponse({ status: 409, description: 'Document number already in use.' })
@@ -102,9 +104,12 @@ export class ClientsController {
   }
 
   @Patch(':id/reactivate')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @Audit('client.reactivate', 'client')
-  @ApiOperation({ summary: 'Restore a soft-deleted client (admin only)' })
+  @ApiOperation({
+    summary:
+      'Restore a soft-deleted client (admin or granted the clients module)',
+  })
   @ApiResponse({ status: 200, description: 'The client was reactivated.' })
   @ApiResponse({ status: 400, description: 'The client is already active.' })
   @ApiResponse({ status: 404, description: 'Client not found.' })
@@ -113,10 +118,11 @@ export class ClientsController {
   }
 
   @Post(':id/references')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @Audit('client.addReference', 'client')
   @ApiOperation({
-    summary: 'Add a personal or comercial reference to a client (admin only)',
+    summary:
+      'Add a personal or comercial reference to a client (admin or granted the clients module)',
   })
   @ApiResponse({ status: 201, description: 'The reference was added.' })
   @ApiResponse({ status: 404, description: 'Client not found.' })
@@ -128,9 +134,12 @@ export class ClientsController {
   }
 
   @Patch(':id/references/:referenceId')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @Audit('client.updateReference', 'client')
-  @ApiOperation({ summary: "Edit one of a client's references (admin only)" })
+  @ApiOperation({
+    summary:
+      "Edit one of a client's references (admin or granted the clients module)",
+  })
   @ApiResponse({ status: 200, description: 'The reference was updated.' })
   @ApiResponse({ status: 404, description: 'Client or reference not found.' })
   updateReference(
@@ -142,10 +151,13 @@ export class ClientsController {
   }
 
   @Delete(':id/references/:referenceId')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @HttpCode(HttpStatus.NO_CONTENT)
   @Audit('client.removeReference', 'client')
-  @ApiOperation({ summary: "Remove one of a client's references (admin only)" })
+  @ApiOperation({
+    summary:
+      "Remove one of a client's references (admin or granted the clients module)",
+  })
   @ApiResponse({ status: 204, description: 'The reference was removed.' })
   @ApiResponse({ status: 404, description: 'Client or reference not found.' })
   removeReference(
@@ -161,9 +173,10 @@ export class ClientsController {
   // docs/phases/PHASE_27_MESSAGE_FREQUENCY.md. ---
 
   @Get(':id/message-frequency')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @ApiOperation({
-    summary: "View a client's message frequency override (admin only)",
+    summary:
+      "View a client's message frequency override (admin or granted the clients module)",
     description:
       'Returns the whitelist entry throttling overdue/upcoming_due reminders for this ' +
       'client, or null if none is set (meaning the client is never throttled).',
@@ -181,10 +194,11 @@ export class ClientsController {
   }
 
   @Put(':id/message-frequency')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @Audit('client.setMessageFrequency', 'client')
   @ApiOperation({
-    summary: "Set a client's message frequency override (admin only)",
+    summary:
+      "Set a client's message frequency override (admin or granted the clients module)",
     description:
       'Creates or updates the minimum number of days between overdue/upcoming_due ' +
       'reminders for this client. Does not affect eligibility — only how often an ' +
@@ -200,11 +214,12 @@ export class ClientsController {
   }
 
   @Delete(':id/message-frequency')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @HttpCode(HttpStatus.NO_CONTENT)
   @Audit('client.clearMessageFrequency', 'client')
   @ApiOperation({
-    summary: "Clear a client's message frequency override (admin only)",
+    summary:
+      "Clear a client's message frequency override (admin or granted the clients module)",
     description:
       'Removes the whitelist entry — the client goes back to being messaged on every ' +
       'qualifying cron run, same as a client who was never on the whitelist.',
@@ -216,10 +231,12 @@ export class ClientsController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Clients)
   @HttpCode(HttpStatus.NO_CONTENT)
   @Audit('client.deactivate', 'client')
-  @ApiOperation({ summary: 'Soft-delete a client (admin only)' })
+  @ApiOperation({
+    summary: 'Soft-delete a client (admin or granted the clients module)',
+  })
   @ApiResponse({ status: 204, description: 'The client was deleted.' })
   @ApiResponse({ status: 404, description: 'Client not found.' })
   remove(@Param('id') id: string): Promise<void> {

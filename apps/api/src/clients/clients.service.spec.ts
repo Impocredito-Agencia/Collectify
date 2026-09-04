@@ -473,7 +473,7 @@ describe('ClientsService', () => {
 
       expect(result).toEqual({
         items: [mockClient],
-        meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
+        meta: { page: 1, limit: 50, total: 1, totalPages: 1 },
       });
       expect(repository.find).toHaveBeenCalledWith({
         where: {},

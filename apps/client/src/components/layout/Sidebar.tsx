@@ -243,13 +243,16 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/', icon: <DashboardIcon /> },
   { label: 'Clientes', to: '/clientes', icon: <ClientsIcon /> },
   { label: 'Préstamos', to: '/prestamos', icon: <LoansIcon /> },
-  // Not in the original Figma nav (no frame exists for Phase 22) —
-  // admin-only, same treatment as Auditoría. See
-  // docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md.
+  // Not in the original Figma nav (no frame exists for Phase 22). Phase 20
+  // — migrated from roles: ['admin'] to module: 'messages', matching
+  // WhatsappController's move to @RequireModule() (folded into the same
+  // module as Envíos fallidos, per the human's decision). See
+  // docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md and
+  // docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
   {
     label: 'Mensajes entrantes',
     to: '/mensajes-entrantes',
-    roles: ['admin'],
+    module: 'messages',
     icon: <InboundMessagesIcon />,
   },
   // Style cleanup (2026-09-01): was "Mensajes" — misleading on its own,
@@ -287,26 +290,34 @@ const NAV_ITEMS: NavItem[] = [
     module: 'interest_concept_types',
     icon: <ChargeTypesIcon />,
   },
-  // Not in the original Figma nav (no frame exists for Phase 15) —
-  // admin-only. See docs/phases/PHASE_15_USURY_RATE.md.
+  // Not in the original Figma nav (no frame exists for Phase 15). Phase 20
+  // — migrated from roles: ['admin'] to module, matching
+  // UsuryRatesController's move to @RequireModule(). See
+  // docs/phases/PHASE_15_USURY_RATE.md and
+  // docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
   {
     label: 'Tasa de usura',
     to: '/tasa-de-usura',
-    roles: ['admin'],
+    module: 'usury_rates',
     icon: <UsuryRateIcon />,
   },
-  // Not in the original Figma nav (no frame exists for Phase 11) —
-  // admin-only, same treatment as Plantillas. See
-  // docs/phases/PHASE_11_AUDIT_LOG.md.
+  // Not in the original Figma nav (no frame exists for Phase 11). Phase 20
+  // — migrated from roles: ['admin'] to module, matching
+  // AuditLogController's move to @RequireModule(). See
+  // docs/phases/PHASE_11_AUDIT_LOG.md and
+  // docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
   {
     label: 'Auditoría',
     to: '/auditoria',
-    roles: ['admin'],
+    module: 'audit_log',
     icon: <AuditIcon />,
     groupLabel: 'Administración',
   },
   // "Gestionar usuarios" from the original Figma nav, finally built in
-  // Phase 19 — see docs/phasesClient/PHASE_19_USER_MANAGEMENT.md.
+  // Phase 19 — see docs/phasesClient/PHASE_19_USER_MANAGEMENT.md. Stays
+  // roles: ['admin'], deliberately never migrated to module (Phase 20):
+  // account management is the one hardcoded admin-only exception the human
+  // confirmed — see docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
   {
     label: 'Usuarios',
     to: '/usuarios',
