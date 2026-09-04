@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
+import { Button } from '@/components/ui/Button';
 import {
   buildCronExpression,
   DEFAULT_SCHEDULE_CONFIG,
@@ -249,16 +250,15 @@ function FamilyCronControl({
           </span>
         </div>
         {cronStatus && (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={() =>
               cronStatus.running ? pauseCron.mutate() : resumeCron.mutate()
             }
             disabled={isTogglePending}
-            className="rounded border border-border bg-input px-3 py-1.5 text-meta text-muted hover:text-white disabled:opacity-50"
           >
             {cronStatus.running ? 'Pausar' : 'Reanudar'}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -320,13 +320,14 @@ function FamilyCronControl({
             className="h-9 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
           />
 
-          <button
+          <Button
             type="submit"
+            variant="secondary"
             disabled={!isDirty || updateSchedule.isPending}
-            className="shrink-0 rounded border border-border bg-input px-3 py-1.5 text-meta text-muted hover:text-white disabled:opacity-50"
+            className="shrink-0"
           >
             {updateSchedule.isPending ? 'Guardando…' : 'Guardar horario'}
-          </button>
+          </Button>
         </div>
         {isDirty && (
           <span className="text-meta text-warning">Cambios sin guardar</span>

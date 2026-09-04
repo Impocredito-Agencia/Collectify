@@ -48,3 +48,12 @@ export function useDeactivateInterestConceptType() {
       queryClient.invalidateQueries({ queryKey: ['interestConceptTypes'] }),
   });
 }
+
+export function useDeleteInterestConceptType() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: interestConceptTypesApi.remove,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['interestConceptTypes'] }),
+  });
+}

@@ -65,7 +65,14 @@ export function LoanDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  // Phase 20 — was isAdmin. Gates Editar/Liquidar/Refinanciar/Eliminar,
+  // the 4 LoansController endpoints migrated to
+  // @RequireModule(AppModule.Loans) (update/payoff/refinance/remove) — see
+  // docs/phases/PHASE_20_MODULE_PERMISSIONS.md. Mirrors
+  // RequirePermission.tsx's check.
+  const canManageLoan = Boolean(
+    user && (user.role === 'admin' || user.modules.includes('loans')),
+  );
 
   const { data: loan, isLoading, isError } = useLoan(id ?? '');
   const { data: client } = useClient(loan?.clientId ?? '');
@@ -224,7 +231,7 @@ export function LoanDetailPage() {
           non-wrapping row either overflowed or squeezed each button down
           below its label's width. Wrapping to a second line keeps every
           button at its natural size instead. */}
-      <div className="flex flex-wrap items-start justify-between gap-4 rounded border border-border bg-surface px-6 py-5">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded border border-border bg-surface px-6 py-5">
         <div className="flex flex-col gap-1.5">
           <h1 className="text-page-title font-semibold text-white">
             Préstamo {loan.promissoryNoteNumber}
@@ -282,7 +289,7 @@ export function LoanDetailPage() {
               Pagar seleccionadas ({selectedInstallments.length})
             </Button>
           )}
-          {isAdmin && (
+          {canManageLoan && (
             <Button
               variant="secondary"
               disabled={loan.status !== LoanStatus.Active}
@@ -292,7 +299,7 @@ export function LoanDetailPage() {
               Liquidar anticipadamente
             </Button>
           )}
-          {isAdmin && (
+          {canManageLoan && (
             <Button
               variant="secondary"
               onClick={() => setIsEditing(true)}
@@ -301,7 +308,7 @@ export function LoanDetailPage() {
               Editar
             </Button>
           )}
-          {isAdmin && (
+          {canManageLoan && (
             <Button
               variant="secondary"
               disabled={loan.status !== LoanStatus.Active}
@@ -311,9 +318,9 @@ export function LoanDetailPage() {
               Refinanciar
             </Button>
           )}
-          {isAdmin && (
-            <button
-              type="button"
+          {canManageLoan && (
+            <Button
+              variant="danger"
               disabled={hasPayments}
               title={
                 hasPayments
@@ -321,10 +328,10 @@ export function LoanDetailPage() {
                   : undefined
               }
               onClick={() => setIsDeleting(true)}
-              className="shrink-0 whitespace-nowrap rounded border border-danger/30 bg-input px-4 py-2.5 text-small text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className="shrink-0 whitespace-nowrap"
             >
               Eliminar préstamo
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -359,16 +366,16 @@ export function LoanDetailPage() {
 
       <div className="grid grid-cols-6 gap-4">
         <StatCard
-          label="Monto original sin incremento"
+          label="Capital original sin incremento"
           value={formatCurrency(loan.principalAmount)}
         />
         <StatCard
-          label="Saldo pendiente con incremento"
+          label="Saldo total (capital + incremento)"
           value={formatCurrency(outstandingBalance)}
         />
         {/* Phase 31 — pure remaining principal, no interest folded in;
-            deliberately a separate card from "Saldo pendiente con
-            incremento" above, which does include accrued interest. */}
+            deliberately a separate card from "Saldo total (capital +
+            incremento)" above, which does include accrued interest. */}
         <StatCard
           label="Saldo capital a la fecha"
           value={formatCurrency(loan.currentPrincipalBalance)}
@@ -381,24 +388,8 @@ export function LoanDetailPage() {
           label="Próx. pago"
           value={oldestPending ? formatDateOnly(oldestPending.dueDate) : '—'}
         />
-        <StatCard
-          label="Incremento consolidado en caso de mora"
-          value={`${loan.interestRate}%`}
-        />
+        <StatCard label="Incremento en mora" value={`${loan.interestRate}%`} />
       </div>
-
-      {loan.initialPayment != null && (
-        // Phase 13 (corrected after client QA) — purely informational: the
-        // client already paid this outside the credit system, it's not one
-        // of this loan's installments and never affects the schedule. See
-        // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
-        <p className="text-small">
-          <span className="text-muted">Cuota inicial (pagada aparte): </span>
-          <span className="text-white">
-            {formatCurrency(loan.initialPayment)}
-          </span>
-        </p>
-      )}
 
       {loan.description && (
         <p className="text-small">
@@ -692,13 +683,25 @@ function InstallmentsTable({
           <thead className="bg-input">
             <tr>
               <Th className="w-8" />
-              <Th>Cuota</Th>
+              <Th>N°</Th>
               <Th>Vence</Th>
-              <Th>Monto</Th>
+              <Th>Cuota</Th>
               {chargeNames.map((name) => (
                 <Th key={name}>
                   {name}
+                  {/* Shortened to a single letter (style cleanup,
+                      2026-09-04) — the full "Corriente"/"Moratorio" word ate
+                      too much horizontal space per charge column, which ran
+                      out fast on loans with several catalog charges. Same
+                      color coding as before; title= carries the full word
+                      for anyone who hovers. */}
                   <span
+                    title={
+                      chargeCategoryByName.get(name) ===
+                      ConceptCategory.Moratorio
+                        ? 'Moratorio'
+                        : 'Corriente'
+                    }
                     className={`ml-1.5 rounded px-1 py-0.5 text-[9px] font-medium normal-case tracking-normal ${
                       chargeCategoryByName.get(name) ===
                       ConceptCategory.Moratorio
@@ -708,8 +711,8 @@ function InstallmentsTable({
                   >
                     {chargeCategoryByName.get(name) ===
                     ConceptCategory.Moratorio
-                      ? 'Moratorio'
-                      : 'Corriente'}
+                      ? 'M'
+                      : 'C'}
                   </span>
                 </Th>
               ))}
@@ -747,7 +750,24 @@ function InstallmentsTable({
                       />
                     ) : null}
                   </Td>
-                  <Td>{installment.installmentNumber}</Td>
+                  <Td>
+                    <div className="flex items-center gap-1.5">
+                      {installment.installmentNumber}
+                      {/* Redesign, 2026-09-03 — flags the loan's own down
+                          payment ("cuota inicial"), always installmentNumber
+                          1 when present: a real, interest-free installment
+                          with its own due date, not a purely informational
+                          figure. Replaces the old "Cuota inicial (pagada
+                          aparte)" line above the table — see
+                          docs/phases/PHASE_13_INITIAL_INSTALLMENT.md for
+                          that superseded model. */}
+                      {installment.isDownPayment && (
+                        <span className="rounded-[3px] border border-border bg-input px-1.5 py-[2px] text-meta font-medium text-muted">
+                          Inicial
+                        </span>
+                      )}
+                    </div>
+                  </Td>
                   <Td>{formatDateOnly(installment.dueDate)}</Td>
                   <Td>
                     {formatCurrency(installment.amount)}

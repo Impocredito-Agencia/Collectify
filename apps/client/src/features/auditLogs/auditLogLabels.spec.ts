@@ -31,6 +31,27 @@ describe('formatAuditAction', () => {
     expect(formatAuditAction('clientLoanImport.execute')).toBe(
       'Importó clientes y préstamos desde Excel',
     );
+    expect(formatAuditAction('user.delete')).toBe('Eliminó un usuario');
+  });
+
+  // Style cleanup, 2026-09-04 — the interestConceptType @Audit() calls
+  // (added 2026-09-03, see DATABASE.md) were never backfilled into this
+  // map, so the client saw raw "interestConceptType.create" etc. in
+  // Auditoría. Same class of bug as the block above, own test so a future
+  // regression here is caught independently of the Phase 32 set.
+  it('translates every interestConceptType action', () => {
+    expect(formatAuditAction('interestConceptType.create')).toBe(
+      'Creó un tipo de cargo',
+    );
+    expect(formatAuditAction('interestConceptType.update')).toBe(
+      'Editó un tipo de cargo',
+    );
+    expect(formatAuditAction('interestConceptType.deactivate')).toBe(
+      'Desactivó un tipo de cargo',
+    );
+    expect(formatAuditAction('interestConceptType.delete')).toBe(
+      'Eliminó un tipo de cargo',
+    );
   });
 
   it('still falls back to the raw action string when no label exists yet', () => {
@@ -60,6 +81,10 @@ describe('formatAuditAction', () => {
       'user.deactivate',
       'user.reactivate',
       'usuryRate.create',
+      'interestConceptType.create',
+      'interestConceptType.update',
+      'interestConceptType.deactivate',
+      'interestConceptType.delete',
     ];
     for (const action of previouslyLabeled) {
       expect(ACTION_LABELS[action]).toBeDefined();
@@ -72,6 +97,10 @@ describe('formatAuditEntityType', () => {
     expect(formatAuditEntityType('clientLoanImport')).toBe(
       'Importación de clientes',
     );
+  });
+
+  it('translates interestConceptType, the entityType that previously fell through unlabeled', () => {
+    expect(formatAuditEntityType('interestConceptType')).toBe('Tipo de cargo');
   });
 
   it('still falls back to the raw entityType when no label exists yet', () => {

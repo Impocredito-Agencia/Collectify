@@ -19,9 +19,12 @@ export enum ConceptCategory {
 // Only meaningful when defaultCalculationType is FixedAmount and category is
 // Corriente — a moratorio fixed_amount concept is always charged once, flat,
 // the moment an installment goes overdue, so it has no distribution to pick.
+//
+// RepeatedEachInstallment replaced FirstInstallmentOnly, 2026-09-03 — see
+// the entity's own comment in the API for the full explanation.
 export enum FixedAmountDistribution {
   SplitAcrossInstallments = 'split_across_installments',
-  FirstInstallmentOnly = 'first_installment_only',
+  RepeatedEachInstallment = 'repeated_each_installment',
 }
 
 // Admin-managed catalog of interest/fee concepts (e.g. "Interés
@@ -36,13 +39,6 @@ export interface InterestConceptType {
   category: ConceptCategory;
   fixedAmountDistribution: FixedAmountDistribution | null;
   isActive: boolean;
-  // Bug fix, 2026-09-03 — the mandatory, non-removable usury-rate concept
-  // for its category. At most one true per category (enforced
-  // server-side — setting it on one unsets it on any other in the same
-  // category). Only allowed when defaultCalculationType is percentage.
-  // LoanForm/RefinanceLoanForm always include this concept as a locked
-  // row; LoansService rejects a loan create/refinance/preview missing it.
-  isUsuryRateConcept: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -62,7 +58,6 @@ export interface CreateInterestConceptTypeInput {
   // defaultCalculationType is FixedAmount and category is Corriente.
   fixedAmountDistribution?: FixedAmountDistribution;
   defaultValue?: number;
-  isUsuryRateConcept?: boolean;
 }
 
 export type UpdateInterestConceptTypeInput =
@@ -112,5 +107,12 @@ export const interestConceptTypesApi = {
       `/interest-concept-types/${id}/deactivate`,
     );
     return data;
+  },
+
+  // Permanent, irreversible deletion — for a type created by mistake and
+  // never used. Only allowed for an already-deactivated, never-used type
+  // (enforced server-side, see InterestConceptTypesService.remove).
+  remove: async (id: string): Promise<void> => {
+    await apiClient.delete(`/interest-concept-types/${id}`);
   },
 };

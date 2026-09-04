@@ -72,7 +72,6 @@ describe('DashboardService', () => {
       refinancedFromLoanId: null,
       refinancedFromLoan: null,
       description: null,
-      initialPayment: null,
       newLoanMessageSentAt: null,
       coDebtorClientId: null,
       coDebtorClient: null,
@@ -97,6 +96,7 @@ describe('DashboardService', () => {
       principalPortion: null,
       dueDate: '2024-01-01', // far in the past — deterministic overdue
       status: InstallmentStatus.Pending,
+      isDownPayment: false,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,

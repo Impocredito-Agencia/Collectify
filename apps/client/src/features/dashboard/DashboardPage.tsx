@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
+import { FilterTab } from '@/components/ui/FilterTab';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Select } from '@/components/ui/Select';
 import { StatCard } from '@/components/ui/StatCard';
@@ -207,30 +208,29 @@ export function DashboardPage() {
               Mostrando {clients.length} de {meta.total} clientes
             </p>
             <div className="flex items-center gap-1">
-              <PageButton
+              <FilterTab
+                label="←"
+                isActive={false}
                 disabled={page <= 1}
                 onClick={() => setPage((current) => current - 1)}
-              >
-                ←
-              </PageButton>
+              />
               {Array.from(
                 { length: meta.totalPages },
                 (_, index) => index + 1,
               ).map((pageNumber) => (
-                <PageButton
+                <FilterTab
                   key={pageNumber}
+                  label={pageNumber}
                   isActive={pageNumber === page}
                   onClick={() => setPage(pageNumber)}
-                >
-                  {pageNumber}
-                </PageButton>
+                />
               ))}
-              <PageButton
+              <FilterTab
+                label="→"
+                isActive={false}
                 disabled={page >= meta.totalPages}
                 onClick={() => setPage((current) => current + 1)}
-              >
-                →
-              </PageButton>
+              />
             </div>
           </div>
         )}
@@ -309,29 +309,5 @@ function EmptyRow({
   );
 }
 
-function PageButton({
-  children,
-  onClick,
-  isActive = false,
-  disabled = false,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  isActive?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded px-2.5 py-1.5 text-label ${
-        isActive
-          ? 'bg-border font-medium text-white'
-          : 'bg-input text-muted disabled:opacity-40'
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
+// Pagination controls now use the shared FilterTab component — see
+// LoansListPage.tsx's identical 2026-09-04 consolidation note.

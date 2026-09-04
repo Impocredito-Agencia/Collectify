@@ -5,7 +5,14 @@ import { apiClient } from '@/lib/apiClient';
 export interface UsuryRate {
   id: string;
   effectiveMonth: string;
+  // The monthly EFFECTIVE rate actually applied to loan interest — derived
+  // server-side from annualRatePercentage below, never entered directly.
   ratePercentage: number;
+  // The raw annual rate as published by the Superintendencia Financiera
+  // (e.g. 29.24 for "29,24%"). Nullable only for rows that predate this
+  // field (none exist in production as of 2026-09-03 — see
+  // docs/GLOSSARY.md "Usury rate ceiling").
+  annualRatePercentage: number | null;
   createdBy: string | null;
   createdAt: string;
 }
@@ -20,7 +27,11 @@ export interface CurrentUsuryRate extends UsuryRate {
 
 export interface CreateUsuryRateInput {
   effectiveMonth: string;
-  ratePercentage: number;
+  // Bug fix, 2026-09-03 — was ratePercentage (the monthly figure, computed
+  // by hand). The admin now enters the raw annual rate exactly as the
+  // Superintendencia publishes it; the API derives and stores the monthly
+  // effective rate. See UsuryRatesPage.tsx.
+  annualRatePercentage: number;
 }
 
 export const usuryRatesApi = {

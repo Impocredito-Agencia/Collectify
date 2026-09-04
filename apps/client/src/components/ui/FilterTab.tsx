@@ -1,7 +1,15 @@
+import type { ReactNode } from 'react';
+
 interface FilterTabProps {
-  label: string;
+  label: ReactNode;
   isActive: boolean;
   onClick: () => void;
+  // Optional — added 2026-09-04 so LoansListPage's pagination controls
+  // (prev/next arrows disabled at the first/last page) could reuse this
+  // instead of keeping their own near-identical local PageButton. Existing
+  // callers (ClientsListPage/UsersListPage's Todos/Activos/Inactivos) never
+  // pass this, so they're unaffected.
+  disabled?: boolean;
 }
 
 // Filter/segment tab (style cleanup, 2026-09-02) — was two byte-identical
@@ -32,12 +40,18 @@ interface FilterTabProps {
 // sits at a genuine middle value, `bg-white/[0.05]`, not reusing either
 // endpoint. Selected tab still has no hover of its own — it's already at
 // the brightest tier, nothing above it to transition to.
-export function FilterTab({ label, isActive, onClick }: FilterTabProps) {
+export function FilterTab({
+  label,
+  isActive,
+  onClick,
+  disabled = false,
+}: FilterTabProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded px-3 py-[7px] text-small ${
+      disabled={disabled}
+      className={`rounded px-3 py-[7px] text-small disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/[0.03] disabled:hover:text-muted ${
         isActive
           ? 'bg-border font-medium text-white'
           : 'bg-white/[0.03] text-muted hover:bg-white/[0.05] hover:text-strong'

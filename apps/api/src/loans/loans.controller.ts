@@ -19,9 +19,7 @@ import {
 
 import { Audit } from '../auditLog/decorators/audit.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { RequireModule } from '../auth/decorators/requireModule.decorator';
-import { UserRole } from '../users/entities/user.entity';
 import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import { CreateLoanDto } from './dto/createLoan.dto';
@@ -65,6 +63,26 @@ export class LoansController {
     return this.loansService.findAll(query);
   }
 
+  // Style cleanup (2026-09-03) — must come before @Get(':id') below, or
+  // Nest would try to resolve "next-promissory-note-number" as an :id
+  // and 404/500 instead of matching this route. Same permission as
+  // creating a loan (@RequireModule(AppModule.Loans)) since suggesting a
+  // number only makes sense as part of that flow.
+  @Get('next-promissory-note-number')
+  @RequireModule(AppModule.Loans)
+  @ApiOperation({
+    summary: 'Suggest the next pagaré number for LoanForm to pre-fill',
+    description:
+      'Highest numeric part found across every loan (including soft-deleted ones, so a ' +
+      "deleted loan's number is never reused) plus 1, formatted #0000-padded. Purely a " +
+      'suggestion — the field stays editable and is still validated/uniqueness-checked ' +
+      'on submit like any other value. See docs/GLOSSARY.md "Loan / Pagaré".',
+  })
+  @ApiResponse({ status: 200, description: 'Returns the suggested number.' })
+  getNextPromissoryNoteNumber(): Promise<{ nextPromissoryNoteNumber: string }> {
+    return this.loansService.getNextPromissoryNoteNumber();
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Get a loan with its installments',
@@ -104,7 +122,7 @@ export class LoansController {
     summary:
       'Create a loan and generate its installments (admin or granted the loans module)',
     description:
-      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog), solved as a level total payment ("cuota fija") — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment for the whole term of the loan; they cannot vary per installment. moratoryConcepts (Phase 23) are assigned the same way but never affect the schedule — they only take effect once an installment is overdue. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is the legacy fallback used for moratory interest only when no moratoryConcepts are assigned. As of Phase 24, a loan cannot be created without the current calendar month\'s usury rate on file (see GET /usury-rates/current), and any percentage-type concept (corriente or moratorio) is automatically priced at exactly that rate, ignoring whatever value is sent for it — only fixed_amount concepts stay admin-set. See docs/phases/PHASE_24_USURY_MANDATORY.md. As of Phase 26, coDebtorClientId optionally links an existing client as co-debtor — it must differ from this loan\'s own clientId and must reference an existing, active client, or the request is rejected. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.',
+      "The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (optional fees picked from the InterestConceptTypes catalog). Principal is capital fijo (constant per installment); each concept's true declining-balance value is averaged across the loan and rounded to the nearest $1,000, so every installment — including the last — carries the same flat total (\"cuota con interés\", matching the client's own Excel) — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. concepts/moratoryConcepts are for optional fees only; they cannot vary per installment. corrienteInterestRate/moratoryInterestRate (system-generated, not a catalog pick) set this loan's own interest: both default to, and are capped at, the current calendar month's usury rate (see GET /usury-rates/current) — a loan cannot be created without that rate on file. Due dates are auto-generated from disbursedAt + installmentFrequency. As of Phase 26, coDebtorClientId optionally links an existing client as co-debtor — it must differ from this loan's own clientId and must reference an existing, active client, or the request is rejected. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.",
   })
   @ApiResponse({
     status: 201,
@@ -143,7 +161,7 @@ export class LoansController {
     summary:
       'Preview the generated installment schedule without creating a loan',
     description:
-      "Runs the same amortization generation as POST /loans, for review before committing — including the same Phase 24 hard block and percentage-concept auto-fill, so what's previewed always matches what a real submit would persist. See docs/phases/PHASE_24_USURY_MANDATORY.md.",
+      "Runs the same amortization generation as POST /loans, for review before committing — including the same Phase 24 hard block (no usury rate on file), so what's previewed always matches what a real submit would persist. See docs/phases/PHASE_24_USURY_MANDATORY.md.",
   })
   @ApiResponse({ status: 201, description: 'Returns the previewed schedule.' })
   @ApiResponse({
@@ -159,11 +177,11 @@ export class LoansController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Loans)
   @Audit('loan.update', 'loan')
   @ApiOperation({
     summary:
-      "Update a loan's interest rate, description, or co-debtor (admin only)",
+      "Update a loan's interest rate, description, or co-debtor (admin or granted the loans module)",
     description:
       'As of Phase 26, coDebtorClientId and coDebtorRelationship are also editable here — ' +
       'coDebtorClientId is re-validated with the same rules as loan creation (must differ from ' +
@@ -195,11 +213,11 @@ export class LoansController {
   }
 
   @Post(':id/payoff')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Loans)
   @Audit('loan.payoff', 'loan')
   @ApiOperation({
     summary:
-      'Settle the loan today for its full payoff quote, closing it out (admin only)',
+      'Settle the loan today for its full payoff quote, closing it out (admin or granted the loans module)',
     description:
       "A separate, explicit flow from registering an ordinary payment — POST /installments/:id/payments and its one-payment-per-installment behavior are completely untouched. Always settles the FULL amount from GET /loans/:id/payoff-quote; there is no partial early payoff. Registers one real Payment row per still-pending installment (observation: 'Liquidación anticipada'), marks every installment and the loan 'paid'.",
   })
@@ -250,10 +268,11 @@ export class LoansController {
   }
 
   @Post(':id/refinance')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Loans)
   @Audit('loan.refinance', 'loan')
   @ApiOperation({
-    summary: 'Refinance a loan: close it out and open a new one (admin only)',
+    summary:
+      'Refinance a loan: close it out and open a new one (admin or granted the loans module)',
     description:
       "Sets the old loan's status to 'refinanced' and cancels whatever installments it still had " +
       "pending (marked 'cancelled' — excluded from active collection/reminders, kept as historical " +
@@ -266,8 +285,8 @@ export class LoansController {
       'refinanced freely — the old "client must be current first" rejection is gone. Instead, ' +
       "GET /loans/:id/refinance-quote's suggestedPrincipalAmount already folds in the overdue " +
       "(and near-due) installments' accrued corriente and moratory interest, so refinancing no " +
-      'longer requires settling them separately first. As of Phase 24, the same hard block and ' +
-      'percentage-concept auto-fill rules POST /loans uses apply here too — see ' +
+      'longer requires settling them separately first. As of Phase 24, the same hard block ' +
+      '(no usury rate on file) as POST /loans applies here too — see ' +
       'docs/phases/PHASE_24_USURY_MANDATORY.md. As of Phase 26, the new loan carries over the old ' +
       "loan's co-debtor (coDebtorClientId + coDebtorRelationship) by default; passing either field " +
       'in the request overrides it, validated with the same rules as POST /loans. See ' +
@@ -297,11 +316,12 @@ export class LoansController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Loans)
   @HttpCode(HttpStatus.NO_CONTENT)
   @Audit('loan.delete', 'loan')
   @ApiOperation({
-    summary: 'Delete a loan created by mistake (admin only)',
+    summary:
+      'Delete a loan created by mistake (admin or granted the loans module)',
     description:
       "Only allowed while none of the loan's installments have any registered payment — " +
       'once a payment exists anywhere on the loan, deletion is refused and the loan must be ' +

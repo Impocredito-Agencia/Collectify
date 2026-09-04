@@ -26,7 +26,14 @@ import { ClientMessageFrequency } from './entities/clientMessageFrequency.entity
 import { ClientReference } from './entities/clientReference.entity';
 
 const DEFAULT_PAGE = 1;
-const DEFAULT_PAGE_SIZE = 20;
+// Bumped from 20 (2026-09-03) — with the client's real client count around
+// 400, 20/page meant ~20 pages, and ClientsListPage.tsx's pager renders
+// one button per page with no truncation (see that component), so 20
+// buttons in a row was already unwieldy before the count grows further.
+// 50 brings that down to ~8 pages. Only this service's default changes —
+// AuditLog/Loans/Installments/Dashboard/WhatsappWebhook/MessageLogs each
+// keep their own separate DEFAULT_PAGE_SIZE = 20 constant, unaffected.
+const DEFAULT_PAGE_SIZE = 50;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
 
 // Distinguishes the two paths that build a Client from a CreateClientDto:

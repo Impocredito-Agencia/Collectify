@@ -50,8 +50,8 @@ const DISTRIBUTION_OPTIONS = [
     label: 'Repartir entre todas las cuotas',
   },
   {
-    value: FixedAmountDistribution.FirstInstallmentOnly,
-    label: 'Cobrar solo en la primera cuota',
+    value: FixedAmountDistribution.RepeatedEachInstallment,
+    label: 'Cobrar el mismo monto en cada cuota',
   },
 ];
 
@@ -80,13 +80,6 @@ export function InterestConceptTypeForm({
   );
   const [defaultValue, setDefaultValue] = useState(
     conceptType?.defaultValue != null ? String(conceptType.defaultValue) : '',
-  );
-  // Bug fix, 2026-09-03 — the mandatory, non-removable usury-rate concept
-  // for its category (at most one true per category, enforced
-  // server-side). Only meaningful on a percentage concept — see the
-  // isUsuryRateConcept doc comment on InterestConceptType.
-  const [isUsuryRateConcept, setIsUsuryRateConcept] = useState(
-    conceptType?.isUsuryRateConcept ?? false,
   );
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -138,10 +131,6 @@ export function InterestConceptTypeForm({
         defaultValue: Number.isFinite(parsedDefaultValue)
           ? parsedDefaultValue
           : undefined,
-        isUsuryRateConcept:
-          calculationType === ConceptCalculationType.Percentage
-            ? isUsuryRateConcept
-            : false,
       });
       onClose();
     } catch (err) {
@@ -200,33 +189,6 @@ export function InterestConceptTypeForm({
           />
         </Field>
 
-        {calculationType === ConceptCalculationType.Percentage && (
-          <div className="flex flex-col gap-1.5 rounded border border-border bg-input p-3">
-            <label className="flex items-center gap-2.5">
-              <input
-                type="checkbox"
-                checked={isUsuryRateConcept}
-                onChange={(event) =>
-                  setIsUsuryRateConcept(event.target.checked)
-                }
-                className="size-4 shrink-0 rounded border-border bg-background accent-white"
-              />
-              <span className="text-control text-white">
-                Cargo obligatorio de tasa de usura para esta categoría
-              </span>
-            </label>
-            <p className="text-meta text-muted">
-              Aparece siempre, sin poder quitarse, en todo préstamo de la
-              categoría "
-              {category === ConceptCategory.Moratorio
-                ? 'Moratorio'
-                : 'Corriente'}
-              " . Marcar esto desmarca cualquier otro cargo obligatorio de la
-              misma categoría.
-            </p>
-          </div>
-        )}
-
         {requiresDistribution && (
           <Field
             label="Cómo se reparte"
@@ -251,7 +213,13 @@ export function InterestConceptTypeForm({
           <input
             type="number"
             min={0}
-            step="0.01"
+            // step="any" — a percentage concept's value can carry more
+            // decimals than a native step="0.01" tolerates. The monthly
+            // usury rate this could be set close to already goes to 4
+            // decimals some months (annual→monthly conversion); a fixed
+            // step="0.01" rejected values like 2.3395 with no real
+            // business reason (style fix, 2026-09-03).
+            step="any"
             value={defaultValue}
             onChange={(event) => setDefaultValue(event.target.value)}
             className={inputClassName(false)}

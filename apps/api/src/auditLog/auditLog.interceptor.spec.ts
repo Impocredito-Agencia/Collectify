@@ -4,7 +4,10 @@ import { firstValueFrom, Observable, of, throwError } from 'rxjs';
 import { Repository } from 'typeorm';
 
 import { Client } from '../clients/entities/client.entity';
+import { InterestConceptType } from '../interestConceptTypes/entities/interestConceptType.entity';
+import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
+import { User } from '../users/entities/user.entity';
 
 import { AuditLogInterceptor } from './auditLog.interceptor';
 import { AuditLogService } from './auditLog.service';
@@ -26,6 +29,9 @@ describe('AuditLogInterceptor', () => {
   let reflector: { get: jest.Mock };
   let clientsRepository: { findOne: jest.Mock };
   let loansRepository: { findOne: jest.Mock };
+  let usersRepository: { findOneBy: jest.Mock };
+  let interestConceptTypesRepository: { findOneBy: jest.Mock };
+  let installmentsRepository: { findOne: jest.Mock };
 
   const buildContext = (overrides: {
     user?: { id: string };
@@ -62,11 +68,33 @@ describe('AuditLogInterceptor', () => {
     // handler returns void, so there's no promissoryNoteNumber on the
     // response) ever calls this; most tests below don't exercise it.
     loansRepository = { findOne: jest.fn().mockResolvedValue(null) };
+    // Defaults to "not found" — only user.delete's pre-fetch (entityType
+    // 'user' + a params.id) ever calls this; most tests below don't
+    // exercise it. Unlike clientsRepository/loansRepository above, this is
+    // looked up BEFORE next.handle() runs, not as a post-response
+    // fallback — see the interceptor's constructor comment.
+    usersRepository = { findOneBy: jest.fn().mockResolvedValue(null) };
+    // Same reasoning as usersRepository above — only
+    // interestConceptType.delete's pre-fetch (entityType
+    // 'interestConceptType' + a params.id) ever calls this.
+    interestConceptTypesRepository = {
+      findOneBy: jest.fn().mockResolvedValue(null),
+    };
+    // Defaults to "not found" — only payment.register's entityLabel
+    // enrichment (added 2026-09-04, human report — the entry didn't say
+    // which loan/installment a payment was for) ever calls this. Unlike
+    // usersRepository/interestConceptTypesRepository above, this is a
+    // post-response fallback like clientsRepository/loansRepository, not a
+    // pre-fetch — payments are never hard-deleted.
+    installmentsRepository = { findOne: jest.fn().mockResolvedValue(null) };
     interceptor = new AuditLogInterceptor(
       reflector as unknown as Reflector,
       auditLogService as unknown as AuditLogService,
       clientsRepository as unknown as Repository<Client>,
       loansRepository as unknown as Repository<Loan>,
+      usersRepository as unknown as Repository<User>,
+      interestConceptTypesRepository as unknown as Repository<InterestConceptType>,
+      installmentsRepository as unknown as Repository<Installment>,
     );
   });
 
@@ -76,7 +104,7 @@ describe('AuditLogInterceptor', () => {
     const handler = buildCallHandler(of({ id: 'x' }));
 
     const result = await firstValueFrom(
-      interceptor.intercept(context, handler),
+      await interceptor.intercept(context, handler),
     );
 
     expect(result).toEqual({ id: 'x' });
@@ -97,7 +125,7 @@ describe('AuditLogInterceptor', () => {
       of({ id: 'client-1', firstName: 'Juana', lastName: 'Pérez' }),
     );
 
-    await firstValueFrom(interceptor.intercept(context, handler));
+    await firstValueFrom(await interceptor.intercept(context, handler));
     await flushPromises();
 
     expect(auditLogService.record).toHaveBeenCalledWith({
@@ -121,7 +149,7 @@ describe('AuditLogInterceptor', () => {
     });
     const handler = buildCallHandler(of(undefined));
 
-    await firstValueFrom(interceptor.intercept(context, handler));
+    await firstValueFrom(await interceptor.intercept(context, handler));
     await flushPromises();
 
     expect(auditLogService.record).toHaveBeenCalledWith(
@@ -144,7 +172,7 @@ describe('AuditLogInterceptor', () => {
     });
     const handler = buildCallHandler(of({ id: 'payment-1', amountPaid: 100 }));
 
-    await firstValueFrom(interceptor.intercept(context, handler));
+    await firstValueFrom(await interceptor.intercept(context, handler));
     await flushPromises();
 
     expect(auditLogService.record).toHaveBeenCalledWith(
@@ -160,7 +188,7 @@ describe('AuditLogInterceptor', () => {
     const context = buildContext({ params: {}, body: {} });
     const handler = buildCallHandler(of({ id: 'client-1' }));
 
-    await firstValueFrom(interceptor.intercept(context, handler));
+    await firstValueFrom(await interceptor.intercept(context, handler));
     await flushPromises();
 
     expect(auditLogService.record).toHaveBeenCalledWith(
@@ -180,7 +208,7 @@ describe('AuditLogInterceptor', () => {
     });
     const handler = buildCallHandler(of({ id: 'user-1', email: 'a@b.com' }));
 
-    await firstValueFrom(interceptor.intercept(context, handler));
+    await firstValueFrom(await interceptor.intercept(context, handler));
     await flushPromises();
 
     expect(auditLogService.record).toHaveBeenCalledWith(
@@ -206,7 +234,7 @@ describe('AuditLogInterceptor', () => {
     const handler = buildCallHandler(throwError(() => new Error('rejected')));
 
     await expect(
-      firstValueFrom(interceptor.intercept(context, handler)),
+      firstValueFrom(await interceptor.intercept(context, handler)),
     ).rejects.toThrow('rejected');
     await flushPromises();
     expect(auditLogService.record).not.toHaveBeenCalled();
@@ -226,7 +254,7 @@ describe('AuditLogInterceptor', () => {
     const handler = buildCallHandler(of({ id: 'client-1' }));
 
     const result = await firstValueFrom(
-      interceptor.intercept(context, handler),
+      await interceptor.intercept(context, handler),
     );
     await flushPromises();
 
@@ -251,7 +279,7 @@ describe('AuditLogInterceptor', () => {
         }),
       );
 
-      await firstValueFrom(interceptor.intercept(context, handler));
+      await firstValueFrom(await interceptor.intercept(context, handler));
       await flushPromises();
 
       expect(auditLogService.record).toHaveBeenCalledWith(
@@ -284,7 +312,7 @@ describe('AuditLogInterceptor', () => {
         of({ id: 'reference-1', fullName: 'Hermano de Ana' }),
       );
 
-      await firstValueFrom(interceptor.intercept(context, handler));
+      await firstValueFrom(await interceptor.intercept(context, handler));
       await flushPromises();
 
       expect(clientsRepository.findOne).toHaveBeenCalledWith({
@@ -308,7 +336,7 @@ describe('AuditLogInterceptor', () => {
       });
       const handler = buildCallHandler(of(undefined));
 
-      await firstValueFrom(interceptor.intercept(context, handler));
+      await firstValueFrom(await interceptor.intercept(context, handler));
       await flushPromises();
 
       expect(auditLogService.record).toHaveBeenCalledWith(
@@ -326,7 +354,7 @@ describe('AuditLogInterceptor', () => {
         of({ id: 'loan-1', promissoryNoteNumber: '743' }),
       );
 
-      await firstValueFrom(interceptor.intercept(context, handler));
+      await firstValueFrom(await interceptor.intercept(context, handler));
       await flushPromises();
 
       expect(auditLogService.record).toHaveBeenCalledWith(
@@ -353,7 +381,7 @@ describe('AuditLogInterceptor', () => {
       });
       const handler = buildCallHandler(of(undefined));
 
-      await firstValueFrom(interceptor.intercept(context, handler));
+      await firstValueFrom(await interceptor.intercept(context, handler));
       await flushPromises();
 
       expect(loansRepository.findOne).toHaveBeenCalledWith({
@@ -377,7 +405,7 @@ describe('AuditLogInterceptor', () => {
       });
       const handler = buildCallHandler(of(undefined));
 
-      await firstValueFrom(interceptor.intercept(context, handler));
+      await firstValueFrom(await interceptor.intercept(context, handler));
       await flushPromises();
 
       expect(auditLogService.record).toHaveBeenCalledWith(
@@ -398,7 +426,7 @@ describe('AuditLogInterceptor', () => {
         of({ id: 'payment-1', amountPaid: 150000, paidAt: '2026-08-18' }),
       );
 
-      await firstValueFrom(interceptor.intercept(context, handler));
+      await firstValueFrom(await interceptor.intercept(context, handler));
       await flushPromises();
 
       // Avoids indexing into `auditLogService.record.mock.calls` directly
@@ -418,6 +446,110 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
+    // Human report, 2026-09-04: "Registró un pago" entries only showed the
+    // amount and date, with no way to tell which loan/installment it was
+    // for. When the response carries an installmentId, this looks the
+    // installment (and its loan) up to append that context.
+    it('appends the installment number and pagaré to a payment label when the installment is found', async () => {
+      reflector.get.mockReturnValue({
+        action: 'payment.register',
+        entityType: 'payment',
+      });
+      installmentsRepository.findOne.mockResolvedValue({
+        id: 'installment-1',
+        installmentNumber: 3,
+        loan: { id: 'loan-1', promissoryNoteNumber: '#0910' },
+      });
+      const context = buildContext({
+        user: { id: 'user-1' },
+        params: { id: 'installment-1' },
+      });
+      const handler = buildCallHandler(
+        of({
+          id: 'payment-1',
+          installmentId: 'installment-1',
+          amountPaid: 110667,
+          paidAt: '2026-09-03',
+        }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(installmentsRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'installment-1' },
+        withDeleted: true,
+        relations: { loan: true },
+      });
+      // Not an exact-string match on the whole label — same reasoning as
+      // the "amount and paid date" test above: Intl.NumberFormat('es-CO',
+      // ...) inserts a NON-BREAKING space (U+00A0) between "$" and the
+      // digits, which is visually indistinguishable from a regular space
+      // in a terminal/diff but fails strict equality. Assert on the pieces
+      // this test actually cares about instead, same
+      // stringContaining/stringMatching pattern as that test (see its own
+      // comment for why not `.mock.calls[0][0]` directly).
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringMatching(/^Pago de/) as unknown,
+        }),
+      );
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining('el 2026-09-03') as unknown,
+        }),
+      );
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining(
+            '— cuota 3 del pagaré ##0910',
+          ) as unknown,
+        }),
+      );
+    });
+
+    it('falls back to the plain amount/date payment label when the installment lookup finds nothing', async () => {
+      reflector.get.mockReturnValue({
+        action: 'payment.register',
+        entityType: 'payment',
+      });
+      installmentsRepository.findOne.mockResolvedValue(null);
+      const context = buildContext({
+        user: { id: 'user-1' },
+        params: { id: 'installment-1' },
+      });
+      const handler = buildCallHandler(
+        of({
+          id: 'payment-1',
+          installmentId: 'installment-1',
+          amountPaid: 110667,
+          paidAt: '2026-09-03',
+        }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      // Same non-breaking-space caveat as above — assert the fallback
+      // stayed plain (no "cuota"/"pagaré" appended) rather than the exact
+      // currency-formatted string.
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringMatching(/^Pago de/) as unknown,
+        }),
+      );
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining('el 2026-09-03') as unknown,
+        }),
+      );
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.not.stringContaining('cuota') as unknown,
+        }),
+      );
+    });
+
     it('labels a user by full name and email', async () => {
       reflector.get.mockReturnValue({
         action: 'user.deactivate',
@@ -431,13 +563,67 @@ describe('AuditLogInterceptor', () => {
         of({ id: 'user-1', fullName: 'Laura Díaz', email: 'laura@x.com' }),
       );
 
-      await firstValueFrom(interceptor.intercept(context, handler));
+      await firstValueFrom(await interceptor.intercept(context, handler));
       await flushPromises();
 
       expect(auditLogService.record).toHaveBeenCalledWith(
         expect.objectContaining({
           entityLabel: 'Laura Díaz (laura@x.com)',
         }),
+      );
+    });
+
+    // user.delete (Phase 20 follow-up) returns void (204 No Content), and
+    // unlike client/loan the row is genuinely gone by response time (a
+    // real SQL DELETE, not a soft-delete) — so this relies on the
+    // pre-fetch intercept() does BEFORE next.handle() runs, not a
+    // post-response withDeleted lookup like the loan.delete case above.
+    it('labels a deleted user from the pre-fetched snapshot when the response has none', async () => {
+      reflector.get.mockReturnValue({
+        action: 'user.delete',
+        entityType: 'user',
+      });
+      usersRepository.findOneBy.mockResolvedValue({
+        id: 'user-1',
+        fullName: 'Laura Díaz',
+        email: 'laura@x.com',
+      });
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        params: { id: 'user-1' },
+      });
+      const handler = buildCallHandler(of(undefined));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(usersRepository.findOneBy).toHaveBeenCalledWith({
+        id: 'user-1',
+      });
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: 'Laura Díaz (laura@x.com)',
+        }),
+      );
+    });
+
+    it('resolves a null entityLabel when the pre-fetched user is gone', async () => {
+      reflector.get.mockReturnValue({
+        action: 'user.delete',
+        entityType: 'user',
+      });
+      usersRepository.findOneBy.mockResolvedValue(null);
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        params: { id: 'user-1' },
+      });
+      const handler = buildCallHandler(of(undefined));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ entityLabel: null }),
       );
     });
 
@@ -455,13 +641,84 @@ describe('AuditLogInterceptor', () => {
         }),
       );
 
-      await firstValueFrom(interceptor.intercept(context, handler));
+      await firstValueFrom(await interceptor.intercept(context, handler));
       await flushPromises();
 
       expect(auditLogService.record).toHaveBeenCalledWith(
         expect.objectContaining({
           entityLabel: '28.5% desde 2026-08-01',
         }),
+      );
+    });
+
+    // interestConceptType (2026-09-03, human report — this entityType had
+    // no @Audit at all before this point). create/update/deactivate all
+    // return the full entity, so this reads straight off the response.
+    it('labels an interest concept type by its name', async () => {
+      reflector.get.mockReturnValue({
+        action: 'interestConceptType.create',
+        entityType: 'interestConceptType',
+      });
+      const context = buildContext({ user: { id: 'admin-1' }, params: {} });
+      const handler = buildCallHandler(
+        of({ id: 'concept-1', name: 'Gastos de cobranza' }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ entityLabel: 'Gastos de cobranza' }),
+      );
+    });
+
+    // interestConceptType.delete returns void (204 No Content), and unlike
+    // client/loan the row is genuinely gone by response time (a real SQL
+    // DELETE) — same shape as user.delete above, relies on the pre-fetch
+    // intercept() does BEFORE next.handle() runs.
+    it('labels a deleted interest concept type from the pre-fetched snapshot when the response has none', async () => {
+      reflector.get.mockReturnValue({
+        action: 'interestConceptType.delete',
+        entityType: 'interestConceptType',
+      });
+      interestConceptTypesRepository.findOneBy.mockResolvedValue({
+        id: 'concept-1',
+        name: 'Gastos de cobranza',
+      });
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        params: { id: 'concept-1' },
+      });
+      const handler = buildCallHandler(of(undefined));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(interestConceptTypesRepository.findOneBy).toHaveBeenCalledWith({
+        id: 'concept-1',
+      });
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ entityLabel: 'Gastos de cobranza' }),
+      );
+    });
+
+    it('resolves a null entityLabel when the pre-fetched interest concept type is gone', async () => {
+      reflector.get.mockReturnValue({
+        action: 'interestConceptType.delete',
+        entityType: 'interestConceptType',
+      });
+      interestConceptTypesRepository.findOneBy.mockResolvedValue(null);
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        params: { id: 'concept-1' },
+      });
+      const handler = buildCallHandler(of(undefined));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ entityLabel: null }),
       );
     });
 
@@ -473,7 +730,7 @@ describe('AuditLogInterceptor', () => {
       const context = buildContext({ user: { id: 'user-1' }, params: {} });
       const handler = buildCallHandler(of({ id: 'x-1' }));
 
-      await firstValueFrom(interceptor.intercept(context, handler));
+      await firstValueFrom(await interceptor.intercept(context, handler));
       await flushPromises();
 
       expect(auditLogService.record).toHaveBeenCalledWith(

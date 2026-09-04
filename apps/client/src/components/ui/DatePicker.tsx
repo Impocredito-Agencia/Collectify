@@ -348,7 +348,7 @@ export function DatePicker({
                 onChange('');
                 setIsOpen(false);
               }}
-              className="mt-2.5 w-full rounded border border-border bg-surface py-1.5 text-meta text-muted hover:text-white"
+              className="mt-2.5 w-full rounded border border-border bg-surface py-1.5 text-meta text-muted hover:bg-border hover:text-white"
             >
               Limpiar
             </button>

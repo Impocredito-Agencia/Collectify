@@ -66,13 +66,28 @@ export class NewLoanReminderService {
     });
     const clientFullName = `${loan.client.firstName} ${loan.client.lastName}`;
 
+    // Redesign, 2026-09-03 — the down payment is now installmentNumber 1
+    // with isDownPayment=true inside these same fetched rows (used to be
+    // loan.initialPayment, a separate informational field). Both template
+    // selectors expect the down payment split out from the interest-
+    // bearing installments — see newLoanTemplateSelection.ts.
+    const downPaymentInstallment =
+      installments.find((installment) => installment.isDownPayment) ?? null;
+    const trackedInstallments = installments.filter(
+      (installment) => !installment.isDownPayment,
+    );
+
     const selection = loan.refinancedFromLoan
       ? selectRefinanceTemplate({
           clientFullName,
           originalPromissoryNoteNumber:
             loan.refinancedFromLoan.promissoryNoteNumber,
           frequency: loan.installmentFrequency,
-          installments,
+          // RefinanceSingleLoan has no down-payment variant (only one
+          // refinance template exists) — mirrors this message's
+          // pre-redesign behavior, which never saw a down payment at all
+          // since it wasn't a real installment yet.
+          installments: trackedInstallments,
         })
       : selectNewLoanTemplate({
           clientFullName,
@@ -80,8 +95,8 @@ export class NewLoanReminderService {
           disbursedAt: loan.disbursedAt,
           description: loan.description,
           frequency: loan.installmentFrequency,
-          installments,
-          initialPayment: loan.initialPayment,
+          installments: trackedInstallments,
+          downPayment: downPaymentInstallment,
           isNewClient: await this.isFirstLoanEver(loan.clientId, loan.id),
         });
 

@@ -22,6 +22,7 @@ describe('UsersService', () => {
     create: jest.Mock;
     save: jest.Mock;
     update: jest.Mock;
+    delete: jest.Mock;
   };
   let userModulePermissionsService: {
     getModulesForUser: jest.Mock;
@@ -48,6 +49,7 @@ describe('UsersService', () => {
       create: jest.fn((dto: Partial<User>) => dto),
       save: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     };
     userModulePermissionsService = {
       getModulesForUser: jest.fn().mockResolvedValue([]),
@@ -99,6 +101,31 @@ describe('UsersService', () => {
 
     expect(result).toEqual(mockUser);
     expect(repository.findOneBy).toHaveBeenCalledWith({ id: mockUser.id });
+  });
+
+  describe('findOne', () => {
+    it('returns the matching user as a PublicUser, with its modules', async () => {
+      const collector = { ...mockUser, id: 'user-2', role: UserRole.Collector };
+      repository.findOneBy.mockResolvedValue(collector);
+      userModulePermissionsService.getModulesForUser.mockResolvedValue([
+        AppModule.Clients,
+      ]);
+
+      const result = await service.findOne('user-2');
+
+      expect(repository.findOneBy).toHaveBeenCalledWith({ id: 'user-2' });
+      expect(result).not.toHaveProperty('passwordHash');
+      expect(result.id).toBe('user-2');
+      expect(result.modules).toEqual([AppModule.Clients]);
+    });
+
+    it('throws NotFoundException when the user does not exist', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.findOne('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
   });
 
   describe('findAll', () => {
@@ -238,6 +265,37 @@ describe('UsersService', () => {
       await expect(service.reactivate('missing-id')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('remove', () => {
+    it('permanently deletes a deactivated user', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockUser,
+        isActive: false,
+      });
+
+      await service.remove('user-2');
+
+      expect(repository.delete).toHaveBeenCalledWith({ id: 'user-2' });
+    });
+
+    it('rejects deleting an account that is still active', async () => {
+      repository.findOneBy.mockResolvedValue({ ...mockUser, isActive: true });
+
+      await expect(service.remove('user-2')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repository.delete).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the user does not exist', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.remove('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(repository.delete).not.toHaveBeenCalled();
     });
   });
 

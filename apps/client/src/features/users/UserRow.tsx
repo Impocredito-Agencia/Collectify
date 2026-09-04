@@ -13,21 +13,30 @@ interface UserRowProps {
   onDeactivate: () => void;
   onReactivate: () => void;
   onEditPermissions: () => void;
+  onDelete: () => void;
 }
 
-// No "Ver detalle"/"Editar" actions — unlike ClientRow.tsx, there's no
-// GET /users/:id or PATCH /users/:id on the backend, only create,
-// deactivate, and reactivate. See docs/phases/PHASE_19_USER_MANAGEMENT.md.
+// "Ver perfil" (Phase 20 follow-up) — read-only, shown for every row
+// regardless of active state, backed by the new GET /users/:id. See
+// UserDetailPage.tsx. Still no "Editar" — there's no PATCH /users/:id on
+// the backend, only create, deactivate, reactivate, permissions, and
+// (Phase 20 follow-up) delete. See docs/phases/PHASE_19_USER_MANAGEMENT.md.
 //
 // "Permisos" (Phase 20) only shows for an active collector — an admin has
 // full access unconditionally, so there's nothing to edit for one. See
 // docs/phasesClient/PHASE_20_MODULE_PERMISSIONS.md.
+//
+// "Eliminar" (Phase 20 follow-up) only shows on an already-deactivated
+// row — UsersService.remove rejects deleting an account that's still
+// active, so this mirrors that rule instead of offering an action that's
+// guaranteed to fail.
 export function UserRow({
   user,
   isOwnAccount,
   onDeactivate,
   onReactivate,
   onEditPermissions,
+  onDelete,
 }: UserRowProps) {
   return (
     <tr className="border-t border-border">
@@ -48,13 +57,20 @@ export function UserRow({
       <Td>
         {user.isActive ? (
           <div className="flex gap-2">
+            <RowActionButton to={`/usuarios/${user.id}`}>
+              Ver perfil
+            </RowActionButton>
             {user.role === 'collector' && (
               <RowActionButton onClick={onEditPermissions}>
                 Permisos
               </RowActionButton>
             )}
             {isOwnAccount ? (
-              <span className="text-meta text-mid">Tu cuenta</span>
+              // Static placeholder, not a real action — see
+              // RowActionButton's own comment on the no-onClick/no-to
+              // branch. Same box as Desactivar so this row doesn't look
+              // off-center next to Ver perfil/Permisos.
+              <RowActionButton tone="subtle">Tu cuenta</RowActionButton>
             ) : (
               <RowActionButton onClick={onDeactivate} tone="subtle">
                 Desactivar
@@ -62,7 +78,15 @@ export function UserRow({
             )}
           </div>
         ) : (
-          <RowActionButton onClick={onReactivate}>Reactivar</RowActionButton>
+          <div className="flex gap-2">
+            <RowActionButton to={`/usuarios/${user.id}`}>
+              Ver perfil
+            </RowActionButton>
+            <RowActionButton onClick={onReactivate}>Reactivar</RowActionButton>
+            <RowActionButton onClick={onDelete} tone="subtle">
+              Eliminar
+            </RowActionButton>
+          </div>
         )}
       </Td>
     </tr>

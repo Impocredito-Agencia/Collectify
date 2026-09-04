@@ -53,6 +53,24 @@ export function RowActionButton({
     );
   }
 
+  // Neither `to` nor `onClick` — a static, same-sized placeholder for a
+  // spot that would otherwise hold an action button, not a real control.
+  // UserRow.tsx uses this for "Tu cuenta" (the row for the logged-in
+  // admin, in place of Desactivar): plain text there sat noticeably off
+  // the pill-shaped buttons next to it. No hover/cursor styling — it's
+  // genuinely not interactive, just visually matched.
+  if (!onClick) {
+    const staticToneClassName =
+      tone === 'subtle' ? 'text-subtle' : 'text-muted';
+    return (
+      <span
+        className={`rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta ${staticToneClassName} ${className}`}
+      >
+        {children}
+      </span>
+    );
+  }
+
   return (
     <button
       type="button"

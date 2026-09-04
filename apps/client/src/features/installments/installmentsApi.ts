@@ -38,6 +38,12 @@ export interface Installment {
   principalPortion: number | null;
   dueDate: string;
   status: InstallmentStatus;
+  // Redesign, 2026-09-03 — true only for the loan's own down payment
+  // ("cuota inicial"), always installmentNumber 1 when present: a real,
+  // interest-free installment with its own due date. See
+  // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md for the superseded,
+  // purely-informational model this replaces.
+  isDownPayment: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;

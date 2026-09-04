@@ -38,3 +38,7 @@ Render the loan detail view's charge breakdown as a dynamic per-charge table ins
 
 - `docs/phases/PHASE_23_DYNAMIC_CHARGES.md` — backend model and API shape this phase consumes
 - `docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md` — the amortizador/concept UI this phase extends
+
+## Follow-up, 2026-09-03
+
+Replaced "cobrar solo en la primera cuota" with "cobrar el mismo monto en cada cuota" in `InterestConceptTypeForm`'s distribution picker (item 2 above) — the client had no use for the old option. See `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`'s own follow-up note.

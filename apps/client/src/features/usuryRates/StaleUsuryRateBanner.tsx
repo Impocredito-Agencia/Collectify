@@ -35,17 +35,21 @@ export function StaleUsuryRateBanner() {
         No has agregado la tasa de usura de este mes — no se pueden crear ni
         refinanciar préstamos hasta que se agregue.
       </span>
-      {/* POST /usury-rates is admin-only — a collector can't act on this
-          link (the route itself is admin-gated), so only offer it to an
-          admin; a collector needs to ask one instead. */}
-      {user?.role === 'admin' && (
-        <Link
-          to="/tasa-de-usura"
-          className="shrink-0 font-semibold text-amber-100 underline hover:text-white"
-        >
-          Registrar tasa
-        </Link>
-      )}
+      {/* Phase 20 — POST /usury-rates and the /tasa-de-usura route both
+          migrated to @RequireModule(AppModule.UsuryRates) (was admin-only)
+          — a collector who wasn't granted this module still can't act on
+          this link, so only offer it to an admin or someone granted the
+          usury_rates module; anyone else needs to ask one of those instead.
+          See docs/phases/PHASE_20_MODULE_PERMISSIONS.md. */}
+      {user &&
+        (user.role === 'admin' || user.modules.includes('usury_rates')) && (
+          <Link
+            to="/tasa-de-usura"
+            className="shrink-0 font-semibold text-amber-100 underline hover:text-white"
+          >
+            Registrar tasa
+          </Link>
+        )}
     </div>
   );
 }

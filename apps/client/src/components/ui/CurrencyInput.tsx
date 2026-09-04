@@ -13,10 +13,12 @@ interface CurrencyInputProps {
 }
 
 // Real-time "$1.000.000"-style formatting for every manually-typed
-// monetary field in the app (Monto del pago, Monto del préstamo, montos
-// por cuota). Purely client-side string formatting on each keystroke — no
-// network calls, no measurable cost — so it's applied everywhere a peso
-// amount is typed by hand, per the client's request.
+// monetary field in the app (Monto del pago, Capital del préstamo, montos
+// por cuota — "Capital" as of the 2026-09-03 terminology fix, see
+// docs/GLOSSARY.md "Loan / Pagaré"). Purely client-side string formatting
+// on each keystroke — no network calls, no measurable cost — so it's
+// applied everywhere a peso amount is typed by hand, per the client's
+// request.
 //
 // Approach: the input is type="text" (not type="number", which can't
 // display "$" or "."), and on every change we strip everything but digits,

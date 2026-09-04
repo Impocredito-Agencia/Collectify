@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { RowActionButton } from '@/components/ui/RowActionButton';
 import {
   useCloseConversation,
   useConversationState,
@@ -336,14 +337,12 @@ function CloseConversationButton({ phoneNumber }: { phoneNumber: string }) {
   const closeConversation = useCloseConversation();
 
   return (
-    <button
-      type="button"
+    <RowActionButton
       disabled={closeConversation.isPending}
       onClick={() => closeConversation.mutate(phoneNumber)}
-      className="shrink-0 rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
     >
       {closeConversation.isPending ? 'Cerrando…' : 'Cerrar conversación'}
-    </button>
+    </RowActionButton>
   );
 }
 

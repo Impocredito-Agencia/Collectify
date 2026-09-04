@@ -69,3 +69,7 @@ Update `docs/DATABASE.md` (`interest_concept_types`, `loan_installment_concepts`
 - `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` — the concept engine this phase extends
 - `docs/phases/PHASE_24_USURY_MANDATORY.md` — depends on this phase's `category` split
 - `docs/DATABASE.md`, `docs/GLOSSARY.md`
+
+## Follow-up, 2026-09-03
+
+`first_installment_only` (item 2 above) had no real use case for this client — replaced with `repeated_each_installment` (full fixed amount charged on every installment, not divided), via the `RenameFirstInstallmentOnlyToRepeatedEachInstallment` migration. See `docs/DATABASE.md`'s `interest_concept_types` entry and `docs/phasesClient/PHASE_23_DYNAMIC_CHARGES.md`.

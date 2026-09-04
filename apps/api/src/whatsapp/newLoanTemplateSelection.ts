@@ -42,12 +42,17 @@ export interface SelectNewLoanTemplateInput {
   disbursedAt: string;
   description: string | null;
   frequency: InstallmentFrequency;
-  // Excludes the "cuota inicial" — per docs/phases/PHASE_13_INITIAL_INSTALLMENT.md
-  // and Loan.initialPayment's own doc comment, the down payment is purely
-  // informational and is never one of the loan's tracked installments.
+  // The loan's interest-bearing installments — i.e. everything EXCEPT the
+  // down payment, which is passed separately as `downPayment` below. The
+  // caller (NewLoanReminderService) is responsible for splitting the
+  // loan's fetched installments this way.
   installments: NewLoanTemplateInstallment[];
-  // Loan.initialPayment — null when there was no down payment.
-  initialPayment: number | null;
+  // The down payment installment (installmentNumber 1, isDownPayment
+  // true), or null when this loan has none. Redesign, 2026-09-03 — used
+  // to be Loan.initialPayment, a purely informational amount unrelated to
+  // the loan's real installments; see
+  // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md for that superseded model.
+  downPayment: NewLoanTemplateInstallment | null;
   // Whether this is the client's first loan ever (no other loan on file,
   // any status) — confirmed by the human (2026-09-01) as the exact
   // "cliente nuevo" definition. Irrelevant for a refinance, since a
@@ -81,8 +86,8 @@ export function selectNewLoanTemplate(
     0,
   );
 
-  if (input.initialPayment != null) {
-    const totalWithInitialPayment = input.initialPayment + trackedTotal;
+  if (input.downPayment != null) {
+    const totalWithInitialPayment = input.downPayment.amount + trackedTotal;
     const type = input.isNewClient
       ? MessageType.NewLoanNewClientInitialInstallment
       : MessageType.NewLoanExistingClientInitialInstallment;
@@ -100,7 +105,7 @@ export function selectNewLoanTemplate(
         // in the phase doc (10 = 1 inicial + 9 restantes).
         String(input.installments.length + 1),
         frequency,
-        money(input.initialPayment),
+        money(input.downPayment.amount),
         String(input.installments.length),
         money(firstInstallment.amount),
         formatDateEs(firstInstallment.dueDate),

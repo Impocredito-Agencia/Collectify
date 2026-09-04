@@ -13,8 +13,6 @@ import { tokenStore } from '@/lib/tokenStore';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
-export type ClientLoanImportMode = 'normal' | 'historical';
-
 export interface RowError {
   row: number;
   reason: string;
@@ -77,21 +75,15 @@ export const clientLoanImportApi = {
       { errors },
     ),
 
-  importFile: async (
-    file: File,
-    mode: ClientLoanImportMode,
-  ): Promise<ClientLoanImportResult> => {
+  importFile: async (file: File): Promise<ClientLoanImportResult> => {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(
-      `${API_URL}/clients/import-with-loans?mode=${mode}`,
-      {
-        method: 'POST',
-        headers: authHeaders(),
-        body: formData,
-      },
-    );
+    const response = await fetch(`${API_URL}/clients/import-with-loans`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData,
+    });
     const payload = (await response.json()) as
       | { success: true; data: ClientLoanImportResult }
       | { success: false; message: string; statusCode: number };

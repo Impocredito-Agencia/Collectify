@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/Button';
 import { authApi } from '@/features/auth/authApi';
@@ -28,7 +29,17 @@ type FieldErrors = Partial<Record<FieldName, string>>;
 // only validates @MinLength(8) — no complexity rules. Raised via
 // AskUserQuestion; the client chose to only show the one real rule rather
 // than add backend validation for the other two.
+//
+// "Cancelar" (fixed 2026-09-03): used to call resetFields — technically
+// correct, but on a page with no dialog to dismiss, that meant nothing
+// visible happened at all if you hadn't typed anything, which the client
+// read as the button "doing nothing". Raised via AskUserQuestion; the
+// client chose real navigation over a form-clear: it now returns to
+// whichever screen you were on before opening Mi perfil (navigate(-1),
+// browser history), not a fixed route — same fix applied to
+// UserDetailPage.tsx's "Usuarios" breadcrumb for the same reason.
 export function ChangePasswordCard() {
+  const navigate = useNavigate();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -168,7 +179,7 @@ export function ChangePasswordCard() {
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Guardando…' : 'Guardar cambios'}
           </Button>
-          <Button variant="secondary" onClick={resetFields}>
+          <Button variant="secondary" onClick={() => navigate(-1)}>
             Cancelar
           </Button>
         </div>

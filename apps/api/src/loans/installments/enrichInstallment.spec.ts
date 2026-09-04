@@ -38,6 +38,7 @@ describe('enrichInstallment', () => {
     principalPortion: null,
     dueDate: '2026-01-01',
     status: InstallmentStatus.Pending,
+    isDownPayment: false,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,

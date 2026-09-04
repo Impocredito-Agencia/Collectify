@@ -8,8 +8,8 @@ import {
 
 import { Audit } from '../auditLog/decorators/audit.decorator';
 import { CurrentUser } from '../auth/decorators/currentUser.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../users/entities/user.entity';
+import { RequireModule } from '../auth/decorators/requireModule.decorator';
+import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import { CreateUsuryRateDto } from './dto/createUsuryRate.dto';
 import { UsuryRate } from './entities/usuryRate.entity';
@@ -23,13 +23,13 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.int
 export class UsuryRatesController {
   constructor(private readonly usuryRateService: UsuryRateService) {}
 
-  // Deliberately open to any authenticated user (no @Roles) as of Phase 24
-  // — since a collector granted the loans module can create a loan
-  // (Phase 23) and that now hard-blocks without a current rate on file,
-  // they need to see this before hitting a raw 400 on submit. Same
-  // reasoning as GET /interest-concept-types. Managing the rate (POST,
-  // and the full history below) stays admin-only. See
-  // docs/phases/PHASE_24_USURY_MANDATORY.md.
+  // Deliberately open to any authenticated user (no @Roles/@RequireModule)
+  // as of Phase 24 — since a collector granted the loans module can create
+  // a loan (Phase 23) and that now hard-blocks without a current rate on
+  // file, they need to see this before hitting a raw 400 on submit. Same
+  // reasoning as GET /interest-concept-types. Managing the rate (POST, and
+  // the full history below) requires the usury_rates module (Phase 20) —
+  // see docs/phases/PHASE_24_USURY_MANDATORY.md.
   @Get('current')
   @ApiOperation({
     summary: 'Get the current usury ceiling',
@@ -45,10 +45,10 @@ export class UsuryRatesController {
   }
 
   @Get()
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.UsuryRates)
   @ApiOperation({
     summary:
-      'List the full usury rate history, most recent month first (admin only)',
+      'List the full usury rate history, most recent month first (admin or granted the usury_rates module)',
   })
   @ApiResponse({ status: 200, description: 'Returns the rate history.' })
   findAll(): Promise<UsuryRate[]> {
@@ -56,10 +56,11 @@ export class UsuryRatesController {
   }
 
   @Post()
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.UsuryRates)
   @Audit('usuryRate.create', 'usuryRate')
   @ApiOperation({
-    summary: "Record a new month's certified usury rate (admin only)",
+    summary:
+      "Record a new month's certified usury rate (admin or granted the usury_rates module)",
     description:
       "Always creates a new historical row — never mutates a previous month's rate. Rejects a duplicate month.",
   })

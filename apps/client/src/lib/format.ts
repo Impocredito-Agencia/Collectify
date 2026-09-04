@@ -66,6 +66,22 @@ export function formatDateOnly(dateString: string): string {
   });
 }
 
+// createdAt is a real timestamp (TypeORM @CreateDateColumn), not a
+// date-only column — unlike formatDateOnly above, this should convert to
+// the viewer's LOCAL time. "Enero 2025" matches the "Mi perfil" Figma
+// design's "Desde" field exactly (month + year only, capitalized —
+// toLocaleDateString lowercases the month name in es-CO). Shared between
+// ProfilePage.tsx (the logged-in admin's own account) and
+// UserDetailPage.tsx (Phase 20 follow-up's "Ver perfil", any account) —
+// moved here when the second call site needed it.
+export function formatMemberSince(isoDateTime: string): string {
+  const label = new Date(isoDateTime).toLocaleDateString('es-CO', {
+    month: 'long',
+    year: 'numeric',
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 // Phase 21 — the client document-upload fields (idDocumentFrontUrl,
 // consentDocumentUrl, ...) accept either an image or a PDF
 // (lib/imageUpload.ts#uploadDocument).

@@ -10,7 +10,7 @@ interface ClientRowProps {
   // computed from the current page/limit — not persisted or backed by any
   // field on the entity.
   rowNumber: number;
-  isAdmin: boolean;
+  canManageClient: boolean;
   onEdit: () => void;
   onDeactivate: () => void;
   onReactivate: () => void;
@@ -20,12 +20,14 @@ interface ClientRowProps {
 // apps/api's ClientsService.findOne() excludes soft-deleted rows (no
 // `withDeleted`), so GET/PATCH /clients/:id 404 for them — only the list
 // endpoint shows them at all, via `isActive=false`. An inactive row's only
-// action is "Reactivar" (PATCH /clients/:id/reactivate, admin only — see
-// docs/phases/PHASE_10_CLIENT_CAPACITY.md), which restores it to active.
+// action is "Reactivar" (PATCH /clients/:id/reactivate — admin or granted
+// the clients module, per Phase 20's @RequireModule(AppModule.Clients);
+// was admin only — see docs/phases/PHASE_10_CLIENT_CAPACITY.md and
+// docs/phases/PHASE_20_MODULE_PERMISSIONS.md), which restores it to active.
 export function ClientRow({
   client,
   rowNumber,
-  isAdmin,
+  canManageClient,
   onEdit,
   onDeactivate,
   onReactivate,
@@ -57,16 +59,16 @@ export function ClientRow({
             <RowActionButton to={`/clientes/${client.id}`}>
               Ver detalle
             </RowActionButton>
-            {isAdmin && (
+            {canManageClient && (
               <RowActionButton onClick={onEdit}>Editar</RowActionButton>
             )}
-            {isAdmin && (
+            {canManageClient && (
               <RowActionButton onClick={onDeactivate} tone="subtle">
                 Desactivar
               </RowActionButton>
             )}
           </div>
-        ) : isAdmin ? (
+        ) : canManageClient ? (
           <RowActionButton onClick={onReactivate}>Reactivar</RowActionButton>
         ) : (
           <span className="text-meta text-mid">Sin acciones disponibles</span>

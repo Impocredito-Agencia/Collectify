@@ -1,12 +1,14 @@
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
+import { ChipButton } from '@/components/ui/ChipButton';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { Field, FormSection } from '@/components/ui/Field';
 import { FileUploadField } from '@/components/ui/FileUploadField';
 import { Modal } from '@/components/ui/Modal';
+import { PlusIcon } from '@/components/ui/PlusIcon';
 import { Select } from '@/components/ui/Select';
 import {
   ClientReferenceType,
@@ -572,11 +574,20 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
         <CloseButton onClick={onClose} />
       </div>
 
-      <p className="mt-1 text-label text-muted">
-        {isEditing
-          ? `Editando: ${client?.firstName} ${client?.lastName} · ID #${client?.id.slice(0, 8)}`
-          : 'Solo administradores pueden crear clientes.'}
-      </p>
+      {/* Phase 20 — the "Solo administradores pueden crear clientes." line
+          shown here for a new client was removed: ClientsController.create
+          migrated from @Roles(Admin) to @RequireModule(AppModule.Clients),
+          so a collector granted the clients module can create one too —
+          the old text was simply no longer true. This form is only ever
+          reachable via ClientsListPage's "Nuevo cliente" button, which is
+          already gated the same way, so no replacement subtitle is needed
+          for the create case. See docs/phases/PHASE_20_MODULE_PERMISSIONS.md. */}
+      {isEditing && (
+        <p className="mt-1 text-label text-muted">
+          Editando: {client?.firstName} {client?.lastName} · ID #
+          {client?.id.slice(0, 8)}
+        </p>
+      )}
 
       <div className="mt-5 border-t border-border" />
 
@@ -926,28 +937,10 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                 {fieldErrors.references}
               </span>
             )}
-            <button
-              type="button"
-              onClick={addReferenceRow}
-              className="flex items-center gap-1.5 self-start rounded border border-border bg-input px-3.5 py-2 text-small text-muted hover:border-subtle hover:text-white"
-            >
-              {/* Matches the "+ Nuevo cliente"/"+ Nuevo préstamo" fix —
-                    a literal "+" character rendered visibly clipped at
-                    this size, an SVG icon doesn't. */}
-              <svg
-                className="size-3.5 shrink-0"
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-              >
-                <path
-                  d="M10 4v12M4 10h12"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                />
-              </svg>
+            <ChipButton onClick={addReferenceRow}>
+              <PlusIcon />
               Agregar referencia
-            </button>
+            </ChipButton>
           </div>
         </FormSection>
 

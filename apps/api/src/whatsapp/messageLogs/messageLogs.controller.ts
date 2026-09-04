@@ -6,9 +6,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequireModule } from '../../auth/decorators/requireModule.decorator';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
-import { UserRole } from '../../users/entities/user.entity';
+import { AppModule } from '../../users/entities/userModulePermission.entity';
 import { MessageLog } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
 
@@ -48,9 +48,10 @@ export class MessageLogsController {
   }
 
   @Post(':id/retry')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Messages)
   @ApiOperation({
-    summary: 'Manually retry a failed message (admin only)',
+    summary:
+      'Manually retry a failed message (admin or granted the messages module)',
     description:
       'Re-sends the message and creates a new, separate log row pointing back at the original via retryOfMessageLogId — the original row is never edited, only stamped with retriedAt.',
   })

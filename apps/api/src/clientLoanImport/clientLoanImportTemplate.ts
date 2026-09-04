@@ -37,7 +37,6 @@ const DISPLAY_HEADERS: Record<string, string> = {
   disbursedAt: 'Fecha de desembolso',
   installmentFrequency: 'Frecuencia de pago (mensual/quincenal)',
   totalInstallments: 'Número de cuotas',
-  initialPayment: 'Cuota inicial',
   description: 'Descripción del crédito',
 };
 
@@ -86,7 +85,11 @@ const FIELD_HINTS: Record<string, string> = {
   disbursedAt: 'Formato AAAA-MM-DD (año-mes-día). Ej: 2026-07-09',
   installmentFrequency: 'Escribe: mensual o quincenal',
   totalInstallments: 'Número entero de cuotas. Ej: 12',
-  initialPayment: 'Opcional. Solo números. Ej: 50000',
+  // "Cuota inicial" (down payment) is deliberately not importable via
+  // Excel, 2026-09-03 — the redesign requires both an amount AND its own
+  // due date (it's a real installment now, not an informational figure),
+  // which doesn't fit this bulk/historical-load flow. Set it manually
+  // afterward if needed. See docs/GLOSSARY.md.
   description: 'Opcional. Ej: Compra de electrodoméstico',
 };
 

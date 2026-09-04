@@ -3,6 +3,9 @@ import type { ReactNode } from 'react';
 interface ThProps {
   children?: ReactNode;
   className?: string;
+  // See TdProps.compact — same shorter-row opt-in, kept in sync so a
+  // compact table's header and body cells still line up.
+  compact?: boolean;
 }
 
 interface TdProps {
@@ -13,6 +16,13 @@ interface TdProps {
   // other column rendered as quieter supporting detail — same relationship
   // as a table row's "title" vs "subtitle". `muted` picks the latter.
   muted?: boolean;
+  // Shorter row height (h-8 vs the default h-11/h-[38px]) for a table that
+  // lives inside a constrained, scrollable panel rather than a full page —
+  // e.g. LoanForm/RefinanceLoanForm/LoanQuotePage's schedule-preview table,
+  // where a shorter row means more installments visible without scrolling.
+  // Opt-in and per-call-site (not a global height change) so every other
+  // table's row height is untouched — confirmed with the human, 2026-09-03.
+  compact?: boolean;
 }
 
 // Table cells (style cleanup, 2026-09-02) — every list/detail table in the
@@ -48,10 +58,10 @@ interface TdProps {
 // hex (see index.css), only the size was off. Changed once, here, so it
 // applies to every table in the app that imports this `Th` — that's the
 // whole point of having centralized it.
-export function Th({ children, className = '' }: ThProps) {
+export function Th({ children, className = '', compact = false }: ThProps) {
   return (
     <th
-      className={`h-[38px] px-3.5 text-left text-small font-normal tracking-normal text-muted ${className}`}
+      className={`${compact ? 'h-8' : 'h-[38px]'} px-3.5 text-left text-small font-normal tracking-normal text-muted ${className}`}
     >
       {children}
     </th>
@@ -64,13 +74,19 @@ export function Th({ children, className = '' }: ThProps) {
 // #D0D6E0. That's our existing `strong` token (see index.css — "Linear's
 // emphasized secondary tone"), not pure white; even a table's primary
 // column isn't full white in Linear. `muted` branch untouched.
-export function Td({ children, className = '', muted = false }: TdProps) {
+export function Td({
+  children,
+  className = '',
+  muted = false,
+  compact = false,
+}: TdProps) {
+  const height = compact ? 'h-8' : 'h-11';
   return (
     <td
       className={
         muted
-          ? `h-11 px-3.5 text-small text-muted ${className}`
-          : `h-11 px-3.5 text-small font-medium text-strong ${className}`
+          ? `${height} px-3.5 text-small text-muted ${className}`
+          : `${height} px-3.5 text-small font-medium text-strong ${className}`
       }
     >
       {children}

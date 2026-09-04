@@ -78,7 +78,6 @@ describe('NewLoanReminderService', () => {
       refinancedFromLoanId: null,
       refinancedFromLoan: null,
       description: 'Compra de Apple MacBook Air M5',
-      initialPayment: null,
       coDebtorClientId: null,
       coDebtorClient: null,
       coDebtorRelationship: null,
@@ -99,6 +98,7 @@ describe('NewLoanReminderService', () => {
       principalPortion: null,
       dueDate: '2026-06-20',
       status: InstallmentStatus.Pending,
+      isDownPayment: false,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
@@ -194,9 +194,16 @@ describe('NewLoanReminderService', () => {
     });
 
     it('sends NewLoanNewClientInitialInstallment when there is a cuota inicial', async () => {
-      loansRepository.findOne.mockResolvedValue(
-        loan({ initialPayment: 1400000 }),
-      );
+      loansRepository.findOne.mockResolvedValue(loan());
+      installmentsRepository.find.mockResolvedValue([
+        installment({
+          id: 'inst-1',
+          installmentNumber: 1,
+          amount: 1400000,
+          isDownPayment: true,
+        }),
+        installment({ id: 'inst-2', installmentNumber: 2 }),
+      ]);
       otherLoanCount = 0;
 
       await service.sendNewLoanMessage('loan-1');

@@ -2,9 +2,7 @@ import { useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { Select } from '@/components/ui/Select';
 import {
-  ClientLoanImportMode,
   ClientLoanImportResult,
   clientLoanImportApi,
 } from '@/features/clients/clientLoanImportApi';
@@ -18,27 +16,22 @@ interface ImportClientsDialogProps {
   onImported?: () => void;
 }
 
-const MODE_OPTIONS = [
-  {
-    value: 'normal',
-    label: 'Normal — exige lo mismo que crear un préstamo a mano',
-  },
-  {
-    value: 'historical',
-    label: 'Histórico — permite cargar créditos ya vencidos o fuera de cupo',
-  },
-];
-
 // No Figma frame for this — 100% new per the Phase 8 scope confirmed with
 // the client (2026-08-19, see docs/phasesClient/PHASE_8_POLISH.md). One
 // row of the uploaded file = one credit; the same cédula can repeat
 // across rows for a client with several loans. All-or-nothing per row —
 // see ClientLoanImportService for the exact rule.
+//
+// "Modo de carga" (normal/histórico) removed 2026-09-03 — client
+// feedback: "histórico" (which skipped the mora/cupo guard, for bulk-
+// loading loans already overdue or out of credit limit) was never used
+// in practice, just an extra decision in the dialog for no benefit. Every
+// upload now goes through the same guard as creating a loan by hand — see
+// ClientLoanImportService.processRow's comment on this.
 export function ImportClientsDialog({
   onClose,
   onImported,
 }: ImportClientsDialogProps) {
-  const [mode, setMode] = useState<ClientLoanImportMode>('normal');
   const [file, setFile] = useState<File | null>(null);
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -67,7 +60,7 @@ export function ImportClientsDialog({
     setError(null);
     setResult(null);
     try {
-      const summary = await clientLoanImportApi.importFile(file, mode);
+      const summary = await clientLoanImportApi.importFile(file);
       setResult(summary);
       if (summary.created > 0) {
         onImported?.();
@@ -104,26 +97,21 @@ export function ImportClientsDialog({
       </p>
 
       <div className="mt-6 flex flex-col gap-4">
-        <button
-          type="button"
+        {/* Was a hand-typed <button> that copy-pasted the "secondary"
+            look but with the base text color set to white instead of
+            muted — since its hover was also white, the hover had no
+            visible effect. Migrated to the shared Button component so
+            this can't drift from the rest of the app's hover behavior
+            again — see Button.tsx's own comment on why every button goes
+            through it. */}
+        <Button
+          variant="secondary"
           onClick={() => void handleDownloadTemplate()}
           disabled={isDownloadingTemplate}
-          className="w-fit rounded border border-border bg-input px-4 py-2.5 text-small text-white hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-fit"
         >
           {isDownloadingTemplate ? 'Descargando…' : 'Descargar plantilla'}
-        </button>
-
-        <div>
-          <label className="mb-1.5 block text-label text-muted">
-            Modo de carga
-          </label>
-          <Select
-            value={mode}
-            onChange={(next) => setMode(next as ClientLoanImportMode)}
-            options={MODE_OPTIONS}
-            className="w-full"
-          />
-        </div>
+        </Button>
 
         <div>
           <label className="mb-1.5 block text-label text-muted">
@@ -166,16 +154,16 @@ export function ImportClientsDialog({
                     </li>
                   ))}
                 </ul>
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   onClick={() => void handleExportErrors()}
                   disabled={isExportingErrors}
-                  className="mt-2.5 rounded border border-border bg-surface px-3 py-1.5 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-2.5 w-fit"
                 >
                   {isExportingErrors
                     ? 'Generando…'
                     : 'Descargar filas con error'}
-                </button>
+                </Button>
               </>
             )}
           </div>

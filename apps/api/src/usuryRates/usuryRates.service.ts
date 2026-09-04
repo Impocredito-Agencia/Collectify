@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
 
+import { convertAnnualToMonthlyRate } from './convertAnnualToMonthlyRate';
 import { CreateUsuryRateDto } from './dto/createUsuryRate.dto';
 import { UsuryRate } from './entities/usuryRate.entity';
 
@@ -83,7 +84,8 @@ export class UsuryRateService {
 
     const rate = this.repository.create({
       effectiveMonth,
-      ratePercentage: dto.ratePercentage,
+      annualRatePercentage: dto.annualRatePercentage,
+      ratePercentage: convertAnnualToMonthlyRate(dto.annualRatePercentage),
       createdBy: actorUserId,
     });
     return this.repository.save(rate);

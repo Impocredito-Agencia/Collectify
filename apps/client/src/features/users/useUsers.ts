@@ -12,6 +12,16 @@ export function useUsers(params: UsersQueryParams = {}) {
   });
 }
 
+// Mirrors useClients.ts's useClient(id) — feeds UserDetailPage's "Ver
+// perfil" view.
+export function useUser(id: string) {
+  return useQuery({
+    queryKey: ['users', id],
+    queryFn: () => usersApi.getById(id),
+    enabled: Boolean(id),
+  });
+}
+
 export function useCreateUser() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -32,6 +42,14 @@ export function useReactivateUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: usersApi.reactivate,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: usersApi.remove,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   });
 }

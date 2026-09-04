@@ -19,7 +19,8 @@ describe('UsuryRateService', () => {
     return {
       id: 'rate-1',
       effectiveMonth: '2026-07-01',
-      ratePercentage: 28,
+      ratePercentage: 2.1,
+      annualRatePercentage: 28,
       createdBy: 'user-1',
       createdByUser: null,
       createdAt: new Date(),
@@ -105,16 +106,39 @@ describe('UsuryRateService', () => {
       repository.findOneBy.mockResolvedValue(null);
 
       await service.setRate(
-        { effectiveMonth: '2026-08-05', ratePercentage: 29.5 },
+        { effectiveMonth: '2026-08-05', annualRatePercentage: 29.24 },
         'user-1',
       );
 
+      // ratePercentage included since 2026-09-03's annual→monthly change
+      // (see the "derives and stores..." test below) — this test's own
+      // exact-match expectation was never updated to match, so it kept
+      // asserting the pre-2026-09-03 shape and failed as soon as anything
+      // exercised the real service instead of a hand-rolled stub.
       expect(repository.create).toHaveBeenCalledWith({
         effectiveMonth: '2026-08-01',
-        ratePercentage: 29.5,
+        annualRatePercentage: 29.24,
+        ratePercentage: 2.1605,
         createdBy: 'user-1',
       });
       expect(repository.save).toHaveBeenCalled();
+    });
+
+    // Bug fix, 2026-09-03 — this used to be the value typed by hand
+    // (ratePercentage). Now it must be derived from annualRatePercentage
+    // via convertAnnualToMonthlyRate, not passed through as-is. Real
+    // example the human provided: 29.24% annual → 2.1605% monthly.
+    it('derives and stores the monthly effective rate from the annual rate', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await service.setRate(
+        { effectiveMonth: '2026-08-05', annualRatePercentage: 29.24 },
+        'user-1',
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ ratePercentage: 2.1605 }),
+      );
     });
 
     it('rejects a duplicate month instead of overwriting the existing rate', async () => {
@@ -122,7 +146,7 @@ describe('UsuryRateService', () => {
 
       await expect(
         service.setRate(
-          { effectiveMonth: '2026-07-20', ratePercentage: 30 },
+          { effectiveMonth: '2026-07-20', annualRatePercentage: 30 },
           'user-1',
         ),
       ).rejects.toThrow(ConflictException);

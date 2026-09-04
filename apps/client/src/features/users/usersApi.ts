@@ -48,6 +48,15 @@ export const usersApi = {
     return data;
   },
 
+  // Backs the "Ver perfil" action on the Usuarios list (UserDetailPage) —
+  // read-only, admin only, same as getAll. No PATCH counterpart exists on
+  // the backend; edits go through deactivate/reactivate/permissions/delete
+  // instead.
+  getById: async (id: string): Promise<User> => {
+    const { data } = await apiClient.get<User>(`/users/${id}`);
+    return data;
+  },
+
   create: async (input: CreateUserInput): Promise<User> => {
     const { data } = await apiClient.post<User>('/users', input);
     return data;
@@ -63,6 +72,13 @@ export const usersApi = {
   reactivate: async (id: string): Promise<User> => {
     const { data } = await apiClient.patch<User>(`/users/${id}/reactivate`);
     return data;
+  },
+
+  // Permanent, irreversible deletion — different from deactivate above.
+  // Only allowed for an already-deactivated account (enforced
+  // server-side, see UsersService.remove).
+  remove: async (id: string): Promise<void> => {
+    await apiClient.delete(`/users/${id}`);
   },
 
   // Replaces the full set of granted modules — rejected server-side for an

@@ -173,16 +173,25 @@ interface PersistLoanParams {
   totalInstallments: number;
   concepts: LoanConceptAssignmentDto[];
   // Phase 23 — must all reference concept types with category "moratorio";
-  // never baked into the schedule/level payment, see resolveMoratoryConcepts.
+  // never baked into the generated schedule, see resolveMoratoryConcepts.
   moratoryConcepts: LoanConceptAssignmentDto[];
-  // Purely informational — the down payment the client already made
-  // outside the credit system to cover the part of the purchase this
-  // loan doesn't finance. It is not one of the loan's installments, has
-  // no due date, accrues no interest, and never affects the amortization
-  // schedule. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md (corrected
-  // after client QA — this was originally modeled as flagging one of the
-  // generated installments, which was wrong).
-  initialPayment?: number | null;
+  // Redesign, 2026-09-03 — the loan's own corriente/moratorio interest,
+  // system-generated rather than a catalog pick (see
+  // resolveConceptsWithInterest). Omitted means "use the current usury
+  // ceiling"; never allowed above it either way.
+  corrienteInterestRate?: number;
+  moratoryInterestRate?: number;
+  // Redesign, 2026-09-03 — the down payment ("cuota inicial") the client
+  // negotiated up front is now a real, collectible installment: it's
+  // stored as installmentNumber 1 with zero ordinary interest, due on its
+  // own admin-chosen date (independent of the periodic schedule that
+  // governs installment 2 onward), with mora still applying if it's
+  // missed. Must be provided together or omitted together — validated in
+  // assertDownPaymentIsValid. Replaces the old purely-informational
+  // Loan.initialPayment (see docs/phases/PHASE_13_INITIAL_INSTALLMENT.md
+  // for that superseded model).
+  downPaymentAmount?: number;
+  downPaymentDueDate?: string;
   description?: string | null;
   refinancedFromLoanId?: string | null;
   // Phase 26 — an existing Client's id, not a snapshot of their details;
@@ -250,7 +259,10 @@ export class LoansService {
           totalInstallments: dto.totalInstallments,
           concepts: dto.concepts,
           moratoryConcepts: dto.moratoryConcepts ?? [],
-          initialPayment: dto.initialPayment,
+          corrienteInterestRate: dto.corrienteInterestRate,
+          moratoryInterestRate: dto.moratoryInterestRate,
+          downPaymentAmount: dto.downPaymentAmount,
+          downPaymentDueDate: dto.downPaymentDueDate,
           description: dto.description,
           coDebtorClientId: dto.coDebtorClientId,
           coDebtorRelationship: dto.coDebtorRelationship,
@@ -271,13 +283,16 @@ export class LoansService {
   async previewSchedule(dto: PreviewScheduleDto): Promise<SchedulePreview> {
     // Phase 24 — hard block here too, not just on create()/refinance(), so
     // what the admin previews always matches what a real submit would
-    // persist (see docs/phases/PHASE_24_USURY_MANDATORY.md).
-    const currentRate = await this.getCurrentUsuryRateOrThrow();
-    const concepts = await this.resolveConcepts(dto.concepts, currentRate);
-    const moratoryConcepts = await this.resolveMoratoryConcepts(
-      dto.moratoryConcepts ?? [],
-      currentRate,
-    );
+    // persist (see docs/phases/PHASE_24_USURY_MANDATORY.md). The block
+    // itself now happens inside resolveConceptsWithInterest, via
+    // getCurrentUsuryRateOrThrow().
+    const { concepts, moratoryConcepts } =
+      await this.resolveConceptsWithInterest(
+        dto.concepts,
+        dto.moratoryConcepts ?? [],
+        dto.corrienteInterestRate,
+        dto.moratoryInterestRate,
+      );
     const schedule = generateAmortizationSchedule(
       dto.principalAmount,
       dto.totalInstallments,
@@ -365,7 +380,10 @@ export class LoansService {
           totalInstallments: dto.totalInstallments,
           concepts: dto.concepts,
           moratoryConcepts: dto.moratoryConcepts ?? [],
-          initialPayment: dto.initialPayment,
+          corrienteInterestRate: dto.corrienteInterestRate,
+          moratoryInterestRate: dto.moratoryInterestRate,
+          downPaymentAmount: dto.downPaymentAmount,
+          downPaymentDueDate: dto.downPaymentDueDate,
           description: dto.description,
           refinancedFromLoanId: id,
           // Carries over the old loan's co-debtor unchanged unless the dto
@@ -393,6 +411,35 @@ export class LoansService {
     await this.sendNewLoanMessageSafely(newLoan.id);
 
     return this.findOne(newLoan.id);
+  }
+
+  // Style cleanup (2026-09-03) — suggests the next pagaré number for
+  // LoanForm/RefinanceLoanForm to pre-fill (still editable; the client
+  // wants #0000-style padding going forward, not a hard lock — see
+  // docs/GLOSSARY.md "Loan / Pagaré"). Takes the highest numeric part
+  // across ALL loans, including soft-deleted ones (withDeleted, same as
+  // assertPromissoryNoteNumberIsUnique below — a deleted loan's number is
+  // still "used" and must never be handed out again), adds 1, and pads to
+  // 4 digits. Deliberately ignores the ~1190 pre-existing loans' actual
+  // formatting (some are "1", "124", "#743"...) — only the numeric value
+  // matters here, via the same extractNumericPart used for the list sort.
+  // Historical rows are NOT being reformatted (confirmed with the human);
+  // this only shapes what gets suggested for new loans from today on.
+  async getNextPromissoryNoteNumber(): Promise<{
+    nextPromissoryNoteNumber: string;
+  }> {
+    const loans = await this.loansRepository.find({
+      select: { promissoryNoteNumber: true },
+      withDeleted: true,
+    });
+
+    const highest = loans.reduce<bigint>((max, loan) => {
+      const numeric = extractNumericPart(loan.promissoryNoteNumber);
+      return numeric !== null && numeric > max ? numeric : max;
+    }, 0n);
+
+    const next = (highest + 1n).toString().padStart(4, '0');
+    return { nextPromissoryNoteNumber: `#${next}` };
   }
 
   // Joins `client` (for clientFullName) and, in a second query, this page's
@@ -1003,13 +1050,21 @@ export class LoansService {
       loansRepository,
     );
     await this.assertCoDebtorIsValid(params.clientId, params.coDebtorClientId);
-
-    const currentRate = await this.getCurrentUsuryRateOrThrow();
-    const concepts = await this.resolveConcepts(params.concepts, currentRate);
-    const moratoryConcepts = await this.resolveMoratoryConcepts(
-      params.moratoryConcepts,
-      currentRate,
+    this.assertDownPaymentIsValid(
+      params.downPaymentAmount,
+      params.downPaymentDueDate,
+      params.disbursedAt,
+      params.installmentFrequency,
     );
+    const hasDownPayment = params.downPaymentAmount != null;
+
+    const { concepts, moratoryConcepts } =
+      await this.resolveConceptsWithInterest(
+        params.concepts,
+        params.moratoryConcepts,
+        params.corrienteInterestRate,
+        params.moratoryInterestRate,
+      );
     const schedule = generateAmortizationSchedule(
       params.principalAmount,
       params.totalInstallments,
@@ -1023,10 +1078,13 @@ export class LoansService {
       interestRate: params.interestRate,
       disbursedAt: params.disbursedAt,
       installmentFrequency: params.installmentFrequency,
-      totalInstallments: params.totalInstallments,
+      // +1 to count the down payment installment alongside the
+      // amortization schedule's own totalInstallments — the stored figure
+      // must match how many Installment rows are actually created below,
+      // since it drives things like LoanSummary's "3/12" progress display.
+      totalInstallments: params.totalInstallments + (hasDownPayment ? 1 : 0),
       status: LoanStatus.Active,
       description: params.description ?? null,
-      initialPayment: params.initialPayment ?? null,
       refinancedFromLoanId: params.refinancedFromLoanId ?? null,
       coDebtorClientId: params.coDebtorClientId ?? null,
       coDebtorRelationship: params.coDebtorRelationship ?? null,
@@ -1039,10 +1097,39 @@ export class LoansService {
       throw this.mapUniqueViolation(error);
     }
 
-    const installments = schedule.map((generated) =>
-      installmentsRepository.create({
-        loanId: savedLoan.id,
-        installmentNumber: generated.installmentNumber,
+    // Down payment (if any) is always installmentNumber 1, interest-free,
+    // due on its own admin-chosen date. Schedule-generated installments
+    // keep using their own unshifted generated.installmentNumber for the
+    // due-date formula (disbursedAt was computed by the frontend as
+    // "second installment's date minus one period", so calculateDueDate(…,
+    // 1) already lands on the right date) — only the number actually
+    // *stored* is offset by +1, to make room for the down payment ahead of
+    // them. scheduleIndex tracks each descriptor's position in `schedule`
+    // (null for the down payment) so concept rows below can be built from
+    // the right entry after this prepend, instead of assuming a naive 1:1
+    // index alignment between installments and schedule.
+    const installmentDescriptors: {
+      installmentNumber: number;
+      amount: number;
+      principalPortion: number;
+      dueDate: string;
+      isDownPayment: boolean;
+      scheduleIndex: number | null;
+    }[] = [];
+    if (hasDownPayment) {
+      installmentDescriptors.push({
+        installmentNumber: 1,
+        amount: params.downPaymentAmount!,
+        principalPortion: params.downPaymentAmount!,
+        dueDate: params.downPaymentDueDate!,
+        isDownPayment: true,
+        scheduleIndex: null,
+      });
+    }
+    schedule.forEach((generated, index) => {
+      installmentDescriptors.push({
+        installmentNumber:
+          generated.installmentNumber + (hasDownPayment ? 1 : 0),
         amount: generated.amount,
         principalPortion: generated.principalPortion,
         dueDate: this.calculateDueDate(
@@ -1050,39 +1137,61 @@ export class LoansService {
           params.installmentFrequency,
           generated.installmentNumber,
         ),
+        isDownPayment: false,
+        scheduleIndex: index,
+      });
+    });
+
+    const installments = installmentDescriptors.map((descriptor) =>
+      installmentsRepository.create({
+        loanId: savedLoan.id,
+        installmentNumber: descriptor.installmentNumber,
+        amount: descriptor.amount,
+        principalPortion: descriptor.principalPortion,
+        dueDate: descriptor.dueDate,
+        isDownPayment: descriptor.isDownPayment,
         status: InstallmentStatus.Pending,
       }),
     );
     const savedInstallments = await installmentsRepository.save(installments);
 
-    const conceptRows = savedInstallments.flatMap((installment, index) => [
-      ...schedule[index].concepts.map((concept) =>
-        loanInstallmentConceptsRepository.create({
-          installmentId: installment.id,
-          interestConceptTypeId: concept.conceptTypeId,
-          nameSnapshot: concept.name,
-          calculationType: concept.calculationType,
-          category: ConceptCategory.Corriente,
-          value: concept.value,
-          computedAmount: concept.computedAmount,
-        }),
-      ),
-      // computedAmount is always 0 for a moratorio row — it's a pure
-      // assignment record, never baked into installment.amount. The real
-      // charge is computed live once the installment is overdue, see
-      // enrichInstallment.ts. See docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
-      ...moratoryConcepts.map((concept) =>
-        loanInstallmentConceptsRepository.create({
-          installmentId: installment.id,
-          interestConceptTypeId: concept.conceptTypeId,
-          nameSnapshot: concept.name,
-          calculationType: concept.calculationType,
-          category: ConceptCategory.Moratorio,
-          value: concept.value,
-          computedAmount: 0,
-        }),
-      ),
-    ]);
+    const conceptRows = savedInstallments.flatMap((installment, index) => {
+      const descriptor = installmentDescriptors[index];
+      return [
+        // The down payment (scheduleIndex null) never gets corriente
+        // concepts — it's interest-free by construction.
+        ...(descriptor.scheduleIndex !== null
+          ? schedule[descriptor.scheduleIndex].concepts.map((concept) =>
+              loanInstallmentConceptsRepository.create({
+                installmentId: installment.id,
+                interestConceptTypeId: concept.conceptTypeId,
+                nameSnapshot: concept.name,
+                calculationType: concept.calculationType,
+                category: ConceptCategory.Corriente,
+                value: concept.value,
+                computedAmount: concept.computedAmount,
+              }),
+            )
+          : []),
+        // computedAmount is always 0 for a moratorio row — it's a pure
+        // assignment record, never baked into installment.amount. The real
+        // charge is computed live once the installment is overdue, see
+        // enrichInstallment.ts. Applies to the down payment too (mora
+        // still applies if it's missed — confirmed with the human,
+        // 2026-09-03). See docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
+        ...moratoryConcepts.map((concept) =>
+          loanInstallmentConceptsRepository.create({
+            installmentId: installment.id,
+            interestConceptTypeId: concept.conceptTypeId,
+            nameSnapshot: concept.name,
+            calculationType: concept.calculationType,
+            category: ConceptCategory.Moratorio,
+            value: concept.value,
+            computedAmount: 0,
+          }),
+        ),
+      ];
+    });
     if (conceptRows.length > 0) {
       await loanInstallmentConceptsRepository.save(conceptRows);
     }
@@ -1090,22 +1199,52 @@ export class LoansService {
     return savedLoan;
   }
 
+  // Redesign, 2026-09-03 — validates the down payment pair before it's
+  // ever saved, same "both or neither" convention as assertCoDebtorIsValid.
+  // The due-date check compares against calculateDueDate(disbursedAt,
+  // frequency, 1) — i.e. the schedule's own first (unshifted) installment
+  // date, which is what installment 2 (the first interest-bearing one)
+  // ends up on once the down payment occupies slot 1. Plain string
+  // comparison is safe: both are 'YYYY-MM-DD', same convention used
+  // elsewhere for dueDate comparisons (see dueDateSchedule.ts).
+  private assertDownPaymentIsValid(
+    downPaymentAmount: number | undefined,
+    downPaymentDueDate: string | undefined,
+    disbursedAt: string,
+    installmentFrequency: InstallmentFrequency,
+  ): void {
+    if (downPaymentAmount == null && downPaymentDueDate == null) {
+      return;
+    }
+    if (downPaymentAmount == null || downPaymentDueDate == null) {
+      throw new BadRequestException(
+        'downPaymentAmount and downPaymentDueDate must be provided together, or both omitted.',
+      );
+    }
+
+    const secondInstallmentDueDate = this.calculateDueDate(
+      disbursedAt,
+      installmentFrequency,
+      1,
+    );
+    if (downPaymentDueDate >= secondInstallmentDueDate) {
+      throw new BadRequestException(
+        `downPaymentDueDate (${downPaymentDueDate}) must be before the second installment's due date (${secondInstallmentDueDate}).`,
+      );
+    }
+  }
+
   // Resolves each referenced concept type's current name from the catalog
   // (snapshotted onto LoanInstallmentConcept — an edit to the catalog entry
   // later must never change an already-generated schedule, confirmed with
   // the human). Concepts are the same for every installment of a loan —
-  // set once at creation, not overridable per installment — since that's
-  // what makes the level-payment (cuota fija) schedule well-defined; see
-  // docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
+  // set once at creation, not overridable per installment. See
+  // generateSchedule.ts's own comment for the capital-fijo amortization
+  // this feeds into (docs/phases/PHASE_14_INTEREST_CONCEPTS.md's original
+  // context — since reversed, 2026-09-04).
   private async resolveConcepts(
     concepts: LoanConceptAssignmentDto[],
-    currentRate: CurrentUsuryRate,
   ): Promise<ConceptAssignment[]> {
-    await this.assertMandatoryUsuryConceptIncluded(
-      concepts,
-      ConceptCategory.Corriente,
-    );
-
     const distinctConceptTypeIds = new Set(
       concepts.map((concept) => concept.conceptTypeId),
     );
@@ -1132,22 +1271,18 @@ export class LoansService {
       });
     }
 
-    return concepts.map((concept) => ({
+    // These are optional catalog fees (Phase 14) — no usury-ceiling
+    // enforcement here. The ceiling only bounds the system-generated
+    // interest field, see resolveConceptsWithInterest.
+    const resolved = concepts.map((concept) => ({
       conceptTypeId: concept.conceptTypeId,
       name: typeById.get(concept.conceptTypeId)?.name ?? '',
       calculationType: concept.calculationType,
-      // Phase 24 — a percentage concept's value is always the current
-      // usury rate, never admin-typed (confirmed with the human: each
-      // interest-bearing concept individually equals the full ceiling,
-      // not a rate split across concepts). Fixed-amount concepts are
-      // untouched. See docs/phases/PHASE_24_USURY_MANDATORY.md.
-      value:
-        concept.calculationType === ConceptCalculationType.Percentage
-          ? currentRate.ratePercentage
-          : concept.value,
+      value: concept.value,
       fixedAmountDistribution: typeById.get(concept.conceptTypeId)
         ?.fixedAmountDistribution,
     }));
+    return resolved;
   }
 
   // Phase 23 — mirrors resolveConcepts above, but for moratory concepts:
@@ -1155,24 +1290,10 @@ export class LoansService {
   // fixedAmountDistribution entirely (meaningless here — a moratory
   // fixed_amount concept is always charged once, flat, on the overdue
   // installment, confirmed with the human, see
-  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md). Phase 24 adds the same
-  // percentage-forced-to-the-usury-rate rule resolveConcepts uses.
+  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md).
   private async resolveMoratoryConcepts(
     concepts: LoanConceptAssignmentDto[],
-    currentRate: CurrentUsuryRate,
-  ): Promise<
-    {
-      conceptTypeId: string;
-      name: string;
-      calculationType: ConceptCalculationType;
-      value: number;
-    }[]
-  > {
-    await this.assertMandatoryUsuryConceptIncluded(
-      concepts,
-      ConceptCategory.Moratorio,
-    );
-
+  ): Promise<ConceptAssignment[]> {
     const distinctConceptTypeIds = new Set(
       concepts.map((concept) => concept.conceptTypeId),
     );
@@ -1189,40 +1310,96 @@ export class LoansService {
       nameByConceptTypeId.set(conceptTypeId, conceptType.name);
     }
 
-    return concepts.map((concept) => ({
+    const resolved = concepts.map((concept) => ({
       conceptTypeId: concept.conceptTypeId,
       name: nameByConceptTypeId.get(concept.conceptTypeId) ?? '',
       calculationType: concept.calculationType,
-      value:
-        concept.calculationType === ConceptCalculationType.Percentage
-          ? currentRate.ratePercentage
-          : concept.value,
+      value: concept.value,
     }));
+    return resolved;
   }
 
-  // Bug fix, 2026-09-03 (human report) — every corriente concepts list and
-  // every moratoryConcepts list must include the category's designated
-  // "usury rate" concept (InterestConceptType.isUsuryRateConcept). Called
-  // from resolveConcepts/resolveMoratoryConcepts, which every entry point
-  // (create, refinance, previewSchedule) already funnels through, so this
-  // enforces the rule everywhere concepts are resolved without needing a
-  // separate call per entry point. See docs/phases/PHASE_24_USURY_MANDATORY.md.
-  private async assertMandatoryUsuryConceptIncluded(
+  // Redesign, 2026-09-03 — the loan's own corriente/moratorio interest is
+  // no longer picked from the catalog; it's built here directly from the
+  // request's corrienteInterestRate/moratoryInterestRate (defaulting to,
+  // and capped at, the current usury ceiling — "editable solo hacia
+  // abajo", confirmed with the human). Wraps resolveConcepts/
+  // resolveMoratoryConcepts, which still resolve any optional catalog
+  // fees the admin picked on top.
+  private async resolveConceptsWithInterest(
     concepts: LoanConceptAssignmentDto[],
-    category: ConceptCategory,
-  ): Promise<void> {
-    const mandatory =
-      await this.interestConceptTypesService.findMandatoryUsuryConcept(
-        category,
-      );
-    if (!mandatory) {
+    moratoryConcepts: LoanConceptAssignmentDto[],
+    corrienteInterestRate: number | undefined,
+    moratoryInterestRate: number | undefined,
+  ): Promise<{
+    concepts: ConceptAssignment[];
+    moratoryConcepts: ConceptAssignment[];
+  }> {
+    const currentRate = await this.getCurrentUsuryRateOrThrow();
+
+    const corriente = this.buildInterestConceptAssignment(
+      this.resolveInterestRate(
+        corrienteInterestRate,
+        currentRate.ratePercentage,
+        'intereses corrientes',
+      ),
+      'Intereses corrientes',
+    );
+    const moratorio = this.buildInterestConceptAssignment(
+      this.resolveInterestRate(
+        moratoryInterestRate,
+        currentRate.ratePercentage,
+        'intereses moratorios',
+      ),
+      'Intereses moratorios',
+    );
+
+    const resolvedConcepts = await this.resolveConcepts(concepts);
+    const resolvedMoratoryConcepts =
+      await this.resolveMoratoryConcepts(moratoryConcepts);
+
+    return {
+      concepts: [corriente, ...resolvedConcepts],
+      moratoryConcepts: [moratorio, ...resolvedMoratoryConcepts],
+    };
+  }
+
+  // conceptTypeId: null marks this as system-generated, not a catalog
+  // pick — see LoanInstallmentConcept.interestConceptTypeId and
+  // InterestConceptType's class comment.
+  private buildInterestConceptAssignment(
+    rate: number,
+    name: string,
+  ): ConceptAssignment {
+    return {
+      conceptTypeId: null,
+      name,
+      calculationType: ConceptCalculationType.Percentage,
+      value: rate,
+    };
+  }
+
+  private resolveInterestRate(
+    requested: number | undefined,
+    ceiling: number,
+    label: string,
+  ): number {
+    const rate = requested ?? ceiling;
+    this.assertInterestRateWithinCeiling(rate, ceiling, label);
+    return rate;
+  }
+
+  // Small float tolerance — ceiling and requested rate both come through
+  // decimal DB/DTO round-tripping.
+  private assertInterestRateWithinCeiling(
+    rate: number,
+    ceiling: number,
+    label: string,
+  ): void {
+    const EPSILON = 0.0001;
+    if (rate > ceiling + EPSILON) {
       throw new BadRequestException(
-        `No hay un cargo de tasa de usura obligatorio configurado para la categoría "${category}" — configúralo en Cargos adicionales antes de crear o refinanciar préstamos.`,
-      );
-    }
-    if (!concepts.some((concept) => concept.conceptTypeId === mandatory.id)) {
-      throw new BadRequestException(
-        `El cargo obligatorio "${mandatory.name}" debe estar incluido en los cargos de categoría "${category}".`,
+        `La tasa de ${label} (${rate}%) no puede superar la tasa de usura vigente (${ceiling}%).`,
       );
     }
   }

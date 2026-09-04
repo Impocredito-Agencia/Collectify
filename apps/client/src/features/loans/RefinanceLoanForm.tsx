@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
+import { ChipButton } from '@/components/ui/ChipButton';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { Field, FormSection } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
+import { PlusIcon } from '@/components/ui/PlusIcon';
 import { Select } from '@/components/ui/Select';
+import { Td, Th } from '@/components/ui/Table';
 import { useClients } from '@/features/clients/useClients';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
 import {
@@ -21,12 +24,17 @@ import {
   subtractDaysFromDateString,
   subtractMonthsFromDateString,
 } from '@/features/loans/dueDateMath';
-import { InstallmentFrequency } from '@/features/loans/loansApi';
-import { MandatoryConceptRow } from '@/features/loans/MandatoryConceptRow';
 import {
+  InstallmentFrequency,
+  PROMISSORY_NOTE_NUMBER_PATTERN,
+} from '@/features/loans/loansApi';
+import { SystemInterestRateRow } from '@/features/loans/MandatoryConceptRow';
+import {
+  useNextPromissoryNoteNumber,
   usePreviewSchedule,
   useRefinanceQuote,
 } from '@/features/loans/useLoans';
+import { exceedsUsuryCeiling } from '@/features/loans/usuryCeiling';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
 import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { ApiError } from '@/lib/apiClient';
@@ -69,7 +77,9 @@ type FieldName =
   | 'totalInstallments'
   | 'concepts'
   | 'moratoryConcepts'
-  | 'coDebtorClientId';
+  | 'coDebtorClientId'
+  | 'downPaymentAmount'
+  | 'downPaymentDueDate';
 type FieldErrors = Partial<Record<FieldName, string>>;
 
 let nextRowId = 0;
@@ -100,6 +110,16 @@ export function RefinanceLoanForm({
   onClose,
 }: RefinanceLoanFormProps) {
   const [promissoryNoteNumber, setPromissoryNoteNumber] = useState('');
+  // Style cleanup (2026-09-03) — same pre-fill as LoanForm.tsx; see that
+  // file's comment for the full reasoning.
+  const { data: suggestedPromissoryNoteNumber } = useNextPromissoryNoteNumber();
+  const hasPrefilledNumber = useRef(false);
+  useEffect(() => {
+    if (suggestedPromissoryNoteNumber && !hasPrefilledNumber.current) {
+      hasPrefilledNumber.current = true;
+      setPromissoryNoteNumber(suggestedPromissoryNoteNumber);
+    }
+  }, [suggestedPromissoryNoteNumber]);
   const [principalAmount, setPrincipalAmount] = useState(0);
   const [additionalPrincipalPayment, setAdditionalPrincipalPayment] =
     useState(0);
@@ -111,6 +131,13 @@ export function RefinanceLoanForm({
   const [concepts, setConcepts] = useState<ConceptRow[]>([]);
   // Phase 23 — see LoanForm.tsx's identical field.
   const [moratoryConcepts, setMoratoryConcepts] = useState<ConceptRow[]>([]);
+  // Redesign, 2026-09-03 — the new loan created by this refinance can have
+  // its own down payment ("cuota inicial"), same as LoanForm.tsx's
+  // identical field — confirmed with the human this applies to
+  // refinancing too. See that file's own comment for the full reasoning.
+  const [hasDownPayment, setHasDownPayment] = useState(false);
+  const [downPaymentAmount, setDownPaymentAmount] = useState(0);
+  const [downPaymentDueDate, setDownPaymentDueDate] = useState('');
   const [description, setDescription] = useState('');
 
   // Phase 26 — pre-filled from the loan being refinanced
@@ -167,11 +194,28 @@ export function RefinanceLoanForm({
   const createConceptType = useCreateInterestConceptType();
   const previewSchedule = usePreviewSchedule();
   const refinanceQuoteMutation = useRefinanceQuote();
-  // Phase 24 — see LoanForm.tsx's identical fields.
+  // Phase 24, revised 2026-09-03 (paused pending legal review) — see
+  // LoanForm.tsx's identical fields.
   const { data: currentUsuryRate } = useCurrentUsuryRate();
   const hasUsableUsuryRate = Boolean(
     currentUsuryRate && !currentUsuryRate.isStale,
   );
+  // corrienteInterestRate/moratoryInterestRate — see LoanForm.tsx's
+  // identical fields/effect for the full reasoning.
+  const [corrienteInterestRate, setCorrienteInterestRate] = useState<
+    number | ''
+  >('');
+  const [moratoryInterestRate, setMoratoryInterestRate] = useState<number | ''>(
+    '',
+  );
+  const hasPrefilledInterestRates = useRef(false);
+  useEffect(() => {
+    if (currentUsuryRate && !hasPrefilledInterestRates.current) {
+      hasPrefilledInterestRates.current = true;
+      setCorrienteInterestRate(currentUsuryRate.ratePercentage);
+      setMoratoryInterestRate(currentUsuryRate.ratePercentage);
+    }
+  }, [currentUsuryRate]);
 
   // Pre-fills principalAmount and concepts as soon as the old loan's quote
   // is available — both remain fully editable afterward. A failed fetch
@@ -258,37 +302,20 @@ export function RefinanceLoanForm({
     }),
   );
 
-  // Bug fix, 2026-09-03 — see LoanForm.tsx's identical fields. Filtered out
-  // of `concepts`/`moratoryConcepts` wherever they're rendered/submitted
-  // below (removableConcepts/removableMoratoryConcepts,
-  // toConceptAssignments) — the refinance-quote pre-fill effect above can
-  // legitimately suggest the same concept the old loan already had, which
-  // would otherwise show up twice: once as the locked MandatoryConceptRow,
-  // once as a normal removable row.
-  const mandatoryCorrienteType = corrienteConceptTypes.find(
-    (conceptType) => conceptType.isUsuryRateConcept,
-  );
-  const mandatoryMoratoryType = moratoryConceptTypes.find(
-    (conceptType) => conceptType.isUsuryRateConcept,
-  );
-  const removableConcepts = concepts.filter(
-    (row) => row.conceptTypeId !== mandatoryCorrienteType?.id,
-  );
-  const removableMoratoryConcepts = moratoryConcepts.filter(
-    (row) => row.conceptTypeId !== mandatoryMoratoryType?.id,
-  );
-
+  // Style fix, 2026-09-03 — see LoanForm.tsx's addConceptRow for the full
+  // explanation: new rows start unselected instead of defaulting to
+  // corrienteConceptTypes[0].
   const addConceptRow = () => {
-    const firstType = corrienteConceptTypes[0];
+    if (corrienteConceptTypes.length === 0) {
+      return;
+    }
     setConcepts((prev) => [
       ...prev,
       {
         rowId: makeRowId(),
-        conceptTypeId: firstType?.id ?? '',
-        calculationType:
-          firstType?.defaultCalculationType ??
-          ConceptCalculationType.Percentage,
-        value: firstType?.defaultValue ?? 0,
+        conceptTypeId: '',
+        calculationType: ConceptCalculationType.Percentage,
+        value: 0,
       },
     ]);
     setFieldErrors((prev) => ({ ...prev, concepts: undefined }));
@@ -306,16 +333,16 @@ export function RefinanceLoanForm({
   };
 
   const addMoratoryConceptRow = () => {
-    const firstType = moratoryConceptTypes[0];
+    if (moratoryConceptTypes.length === 0) {
+      return;
+    }
     setMoratoryConcepts((prev) => [
       ...prev,
       {
         rowId: makeRowId(),
-        conceptTypeId: firstType?.id ?? '',
-        calculationType:
-          firstType?.defaultCalculationType ??
-          ConceptCalculationType.Percentage,
-        value: firstType?.defaultValue ?? 0,
+        conceptTypeId: '',
+        calculationType: ConceptCalculationType.Percentage,
+        value: 0,
       },
     ]);
     setFieldErrors((prev) => ({ ...prev, moratoryConcepts: undefined }));
@@ -339,12 +366,32 @@ export function RefinanceLoanForm({
     const errors: FieldErrors = {};
     if (!promissoryNoteNumber.trim()) {
       errors.promissoryNoteNumber = 'El número de pagaré es obligatorio.';
+    } else if (
+      !PROMISSORY_NOTE_NUMBER_PATTERN.test(promissoryNoteNumber.trim())
+    ) {
+      errors.promissoryNoteNumber =
+        'El número de pagaré debe tener el formato #0000 (ej: #1191).';
     }
     if (!(principal > 0)) {
       errors.principalAmount = 'El monto debe ser mayor a 0.';
     }
     if (!firstDueDate) {
-      errors.firstDueDate = 'La fecha de la primera cuota es obligatoria.';
+      errors.firstDueDate = hasDownPayment
+        ? 'La fecha de la segunda cuota es obligatoria.'
+        : 'La fecha de la primera cuota es obligatoria.';
+    }
+    if (hasDownPayment) {
+      if (!(downPaymentAmount > 0)) {
+        errors.downPaymentAmount =
+          'El valor de la cuota inicial debe ser mayor a 0.';
+      }
+      if (!downPaymentDueDate) {
+        errors.downPaymentDueDate =
+          'La fecha de la cuota inicial es obligatoria.';
+      } else if (firstDueDate && downPaymentDueDate >= firstDueDate) {
+        errors.downPaymentDueDate =
+          'La fecha de la cuota inicial debe ser anterior a la fecha de la segunda cuota.';
+      }
     }
     if (!(count > 0)) {
       errors.totalInstallments = 'El número de cuotas debe ser mayor a 0.';
@@ -352,16 +399,25 @@ export function RefinanceLoanForm({
     if (concepts.some((row) => !row.conceptTypeId)) {
       errors.concepts =
         'Selecciona un tipo para cada cargo adicional agregado.';
-    } else if (!mandatoryCorrienteType) {
-      errors.concepts =
-        'No hay un cargo obligatorio de tasa de usura configurado para cargos corrientes — configúralo en "Tipos de cargo".';
     }
     if (moratoryConcepts.some((row) => !row.conceptTypeId)) {
       errors.moratoryConcepts =
         'Selecciona un tipo para cada cargo moratorio agregado.';
-    } else if (!mandatoryMoratoryType) {
-      errors.moratoryConcepts =
-        'No hay un cargo obligatorio de tasa de usura configurado para cargos moratorios — configúralo en "Tipos de cargo".';
+    }
+    if (
+      currentUsuryRate &&
+      exceedsUsuryCeiling(
+        corrienteInterestRate,
+        currentUsuryRate.ratePercentage,
+      )
+    ) {
+      errors.concepts = `Los intereses corrientes no pueden superar la tasa de usura vigente (${currentUsuryRate.ratePercentage}%).`;
+    }
+    if (
+      currentUsuryRate &&
+      exceedsUsuryCeiling(moratoryInterestRate, currentUsuryRate.ratePercentage)
+    ) {
+      errors.moratoryConcepts = `Los intereses moratorios no pueden superar la tasa de usura vigente (${currentUsuryRate.ratePercentage}%).`;
     }
     if (hasCoDebtor && !coDebtorClient) {
       errors.coDebtorClientId = 'Selecciona un cliente como codeudor.';
@@ -376,50 +432,33 @@ export function RefinanceLoanForm({
     return errors;
   };
 
+  // See LoanForm.tsx's identical computeDisbursedAt comment — firstDueDate
+  // always means the schedule's own unshifted installment 1 date,
+  // regardless of hasDownPayment.
   const computeDisbursedAt = (): string =>
     installmentFrequency === InstallmentFrequency.Monthly
       ? subtractMonthsFromDateString(firstDueDate, 1)
       : subtractDaysFromDateString(firstDueDate, 14);
 
-  // See LoanForm.tsx's identical helpers — the mandatory concept is
-  // prepended here (derived, not user-editable), and removableConcepts/
-  // removableMoratoryConcepts already excludes it from the user-added
-  // rows to avoid submitting it twice.
-  const toConceptAssignments = (): LoanConceptAssignment[] => [
-    ...(mandatoryCorrienteType
-      ? [
-          {
-            conceptTypeId: mandatoryCorrienteType.id,
-            calculationType: ConceptCalculationType.Percentage,
-            value: currentUsuryRate?.ratePercentage ?? 0,
-          },
-        ]
-      : []),
-    ...removableConcepts.map(({ conceptTypeId, calculationType, value }) => ({
+  // See LoanForm.tsx's identical helpers — concepts/moratoryConcepts are
+  // now purely optional catalog fees (the refinance-quote pre-fill above
+  // never includes the old loan's system-generated interest row, since
+  // getRefinanceQuote excludes it — see loans.service.ts). The loan's own
+  // corriente/moratorio interest goes through corrienteInterestRate/
+  // moratoryInterestRate instead (see performSubmit/handlePreview).
+  const toConceptAssignments = (): LoanConceptAssignment[] =>
+    concepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
       value,
-    })),
-  ];
+    }));
 
-  const toMoratoryConceptAssignments = (): LoanConceptAssignment[] => [
-    ...(mandatoryMoratoryType
-      ? [
-          {
-            conceptTypeId: mandatoryMoratoryType.id,
-            calculationType: ConceptCalculationType.Percentage,
-            value: currentUsuryRate?.ratePercentage ?? 0,
-          },
-        ]
-      : []),
-    ...removableMoratoryConcepts.map(
-      ({ conceptTypeId, calculationType, value }) => ({
-        conceptTypeId,
-        calculationType,
-        value,
-      }),
-    ),
-  ];
+  const toMoratoryConceptAssignments = (): LoanConceptAssignment[] =>
+    moratoryConcepts.map(({ conceptTypeId, calculationType, value }) => ({
+      conceptTypeId,
+      calculationType,
+      value,
+    }));
 
   const handlePreview = async () => {
     const errors = validate();
@@ -438,6 +477,8 @@ export function RefinanceLoanForm({
         totalInstallments: count,
         concepts: toConceptAssignments(),
         moratoryConcepts: toMoratoryConceptAssignments(),
+        corrienteInterestRate: corrienteInterestRate || undefined,
+        moratoryInterestRate: moratoryInterestRate || undefined,
       });
       setPreview(result);
     } catch {
@@ -473,13 +514,21 @@ export function RefinanceLoanForm({
       await onSubmit({
         promissoryNoteNumber,
         principalAmount: principal,
-        // Bug fix, 2026-09-03 — see LoanForm.tsx's identical comment.
+        // See LoanForm.tsx's identical comment.
         interestRate: 0,
         disbursedAt: computeDisbursedAt(),
         installmentFrequency,
         totalInstallments: count,
         concepts: toConceptAssignments(),
         moratoryConcepts: toMoratoryConceptAssignments(),
+        corrienteInterestRate: corrienteInterestRate || undefined,
+        moratoryInterestRate: moratoryInterestRate || undefined,
+        ...(hasDownPayment
+          ? {
+              downPaymentAmount,
+              downPaymentDueDate,
+            }
+          : {}),
         description: description.trim() || undefined,
         ...(hasCoDebtor && coDebtorClient
           ? {
@@ -504,6 +553,10 @@ export function RefinanceLoanForm({
           setFieldErrors({
             promissoryNoteNumber: 'Ya existe un préstamo con este número.',
           });
+          // Same format check as LoanForm.tsx's catch block — see its
+          // comment. Normally caught client-side first.
+        } else if (err.statusCode === 400 && /pagaré/i.test(err.message)) {
+          setFieldErrors({ promissoryNoteNumber: err.message });
         } else {
           setFormError(err.message);
         }
@@ -517,7 +570,9 @@ export function RefinanceLoanForm({
 
   return (
     <>
-      <Modal maxWidth="max-w-[560px]" scroll>
+      {/* Widened 560px → 640px, style fix 2026-09-03 — see LoanForm.tsx's
+          identical Modal width change. */}
+      <Modal maxWidth="max-w-[640px]" scroll>
         <div className="flex items-center justify-between">
           <h2 className="text-[16px] font-medium text-white">
             Refinanciar préstamo
@@ -559,7 +614,7 @@ export function RefinanceLoanForm({
                         promissoryNoteNumber: undefined,
                       }));
                     }}
-                    placeholder="Ej: #1000"
+                    placeholder="#0000"
                     className={inputClassName(
                       Boolean(fieldErrors.promissoryNoteNumber),
                     )}
@@ -567,9 +622,88 @@ export function RefinanceLoanForm({
                 </Field>
               </div>
 
+              {/* See LoanForm.tsx's identical block for the full reasoning
+                  — same "cuota inicial" checkbox, placed before the
+                  renegotiated capital/cuotas/fecha, confirmed to apply to
+                  refinancing too. */}
+              <div className="flex flex-col gap-3.5 rounded border border-border bg-input p-3">
+                <label className="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={hasDownPayment}
+                    onChange={(event) => {
+                      setHasDownPayment(event.target.checked);
+                      if (!event.target.checked) {
+                        setDownPaymentAmount(0);
+                        setDownPaymentDueDate('');
+                      }
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        downPaymentAmount: undefined,
+                        downPaymentDueDate: undefined,
+                      }));
+                      setPreview(null);
+                    }}
+                    className="size-4 shrink-0 rounded border-border bg-background accent-white"
+                  />
+                  <span className="text-control text-white">
+                    Este préstamo tiene cuota inicial
+                  </span>
+                </label>
+
+                {hasDownPayment && (
+                  <div className="flex gap-4">
+                    <Field
+                      label="Valor de la cuota inicial"
+                      error={fieldErrors.downPaymentAmount}
+                    >
+                      <CurrencyInput
+                        value={downPaymentAmount}
+                        onChange={(value) => {
+                          setDownPaymentAmount(value);
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            downPaymentAmount: undefined,
+                          }));
+                        }}
+                        placeholder="Ej: $1.000.000"
+                        className={inputClassName(
+                          Boolean(fieldErrors.downPaymentAmount),
+                        )}
+                      />
+                    </Field>
+                    <Field
+                      label="Fecha de la cuota inicial"
+                      error={fieldErrors.downPaymentDueDate}
+                    >
+                      <DatePicker
+                        value={downPaymentDueDate}
+                        onChange={(next) => {
+                          setDownPaymentDueDate(next);
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            downPaymentDueDate: undefined,
+                          }));
+                        }}
+                        className={inputClassName(
+                          Boolean(fieldErrors.downPaymentDueDate),
+                        )}
+                      />
+                    </Field>
+                  </div>
+                )}
+                {hasDownPayment && (
+                  <span className="text-meta text-muted">
+                    Se cobra sin interés, como la primera cuota del pagaré
+                    nuevo. El capital renegociado y las cuotas de abajo son solo
+                    por el resto a financiar.
+                  </span>
+                )}
+              </div>
+
               <div className="flex gap-4">
                 <Field
-                  label="Monto renegociado"
+                  label="Capital renegociado"
                   error={fieldErrors.principalAmount}
                 >
                   <CurrencyInput
@@ -653,7 +787,11 @@ export function RefinanceLoanForm({
 
               <div className="flex gap-4">
                 <Field
-                  label="Fecha de la primera cuota"
+                  label={
+                    hasDownPayment
+                      ? 'Fecha de la segunda cuota'
+                      : 'Fecha de la primera cuota'
+                  }
                   error={fieldErrors.firstDueDate}
                 >
                   <DatePicker
@@ -693,19 +831,20 @@ export function RefinanceLoanForm({
             <FormSection title="Cargos adicionales y cronograma">
               <Field label="Cargos adicionales" error={fieldErrors.concepts}>
                 <div className="flex flex-col gap-2">
-                  {mandatoryCorrienteType ? (
-                    <MandatoryConceptRow
-                      name={mandatoryCorrienteType.name}
-                      ratePercentage={currentUsuryRate?.ratePercentage}
-                    />
-                  ) : (
-                    <p className="text-meta text-danger">
-                      No hay un cargo obligatorio de tasa de usura configurado
-                      para cargos corrientes — configúralo en "Tipos de cargo"
-                      antes de refinanciar préstamos.
-                    </p>
-                  )}
-                  {removableConcepts.map((row) => (
+                  <SystemInterestRateRow
+                    name="Intereses corrientes"
+                    value={corrienteInterestRate}
+                    onChange={setCorrienteInterestRate}
+                    exceedsCeiling={
+                      currentUsuryRate
+                        ? exceedsUsuryCeiling(
+                            corrienteInterestRate,
+                            currentUsuryRate.ratePercentage,
+                          )
+                        : false
+                    }
+                  />
+                  {concepts.map((row) => (
                     <div key={row.rowId} className="flex items-center gap-2">
                       <Select
                         value={row.conceptTypeId}
@@ -722,32 +861,22 @@ export function RefinanceLoanForm({
                           });
                         }}
                         options={conceptTypeOptions}
+                        placeholder="Selecciona un cargo"
                         className="flex-1"
                       />
                       <input
                         type="number"
                         min={0}
-                        step="0.01"
-                        disabled={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                        }
-                        value={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                            ? (currentUsuryRate?.ratePercentage ?? '')
-                            : row.value
-                        }
+                        // step="any" — a percentage concept's value can
+                        // carry more decimals than a native step="0.01"
+                        // tolerates (see MandatoryConceptRow.tsx's own
+                        // comment for the full explanation).
+                        step="any"
+                        value={row.value}
                         onChange={(event) =>
                           updateConceptRow(row.rowId, {
                             value: parseFloat(event.target.value) || 0,
                           })
-                        }
-                        title={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                            ? 'Se aplica la tasa de usura vigente automáticamente — no editable.'
-                            : undefined
                         }
                         placeholder={
                           row.calculationType ===
@@ -755,19 +884,27 @@ export function RefinanceLoanForm({
                             ? '%'
                             : '$'
                         }
-                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                        className="h-[38px] w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
                       />
                       <button
                         type="button"
                         onClick={() => removeConceptRow(row.rowId)}
-                        className="text-meta text-muted hover:text-danger"
+                        className="w-[42px] shrink-0 text-center text-meta text-muted hover:text-danger"
                       >
                         Quitar
                       </button>
                     </div>
                   ))}
                   <div className="mt-1 flex items-center gap-4">
-                    <ChipButton onClick={addConceptRow}>
+                    <ChipButton
+                      onClick={addConceptRow}
+                      disabled={corrienteConceptTypes.length === 0}
+                      title={
+                        corrienteConceptTypes.length === 0
+                          ? 'Crea un tipo de cargo primero'
+                          : undefined
+                      }
+                    >
                       <PlusIcon />
                       Agregar cargo
                     </ChipButton>
@@ -786,19 +923,20 @@ export function RefinanceLoanForm({
                 error={fieldErrors.moratoryConcepts}
               >
                 <div className="flex flex-col gap-2">
-                  {mandatoryMoratoryType ? (
-                    <MandatoryConceptRow
-                      name={mandatoryMoratoryType.name}
-                      ratePercentage={currentUsuryRate?.ratePercentage}
-                    />
-                  ) : (
-                    <p className="text-meta text-danger">
-                      No hay un cargo obligatorio de tasa de usura configurado
-                      para cargos moratorios — configúralo en "Tipos de cargo"
-                      antes de refinanciar préstamos.
-                    </p>
-                  )}
-                  {removableMoratoryConcepts.map((row) => (
+                  <SystemInterestRateRow
+                    name="Intereses moratorios"
+                    value={moratoryInterestRate}
+                    onChange={setMoratoryInterestRate}
+                    exceedsCeiling={
+                      currentUsuryRate
+                        ? exceedsUsuryCeiling(
+                            moratoryInterestRate,
+                            currentUsuryRate.ratePercentage,
+                          )
+                        : false
+                    }
+                  />
+                  {moratoryConcepts.map((row) => (
                     <div key={row.rowId} className="flex items-center gap-2">
                       <Select
                         value={row.conceptTypeId}
@@ -815,32 +953,22 @@ export function RefinanceLoanForm({
                           });
                         }}
                         options={moratoryConceptTypeOptions}
+                        placeholder="Selecciona un cargo"
                         className="flex-1"
                       />
                       <input
                         type="number"
                         min={0}
-                        step="0.01"
-                        disabled={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                        }
-                        value={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                            ? (currentUsuryRate?.ratePercentage ?? '')
-                            : row.value
-                        }
+                        // step="any" — a percentage concept's value can
+                        // carry more decimals than a native step="0.01"
+                        // tolerates (see MandatoryConceptRow.tsx's own
+                        // comment for the full explanation).
+                        step="any"
+                        value={row.value}
                         onChange={(event) =>
                           updateMoratoryConceptRow(row.rowId, {
                             value: parseFloat(event.target.value) || 0,
                           })
-                        }
-                        title={
-                          row.calculationType ===
-                          ConceptCalculationType.Percentage
-                            ? 'Se aplica la tasa de usura vigente automáticamente — no editable.'
-                            : undefined
                         }
                         placeholder={
                           row.calculationType ===
@@ -848,19 +976,27 @@ export function RefinanceLoanForm({
                             ? '%'
                             : '$'
                         }
-                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                        className="h-[38px] w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
                       />
                       <button
                         type="button"
                         onClick={() => removeMoratoryConceptRow(row.rowId)}
-                        className="text-meta text-muted hover:text-danger"
+                        className="w-[42px] shrink-0 text-center text-meta text-muted hover:text-danger"
                       >
                         Quitar
                       </button>
                     </div>
                   ))}
                   <div className="mt-1 flex items-center gap-4">
-                    <ChipButton onClick={addMoratoryConceptRow}>
+                    <ChipButton
+                      onClick={addMoratoryConceptRow}
+                      disabled={moratoryConceptTypes.length === 0}
+                      title={
+                        moratoryConceptTypes.length === 0
+                          ? 'Crea un tipo de cargo primero'
+                          : undefined
+                      }
+                    >
                       <PlusIcon />
                       Agregar cargo moratorio
                     </ChipButton>
@@ -875,60 +1011,77 @@ export function RefinanceLoanForm({
               </Field>
 
               {count > 0 && (
-                <div className="rounded border border-border bg-input p-3">
-                  <div className="flex items-center justify-between">
-                    <ChipButton
-                      onClick={handlePreview}
-                      disabled={
-                        previewSchedule.isPending || !hasUsableUsuryRate
-                      }
-                    >
-                      {previewSchedule.isPending
-                        ? 'Calculando…'
-                        : 'Previsualizar cronograma de cuotas'}
-                    </ChipButton>
-                  </div>
+                <div className="flex flex-col gap-2.5">
+                  <ChipButton
+                    onClick={handlePreview}
+                    disabled={previewSchedule.isPending || !hasUsableUsuryRate}
+                  >
+                    {previewSchedule.isPending
+                      ? 'Calculando…'
+                      : 'Previsualizar cronograma de cuotas'}
+                  </ChipButton>
+                  {/* Style fix, 2026-09-03 — see LoanForm.tsx's identical
+                      preview table for the full explanation. */}
                   {preview && (
-                    <div className="mt-2.5 max-h-[180px] overflow-y-auto">
-                      <table className="w-full text-meta">
-                        <thead>
-                          <tr className="text-muted">
-                            <th className="pb-1 text-left font-normal">
-                              Cuota
-                            </th>
-                            <th className="pb-1 text-left font-normal">
-                              Vence
-                            </th>
-                            <th className="pb-1 text-right font-normal">
-                              Capital
-                            </th>
-                            <th className="pb-1 text-right font-normal">
-                              Total
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {preview.installments.map((installment) => (
-                            <tr
-                              key={installment.installmentNumber}
-                              className="text-white"
-                            >
-                              <td className="py-0.5">
-                                {installment.installmentNumber}
-                              </td>
-                              <td className="py-0.5">
-                                {formatDateOnly(installment.dueDate)}
-                              </td>
-                              <td className="py-0.5 text-right">
-                                {formatCurrency(installment.principalPortion)}
-                              </td>
-                              <td className="py-0.5 text-right font-medium">
-                                {formatCurrency(installment.amount)}
-                              </td>
+                    <div className="overflow-hidden rounded border border-border bg-surface">
+                      <div className="max-h-[280px] overflow-y-auto">
+                        <table className="w-full border-collapse">
+                          <thead className="sticky top-0 bg-input">
+                            <tr className="divide-x divide-border">
+                              <Th compact>Cuota</Th>
+                              <Th compact>Vence</Th>
+                              <Th compact className="text-right">
+                                Capital
+                              </Th>
+                              <Th compact className="text-right">
+                                Total
+                              </Th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {/* See LoanForm.tsx's identical block — the down
+                                payment isn't part of this preview response,
+                                so it's rendered as a synthetic first row
+                                with the rest renumbered +1. */}
+                            {hasDownPayment && (
+                              <tr className="divide-x divide-border">
+                                <Td compact>1</Td>
+                                <Td compact>
+                                  {downPaymentDueDate
+                                    ? formatDateOnly(downPaymentDueDate)
+                                    : '—'}
+                                </Td>
+                                <Td compact className="text-right">
+                                  {formatCurrency(downPaymentAmount)}
+                                </Td>
+                                <Td compact className="text-right">
+                                  {formatCurrency(downPaymentAmount)}
+                                </Td>
+                              </tr>
+                            )}
+                            {preview.installments.map((installment) => (
+                              <tr
+                                key={installment.installmentNumber}
+                                className="divide-x divide-border"
+                              >
+                                <Td compact>
+                                  {installment.installmentNumber +
+                                    (hasDownPayment ? 1 : 0)}
+                                </Td>
+                                <Td compact>
+                                  {formatDateOnly(installment.dueDate)}
+                                </Td>
+                                <Td compact className="text-right">
+                                  {formatCurrency(installment.principalPortion)}
+                                </Td>
+                                <Td compact className="text-right">
+                                  {formatCurrency(installment.amount)}
+                                </Td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1189,43 +1342,6 @@ function formatInstallmentList(numbers: number[]): string {
 }
 
 // inputClassName, Field, and FormSection now live in @/lib/formStyles and
-// @/components/ui/Field — see DESIGN_TOKENS.md's "Component-based
+// @/components/ui/Field, ChipButton/PlusIcon in @/components/ui/ChipButton
+// and @/components/ui/PlusIcon — see DESIGN_TOKENS.md's "Component-based
 // centralization" section.
-
-// Same chip treatment ClientForm.tsx's "+ Agregar referencia" fix
-// introduced — a bordered, backgrounded button instead of bare colored
-// text sitting right next to plain muted body copy, which made it easy to
-// miss as an actual clickable action.
-function ChipButton({
-  onClick,
-  disabled,
-  children,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex items-center gap-1.5 self-start rounded border border-border bg-input px-3.5 py-2 text-small text-muted hover:border-subtle hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      {children}
-    </button>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg
-      className="size-3.5 shrink-0"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-    >
-      <path d="M10 4v12M4 10h12" strokeWidth="1.75" strokeLinecap="round" />
-    </svg>
-  );
-}
