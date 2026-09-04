@@ -6,20 +6,20 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
+
 import { CreateInterestConceptTypeDto } from './dto/createInterestConceptType.dto';
 import { QueryInterestConceptTypesDto } from './dto/queryInterestConceptTypes.dto';
 import { UpdateInterestConceptTypeDto } from './dto/updateInterestConceptType.dto';
-import {
-  ConceptCalculationType,
-  ConceptCategory,
-  InterestConceptType,
-} from './entities/interestConceptType.entity';
+import { InterestConceptType } from './entities/interestConceptType.entity';
 
 @Injectable()
 export class InterestConceptTypesService {
   constructor(
     @InjectRepository(InterestConceptType)
     private readonly repository: Repository<InterestConceptType>,
+    @InjectRepository(LoanInstallmentConcept)
+    private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
   ) {}
 
   findAll(query: QueryInterestConceptTypesDto): Promise<InterestConceptType[]> {
@@ -44,11 +44,6 @@ export class InterestConceptTypesService {
   async create(
     dto: CreateInterestConceptTypeDto,
   ): Promise<InterestConceptType> {
-    this.assertUsuryFlagIsValid(
-      dto.isUsuryRateConcept ?? false,
-      dto.defaultCalculationType,
-    );
-
     const conceptType = this.repository.create({
       name: dto.name,
       defaultCalculationType: dto.defaultCalculationType,
@@ -56,15 +51,8 @@ export class InterestConceptTypesService {
       category: dto.category,
       fixedAmountDistribution: dto.fixedAmountDistribution ?? null,
       isActive: true,
-      isUsuryRateConcept: dto.isUsuryRateConcept ?? false,
     });
-    const saved = await this.repository.save(conceptType);
-
-    if (saved.isUsuryRateConcept) {
-      await this.unsetOtherUsuryConceptsInCategory(saved.id, saved.category);
-    }
-
-    return saved;
+    return this.repository.save(conceptType);
   }
 
   async update(
@@ -86,70 +74,8 @@ export class InterestConceptTypesService {
     if (dto.fixedAmountDistribution !== undefined) {
       conceptType.fixedAmountDistribution = dto.fixedAmountDistribution;
     }
-    if (dto.isUsuryRateConcept !== undefined) {
-      conceptType.isUsuryRateConcept = dto.isUsuryRateConcept;
-    }
 
-    // Validated against the RESULTING state (post-merge), so a request
-    // that flips isUsuryRateConcept to true and changes
-    // defaultCalculationType away from percentage in the same call is
-    // still rejected.
-    this.assertUsuryFlagIsValid(
-      conceptType.isUsuryRateConcept,
-      conceptType.defaultCalculationType,
-    );
-
-    const saved = await this.repository.save(conceptType);
-
-    if (saved.isUsuryRateConcept) {
-      await this.unsetOtherUsuryConceptsInCategory(saved.id, saved.category);
-    }
-
-    return saved;
-  }
-
-  // At most one concept per category may be flagged — matches
-  // MessageTemplatesService.activate()'s "activating one deactivates the
-  // others of the same scope" pattern elsewhere in this codebase.
-  private async unsetOtherUsuryConceptsInCategory(
-    exceptId: string,
-    category: ConceptCategory,
-  ): Promise<void> {
-    await this.repository
-      .createQueryBuilder()
-      .update(InterestConceptType)
-      .set({ isUsuryRateConcept: false })
-      .where('category = :category', { category })
-      .andWhere('id != :exceptId', { exceptId })
-      .execute();
-  }
-
-  private assertUsuryFlagIsValid(
-    isUsuryRateConcept: boolean,
-    calculationType: ConceptCalculationType,
-  ): void {
-    if (
-      isUsuryRateConcept &&
-      calculationType !== ConceptCalculationType.Percentage
-    ) {
-      throw new BadRequestException(
-        'isUsuryRateConcept can only be set on a percentage-type concept.',
-      );
-    }
-  }
-
-  // The mandatory, non-removable concept for a category — the loan form
-  // always includes it, LoansService requires its id in the corresponding
-  // concepts/moratoryConcepts list. null when the admin hasn't designated
-  // one yet for that category.
-  findMandatoryUsuryConcept(
-    category: ConceptCategory,
-  ): Promise<InterestConceptType | null> {
-    return this.repository.findOneBy({
-      category,
-      isUsuryRateConcept: true,
-      isActive: true,
-    });
+    return this.repository.save(conceptType);
   }
 
   // Removing a type from the picker for new loans, without touching
@@ -159,5 +85,41 @@ export class InterestConceptTypesService {
     const conceptType = await this.findOneOrThrow(id);
     conceptType.isActive = false;
     return this.repository.save(conceptType);
+  }
+
+  // Human request, 2026-09-03 — a genuine hard delete, for a type that was
+  // created wrong (typo, wrong category) and never actually used, as
+  // opposed to deactivate() above, which only hides it from the picker.
+  // Mirrors UsersService.remove()'s two-step pattern: must already be
+  // deactivated, and — the extra check that has no equivalent on
+  // Users — must never have been used on any loan.
+  // LoanInstallmentConcept.interestConceptTypeId has onDelete: 'SET NULL'
+  // (see that entity's comment), so this is safe even for a used type —
+  // the rows keep their own nameSnapshot/calculationType/value regardless
+  // — but blocking it anyway preserves the reporting link
+  // ("total gastos de cobranza cobrados este mes") and keeps this
+  // consistent with the reasoning for not letting deactivate() alone be
+  // reversible into a delete. withDeleted: true because
+  // LoanInstallmentConcept has its own soft-delete column — a
+  // soft-deleted row still means this type was used at some point.
+  async remove(id: string): Promise<void> {
+    const conceptType = await this.findOneOrThrow(id);
+    if (conceptType.isActive) {
+      throw new BadRequestException(
+        'The concept type must be deactivated before it can be deleted.',
+      );
+    }
+
+    const usageCount = await this.loanInstallmentConceptsRepository.count({
+      where: { interestConceptTypeId: id },
+      withDeleted: true,
+    });
+    if (usageCount > 0) {
+      throw new BadRequestException(
+        'This concept type has already been used on one or more loans and cannot be deleted — it can only stay deactivated.',
+      );
+    }
+
+    await this.repository.delete({ id });
   }
 }

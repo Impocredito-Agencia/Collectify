@@ -3,6 +3,9 @@ import { useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { FilterTab } from '@/components/ui/FilterTab';
+import { RowActionButton } from '@/components/ui/RowActionButton';
+import { DeactivateConceptTypeDialog } from '@/features/interestConceptTypes/DeactivateConceptTypeDialog';
+import { DeleteConceptTypeDialog } from '@/features/interestConceptTypes/DeleteConceptTypeDialog';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
 import {
   ConceptCalculationType,
@@ -11,6 +14,7 @@ import {
 import {
   useCreateInterestConceptType,
   useDeactivateInterestConceptType,
+  useDeleteInterestConceptType,
   useInterestConceptTypes,
   useUpdateInterestConceptType,
 } from '@/features/interestConceptTypes/useInterestConceptTypes';
@@ -32,7 +36,12 @@ function formatDefaultValue(conceptType: InterestConceptType): string {
 // from a fixed list. Loans pick from this catalog at creation time
 // (LoanForm.tsx). Deactivating a type only removes it from that picker —
 // loans that already used it keep the name/value they were generated with
-// (snapshot), unaffected.
+// (snapshot), unaffected. Human request, 2026-09-03 — a type can also be
+// permanently deleted (see "Eliminar" on the Desactivados tab), but only
+// once deactivated and only if it was never actually used on any loan; a
+// type created by mistake and never used can be fully removed, one already
+// used on a loan can only stay deactivated. See
+// InterestConceptTypesService.remove().
 export function InterestConceptTypesPage() {
   const [showInactive, setShowInactive] = useState(false);
   const {
@@ -46,10 +55,22 @@ export function InterestConceptTypesPage() {
   const [formTarget, setFormTarget] = useState<
     InterestConceptType | 'new' | null
   >(null);
+  // Style cleanup, 2026-09-03 — "Desactivar" used to call the mutation
+  // directly with zero confirmation, unlike every other deactivate action
+  // in the app. See DeactivateConceptTypeDialog.
+  const [deactivatingConceptType, setDeactivatingConceptType] =
+    useState<InterestConceptType | null>(null);
+  // Only ever set from the Desactivados tab (see the "Eliminar" button
+  // below) — the dialog itself surfaces the server's "already used on a
+  // loan" rejection inline if it turns out this type isn't actually
+  // deletable. See DeleteConceptTypeDialog.
+  const [deletingConceptType, setDeletingConceptType] =
+    useState<InterestConceptType | null>(null);
 
   const createConceptType = useCreateInterestConceptType();
   const updateConceptType = useUpdateInterestConceptType();
   const deactivateConceptType = useDeactivateInterestConceptType();
+  const deleteConceptType = useDeleteInterestConceptType();
 
   return (
     <div className="flex flex-col gap-5">
@@ -129,14 +150,6 @@ export function InterestConceptTypesPage() {
                     ? 'Moratorio'
                     : 'Corriente'}
                 </span>
-                {conceptType.isUsuryRateConcept && (
-                  <span
-                    className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white"
-                    title="Aparece siempre, sin poder quitarse, en todo préstamo de esta categoría."
-                  >
-                    Obligatorio (usura)
-                  </span>
-                )}
               </div>
               <span className="text-meta text-muted">
                 {conceptType.defaultCalculationType ===
@@ -147,22 +160,34 @@ export function InterestConceptTypesPage() {
               </span>
             </div>
             {!showInactive && (
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setFormTarget(conceptType)}
-                  className="text-meta text-muted hover:text-white"
-                >
+              // Style cleanup, 2026-09-03 (human report — "Editar" was
+              // easy to miss entirely) — matches every other list's
+              // pill-style action buttons (Clientes, Usuarios, Préstamos)
+              // instead of the plain, borderless text this page used to
+              // have. See RowActionButton.
+              <div className="flex items-center gap-2">
+                <RowActionButton onClick={() => setFormTarget(conceptType)}>
                   Editar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => deactivateConceptType.mutate(conceptType.id)}
-                  className="text-meta text-muted hover:text-danger"
+                </RowActionButton>
+                <RowActionButton
+                  onClick={() => setDeactivatingConceptType(conceptType)}
+                  tone="subtle"
                 >
                   Desactivar
-                </button>
+                </RowActionButton>
               </div>
+            )}
+            {/* Only on the Desactivados tab — mirrors UserRow.tsx's
+                "Eliminar" gating (only shown for an already-inactive
+                account). The server enforces "never used on a loan";
+                this button doesn't try to know that upfront. */}
+            {showInactive && (
+              <RowActionButton
+                onClick={() => setDeletingConceptType(conceptType)}
+                tone="subtle"
+              >
+                Eliminar
+              </RowActionButton>
             )}
           </div>
         ))}
@@ -177,6 +202,26 @@ export function InterestConceptTypesPage() {
               : updateConceptType.mutateAsync({ id: formTarget.id, input })
           }
           onClose={() => setFormTarget(null)}
+        />
+      )}
+
+      {deactivatingConceptType && (
+        <DeactivateConceptTypeDialog
+          conceptTypeName={deactivatingConceptType.name}
+          onClose={() => setDeactivatingConceptType(null)}
+          onConfirm={() =>
+            deactivateConceptType.mutateAsync(deactivatingConceptType.id)
+          }
+        />
+      )}
+
+      {deletingConceptType && (
+        <DeleteConceptTypeDialog
+          conceptTypeName={deletingConceptType.name}
+          onClose={() => setDeletingConceptType(null)}
+          onConfirm={() =>
+            deleteConceptType.mutateAsync(deletingConceptType.id)
+          }
         />
       )}
     </div>

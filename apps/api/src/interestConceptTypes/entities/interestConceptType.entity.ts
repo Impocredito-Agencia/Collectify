@@ -29,15 +29,35 @@ export enum ConceptCategory {
 // Corriente — a moratorio fixed_amount concept is always charged once, flat,
 // the moment an installment goes overdue (confirmed with the human), so it
 // has no distribution mode to choose.
+//
+// RepeatedEachInstallment replaced FirstInstallmentOnly, 2026-09-03 (human
+// report — charging the flat fee once on installment 1 and nothing after
+// had no real use case for this client; what they actually needed was the
+// same fixed amount charged in full on every installment, e.g. a recurring
+// monthly service fee). See generateSchedule.ts's buildFixedAmountSchedule
+// and migration RenameFirstInstallmentOnlyToRepeatedEachInstallment.
 export enum FixedAmountDistribution {
   SplitAcrossInstallments = 'split_across_installments',
-  FirstInstallmentOnly = 'first_installment_only',
+  RepeatedEachInstallment = 'repeated_each_installment',
 }
 
-// Admin-managed catalog of interest/fee concepts (e.g. "Interés
-// remuneratorio", "Gastos de cobranza"). Confirmed with the human this must
-// stay open-ended — the admin creates new concept types whenever needed,
-// not a fixed/hardcoded list. See docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
+// Admin-managed catalog of OPTIONAL interest/fee concepts (e.g. "Gastos de
+// cobranza", "Seguro"). Confirmed with the human this must stay open-ended —
+// the admin creates new concept types whenever needed, not a
+// fixed/hardcoded list. See docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
+//
+// Redesigned, 2026-09-03 (human report — the previous isUsuryRateConcept
+// flag, "mark one catalog entry as THE mandatory usury-rate concept", was a
+// bad design: indirect, fragile, and mixed two unrelated jobs into one
+// screen). The loan's own corriente/moratorio interest is no longer a
+// catalog entry at all — it's a system-generated LoanInstallmentConcept row
+// (interestConceptTypeId: null), built directly from
+// LoansService.buildInterestConceptAssignment() using
+// CreateLoanDto.corrienteInterestRate/moratoryInterestRate (defaulting to,
+// and never allowed above, the current usury ceiling). This catalog is
+// purely for optional business fees again — no flag, no "mandatory"
+// concept, nothing here drives loan pricing on its own. See
+// docs/phases/PHASE_24_USURY_MANDATORY.md.
 @Entity('interest_concept_types')
 export class InterestConceptType {
   @PrimaryGeneratedColumn('uuid')
@@ -78,18 +98,6 @@ export class InterestConceptType {
   // human: existing loans must not change if the catalog entry changes).
   @Column({ default: true })
   isActive!: boolean;
-
-  // Added 2026-09-03, human bug report: at most one Percentage concept per
-  // category can carry this flag (enforced in
-  // InterestConceptTypesService.create/update — setting it on one concept
-  // unsets it on any other in the same category, not a DB constraint, same
-  // pattern as this project's other "one active X" rules). LoansService
-  // requires this concept's id to be present in the corresponding
-  // concepts/moratoryConcepts list on every loan create/refinance/preview —
-  // it's the mandatory, non-removable usury-rate row the loan form always
-  // shows. See docs/phases/PHASE_24_USURY_MANDATORY.md.
-  @Column({ default: false })
-  isUsuryRateConcept!: boolean;
 
   @CreateDateColumn()
   createdAt!: Date;

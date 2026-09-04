@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -14,6 +17,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { Audit } from '../auditLog/decorators/audit.decorator';
 import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { AppModule } from '../users/entities/userModulePermission.entity';
 
@@ -52,6 +56,7 @@ export class InterestConceptTypesController {
 
   @Post()
   @RequireModule(AppModule.InterestConceptTypes)
+  @Audit('interestConceptType.create', 'interestConceptType')
   @ApiOperation({
     summary:
       'Create a new interest concept type (admin or granted the interest_concept_types module)',
@@ -67,6 +72,7 @@ export class InterestConceptTypesController {
 
   @Patch(':id')
   @RequireModule(AppModule.InterestConceptTypes)
+  @Audit('interestConceptType.update', 'interestConceptType')
   @ApiOperation({
     summary:
       'Update an interest concept type (admin or granted the interest_concept_types module)',
@@ -84,6 +90,7 @@ export class InterestConceptTypesController {
 
   @Patch(':id/deactivate')
   @RequireModule(AppModule.InterestConceptTypes)
+  @Audit('interestConceptType.deactivate', 'interestConceptType')
   @ApiOperation({
     summary:
       'Deactivate an interest concept type (admin or granted the interest_concept_types module)',
@@ -97,5 +104,26 @@ export class InterestConceptTypesController {
   @ApiResponse({ status: 404, description: 'Concept type not found.' })
   deactivate(@Param('id') id: string): Promise<InterestConceptType> {
     return this.interestConceptTypesService.deactivate(id);
+  }
+
+  @Delete(':id')
+  @RequireModule(AppModule.InterestConceptTypes)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit('interestConceptType.delete', 'interestConceptType')
+  @ApiOperation({
+    summary:
+      'Permanently delete a deactivated, never-used concept type (admin or granted the interest_concept_types module)',
+    description:
+      'Irreversible — for a type created by mistake (typo, wrong category) and never actually assigned to any loan. Only allowed once the type is already deactivated (see PATCH :id/deactivate), and only if no loan_installment_concepts row references it, ever (including historical/soft-deleted ones) — a type that has been used on even one loan can only stay deactivated, not be deleted, so the reporting link back to the catalog is never silently lost.',
+  })
+  @ApiResponse({ status: 204, description: 'The concept type was deleted.' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'The type is still active (deactivate it first), or it has already been used on one or more loans.',
+  })
+  @ApiResponse({ status: 404, description: 'Concept type not found.' })
+  remove(@Param('id') id: string): Promise<void> {
+    return this.interestConceptTypesService.remove(id);
   }
 }
