@@ -28,13 +28,37 @@ export class UsuryRate {
   @Column({ type: 'date' })
   effectiveMonth!: string;
 
+  // The monthly EFFECTIVE rate actually applied to loan interest — every
+  // existing consumer (LoansService pricing percentage concepts per
+  // installment) reads this field unchanged. As of 2026-09-03 it's no
+  // longer typed by hand: UsuryRateService.setRate computes it from
+  // annualRatePercentage below via convertAnnualToMonthlyRate. Widened from
+  // decimal(5,2) to decimal(7,4) in the same migration — the old 2-decimal
+  // precision would have truncated a real value like 2.1605% to 2.16%.
   @Column({
     type: 'decimal',
-    precision: 5,
-    scale: 2,
+    precision: 7,
+    scale: 4,
     transformer: decimalTransformer,
   })
   ratePercentage!: number;
+
+  // The raw published rate from the Superintendencia Financiera ("interés
+  // bancario corriente", crédito de consumo y ordinario — see
+  // https://www.superfinanciera.gov.co/publicaciones/10829/sala-de-prensacomunicados-de-prensa-interes-bancario-corriente-10829/),
+  // e.g. 29.24 for "29,24%". Added 2026-09-03 — nullable because no real
+  // rate had ever been entered in production before this column existed
+  // (confirmed with the human, nothing to backfill), not because it's
+  // optional for new rows: CreateUsuryRateDto always requires it, and
+  // setRate always populates it alongside the derived ratePercentage above.
+  @Column({
+    type: 'decimal',
+    precision: 6,
+    scale: 2,
+    nullable: true,
+    transformer: decimalTransformer,
+  })
+  annualRatePercentage!: number | null;
 
   // Nullable + SET NULL, same reasoning as audit_logs.actorUserId: keep the
   // historical rate row (and the record that someone entered it) even after
