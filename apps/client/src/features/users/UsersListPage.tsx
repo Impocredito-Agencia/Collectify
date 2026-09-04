@@ -6,12 +6,14 @@ import { FilterTab } from '@/components/ui/FilterTab';
 import { Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { DeactivateUserDialog } from '@/features/users/DeactivateUserDialog';
+import { DeleteUserDialog } from '@/features/users/DeleteUserDialog';
 import { UserForm } from '@/features/users/UserForm';
 import { UserPermissionsDialog } from '@/features/users/UserPermissionsDialog';
 import { UserRow } from '@/features/users/UserRow';
 import {
   useCreateUser,
   useDeactivateUser,
+  useDeleteUser,
   useReactivateUser,
   useUpdateUserPermissions,
   useUsers,
@@ -33,6 +35,7 @@ export function UsersListPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [deactivatingUser, setDeactivatingUser] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
   const [editingPermissionsUser, setEditingPermissionsUser] =
     useState<User | null>(null);
   const [reactivateError, setReactivateError] = useState<string | null>(null);
@@ -48,6 +51,7 @@ export function UsersListPage() {
   const createUser = useCreateUser();
   const deactivateUser = useDeactivateUser();
   const reactivateUser = useReactivateUser();
+  const deleteUser = useDeleteUser();
   const updateUserPermissions = useUpdateUserPermissions();
 
   return (
@@ -107,6 +111,7 @@ export function UsersListPage() {
                 isOwnAccount={user.id === currentUser?.id}
                 onDeactivate={() => setDeactivatingUser(user)}
                 onEditPermissions={() => setEditingPermissionsUser(user)}
+                onDelete={() => setDeletingUser(user)}
                 onReactivate={async () => {
                   setReactivateError(null);
                   try {
@@ -146,6 +151,14 @@ export function UsersListPage() {
           userName={deactivatingUser.fullName}
           onClose={() => setDeactivatingUser(null)}
           onConfirm={() => deactivateUser.mutateAsync(deactivatingUser.id)}
+        />
+      )}
+
+      {deletingUser && (
+        <DeleteUserDialog
+          userName={deletingUser.fullName}
+          onClose={() => setDeletingUser(null)}
+          onConfirm={() => deleteUser.mutateAsync(deletingUser.id)}
         />
       )}
 

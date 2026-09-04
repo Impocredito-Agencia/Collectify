@@ -1,21 +1,7 @@
 import { Header } from '@/components/layout/Header';
 import { ChangePasswordCard } from '@/features/auth/ChangePasswordDialog';
 import { useAuth } from '@/features/auth/useAuth';
-import { getInitials } from '@/lib/format';
-
-// createdAt is a real timestamp (TypeORM @CreateDateColumn), not a
-// date-only column — unlike formatDateOnly (lib/format.ts), this should
-// convert to the viewer's LOCAL time, per that helper's own doc comment.
-// "Enero 2025" matches the Figma design's "Desde" field exactly (month +
-// year only, capitalized — toLocaleDateString lowercases the month name
-// in es-CO).
-function formatMemberSince(isoDateTime: string): string {
-  const label = new Date(isoDateTime).toLocaleDateString('es-CO', {
-    month: 'long',
-    year: 'numeric',
-  });
-  return label.charAt(0).toUpperCase() + label.slice(1);
-}
+import { formatMemberSince, getInitials } from '@/lib/format';
 
 // Matches the client's "Mi perfil" design: two cards, "Información de
 // cuenta" (read-only) and "Cambiar contraseña" (ChangePasswordCard, moved

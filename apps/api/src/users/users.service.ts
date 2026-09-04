@@ -48,6 +48,20 @@ export class UsersService {
     return this.usersRepository.findOneBy({ id });
   }
 
+  // Public-facing counterpart to findById above — throws instead of
+  // returning null (the controller has nothing sensible to do with a null
+  // here) and shapes the result as PublicUser (no passwordHash, real
+  // `modules`), same as every other read/write method below. Added so
+  // Usuarios can offer a "Ver perfil" action per row (previously there was
+  // no GET /users/:id at all — see UserRow.tsx's old comment about that).
+  async findOne(id: string): Promise<PublicUser> {
+    const user = await this.usersRepository.findOneBy({ id });
+    if (!user) {
+      throw new NotFoundException(`User with id ${id} not found`);
+    }
+    return this.toPublicUser(user);
+  }
+
   async findAll(query: QueryUsersDto): Promise<PublicUser[]> {
     const isActive = query.isActive ?? true;
 
@@ -103,6 +117,33 @@ export class UsersService {
 
   async reactivate(id: string): Promise<PublicUser> {
     return this.setActive(id, true);
+  }
+
+  // Permanent, irreversible removal — deliberately different from
+  // deactivate/reactivate above, which only ever flip isActive and keep
+  // the row (and its history) intact. Only allowed once an account has
+  // already been deactivated — confirmed with the human (Phase 20
+  // follow-up): this is a second, explicit step after deactivation, not a
+  // shortcut around it, so an admin can't delete someone who's still able
+  // to log in. A real SQL DELETE, not TypeORM's soft-delete — even though
+  // User has a deletedAt column, the human explicitly chose permanent
+  // deletion here. Safe to hard-delete: audit_logs.actorUserId and
+  // usury_rates.createdBy both use onDelete: 'SET NULL', so this account's
+  // past actions stay in those trails with no resolvable actor instead of
+  // being deleted along with it. user_module_permissions rows cascade-
+  // delete, which is fine — they're just this account's own grants.
+  async remove(id: string): Promise<void> {
+    const user = await this.usersRepository.findOneBy({ id });
+    if (!user) {
+      throw new NotFoundException(`User with id ${id} not found`);
+    }
+    if (user.isActive) {
+      throw new BadRequestException(
+        'The account must be deactivated before it can be deleted',
+      );
+    }
+
+    await this.usersRepository.delete({ id });
   }
 
   async updatePasswordHash(id: string, passwordHash: string): Promise<void> {

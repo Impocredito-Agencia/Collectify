@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -44,6 +47,20 @@ export class UsersController {
   @ApiResponse({ status: 403, description: 'Requires the admin role.' })
   findAll(@Query() query: QueryUsersDto): Promise<PublicUser[]> {
     return this.usersService.findAll(query);
+  }
+
+  @Get(':id')
+  @Roles(UserRole.Admin)
+  @ApiOperation({
+    summary: "Get a single user's details (admin only)",
+    description:
+      'Backs the "Ver perfil" action on the Usuarios list — read-only, no PATCH counterpart exists (edits go through deactivate/reactivate/permissions/delete instead).',
+  })
+  @ApiResponse({ status: 200, description: 'Returns the user.' })
+  @ApiResponse({ status: 403, description: 'Requires the admin role.' })
+  @ApiResponse({ status: 404, description: 'User not found.' })
+  findOne(@Param('id') id: string): Promise<PublicUser> {
+    return this.usersService.findOne(id);
   }
 
   @Post()
@@ -90,6 +107,25 @@ export class UsersController {
   @ApiResponse({ status: 404, description: 'User not found.' })
   reactivate(@Param('id') id: string): Promise<PublicUser> {
     return this.usersService.reactivate(id);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.Admin)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit('user.delete', 'user')
+  @ApiOperation({
+    summary: 'Permanently delete a deactivated user account (admin only)',
+    description:
+      'Irreversible — a real delete, not the deactivate/reactivate soft lock above. Only allowed once the account is already deactivated. Past actions this user took stay in the audit trail and usury-rate history (actor/creator reference set to null, per docs/phases/PHASE_20_MODULE_PERMISSIONS.md), only the account itself is removed.',
+  })
+  @ApiResponse({ status: 204, description: 'The user was deleted.' })
+  @ApiResponse({
+    status: 400,
+    description: 'The account is still active — deactivate it first.',
+  })
+  @ApiResponse({ status: 404, description: 'User not found.' })
+  remove(@Param('id') id: string): Promise<void> {
+    return this.usersService.remove(id);
   }
 
   @Put(':id/permissions')

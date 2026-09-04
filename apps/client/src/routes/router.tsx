@@ -16,6 +16,7 @@ import { LoanQuotePage } from '@/features/loans/LoanQuotePage';
 import { LoansListPage } from '@/features/loans/LoansListPage';
 import { MessageLogsPage } from '@/features/messageLogs/MessageLogsPage';
 import { MessageTemplatesPage } from '@/features/messageTemplates/MessageTemplatesPage';
+import { UserDetailPage } from '@/features/users/UserDetailPage';
 import { UsersListPage } from '@/features/users/UsersListPage';
 import { UsuryRatesPage } from '@/features/usuryRates/UsuryRatesPage';
 import { WhatsappInboundMessagesPage } from '@/features/whatsappInboundMessages/WhatsappInboundMessagesPage';
@@ -110,40 +111,67 @@ export const router = createBrowserRouter([
             ],
           },
           {
-            // Every controller below is still admin-only server-side via
-            // the older @Roles(UserRole.Admin) — gated here too so a
-            // collector can't reach it by typing the URL, not just by
-            // hiding the nav link. See RequireRole.tsx. Migrated to
-            // RequirePermission one at a time, alongside its backend
-            // controller — see docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
-            element: <RequireRole allowedRoles={['admin']} />,
+            // AuditLogController migrated to Phase 20's module permissions
+            // (@RequireModule(AppModule.AuditLog)) — gated here the same
+            // way, not by role, so client and server never drift apart for
+            // this module. See docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
+            element: <RequirePermission module="audit_log" />,
             children: [
               {
                 path: 'auditoria',
                 element: <AuditLogsPage />,
               },
+            ],
+          },
+          {
+            // UsuryRatesController migrated to Phase 20's module permissions
+            // (@RequireModule(AppModule.UsuryRates)) — see
+            // docs/phases/PHASE_15_USURY_RATE.md and
+            // docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
+            element: <RequirePermission module="usury_rates" />,
+            children: [
               {
-                // UsuryRatesController is admin-only server-side
-                // (@Roles(UserRole.Admin)) — see
-                // docs/phases/PHASE_15_USURY_RATE.md.
                 path: 'tasa-de-usura',
                 element: <UsuryRatesPage />,
               },
+            ],
+          },
+          {
+            // WhatsappController migrated to Phase 20's module permissions,
+            // folded into the "messages" module (@RequireModule(AppModule.
+            // Messages)) — see docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md
+            // and docs/phases/PHASE_20_MODULE_PERMISSIONS.md. Read-only "not
+            // blocked" floor: no button-flow/menu management or preference
+            // UI here — those are blocked on open questions.
+            element: <RequirePermission module="messages" />,
+            children: [
               {
-                // UsersController is admin-only server-side
-                // (@Roles(UserRole.Admin)) — see
-                // docs/phasesClient/PHASE_19_USER_MANAGEMENT.md.
+                path: 'mensajes-entrantes',
+                element: <WhatsappInboundMessagesPage />,
+              },
+            ],
+          },
+          {
+            // UsersController stays admin-only server-side
+            // (@Roles(UserRole.Admin)) — deliberately never migrated to
+            // module permissions, per the human's explicit exception
+            // (Phase 20): account management (creating accounts, deleting/
+            // editing other collector profiles, changing anyone's role to
+            // admin) always requires the admin role itself, not a grantable
+            // module. See docs/phases/PHASE_20_MODULE_PERMISSIONS.md and
+            // docs/phasesClient/PHASE_19_USER_MANAGEMENT.md.
+            element: <RequireRole allowedRoles={['admin']} />,
+            children: [
+              {
                 path: 'usuarios',
                 element: <UsersListPage />,
               },
               {
-                // WhatsappController is admin-only server-side
-                // (@Roles(UserRole.Admin)) — see
-                // docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md. Read-only
-                // "not blocked" floor: no button-flow/menu management or
-                // preference UI here — those are blocked on open questions.
-                path: 'mensajes-entrantes',
-                element: <WhatsappInboundMessagesPage />,
+                // "Ver perfil" (Phase 20 follow-up) — read-only, same
+                // admin-only guard as the list itself. See
+                // UserDetailPage.tsx.
+                path: 'usuarios/:id',
+                element: <UserDetailPage />,
               },
             ],
           },
