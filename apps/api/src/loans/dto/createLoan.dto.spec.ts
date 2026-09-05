@@ -28,6 +28,7 @@ describe('CreateLoanDto promissoryNoteNumber format', () => {
     installmentFrequency: InstallmentFrequency.Monthly,
     totalInstallments: 12,
     concepts: [],
+    description: 'Compra de televisor',
   };
 
   async function errorsFor(promissoryNoteNumber: string) {
@@ -54,5 +55,48 @@ describe('CreateLoanDto promissoryNoteNumber format', () => {
   ])('rejects %s (%s)', async (_label, value) => {
     const errors = await errorsFor(value);
     expect(errors.length).toBeGreaterThan(0);
+  });
+});
+
+// Made required 2026-09-04 (client request) — this is the product the
+// client acquired with the loan, sent verbatim as the "Detalle del
+// producto" placeholder in the automatic "new loan" WhatsApp message
+// (newLoanTemplateSelection.ts). Previously optional with a
+// "No especificado" fallback when blank.
+describe('CreateLoanDto description requiredness', () => {
+  const basePayload = {
+    clientId: '11111111-1111-4111-8111-111111111111',
+    promissoryNoteNumber: '#0001',
+    principalAmount: 900000,
+    interestRate: 6,
+    disbursedAt: '2026-07-09',
+    installmentFrequency: InstallmentFrequency.Monthly,
+    totalInstallments: 12,
+    concepts: [],
+  };
+
+  it('accepts a non-empty description', async () => {
+    const dto = plainToInstance(CreateLoanDto, {
+      ...basePayload,
+      description: 'Compra de celular',
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+  });
+
+  // @IsNotEmpty() only rejects '' / null / undefined, not a whitespace-only
+  // string — same gap as every other @IsString() @IsNotEmpty() field in
+  // this codebase (e.g. CreateClientDto.firstName), not something
+  // introduced here.
+  it.each([
+    ['missing entirely', undefined],
+    ['empty string', ''],
+  ])('rejects description %s', async (_label, description) => {
+    const dto = plainToInstance(CreateLoanDto, {
+      ...basePayload,
+      description,
+    });
+    const errors = await validate(dto);
+    expect(errors.some((error) => error.property === 'description')).toBe(true);
   });
 });
