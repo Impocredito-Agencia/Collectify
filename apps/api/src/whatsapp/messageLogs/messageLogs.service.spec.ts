@@ -2,6 +2,10 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import {
+  bogotaEndOfDayUtc,
+  bogotaStartOfDayUtc,
+} from '../../loans/dueDateSchedule';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
 import { MessageType } from '../messageType.enum';
@@ -102,7 +106,9 @@ describe('MessageLogsService', () => {
 
     expect(result).toEqual({
       items: [mockLog],
-      meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
+      // limit 50 since 2026-09-05's default-page-size bump (style cleanup —
+      // matches clients.service.ts's DEFAULT_PAGE_SIZE).
+      meta: { page: 1, limit: 50, total: 1, totalPages: 1 },
     });
     expect(repository.findAndCount).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -110,9 +116,15 @@ describe('MessageLogsService', () => {
           clientId: 'client-1',
           type: MessageType.SingleOverdueInstallment,
           status: MessageLogStatus.Sent,
+          // Bogotá-day bounds, not the naive UTC-midnight parse of the raw
+          // string — see messageLogs.service.ts's own comment on this fix
+          // (2026-09-05).
           sentAt: expect.objectContaining({
             _type: 'between',
-            _value: [new Date('2026-01-01'), new Date('2026-01-31')],
+            _value: [
+              bogotaStartOfDayUtc('2026-01-01'),
+              bogotaEndOfDayUtc('2026-01-31'),
+            ],
           }) as unknown,
         },
         order: { sentAt: 'DESC' },
@@ -131,7 +143,7 @@ describe('MessageLogsService', () => {
         where: expect.objectContaining({
           sentAt: expect.objectContaining({
             _type: 'moreThanOrEqual',
-            _value: new Date('2026-01-01'),
+            _value: bogotaStartOfDayUtc('2026-01-01'),
           }) as unknown,
         }) as unknown,
       }),

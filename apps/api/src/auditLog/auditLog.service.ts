@@ -9,12 +9,18 @@ import {
 } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import {
+  bogotaEndOfDayUtc,
+  bogotaStartOfDayUtc,
+} from '../loans/dueDateSchedule';
 
 import { QueryAuditLogDto } from './dto/queryAuditLog.dto';
 import { AuditLog } from './entities/auditLog.entity';
 
 const DEFAULT_PAGE = 1;
-const DEFAULT_PAGE_SIZE = 20;
+// 50, matching clients.service.ts's DEFAULT_PAGE_SIZE — see the same note
+// in dashboard.service.ts (style cleanup 2026-09-05).
+const DEFAULT_PAGE_SIZE = 50;
 
 export interface RecordAuditLogEntry {
   actorUserId: string | null;
@@ -57,15 +63,23 @@ export class AuditLogService {
     if (query.entityType) {
       where.entityType = query.entityType;
     }
+    // Bug fix, 2026-09-05 — was `new Date(query.dateFrom)`/`new
+    // Date(query.dateTo)` directly, which parses a plain 'YYYY-MM-DD' as
+    // UTC midnight, 5 hours before midnight in Bogotá. dateTo was the
+    // worse of the two: its cutoff landed hours before the selected day
+    // even started locally, so filtering "Hasta: 31 de enero" silently
+    // excluded ALL of the 31st (and part of the 30th) instead of
+    // including it. See bogotaStartOfDayUtc/bogotaEndOfDayUtc's own
+    // comments in dueDateSchedule.ts for the exact math.
     if (query.dateFrom && query.dateTo) {
       where.createdAt = Between(
-        new Date(query.dateFrom),
-        new Date(query.dateTo),
+        bogotaStartOfDayUtc(query.dateFrom),
+        bogotaEndOfDayUtc(query.dateTo),
       );
     } else if (query.dateFrom) {
-      where.createdAt = MoreThanOrEqual(new Date(query.dateFrom));
+      where.createdAt = MoreThanOrEqual(bogotaStartOfDayUtc(query.dateFrom));
     } else if (query.dateTo) {
-      where.createdAt = LessThanOrEqual(new Date(query.dateTo));
+      where.createdAt = LessThanOrEqual(bogotaEndOfDayUtc(query.dateTo));
     }
 
     const [items, total] = await this.auditLogsRepository.findAndCount({

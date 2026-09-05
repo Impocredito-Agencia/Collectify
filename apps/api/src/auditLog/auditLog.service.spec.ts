@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import {
+  bogotaEndOfDayUtc,
+  bogotaStartOfDayUtc,
+} from '../loans/dueDateSchedule';
+
 import { AuditLog } from './entities/auditLog.entity';
 import { AuditLogService } from './auditLog.service';
 
@@ -80,7 +85,9 @@ describe('AuditLogService', () => {
 
       expect(result).toEqual({
         items: [mockEntry],
-        meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
+        // limit 50 since 2026-09-05's default-page-size bump (style cleanup —
+        // matches clients.service.ts's DEFAULT_PAGE_SIZE).
+        meta: { page: 1, limit: 50, total: 1, totalPages: 1 },
       });
       expect(repository.findAndCount).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -88,9 +95,15 @@ describe('AuditLogService', () => {
             actorUserId: 'user-1',
             action: 'client.create',
             entityType: 'client',
+            // Bogotá-day bounds, not the naive UTC-midnight parse of the
+            // raw string — see auditLog.service.ts's own comment on this
+            // fix (2026-09-05).
             createdAt: expect.objectContaining({
               _type: 'between',
-              _value: [new Date('2026-01-01'), new Date('2026-01-31')],
+              _value: [
+                bogotaStartOfDayUtc('2026-01-01'),
+                bogotaEndOfDayUtc('2026-01-31'),
+              ],
             }) as unknown,
           },
           order: { createdAt: 'DESC' },
@@ -109,7 +122,7 @@ describe('AuditLogService', () => {
           where: expect.objectContaining({
             createdAt: expect.objectContaining({
               _type: 'moreThanOrEqual',
-              _value: new Date('2026-01-01'),
+              _value: bogotaStartOfDayUtc('2026-01-01'),
             }) as unknown,
           }) as unknown,
         }),
@@ -126,7 +139,7 @@ describe('AuditLogService', () => {
           where: expect.objectContaining({
             createdAt: expect.objectContaining({
               _type: 'lessThanOrEqual',
-              _value: new Date('2026-01-31'),
+              _value: bogotaEndOfDayUtc('2026-01-31'),
             }) as unknown,
           }) as unknown,
         }),

@@ -36,12 +36,22 @@ export class QueryMessageLogsDto {
   @IsEnum(MessageLogStatus)
   status?: MessageLogStatus;
 
-  @ApiPropertyOptional({ description: 'ISO date — sentAt >= dateFrom' })
+  @ApiPropertyOptional({
+    description:
+      "'YYYY-MM-DD' — sentAt >= start of this calendar day in Bogotá " +
+      '(UTC-5), not UTC midnight. See bogotaStartOfDayUtc() in ' +
+      'dueDateSchedule.ts.',
+  })
   @IsOptional()
   @IsDateString()
   dateFrom?: string;
 
-  @ApiPropertyOptional({ description: 'ISO date — sentAt <= dateTo' })
+  @ApiPropertyOptional({
+    description:
+      "'YYYY-MM-DD' — sentAt <= end of this calendar day in Bogotá " +
+      '(UTC-5), not UTC midnight. See bogotaEndOfDayUtc() in ' +
+      'dueDateSchedule.ts.',
+  })
   @IsOptional()
   @IsDateString()
   dateTo?: string;

@@ -31,12 +31,22 @@ export class QueryAuditLogDto {
   @IsString()
   entityType?: string;
 
-  @ApiPropertyOptional({ description: 'ISO date — createdAt >= dateFrom' })
+  @ApiPropertyOptional({
+    description:
+      "'YYYY-MM-DD' — createdAt >= start of this calendar day in Bogotá " +
+      '(UTC-5), not UTC midnight. See bogotaStartOfDayUtc() in ' +
+      'dueDateSchedule.ts.',
+  })
   @IsOptional()
   @IsDateString()
   dateFrom?: string;
 
-  @ApiPropertyOptional({ description: 'ISO date — createdAt <= dateTo' })
+  @ApiPropertyOptional({
+    description:
+      "'YYYY-MM-DD' — createdAt <= end of this calendar day in Bogotá " +
+      '(UTC-5), not UTC midnight. See bogotaEndOfDayUtc() in ' +
+      'dueDateSchedule.ts.',
+  })
   @IsOptional()
   @IsDateString()
   dateTo?: string;
