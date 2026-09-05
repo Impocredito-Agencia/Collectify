@@ -2,18 +2,15 @@ import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { DatePicker } from '@/components/ui/DatePicker';
-import { FilterTab } from '@/components/ui/FilterTab';
-import { RowActionButton } from '@/components/ui/RowActionButton';
+import { Pager } from '@/components/ui/Pager';
 import { Select } from '@/components/ui/Select';
 import { Td, Th } from '@/components/ui/Table';
-import { AuditLogDrawer } from '@/features/auditLogs/AuditLogDrawer';
 import {
   formatAuditAction,
   formatAuditEntityType,
 } from '@/features/auditLogs/auditLogLabels';
 import { useAuditLogs } from '@/features/auditLogs/useAuditLogs';
 
-import type { AuditLog } from '@/features/auditLogs/auditLogsApi';
 import type { ReactNode } from 'react';
 
 // No Figma frame for this phase (docs/phases/PHASE_11_AUDIT_LOG.md /
@@ -53,7 +50,6 @@ export function AuditLogsPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
-  const [openEntry, setOpenEntry] = useState<AuditLog | null>(null);
 
   const { data, isLoading, isError } = useAuditLogs({
     actorUserId: actorUserId || undefined,
@@ -75,24 +71,37 @@ export function AuditLogsPage() {
       />
 
       <div className="flex h-10 items-center gap-3">
-        <DatePicker
-          value={dateFrom}
-          onChange={(next) => {
-            setDateFrom(next);
-            setPage(1);
-          }}
-          ariaLabel="Desde"
-          className="h-[38px] w-[150px] rounded bg-input px-3 text-small text-muted"
-        />
-        <DatePicker
-          value={dateTo}
-          onChange={(next) => {
-            setDateTo(next);
-            setPage(1);
-          }}
-          ariaLabel="Hasta"
-          className="h-[38px] w-[150px] rounded bg-input px-3 text-small text-muted"
-        />
+        {/* Style cleanup, 2026-09-05 (client feedback) — the two date
+            pickers used to be visually identical (same size, same empty
+            "dd/mm/aaaa" placeholder), with "Desde"/"Hasta" only present as
+            an invisible aria-label. A user landing on this page had no way
+            to tell the two fields apart at a glance. A small visible
+            caption in front of each fixes that without restructuring the
+            filter bar's single-row layout. */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-label text-muted">Desde</span>
+          <DatePicker
+            value={dateFrom}
+            onChange={(next) => {
+              setDateFrom(next);
+              setPage(1);
+            }}
+            ariaLabel="Desde"
+            className="h-[38px] w-[150px] rounded bg-input px-3 text-small text-muted"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-label text-muted">Hasta</span>
+          <DatePicker
+            value={dateTo}
+            onChange={(next) => {
+              setDateTo(next);
+              setPage(1);
+            }}
+            ariaLabel="Hasta"
+            className="h-[38px] w-[150px] rounded bg-input px-3 text-small text-muted"
+          />
+        </div>
 
         <Select
           value={entityTypeFilter}
@@ -137,7 +146,6 @@ export function AuditLogsPage() {
               <Th>Acción</Th>
               <Th>Entidad</Th>
               <Th>Fecha</Th>
-              <Th>Acciones</Th>
             </tr>
           </thead>
           <tbody>
@@ -150,6 +158,16 @@ export function AuditLogsPage() {
             {!isLoading && !isError && entries.length === 0 && (
               <EmptyRow>No se encontraron registros.</EmptyRow>
             )}
+            {/* Style cleanup, 2026-09-05 (client feedback) — dropped the
+                "Acciones" column + its "Ver detalle" drawer. The drawer's
+                own top section (actor email, raw action code, full
+                entityId) duplicated what this row already shows in
+                friendlier form; its bottom section was a raw JSON dump of
+                the request payload (field names like conceptTypeId,
+                calculationType: "percentage") that no admin/cobrador user
+                can act on — reviewing that shape is a job for whoever
+                maintains the code, not this screen. Removing it also frees
+                up real width for the remaining columns. */}
             {entries.map((entry) => (
               <tr key={entry.id} className="border-t border-border">
                 <Td>{entry.actorUser?.fullName ?? '—'}</Td>
@@ -174,11 +192,6 @@ export function AuditLogsPage() {
                     timeStyle: 'short',
                   })}
                 </Td>
-                <Td>
-                  <RowActionButton onClick={() => setOpenEntry(entry)}>
-                    Ver detalle
-                  </RowActionButton>
-                </Td>
               </tr>
             ))}
           </tbody>
@@ -190,36 +203,12 @@ export function AuditLogsPage() {
           <p className="text-label text-muted">
             Mostrando {entries.length} de {meta.total} registros
           </p>
-          <div className="flex items-center gap-1">
-            <FilterTab
-              label="←"
-              isActive={false}
-              disabled={page <= 1}
-              onClick={() => setPage((current) => current - 1)}
-            />
-            {Array.from(
-              { length: meta.totalPages },
-              (_, index) => index + 1,
-            ).map((pageNumber) => (
-              <FilterTab
-                key={pageNumber}
-                label={pageNumber}
-                isActive={pageNumber === page}
-                onClick={() => setPage(pageNumber)}
-              />
-            ))}
-            <FilterTab
-              label="→"
-              isActive={false}
-              disabled={page >= meta.totalPages}
-              onClick={() => setPage((current) => current + 1)}
-            />
-          </div>
+          <Pager
+            page={page}
+            totalPages={meta.totalPages}
+            onPageChange={setPage}
+          />
         </div>
-      )}
-
-      {openEntry && (
-        <AuditLogDrawer entry={openEntry} onClose={() => setOpenEntry(null)} />
       )}
     </div>
   );
@@ -235,7 +224,7 @@ function EmptyRow({
   return (
     <tr>
       <td
-        colSpan={5}
+        colSpan={4}
         className={`p-6 text-center text-small ${tone === 'error' ? 'text-danger' : 'text-muted'}`}
       >
         {children}
@@ -244,5 +233,6 @@ function EmptyRow({
   );
 }
 
-// Pagination controls now use the shared FilterTab component — see
-// LoansListPage.tsx's identical 2026-09-04 consolidation note.
+// Pager component (2026-09-05) — see @/components/ui/Pager.tsx. Previously
+// rendered one FilterTab per page with no truncation, unlike Clientes'
+// already-windowed pager.

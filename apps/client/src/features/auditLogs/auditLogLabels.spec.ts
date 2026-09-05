@@ -49,6 +49,9 @@ describe('formatAuditAction', () => {
     expect(formatAuditAction('interestConceptType.deactivate')).toBe(
       'Desactivó un tipo de cargo',
     );
+    expect(formatAuditAction('interestConceptType.activate')).toBe(
+      'Reactivó un tipo de cargo',
+    );
     expect(formatAuditAction('interestConceptType.delete')).toBe(
       'Eliminó un tipo de cargo',
     );
@@ -84,6 +87,7 @@ describe('formatAuditAction', () => {
       'interestConceptType.create',
       'interestConceptType.update',
       'interestConceptType.deactivate',
+      'interestConceptType.activate',
       'interestConceptType.delete',
     ];
     for (const action of previouslyLabeled) {
