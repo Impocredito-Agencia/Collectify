@@ -162,7 +162,10 @@ export interface CreateLoanInput {
   // for that superseded model.
   downPaymentAmount?: number;
   downPaymentDueDate?: string;
-  description?: string;
+  // Required (2026-09-04, client request) — the product acquired with the
+  // loan, sent verbatim as the "Detalle del producto" placeholder in the
+  // automatic "new loan" WhatsApp message. See createLoan.dto.ts (api).
+  description: string;
   // Optional co-debtor (codeudor), Phase 26 — an existing client's id,
   // picked via search rather than free-typed. Omit entirely for a loan
   // with none. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
@@ -219,6 +222,14 @@ export interface PayoffInstallmentBreakdown {
   interestApplied: number;
   principalApplied: number;
   totalDue: number;
+  // Style cleanup, 2026-09-04 — per-cargo detail (corriente vs moratorio,
+  // one entry per concept), same shape/precedent as
+  // InstallmentWithCalculated's own conceptBreakdown above: empty for a
+  // not-yet-matured installment, and the legacy single-rate moratory
+  // formula still isn't itemized as its own line even though it's folded
+  // into interestApplied — see apps/api/src/loans/payoff/calculatePayoff.ts's
+  // own comment for the full reasoning.
+  conceptBreakdown: ConceptBreakdownItem[];
 }
 
 export interface PayoffQuote {
@@ -242,12 +253,17 @@ export interface RefinanceQuote {
   moratoryConcepts: LoanConceptAssignment[];
 }
 
-// Matches apps/api/src/loans/dto/updateLoan.dto.ts exactly — only these two
-// fields are editable post-creation. principalAmount/schedule are NOT
-// patchable (would cascade into already-generated installments, out of
-// scope per the DTO's own comment).
+// Matches apps/api/src/loans/dto/updateLoan.dto.ts exactly — description
+// and the co-debtor fields (below, on the same dto) are the only things
+// editable post-creation.
+//
+// interestRate and moratoryConcepts both briefly lived here too
+// (2026-09-04) and were removed the same day, client feedback — a loan's
+// numbers (principalAmount, schedule, interestRate, every concept) are now
+// fixed at creation; a mistake there needs refinance() instead, which
+// regenerates the schedule and notifies the client. description has no
+// bearing on what's owed, so it stays the one silently-patchable field.
 export interface UpdateLoanInput {
-  interestRate?: number;
   description?: string;
 }
 

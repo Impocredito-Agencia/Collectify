@@ -56,7 +56,9 @@ import {
 } from './payoff/calculatePayoff';
 
 const DEFAULT_PAGE = 1;
-const DEFAULT_PAGE_SIZE = 20;
+// 50, matching clients.service.ts's DEFAULT_PAGE_SIZE — see the same note
+// in dashboard.service.ts (style cleanup 2026-09-05).
+const DEFAULT_PAGE_SIZE = 50;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
 // Phase 25 (confirmed with the human, reunión 2026-08-25) — see
 // getRefinanceQuote()'s own comment for the full explanation. Not the same
@@ -602,10 +604,12 @@ export class LoansService {
     // Phase 31 — see LoanDetail.currentPrincipalBalance's own comment for
     // why this is totalPrincipalOwed specifically. Computed inline from
     // `installments`/`conceptsByInstallmentId` already fetched above
-    // (filtered to pending / moratorio respectively) rather than calling
-    // getPayoffQuote(id) again, which would re-fetch the loan and its
-    // concepts a second time for no reason — same calculatePayoff() engine
-    // either way, just without the redundant round-trips.
+    // (installments filtered to pending; conceptsByInstallmentId passed
+    // through as-is — toPayoffInstallmentInput does its own
+    // corriente/moratorio split now) rather than calling getPayoffQuote(id)
+    // again, which would re-fetch the loan and its concepts a second time
+    // for no reason — same calculatePayoff() engine either way, just
+    // without the redundant round-trips.
     const pendingInstallments = installments.filter(
       (installment) => installment.status === InstallmentStatus.Pending,
     );
@@ -613,9 +617,7 @@ export class LoansService {
       pendingInstallments.map((installment) =>
         toPayoffInstallmentInput(
           installment,
-          (conceptsByInstallmentId.get(installment.id) ?? []).filter(
-            (concept) => concept.category === ConceptCategory.Moratorio,
-          ),
+          conceptsByInstallmentId.get(installment.id) ?? [],
         ),
       ),
       loan.interestRate,
@@ -654,28 +656,6 @@ export class LoansService {
       const existing = map.get(concept.installmentId) ?? [];
       existing.push(concept);
       map.set(concept.installmentId, existing);
-    }
-    return map;
-  }
-
-  // Same grouping as findConceptsByInstallmentId, filtered to moratorio
-  // rows only — used by the payoff/payoff-quote/refinance-quote call sites
-  // below, which need calculatePayoff() to use the Phase 23 engine when a
-  // loan has moratory concepts assigned, kept consistent with
-  // enrichInstallment.ts's identical filtering.
-  private async findMoratoryConceptsByInstallmentId(
-    installmentIds: string[],
-  ): Promise<Map<string, LoanInstallmentConcept[]>> {
-    const byInstallmentId =
-      await this.findConceptsByInstallmentId(installmentIds);
-    const map = new Map<string, LoanInstallmentConcept[]>();
-    for (const [installmentId, concepts] of byInstallmentId) {
-      const moratory = concepts.filter(
-        (concept) => concept.category === ConceptCategory.Moratorio,
-      );
-      if (moratory.length > 0) {
-        map.set(installmentId, moratory);
-      }
     }
     return map;
   }
@@ -736,15 +716,14 @@ export class LoansService {
   async getPayoffQuote(id: string): Promise<PayoffQuote> {
     const loan = await this.findLoanOrThrow(id);
     const pending = await this.findPendingInstallments(id);
-    const moratoryByInstallmentId =
-      await this.findMoratoryConceptsByInstallmentId(
-        pending.map((installment) => installment.id),
-      );
+    const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
+      pending.map((installment) => installment.id),
+    );
     return calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
           installment,
-          moratoryByInstallmentId.get(installment.id) ?? [],
+          conceptsByInstallmentId.get(installment.id) ?? [],
         ),
       ),
       loan.interestRate,
@@ -765,15 +744,14 @@ export class LoansService {
     }
 
     const pending = await this.findPendingInstallments(id);
-    const moratoryByInstallmentId =
-      await this.findMoratoryConceptsByInstallmentId(
-        pending.map((installment) => installment.id),
-      );
+    const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
+      pending.map((installment) => installment.id),
+    );
     const quote = calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
           installment,
-          moratoryByInstallmentId.get(installment.id) ?? [],
+          conceptsByInstallmentId.get(installment.id) ?? [],
         ),
       ),
       loan.interestRate,
@@ -840,15 +818,14 @@ export class LoansService {
   async getRefinanceQuote(id: string): Promise<RefinanceQuote> {
     const loan = await this.findLoanOrThrow(id);
     const pending = await this.findPendingInstallments(id);
-    const moratoryByInstallmentId =
-      await this.findMoratoryConceptsByInstallmentId(
-        pending.map((installment) => installment.id),
-      );
+    const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
+      pending.map((installment) => installment.id),
+    );
     const payoff = calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
           installment,
-          moratoryByInstallmentId.get(installment.id) ?? [],
+          conceptsByInstallmentId.get(installment.id) ?? [],
         ),
       ),
       loan.interestRate,
@@ -1479,10 +1456,21 @@ export class LoansService {
   }
 }
 
+// Style cleanup, 2026-09-04 — now takes ALL of an installment's concepts
+// (not just moratorio) so calculatePayoff() can also build its display-only
+// conceptBreakdown (see that file's own comment); corriente/moratorio are
+// split here, same filtering enrichInstallment.ts already does for the
+// exact same rows.
 function toPayoffInstallmentInput(
   installment: Installment,
-  moratoryConcepts: LoanInstallmentConcept[] = [],
+  concepts: LoanInstallmentConcept[] = [],
 ): PayoffInstallmentInput {
+  const corrienteConcepts = concepts.filter(
+    (concept) => concept.category === ConceptCategory.Corriente,
+  );
+  const moratoryConcepts = concepts.filter(
+    (concept) => concept.category === ConceptCategory.Moratorio,
+  );
   return {
     installmentId: installment.id,
     installmentNumber: installment.installmentNumber,
@@ -1493,6 +1481,10 @@ function toPayoffInstallmentInput(
       name: concept.nameSnapshot,
       calculationType: concept.calculationType,
       value: concept.value,
+    })),
+    corrienteConcepts: corrienteConcepts.map((concept) => ({
+      name: concept.nameSnapshot,
+      amount: concept.computedAmount,
     })),
   };
 }

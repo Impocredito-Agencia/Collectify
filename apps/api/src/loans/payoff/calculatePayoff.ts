@@ -1,3 +1,4 @@
+import { ConceptCategory } from '../../interestConceptTypes/entities/interestConceptType.entity';
 import {
   calculateDaysUntilDue,
   calculateInterest,
@@ -5,6 +6,8 @@ import {
   calculateOverdueDays,
   MoratoryConceptAssignment,
 } from '../installments/installmentCalculations';
+
+import type { ConceptBreakdownItem } from '../installments/enrichInstallment';
 
 export interface PayoffInstallmentInput {
   installmentId: string;
@@ -21,6 +24,17 @@ export interface PayoffInstallmentInput {
   // consistent with enrichInstallment.ts's identical fallback rule, so a
   // payoff quote never disagrees with what the installment view shows.
   moratoryConcepts: MoratoryConceptAssignment[];
+  // Style cleanup, 2026-09-04 (client feedback — the payoff dialog's table
+  // was "too simple", no per-cargo detail) — the corriente (Phase 14)
+  // charges already stored on this installment at schedule-generation
+  // time (LoanInstallmentConcept rows, category Corriente), pre-computed
+  // (`computedAmount`), same values enrichInstallment.ts reads for its own
+  // `corrienteBreakdown`. Purely descriptive: interestApplied below is
+  // still derived from `amount - principalPortion` exactly as before, NOT
+  // recomputed from this list, so this addition cannot change any actual
+  // charged amount — only what the quote can additionally display.
+  // Defaults to [] for the (now legacy) case of a caller not passing it.
+  corrienteConcepts?: { name: string; amount: number }[];
 }
 
 export interface PayoffInstallmentBreakdown {
@@ -29,6 +43,14 @@ export interface PayoffInstallmentBreakdown {
   interestApplied: number;
   principalApplied: number;
   totalDue: number;
+  // Style cleanup, 2026-09-04 — per-cargo detail for the payoff dialog's
+  // table, mirroring enrichInstallment.ts's ConceptBreakdownItem exactly
+  // (same name/amount/category shape, same Corriente-stored/
+  // Moratorio-computed-live split, same "no itemized entry for the legacy
+  // single-rate moratory formula" precedent — see this file's own
+  // calculateInstallmentPayoff for why). Empty for a not-yet-matured
+  // installment: nothing is owed yet, so there is nothing to itemize.
+  conceptBreakdown: ConceptBreakdownItem[];
 }
 
 export interface PayoffQuote {
@@ -122,7 +144,8 @@ function calculateInstallmentPayoff(
   // check calculateOverdueDays itself effectively uses, kept consistent
   // with the codebase's existing timezone-safe date-diff engine rather
   // than a fresh Date comparison (see installmentCalculations.ts's own
-  // note on differenceInDays vs differenceInCalendarDays). With the
+  // note on computing whole Bogotá calendar days — bug fixed 2026-09-04,
+  // see that file and docs/DATABASE.md's note of that date). With the
   // default earlyMaturityWindowDays of 0, this is exactly the original
   // Phase 16 check (daysUntilDue === 0). A non-zero window (Phase 25)
   // widens "matured" to include a not-yet-due installment within that many
@@ -140,20 +163,43 @@ function calculateInstallmentPayoff(
       interestApplied: 0,
       principalApplied: principalPortion,
       totalDue: principalPortion,
+      conceptBreakdown: [],
     };
   }
 
   const conceptsInterest = installment.amount - principalPortion;
   const overdueDays = calculateOverdueDays(dueDate, today);
-  const moratoryInterest =
+  // Itemized (per-concept) only once at least one Phase 23 moratory concept
+  // is assigned — same condition calculateMoratoryCharges below already
+  // gates on. The legacy single-rate calculateInterest formula has no
+  // per-concept identity to itemize, so (matching enrichInstallment.ts's
+  // identical precedent) it contributes to interestApplied/moratoryInterest
+  // below but is NOT added to conceptBreakdown as a line item.
+  const moratoryChargeItems =
     installment.moratoryConcepts.length > 0
       ? calculateMoratoryCharges(
           installment.amount,
           overdueDays,
           installment.moratoryConcepts,
-        ).reduce((sum, item) => sum + item.amount, 0)
+        )
+      : [];
+  const moratoryInterest =
+    installment.moratoryConcepts.length > 0
+      ? moratoryChargeItems.reduce((sum, item) => sum + item.amount, 0)
       : calculateInterest(installment.amount, interestRate, overdueDays);
   const interestApplied = conceptsInterest + moratoryInterest;
+
+  const conceptBreakdown: ConceptBreakdownItem[] = [
+    ...(installment.corrienteConcepts ?? []).map((concept) => ({
+      name: concept.name,
+      amount: concept.amount,
+      category: ConceptCategory.Corriente,
+    })),
+    ...moratoryChargeItems.map((item) => ({
+      ...item,
+      category: ConceptCategory.Moratorio,
+    })),
+  ];
 
   return {
     installmentId: installment.installmentId,
@@ -161,5 +207,6 @@ function calculateInstallmentPayoff(
     interestApplied,
     principalApplied: principalPortion,
     totalDue: interestApplied + principalPortion,
+    conceptBreakdown,
   };
 }

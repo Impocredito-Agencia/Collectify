@@ -181,12 +181,18 @@ export class LoansController {
   @Audit('loan.update', 'loan')
   @ApiOperation({
     summary:
-      "Update a loan's interest rate, description, or co-debtor (admin or granted the loans module)",
+      "Update a loan's description or co-debtor (admin or granted the loans module)",
     description:
       'As of Phase 26, coDebtorClientId and coDebtorRelationship are also editable here — ' +
       'coDebtorClientId is re-validated with the same rules as loan creation (must differ from ' +
       "the loan's own clientId and must reference an existing, active client) whenever it is " +
-      'included in the request. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.',
+      'included in the request. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md. ' +
+      '2026-09-04: interestRate and a brief moratoryConcepts field were tried here and then ' +
+      "deliberately removed the same day (client feedback) — a loan's numbers (principal, " +
+      'schedule, interestRate, every concept) are fixed at creation; anything wrong there ' +
+      'requires POST /loans/:id/refinance instead, which regenerates the schedule and notifies ' +
+      'the client. Only description is safe to patch silently, since it has no bearing on what ' +
+      'the client owes.',
   })
   @ApiResponse({ status: 200, description: 'The loan was updated.' })
   @ApiResponse({
@@ -204,7 +210,7 @@ export class LoansController {
   @ApiOperation({
     summary: 'Quote how much it costs to close this loan out today',
     description:
-      "Never blindly sums remaining installment totals — implements the confirmed imputación rule (Colombian Civil Code Art. 1653, see docs/phases/PHASE_16_EARLY_PAYOFF.md). A matured installment (due today or already overdue) contributes its Phase 14 concept charges plus any moratory interest as 'interest', and its principalPortion as 'principal'. A not-yet-due installment contributes ONLY its principalPortion, at face value, with zero interest — no interest is ever charged for a period that hasn't happened yet. An initial installment (Phase 13) contributes only principal, never interest. Read-only; safe to call regardless of the loan's status.",
+      "Never blindly sums remaining installment totals — implements the confirmed imputación rule (Colombian Civil Code Art. 1653, see docs/phases/PHASE_16_EARLY_PAYOFF.md). A matured installment (due today or already overdue) contributes its Phase 14 concept charges plus any moratory interest as 'interest', and its principalPortion as 'principal'. A not-yet-due installment contributes ONLY its principalPortion, at face value, with zero interest — no interest is ever charged for a period that hasn't happened yet. An initial installment (Phase 13) contributes only principal, never interest. Read-only; safe to call regardless of the loan's status. Each installment also carries a conceptBreakdown (style cleanup, 2026-09-04): one entry per corriente/moratorio concept actually charged, empty for a not-yet-due installment, purely descriptive alongside the existing interestApplied/principalApplied/totalDue totals (never changes them).",
   })
   @ApiResponse({ status: 200, description: 'Returns the payoff quote.' })
   @ApiResponse({ status: 404, description: 'Loan not found.' })

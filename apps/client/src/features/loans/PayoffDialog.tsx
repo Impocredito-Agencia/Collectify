@@ -2,11 +2,16 @@ import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { Td, Th } from '@/components/ui/Table';
+import { ConceptCategory } from '@/features/interestConceptTypes/interestConceptTypesApi';
 import { usePayoffQuote } from '@/features/loans/useLoans';
 import { formatCurrency } from '@/lib/format';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
-import type { PayoffQuote } from '@/features/loans/loansApi';
+import type {
+  PayoffInstallmentBreakdown,
+  PayoffQuote,
+} from '@/features/loans/loansApi';
 
 interface PayoffDialogProps {
   loanId: string;
@@ -69,8 +74,51 @@ export function PayoffDialog({
     }
   };
 
+  // Style cleanup, 2026-09-04 (client feedback, round 3 — "se hace muy
+  // largo horizontalmente" with the previous one-column-per-concept
+  // layout) — collapsed down to two fixed columns (corriente/moratorio
+  // totals) instead of a column per distinct concept name, so the table's
+  // width no longer grows with how many charge types a loan happens to
+  // have. moratorioTotal is deliberately interestApplied MINUS the
+  // itemized corriente total, not a sum of moratorio conceptBreakdown
+  // items — this is what keeps it correct for a pre-Phase-23 loan too,
+  // whose legacy single-rate moratory interest has no itemized entry at
+  // all (see calculatePayoff.ts's own comment on that precedent): summing
+  // moratorio items there would silently show $0 despite real interest
+  // being charged. corriente's own total, by contrast, IS exactly the sum
+  // of its itemized entries — every corriente charge is always itemized,
+  // legacy or not. Individual concept names/amounts aren't lost, just
+  // moved into each cell's title= tooltip.
+  function conceptSummary(installment: PayoffInstallmentBreakdown) {
+    const corrienteItems = installment.conceptBreakdown.filter(
+      (concept) => concept.category === ConceptCategory.Corriente,
+    );
+    const moratorioItems = installment.conceptBreakdown.filter(
+      (concept) => concept.category === ConceptCategory.Moratorio,
+    );
+    const corrienteTotal = corrienteItems.reduce(
+      (sum, concept) => sum + concept.amount,
+      0,
+    );
+    const moratorioTotal = installment.interestApplied - corrienteTotal;
+
+    const toTitle = (items: { name: string; amount: number }[]) =>
+      items.length > 0
+        ? items
+            .map((item) => `${item.name}: ${formatCurrency(item.amount)}`)
+            .join('\n')
+        : undefined;
+
+    return {
+      corrienteTotal,
+      moratorioTotal,
+      corrienteTitle: toTitle(corrienteItems),
+      moratorioTitle: toTitle(moratorioItems),
+    };
+  }
+
   return (
-    <Modal maxWidth="max-w-[480px]" scroll>
+    <Modal maxWidth="max-w-[560px]" scroll>
       <h2 className="text-[16px] font-medium text-white">
         Liquidar anticipadamente
       </h2>
@@ -91,42 +139,113 @@ export function PayoffDialog({
         <p className="mt-5 text-small text-muted">Calculando…</p>
       )}
 
+      {/* Redesign, 2026-09-04 (client feedback, three rounds):
+          1) The big total is centered, in its own subdued-accent-bordered
+             box (border-accent/30 bg-accent/5 — same soft-tint formula
+             Button.tsx's danger variant already uses, just the brand
+             accent instead of red) so it reads as the one figure that
+             matters most, not another StatCard indistinguishable from a
+             KPI grid.
+          2) Every value in the table below uses the SAME (non-muted,
+             white/font-medium) style — every column here is an equally
+             real, final number, not a supporting/identifying-vs-secondary
+             split the way Th/Td's usual convention assumes.
+          3) Fixed corriente/moratorio TOTAL columns (see conceptSummary
+             above) instead of one column per concept — keeps the table's
+             width constant no matter how many charge types a loan has;
+             hover a cell for the per-concept detail. */}
       {quote && (
         <>
-          <div className="mt-5 max-h-[220px] overflow-y-auto">
-            <table className="w-full text-meta">
-              <thead>
-                <tr className="text-muted">
-                  <th className="pb-1 text-left font-normal">Cuota</th>
-                  <th className="pb-1 text-right font-normal">Interés</th>
-                  <th className="pb-1 text-right font-normal">Capital</th>
-                  <th className="pb-1 text-right font-normal">Total</th>
+          <div className="mt-5 flex flex-col items-center gap-1 rounded-lg border border-accent/30 bg-accent/5 px-5 py-5 text-center">
+            <span className="text-small text-muted">Total a pagar hoy</span>
+            <span className="text-kpi font-light text-white">
+              {formatCurrency(quote.totalDue)}
+            </span>
+          </div>
+
+          <div className="mt-4 max-h-[280px] overflow-auto rounded-lg bg-surface">
+            <table className="w-full">
+              <thead className="sticky top-0 bg-input">
+                <tr>
+                  {/* w-14 + text-center (style cleanup, 2026-09-04, round
+                      5 — "parece que tuviera demasiado espacio") — with no
+                      width set, the table's auto layout handed this column
+                      whatever space the other four (currency, always
+                      wider) didn't need, then left its 1-2 digit numbers
+                      stranded at the left edge of all that extra room.
+                      Same fix Historial de pagos' own "#" column already
+                      uses two sections up (<Th className="w-10">#</Th>) —
+                      pinning a narrow, purely-numeric identifying column to
+                      a fixed width instead of letting auto-layout inflate
+                      it. */}
+                  <Th compact className="w-14 text-center">
+                    Cuota
+                  </Th>
+                  {/* Style cleanup, 2026-09-04 (client feedback, round 4) —
+                      "Interés corriente"/"Interés moratorio" replaced with
+                      Σ (sum) + the same C/M badge colors LoanDetailPage's
+                      InstallmentsTable already uses for this exact
+                      corriente/moratorio distinction, to compact the header
+                      further. Σ sits OUTSIDE the badge, as its own muted
+                      glyph, rather than crammed inside it (e.g. "ΣC") — two
+                      characters inside that 9px pill read as noise, while Σ
+                      as plain adjacent text stays legible at a glance. title=
+                      on the header keeps the full word one hover away, since
+                      "Σ C" alone is less self-explanatory than the words
+                      were. */}
+                  <Th compact className="text-right" title="Interés corriente">
+                    <span className="text-mid">Σ</span>
+                    <span className="ml-1 rounded bg-white/10 px-1 py-0.5 text-[9px] font-medium text-mid">
+                      C
+                    </span>
+                  </Th>
+                  <Th compact className="text-right" title="Interés moratorio">
+                    <span className="text-mid">Σ</span>
+                    <span className="ml-1 rounded bg-danger/15 px-1 py-0.5 text-[9px] font-medium text-danger">
+                      M
+                    </span>
+                  </Th>
+                  <Th compact className="text-right">
+                    Capital
+                  </Th>
+                  <Th compact className="text-right">
+                    Total
+                  </Th>
                 </tr>
               </thead>
               <tbody>
-                {quote.installments.map((installment) => (
-                  <tr key={installment.installmentId} className="text-white">
-                    <td className="py-0.5">{installment.installmentNumber}</td>
-                    <td className="py-0.5 text-right">
-                      {formatCurrency(installment.interestApplied)}
-                    </td>
-                    <td className="py-0.5 text-right">
-                      {formatCurrency(installment.principalApplied)}
-                    </td>
-                    <td className="py-0.5 text-right font-medium">
-                      {formatCurrency(installment.totalDue)}
-                    </td>
-                  </tr>
-                ))}
+                {quote.installments.map((installment) => {
+                  const {
+                    corrienteTotal,
+                    moratorioTotal,
+                    corrienteTitle,
+                    moratorioTitle,
+                  } = conceptSummary(installment);
+                  return (
+                    <tr
+                      key={installment.installmentId}
+                      className="border-t border-border"
+                    >
+                      <Td compact className="text-center">
+                        {installment.installmentNumber}
+                      </Td>
+                      <Td compact className="text-right" title={corrienteTitle}>
+                        {formatCurrency(corrienteTotal)}
+                      </Td>
+                      <Td compact className="text-right" title={moratorioTitle}>
+                        {formatCurrency(moratorioTotal)}
+                      </Td>
+                      <Td compact className="text-right">
+                        {formatCurrency(installment.principalApplied)}
+                      </Td>
+                      <Td compact className="text-right">
+                        {formatCurrency(installment.totalDue)}
+                      </Td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between rounded bg-input px-3.5 py-3">
-            <span className="text-small text-muted">Total a pagar hoy</span>
-            <span className="text-card-title font-medium text-white">
-              {formatCurrency(quote.totalDue)}
-            </span>
           </div>
         </>
       )}
