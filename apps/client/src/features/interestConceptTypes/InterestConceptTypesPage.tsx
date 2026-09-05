@@ -12,6 +12,7 @@ import {
   ConceptCategory,
 } from '@/features/interestConceptTypes/interestConceptTypesApi';
 import {
+  useActivateInterestConceptType,
   useCreateInterestConceptType,
   useDeactivateInterestConceptType,
   useDeleteInterestConceptType,
@@ -70,6 +71,7 @@ export function InterestConceptTypesPage() {
   const createConceptType = useCreateInterestConceptType();
   const updateConceptType = useUpdateInterestConceptType();
   const deactivateConceptType = useDeactivateInterestConceptType();
+  const activateConceptType = useActivateInterestConceptType();
   const deleteConceptType = useDeleteInterestConceptType();
 
   return (
@@ -128,70 +130,44 @@ export function InterestConceptTypesPage() {
         </p>
       )}
 
-      <div className="flex flex-col gap-2.5">
-        {conceptTypes?.map((conceptType) => (
-          <div
-            key={conceptType.id}
-            className="flex items-center justify-between rounded-lg bg-surface px-5 py-3.5"
-          >
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-2">
-                <span className="text-card-title font-medium text-white">
-                  {conceptType.name}
-                </span>
-                <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                    conceptType.category === ConceptCategory.Moratorio
-                      ? 'bg-danger/15 text-danger'
-                      : 'bg-white/10 text-muted'
-                  }`}
-                >
-                  {conceptType.category === ConceptCategory.Moratorio
-                    ? 'Moratorio'
-                    : 'Corriente'}
-                </span>
-              </div>
-              <span className="text-meta text-muted">
-                {conceptType.defaultCalculationType ===
-                ConceptCalculationType.Percentage
-                  ? 'Porcentaje'
-                  : 'Monto fijo'}{' '}
-                · {formatDefaultValue(conceptType)}
-              </span>
-            </div>
-            {!showInactive && (
-              // Style cleanup, 2026-09-03 (human report — "Editar" was
-              // easy to miss entirely) — matches every other list's
-              // pill-style action buttons (Clientes, Usuarios, Préstamos)
-              // instead of the plain, borderless text this page used to
-              // have. See RowActionButton.
-              <div className="flex items-center gap-2">
-                <RowActionButton onClick={() => setFormTarget(conceptType)}>
-                  Editar
-                </RowActionButton>
-                <RowActionButton
-                  onClick={() => setDeactivatingConceptType(conceptType)}
-                  tone="subtle"
-                >
-                  Desactivar
-                </RowActionButton>
-              </div>
+      {/* Style cleanup, 2026-09-05 (human report — one full-width row per
+          charge wasted almost all the horizontal space for a name, a
+          badge, and two buttons). Grid of cards, 3 per row, grouped into a
+          "Corrientes"/"Moratorios" section each — same two-section pattern
+          DashboardPage already uses for Cartera/Mensajería. The per-card
+          category badge is dropped since the section header now carries
+          that same information; a card only ever appears in the section
+          matching its own category, so nothing is lost. */}
+      {!isLoading && !isError && conceptTypes && conceptTypes.length > 0 && (
+        <div className="flex flex-col gap-5">
+          <ConceptTypeSection
+            title="Corrientes"
+            conceptTypes={conceptTypes.filter(
+              (c) => c.category === ConceptCategory.Corriente,
             )}
-            {/* Only on the Desactivados tab — mirrors UserRow.tsx's
-                "Eliminar" gating (only shown for an already-inactive
-                account). The server enforces "never used on a loan";
-                this button doesn't try to know that upfront. */}
-            {showInactive && (
-              <RowActionButton
-                onClick={() => setDeletingConceptType(conceptType)}
-                tone="subtle"
-              >
-                Eliminar
-              </RowActionButton>
+            showInactive={showInactive}
+            onEdit={setFormTarget}
+            onDeactivate={setDeactivatingConceptType}
+            onActivate={(conceptType) =>
+              activateConceptType.mutate(conceptType.id)
+            }
+            onDelete={setDeletingConceptType}
+          />
+          <ConceptTypeSection
+            title="Moratorios"
+            conceptTypes={conceptTypes.filter(
+              (c) => c.category === ConceptCategory.Moratorio,
             )}
-          </div>
-        ))}
-      </div>
+            showInactive={showInactive}
+            onEdit={setFormTarget}
+            onDeactivate={setDeactivatingConceptType}
+            onActivate={(conceptType) =>
+              activateConceptType.mutate(conceptType.id)
+            }
+            onDelete={setDeletingConceptType}
+          />
+        </div>
+      )}
 
       {formTarget && (
         <InterestConceptTypeForm
@@ -224,6 +200,99 @@ export function InterestConceptTypesPage() {
           }
         />
       )}
+    </div>
+  );
+}
+
+// A category with zero charges renders nothing rather than an empty
+// header — relevant in practice since Moratorios starts out empty on a
+// fresh catalog until the admin creates one.
+function ConceptTypeSection({
+  title,
+  conceptTypes,
+  showInactive,
+  onEdit,
+  onDeactivate,
+  onActivate,
+  onDelete,
+}: {
+  title: string;
+  conceptTypes: InterestConceptType[];
+  showInactive: boolean;
+  onEdit: (conceptType: InterestConceptType) => void;
+  onDeactivate: (conceptType: InterestConceptType) => void;
+  onActivate: (conceptType: InterestConceptType) => void;
+  onDelete: (conceptType: InterestConceptType) => void;
+}) {
+  if (conceptTypes.length === 0) {
+    return null;
+  }
+  return (
+    <div className="flex flex-col gap-2.5">
+      <span className="text-section-label font-normal tracking-normal text-subtle">
+        {title}
+      </span>
+      <div className="grid grid-cols-3 gap-4">
+        {conceptTypes.map((conceptType) => (
+          <div
+            key={conceptType.id}
+            className="flex flex-col gap-2 rounded-lg bg-surface p-4"
+          >
+            <div className="flex flex-col gap-0.5">
+              <span className="text-card-title font-medium text-white">
+                {conceptType.name}
+              </span>
+              <span className="text-meta text-muted">
+                {conceptType.defaultCalculationType ===
+                ConceptCalculationType.Percentage
+                  ? 'Porcentaje'
+                  : 'Monto fijo'}{' '}
+                · {formatDefaultValue(conceptType)}
+              </span>
+            </div>
+            {!showInactive && (
+              // Style cleanup, 2026-09-03 (human report — "Editar" was
+              // easy to miss entirely) — matches every other list's
+              // pill-style action buttons (Clientes, Usuarios, Préstamos)
+              // instead of the plain, borderless text this page used to
+              // have. See RowActionButton.
+              <div className="mt-1 flex items-center gap-2">
+                <RowActionButton onClick={() => onEdit(conceptType)}>
+                  Editar
+                </RowActionButton>
+                <RowActionButton
+                  onClick={() => onDeactivate(conceptType)}
+                  tone="subtle"
+                >
+                  Desactivar
+                </RowActionButton>
+              </div>
+            )}
+            {/* Only on the Desactivados tab — mirrors UserRow.tsx's
+                "Eliminar" gating (only shown for an already-inactive
+                account). The server enforces "never used on a loan";
+                this button doesn't try to know that upfront.
+                "Reactivar" fires directly with no confirmation dialog —
+                same as ClientRow.tsx's client reactivation — since it's
+                always safe/reversible (see the service's own comment): a
+                type already used on past loans keeps those loans'
+                snapshotted values untouched either way. */}
+            {showInactive && (
+              <div className="mt-1 flex items-center gap-2">
+                <RowActionButton onClick={() => onActivate(conceptType)}>
+                  Reactivar
+                </RowActionButton>
+                <RowActionButton
+                  onClick={() => onDelete(conceptType)}
+                  tone="subtle"
+                >
+                  Eliminar
+                </RowActionButton>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

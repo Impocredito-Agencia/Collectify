@@ -87,6 +87,20 @@ export class InterestConceptTypesService {
     return this.repository.save(conceptType);
   }
 
+  // Human request, 2026-09-05 — the inverse of deactivate() above. Safe to
+  // reverse at any time, including for a type that has already been used
+  // on one or more loans: those LoanInstallmentConcept rows snapshot their
+  // own name/value at assignment time (see deactivate()'s comment), so
+  // reactivating the catalog entry doesn't touch anything retroactively —
+  // it only makes the type selectable again for new loans. Symmetric with
+  // ClientsService's client reactivation (Phase 10) rather than a new
+  // pattern.
+  async activate(id: string): Promise<InterestConceptType> {
+    const conceptType = await this.findOneOrThrow(id);
+    conceptType.isActive = true;
+    return this.repository.save(conceptType);
+  }
+
   // Human request, 2026-09-03 — a genuine hard delete, for a type that was
   // created wrong (typo, wrong category) and never actually used, as
   // opposed to deactivate() above, which only hides it from the picker.

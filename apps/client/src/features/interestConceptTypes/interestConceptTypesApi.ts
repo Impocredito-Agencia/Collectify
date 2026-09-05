@@ -109,6 +109,17 @@ export const interestConceptTypesApi = {
     return data;
   },
 
+  // Inverse of deactivate() — safe at any time, including for a type
+  // already used on past loans (those keep their own snapshotted
+  // name/value regardless, see deactivate()'s comment). Only re-adds it to
+  // the picker for new loans.
+  activate: async (id: string): Promise<InterestConceptType> => {
+    const { data } = await apiClient.patch<InterestConceptType>(
+      `/interest-concept-types/${id}/activate`,
+    );
+    return data;
+  },
+
   // Permanent, irreversible deletion — for a type created by mistake and
   // never used. Only allowed for an already-deactivated, never-used type
   // (enforced server-side, see InterestConceptTypesService.remove).

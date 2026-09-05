@@ -186,6 +186,34 @@ describe('InterestConceptTypesService', () => {
     });
   });
 
+  // Human request, 2026-09-05 — the inverse of deactivate(), so a
+  // deactivated type (including one already used on a loan, which can
+  // never be deleted — see remove()'s own tests below) isn't stuck
+  // inactive forever.
+  describe('activate', () => {
+    it('sets isActive to true', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockConceptType,
+        isActive: false,
+      });
+      repository.save.mockImplementation((entity: InterestConceptType) =>
+        Promise.resolve(entity),
+      );
+
+      const result = await service.activate('concept-type-1');
+
+      expect(result.isActive).toBe(true);
+    });
+
+    it('throws NotFoundException when the type does not exist', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.activate('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   // Human request, 2026-09-03 — a real hard delete, for a type created by
   // mistake and never used, distinct from deactivate() above. Mirrors
   // UsersService.remove()'s tests.

@@ -49,6 +49,15 @@ export function useDeactivateInterestConceptType() {
   });
 }
 
+export function useActivateInterestConceptType() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: interestConceptTypesApi.activate,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['interestConceptTypes'] }),
+  });
+}
+
 export function useDeleteInterestConceptType() {
   const queryClient = useQueryClient();
   return useMutation({
