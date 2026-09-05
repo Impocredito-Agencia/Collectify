@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+import { Button } from '@/components/ui/Button';
 
 import type { ChangeEvent } from 'react';
 
@@ -37,6 +39,7 @@ export function FileUploadField({
   disabled = false,
 }: FileUploadFieldProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // object URLs must be revoked explicitly or they leak — mirrors
   // RegisterPaymentDialog.tsx's cleanup effect.
@@ -106,13 +109,32 @@ export function FileUploadField({
     );
   }
 
+  // 2026-09-05: same Button migration applied to ImportClientsDialog.tsx,
+  // RegisterPaymentDialog.tsx and BulkRegisterPaymentDialog.tsx — the native
+  // picker button had a different size/shape/hover than every other button
+  // in the app. Real input stays mounted but visually hidden, triggered via
+  // ref; the filename text is rendered separately since hiding the input
+  // also hides the browser's own placeholder text.
   return (
-    <input
-      type="file"
-      accept={accept}
-      disabled={disabled}
-      onChange={handleFileChange}
-      className="w-full text-control text-muted file:mr-3 file:rounded file:border file:border-border file:bg-input file:px-3 file:py-1.5 file:text-meta file:text-muted hover:file:text-white disabled:cursor-not-allowed disabled:opacity-50"
-    />
+    <div className="flex items-center gap-3">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={accept}
+        disabled={disabled}
+        onChange={handleFileChange}
+        className="hidden"
+      />
+      <Button
+        type="button"
+        variant="secondary"
+        disabled={disabled}
+        onClick={() => fileInputRef.current?.click()}
+        className="w-fit"
+      >
+        Elegir archivo
+      </Button>
+      <span className="text-meta text-muted">Ningún archivo seleccionado</span>
+    </div>
   );
 }
