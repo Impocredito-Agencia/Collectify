@@ -226,11 +226,13 @@ export function LoanDetailPage() {
 
       {/* Phase 32 — flex-wrap on this row (and on the button group below)
           instead of a single non-wrapping flex row: with a realistic
-          number of action buttons (up to 6: Registrar pago, Pagar
-          seleccionadas, Liquidar, Editar, Refinanciar, Eliminar), a
-          non-wrapping row either overflowed or squeezed each button down
-          below its label's width. Wrapping to a second line keeps every
-          button at its natural size instead. */}
+          number of action buttons (up to 5: Registrar pago, Pagar
+          seleccionadas, Liquidar, Refinanciar, Eliminar — Editar
+          descripción lives separately, right next to Descripción below,
+          see that section's own comment), a non-wrapping row either
+          overflowed or squeezed each button down below its label's width.
+          Wrapping to a second line keeps every button at its natural size
+          instead. */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded border border-border bg-surface px-6 py-5">
         <div className="flex flex-col gap-1.5">
           <h1 className="text-page-title font-semibold text-white">
@@ -297,15 +299,6 @@ export function LoanDetailPage() {
               className="shrink-0 whitespace-nowrap"
             >
               Liquidar anticipadamente
-            </Button>
-          )}
-          {canManageLoan && (
-            <Button
-              variant="secondary"
-              onClick={() => setIsEditing(true)}
-              className="shrink-0 whitespace-nowrap"
-            >
-              Editar
             </Button>
           )}
           {canManageLoan && (
@@ -390,13 +383,6 @@ export function LoanDetailPage() {
         />
         <StatCard label="Incremento en mora" value={`${loan.interestRate}%`} />
       </div>
-
-      {loan.description && (
-        <p className="text-small">
-          <span className="text-muted">Descripción: </span>
-          <span className="text-white">{loan.description}</span>
-        </p>
-      )}
 
       {/* Phase 26 — optional per loan, not per client (a client can have
           one loan with a codeudor and another without). The codeudor is
@@ -525,6 +511,39 @@ export function LoanDetailPage() {
         </div>
       </div>
 
+      {/* Redesign, 2026-09-04 (client feedback) — Editar previously lived
+          right next to the field it changes as a standalone text-link
+          button; briefly moved into the top action button group (as
+          "Editar descripción"); then moved back next to Descripción, with
+          justify-between so the button sits at a fixed spot on the right
+          edge of the row regardless of description length. Moved again,
+          same day, to below Historial de pagos, per follow-up client
+          feedback — same justify-between layout, just relocated further
+          down the page. items-center (not items-start) so the description
+          text is vertically centered against the button's own height
+          (the button is taller than a bare text line, thanks to its
+          py-2.5 padding — items-start left the text pinned to the top of
+          the row while the button's padding made it look vertically
+          centered by comparison; items-center aligns both around the same
+          mid-line instead). */}
+      <div className="flex items-center justify-between gap-4 text-small">
+        <p>
+          <span className="text-muted">Descripción: </span>
+          <span className={loan.description ? 'text-white' : 'text-mid'}>
+            {loan.description ?? 'Sin descripción'}
+          </span>
+        </p>
+        {canManageLoan && (
+          <Button
+            variant="secondary"
+            onClick={() => setIsEditing(true)}
+            className="shrink-0 whitespace-nowrap"
+          >
+            Editar descripción
+          </Button>
+        )}
+      </div>
+
       {/* Updated in Fase 5, now that the real shape is known: WhatsApp
           messages are consolidated per CLIENT (one reminder can cover
           several loans at once), not per loan — there's no "this loan's
@@ -589,7 +608,6 @@ export function LoanDetailPage() {
       {isEditing && (
         <EditLoanDialog
           loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
-          interestRate={loan.interestRate}
           description={loan.description}
           onClose={() => setIsEditing(false)}
           onConfirm={(input) => updateLoan.mutateAsync({ id: loan.id, input })}
