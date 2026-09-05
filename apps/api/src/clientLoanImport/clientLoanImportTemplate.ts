@@ -90,7 +90,10 @@ const FIELD_HINTS: Record<string, string> = {
   // due date (it's a real installment now, not an informational figure),
   // which doesn't fit this bulk/historical-load flow. Set it manually
   // afterward if needed. See docs/GLOSSARY.md.
-  description: 'Opcional. Ej: Compra de electrodoméstico',
+  // No longer optional (2026-09-04) — this is the product acquired with
+  // the loan (a phone, a TV, a computer...), sent in the automatic "new
+  // loan" WhatsApp message. See clientLoanImportColumns.ts.
+  description: 'Ej: Compra de celular, televisor, computador…',
 };
 
 const CONCEPT_NAME_HINT =

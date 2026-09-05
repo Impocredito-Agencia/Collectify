@@ -213,10 +213,17 @@ export const LOAN_COLUMNS: ColumnDefinition[] = [
     required: true,
     type: 'number',
   },
+  // Required (2026-09-04, client request, same as CreateLoanDto.description)
+  // — this is the product the client acquired with the loan, sent verbatim
+  // as the "Detalle del producto" placeholder in the automatic "new loan"
+  // WhatsApp message. An imported loan goes through the exact same
+  // LoansService.create() call as the manual form (see the comment on
+  // that call below), so it sends the same message and needs the same
+  // guarantee.
   {
     key: 'description',
     aliases: ['descripcion del credito', 'descripcion', 'description'],
-    required: false,
+    required: true,
     type: 'string',
   },
 ];

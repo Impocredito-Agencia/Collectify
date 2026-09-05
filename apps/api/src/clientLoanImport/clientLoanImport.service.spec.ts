@@ -22,6 +22,11 @@ const mockParse = parseClientLoanWorkbook as jest.Mock;
 // fixture (a stray 3-digit '#743') was never updated to match, so every
 // test in this file was failing loanDto validation before it ever reached
 // the behavior each test actually means to exercise.
+// description became required 2026-09-04 (same CreateLoanDto change as the
+// interactive "Nuevo préstamo" form) — added here for the same reason the
+// comment above added #0743: every test in this file builds its loan
+// through the real CreateLoanDto/validate(), so a fixture missing a
+// now-required field fails before the behavior under test ever runs.
 const REQUIRED_LOAN_FIELDS = {
   promissoryNoteNumber: '#0743',
   principalAmount: 900000,
@@ -29,6 +34,7 @@ const REQUIRED_LOAN_FIELDS = {
   disbursedAt: '2026-08-01',
   installmentFrequency: 'monthly',
   totalInstallments: 12,
+  description: 'Compra de televisor',
 };
 
 function buildRow(overrides: {
