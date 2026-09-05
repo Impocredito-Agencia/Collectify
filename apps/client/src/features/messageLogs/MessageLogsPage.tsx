@@ -2,8 +2,8 @@ import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { DatePicker } from '@/components/ui/DatePicker';
-import { FilterTab } from '@/components/ui/FilterTab';
 import { Legend } from '@/components/ui/Legend';
+import { Pager } from '@/components/ui/Pager';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Select } from '@/components/ui/Select';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -263,31 +263,11 @@ export function MessageLogsPage() {
           <p className="text-label text-muted">
             Mostrando {rowNumberOffset + logs.length} de {meta.total} mensajes
           </p>
-          <div className="flex items-center gap-1">
-            <FilterTab
-              label="←"
-              isActive={false}
-              disabled={page <= 1}
-              onClick={() => setPage((current) => current - 1)}
-            />
-            {Array.from(
-              { length: meta.totalPages },
-              (_, index) => index + 1,
-            ).map((pageNumber) => (
-              <FilterTab
-                key={pageNumber}
-                label={pageNumber}
-                isActive={pageNumber === page}
-                onClick={() => setPage(pageNumber)}
-              />
-            ))}
-            <FilterTab
-              label="→"
-              isActive={false}
-              disabled={page >= meta.totalPages}
-              onClick={() => setPage((current) => current + 1)}
-            />
-          </div>
+          <Pager
+            page={page}
+            totalPages={meta.totalPages}
+            onPageChange={setPage}
+          />
         </div>
       )}
 
@@ -317,5 +297,6 @@ function EmptyRow({
   );
 }
 
-// Pagination controls now use the shared FilterTab component — see
-// LoansListPage.tsx's identical 2026-09-04 consolidation note.
+// Pager component (2026-09-05) — see @/components/ui/Pager.tsx. Previously
+// rendered one FilterTab per page with no truncation, unlike Clientes'
+// already-windowed pager.

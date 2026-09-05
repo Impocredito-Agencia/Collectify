@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { FilterTab } from '@/components/ui/FilterTab';
+import { Pager } from '@/components/ui/Pager';
 import { Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { ClientForm } from '@/features/clients/ClientForm';
@@ -234,28 +235,11 @@ export function ClientsListPage() {
           <p className="text-label text-muted">
             Mostrando {clients.length} de {meta.total} clientes
           </p>
-          <div className="flex items-center gap-1">
-            <FilterTab
-              label="←"
-              isActive={false}
-              disabled={page <= 1}
-              onClick={() => setPage((current) => current - 1)}
-            />
-            {buildPageWindow(page, meta.totalPages).map((entry) => (
-              <FilterTab
-                key={entry}
-                label={entry}
-                isActive={entry === page}
-                onClick={() => setPage(entry)}
-              />
-            ))}
-            <FilterTab
-              label="→"
-              isActive={false}
-              disabled={page >= meta.totalPages}
-              onClick={() => setPage((current) => current + 1)}
-            />
-          </div>
+          <Pager
+            page={page}
+            totalPages={meta.totalPages}
+            onPageChange={setPage}
+          />
         </div>
       )}
 
@@ -301,32 +285,8 @@ function EmptyRow({
   );
 }
 
-// Style cleanup (2026-09-03): the pager used to render one PageButton per
-// page with no truncation — fine for a handful of pages, but at the
-// client's real client count (~400, ~8 pages at the new 50/page default,
-// and would only get worse as the list grows) a flat row of buttons reads
-// as clutter and eventually wraps awkwardly.
-//
-// Went through two designs before landing here — see mockup shown to the
-// client comparing all three side by side:
-//   1. First attempt: pin page 1 + last page, plus a ±1 window around the
-//      current page, collapsing gaps into "…" (e.g. page 5 of 20 →
-//      [1, …, 4, 5, 6, …, 20]). Client's reaction: "eso no se ve mal?"
-//      ("doesn't that look bad?") — didn't like the two-ellipsis look.
-//   2. Client's own proposal, confirmed after seeing it live: a sliding
-//      window of 5 CONSECUTIVE page numbers centered on the current page,
-//      clamped to stay inside [1, total] — no pinned first/last, no "…".
-//      E.g. total=20: page 1 → 1 2 3 4 5; page 5 → 3 4 5 6 7; page 20 →
-//      16 17 18 19 20. This is what's implemented below.
-function buildPageWindow(current: number, total: number): number[] {
-  const windowSize = Math.min(5, total);
-  let start = current - Math.floor(windowSize / 2);
-  start = Math.max(1, Math.min(start, total - windowSize + 1));
-  return Array.from({ length: windowSize }, (_, i) => start + i);
-}
-
-// Pagination controls now use the shared FilterTab component instead of
-// this local PageButton — same 2026-09-04 consolidation sweep that fixed
-// LoansListPage's near-identical copy. Note: this drops the inactive-state
-// `border border-border` PageButton had (LoansListPage's copy never had
-// it), so the two lists' pagers now match each other exactly.
+// Pagination controls now use the shared Pager component (see
+// @/components/ui/Pager.tsx) — this page's own buildPageWindow() and
+// pager JSX were extracted from here (2026-09-05) so Dashboard, Loans,
+// MessageLogs and AuditLogs could all get the same 50/page + 5-window
+// treatment instead of a 5th near-identical copy.
