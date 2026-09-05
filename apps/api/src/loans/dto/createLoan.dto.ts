@@ -146,15 +146,24 @@ export class CreateLoanDto {
   @IsDateString()
   downPaymentDueDate?: string;
 
-  @ApiPropertyOptional({
+  // Required (2026-09-04, client request) — this is the product the client
+  // acquired with the loan (a phone, a TV, a computer...), and it's sent
+  // verbatim as the "Detalle del producto" placeholder in the automatic
+  // "new loan" WhatsApp message (see newLoanTemplateSelection.ts). Used to
+  // be optional with a "No especificado" fallback when blank
+  // (descriptionOrFallback, added 2026-09-03) — that fallback is now dead
+  // for new loans but stays in place, since it still protects the message
+  // send against any pre-existing loan in the DB with a null/empty
+  // description from before this field was required.
+  @ApiProperty({
     example:
       'Compra de Apple MacBook Air M5 color silver blue, 512GB, 16GB de ram',
     description:
-      'Free-text concept/reason for the loan — used in the "new loan" WhatsApp message, if set.',
+      'The product acquired with this loan — sent verbatim as the "Detalle del producto" placeholder in the automatic "new loan" WhatsApp message.',
   })
-  @IsOptional()
   @IsString()
-  description?: string;
+  @IsNotEmpty()
+  description!: string;
 
   // --- Optional co-debtor (codeudor), Phase 26 — at most one per loan,
   // an existing Client picked by id rather than typed by hand (replaces

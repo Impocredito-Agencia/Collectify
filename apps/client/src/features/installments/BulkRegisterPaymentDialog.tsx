@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
@@ -46,6 +46,16 @@ interface RowState {
 // own optional receipt photos (receipts are naturally per-cuota). No
 // Figma frame exists for this dialog, same gap as RegisterPaymentDialog's
 // receipt-photo field (see DESIGN_TOKENS.md).
+//
+// Math.ceil, not Math.round, for the pre-filled amount: totalDue includes
+// accrued interest (rate / 30 × overdueDays), which routinely produces
+// long decimals (e.g. 364217.4). Math.round can round DOWN to the nearest
+// peso, and since submission below requires amountPaid >= totalDue for
+// every row, that rounded-down default silently failed its own "full
+// balance" check — a bug a user hit on an untouched row (2026-09-04).
+// formatCurrency's display rounds the same way, so the amount field and
+// the "Saldo" label looked identical while the raw comparison failed
+// underneath. Rounding up always covers the balance.
 export function BulkRegisterPaymentDialog({
   installments,
   loanLabel,
@@ -57,13 +67,17 @@ export function BulkRegisterPaymentDialog({
   const [rows, setRows] = useState<RowState[]>(() =>
     installments.map((installment) => ({
       installment,
-      amountPaid: Math.round(installment.totalDue),
+      amountPaid: Math.ceil(installment.totalDue),
       images: [],
     })),
   );
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
+  // One row per installment, each with its own file input — keyed by row
+  // index rather than a single ref since useRef can't hold a dynamic list of
+  // DOM nodes directly.
+  const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   useEscapeKey(onClose);
 
@@ -257,13 +271,27 @@ export function BulkRegisterPaymentDialog({
                       ))}
                     </div>
                   )}
+                  {/* 2026-09-05: same Button migration as
+                      RegisterPaymentDialog.tsx's single-installment version
+                      — see its comment for why. */}
                   <input
+                    ref={(el) => {
+                      fileInputRefs.current[index] = el;
+                    }}
                     type="file"
                     accept="image/*"
                     multiple
                     onChange={(event) => handleFileChange(index, event)}
-                    className="w-full text-control text-muted file:mr-3 file:rounded file:border file:border-border file:bg-input file:px-3 file:py-1.5 file:text-meta file:text-muted hover:file:text-white"
+                    className="hidden"
                   />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => fileInputRefs.current[index]?.click()}
+                    className="w-fit"
+                  >
+                    Agregar foto
+                  </Button>
                 </Field>
               </div>
             </div>

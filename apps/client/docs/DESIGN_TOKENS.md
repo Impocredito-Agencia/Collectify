@@ -892,6 +892,13 @@ underlying `className` string — that's the whole point:
   "Editar", "Desactivar", "Reactivar"...). Added later (see the "Row
   action buttons" entry under Typography below) once it turned out to be
   the same copy-pasted-component problem as `Button`/`Modal`/`Field`.
+- **`src/components/ui/Pager.tsx`** — `<Pager page totalPages
+  onPageChange>`. Extracted 2026-09-05 from `ClientsListPage.tsx`, which
+  had the only windowed pager (50/page, a sliding 5-consecutive-page
+  window, no "…") — Dashboard/Loans/MessageLogs/AuditLogs each had their
+  own un-truncated copy (one button per page) at the old 20/page default.
+  All five tables now use this one component and the same 50/page
+  `DEFAULT_PAGE_SIZE` on their respective backend services.
 
 **Deliberately left local, not migrated to the shared `Field`:**
 `UserForm.tsx`, `ChangePasswordDialog.tsx`, and `EditLoanDialog.tsx` each
@@ -999,6 +1006,10 @@ Seen on frame `30:2` but not needed until a later phase — noted here so we don
 ## Note on brand text
 
 The Figma frames display "CobranzaApp", but confirmed with the client: the product name is **Collectify**. `LoginPage` and `Sidebar` use "Collectify" instead of matching the Figma text literally — everything else (colors, spacing, type, layout) still follows the design exactly.
+
+## Copy tone — always "usted", never "vos"
+
+Standing rule from the client (2026-09-04): every user-facing Spanish string in this app addresses the admin/cobrador formally, with "usted" conjugations — never voseo ("vos", "podés", "tenés", etc.). This applies app-wide, not just to the one string that prompted the rule (`RefinanceLoanForm.tsx`'s renegotiation notice). When writing or reviewing copy, use "puede" not "podés", "su" not "tu", imperative forms like "seleccione"/"ingrese" not "seleccioná"/"ingresá", etc.
 
 ## Known design/backend gaps
 
@@ -1119,8 +1130,8 @@ The backend (`dashboard.controller.ts`/`dashboard.service.ts`) was already fully
 |---|---|---|
 | A landing page after login | `docs/phasesClient/PHASE_7_DASHBOARD.md` explicitly calls for this to replace the Phase 1 placeholder (`HealthCheckPage`) as the index route, for both roles | `router.tsx`'s index route now renders `DashboardPage` instead of `HealthCheckPage`. `HealthCheckPage.tsx` itself wasn't deleted (workspace can't remove files) but is no longer routed anywhere |
 | One dashboard, not an admin/cobrador variant | The earlier-seen cobrador screenshot showed KPIs ("Mis asignados", "Contactados", "Recaudado") implying a collector-assignment concept — confirmed against `dashboard.service.ts`: no such concept exists anywhere in the aggregation queries (no `collectorId`/assignment join at all). Those KPIs aren't backed by anything real | Single `DashboardPage.tsx` for both roles, built from the 3 real endpoints only — no role branching |
-| KPI summary row | `GET /dashboard/summary` returns `totalActiveClients`, `totalOverdueInstallments`, `totalAmountOverdue`, `messagesSentThisWeek` | 4 `StatCard`s, same visual pattern as `ClientDetailPage.tsx`'s stats grid |
-| Sortable, paginated overdue-clients list | `GET /dashboard/overdue-clients` supports `sortBy` (`totalOverdueAmount` \| `maxOverdueDays`) and standard `page`/`limit` pagination | Table + `Select` sort control + the same `PageButton` pagination pattern as `LoansListPage.tsx`. "Días de mora" badge reuses `moraBadgeClasses` from `loanStatusDisplay.ts`. Each row links to `/clientes/:id` |
+| KPI summary row (2026-09-05: expanded + split into two labeled sections, fixed 4-column grid) | `GET /dashboard/summary` returns `totalActiveClients`, `totalActiveLoans`, `totalOutstandingPrincipal`, `totalOverdueInstallments`, `upcomingDueInstallments`, `totalAmountOverdue`, `overdueRate`, `messagesSentThisWeek`, `messagesFailedThisWeek`; current usury rate comes from the existing `GET /usury-rates/current` via `useCurrentUsuryRate()` | "Cartera" section, `grid-cols-4` (wraps to 2 rows instead of one ever-widening row): Clientes con préstamos activos, Préstamos activos, Cuotas en mora, Cuotas por vencer (próximos 5 días), % de cartera en mora, Tasa de usura vigente (all roles), plus Cartera total vigente and Monto total en mora (admin-only — real peso amounts, fill out row 2 for admin; cobrador's row 2 is just 2 cards, left as a partial row rather than stretched to fill). "Mensajería" section: same `grid-cols-4` (not `grid-cols-2`) so its 2 cards match Cartera's card width instead of stretching into oversized boxes — Mensajes enviados esta semana, Mensajes fallidos esta semana (both roles). Same `StatCard` pattern as `ClientDetailPage.tsx`'s stats grid. `overdueRate` = `totalAmountOverdue / totalOutstandingPrincipal` as a simple at-a-glance percentage (not a formal delinquency-rate calculation) — flagged to the human in case a stricter definition is wanted later. `upcomingDueInstallments` window (5 days) matches the longest lead time in `upcomingDueReminderDays` ([5,3,1]) |
+| Sortable, paginated overdue-clients list | `GET /dashboard/overdue-clients` supports `sortBy` (`totalOverdueAmount` \| `maxOverdueDays`) and standard `page`/`limit` pagination (50/page default as of 2026-09-05) | Table + `Select` sort control + the shared `Pager` component (see "Component-based centralization" above). "Días de mora" badge reuses `moraBadgeClasses` from `loanStatusDisplay.ts`. Each row links to `/clientes/:id` |
 | Monthly report with a month/year picker | `GET /dashboard/monthly-report?month=&year=` — no preset range hinted anywhere | Two `Select` dropdowns (month name, year — last 4 years including the current one, no future years since a report for one would always be empty) plus 3 `StatCard`s (préstamos nuevos, pagos recibidos, mensajes enviados). Defaults to the current month/year |
 
 New: `features/dashboard/dashboardApi.ts`, `useDashboard.ts`, `DashboardPage.tsx`.

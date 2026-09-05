@@ -2,6 +2,7 @@ import {
   addDaysToDateString,
   addMonthsToDateString,
   addWeeksToDateString,
+  todayDateString,
 } from './dueDateSchedule';
 
 describe('dueDateSchedule', () => {
@@ -46,6 +47,28 @@ describe('dueDateSchedule', () => {
 
     it('rolls over across a month boundary', () => {
       expect(addDaysToDateString('2026-01-30', 3)).toBe('2026-02-02');
+    });
+  });
+
+  describe('todayDateString', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    // Bug fix, 2026-09-04 (see this function's own comment and
+    // docs/DATABASE.md's note of that date) — this used to return the raw
+    // UTC calendar date, which is a day ahead of Bogotá's for roughly 5
+    // hours every day (UTC 00:00-05:00, i.e. 7pm-midnight in Bogotá).
+    it('returns the calendar date in Bogotá, not raw UTC', () => {
+      // 11:59:59pm Sep 4 in Bogotá (UTC-5) — still Sep 4 there, even though
+      // UTC's own calendar date is already Sep 5.
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-09-05T04:59:59Z'));
+      expect(todayDateString()).toBe('2026-09-04');
+
+      // 12:00:00am Sep 5 in Bogotá — now Sep 5.
+      jest.setSystemTime(new Date('2026-09-05T05:00:00Z'));
+      expect(todayDateString()).toBe('2026-09-05');
     });
   });
 });

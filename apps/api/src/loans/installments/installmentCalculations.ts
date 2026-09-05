@@ -1,32 +1,67 @@
-import { differenceInDays } from 'date-fns';
-
 import { ConceptCalculationType } from '../../interestConceptTypes/entities/interestConceptType.entity';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+// Colombia has no DST, so this fixed offset holds year-round — same
+// precedent as pinning CronJob timezones directly to 'America/Bogota' in
+// whatsappCron.service.ts (see docs/DATABASE.md's cron TZ bug fix).
+const BOGOTA_UTC_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+// `dueDate` is a 'date' column, parsed as UTC midnight (e.g.
+// new Date('2026-09-10') -> 2026-09-10T00:00:00.000Z) with no time-of-day
+// component — that UTC-midnight timestamp already IS its calendar date, so
+// it needs no timezone adjustment of its own.
+function dueDateDayNumber(dueDate: Date): number {
+  return Math.floor(dueDate.getTime() / MS_PER_DAY);
+}
+
+// `today` is a genuine instant (almost always `new Date()`, "right now"),
+// not a calendar date — so, unlike dueDate above, figuring out "what
+// calendar date is it in Bogotá right now" requires shifting by the fixed
+// UTC-5 offset FIRST, then taking that shifted instant's own UTC day
+// number.
+function todayDayNumberInBogota(today: Date): number {
+  return Math.floor((today.getTime() - BOGOTA_UTC_OFFSET_MS) / MS_PER_DAY);
+}
 
 // Confirmed formula — verified against real spreadsheet data
 // (docs/GLOSSARY.md → Interest). Do not modify without re-verifying against
 // the fixtures in installmentCalculations.spec.ts.
 //
-// Uses differenceInDays (elapsed 24h periods, timezone-agnostic), not
-// differenceInCalendarDays — the latter normalizes to local-timezone midnight,
-// which silently shifts results by a day depending on server timezone since
-// dueDate is parsed from a UTC-midnight date string. See installmentCalculations.spec.ts.
-
+// Whole Bogotá CALENDAR days between `today` and `dueDate`. Deliberately
+// NOT differenceInCalendarDays (normalizes to the SERVER process's own
+// local timezone, which must never affect the result — see the
+// "off-by-one when the server runs behind UTC" regression test below) and
+// NOT a raw differenceInDays on exact instants either (the original
+// formula here) — that measures elapsed 24h periods from `today`'s precise
+// timestamp against dueDate's UTC-midnight parsing, which silently shifted
+// every result by a day (two after 7pm Bogotá), always in the direction of
+// treating a cuota as due/overdue earlier than the calendar actually says.
+// Bug found and fixed 2026-09-04 — see docs/DATABASE.md's note of that date
+// for the full before/after analysis (it was first noticed as an unusually
+// early "cuota entra al refinanciamiento" via the 5-day early-maturity
+// window, but affects every caller of this file's two exported day-count
+// functions the same way).
 export function calculateOverdueDays(
   dueDate: Date,
   today: Date = new Date(),
 ): number {
-  return today > dueDate ? differenceInDays(today, dueDate) : 0;
+  const overdueDays = todayDayNumberInBogota(today) - dueDateDayNumber(dueDate);
+  return overdueDays > 0 ? overdueDays : 0;
 }
 
 // Symmetric to calculateOverdueDays — 0 once the due date has passed or is
 // today, since "days until due" only means something for a future date.
 // Used by the upcoming-due and account-summary messages, see
-// docs/phases/PHASE_9_MESSAGE_TYPES.md.
+// docs/phases/PHASE_9_MESSAGE_TYPES.md, and by the refinance early-maturity
+// window, see calculatePayoff.ts.
 export function calculateDaysUntilDue(
   dueDate: Date,
   today: Date = new Date(),
 ): number {
-  return dueDate > today ? differenceInDays(dueDate, today) : 0;
+  const daysUntilDue =
+    dueDateDayNumber(dueDate) - todayDayNumberInBogota(today);
+  return daysUntilDue > 0 ? daysUntilDue : 0;
 }
 
 export function calculateInterest(

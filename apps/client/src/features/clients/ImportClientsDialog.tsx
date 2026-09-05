@@ -117,6 +117,17 @@ export function ImportClientsDialog({
           <label className="mb-1.5 block text-label text-muted">
             Archivo (.xlsx)
           </label>
+          {/* 2026-09-05: the file: pseudo-element fix (previous commit) made
+              the native picker button legible, but it's still the browser's
+              own button — different size/shape/hover than every other
+              button in the app, sitting right above "Descargar plantilla"
+              which already goes through the shared Button component. Same
+              "misma bolsa de todos los botones" rule as the earlier button
+              sweep applies here too: the real <input type="file"> is now
+              visually hidden and triggered via ref from an actual Button,
+              and we render the filename (or its absence) ourselves since
+              hiding the input also hides the browser's own "No se eligió
+              ningún archivo" text. */}
           <input
             ref={fileInputRef}
             type="file"
@@ -126,8 +137,20 @@ export function ImportClientsDialog({
               setResult(null);
               setError(null);
             }}
-            className="w-full text-small text-white"
+            className="hidden"
           />
+          <div className="flex items-center gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-fit"
+            >
+              Elegir archivo
+            </Button>
+            <span className="text-small text-muted">
+              {file ? file.name : 'No se eligió ningún archivo'}
+            </span>
+          </div>
         </div>
 
         {error && (

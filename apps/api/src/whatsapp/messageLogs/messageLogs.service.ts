@@ -14,6 +14,10 @@ import {
 } from 'typeorm';
 
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
+import {
+  bogotaEndOfDayUtc,
+  bogotaStartOfDayUtc,
+} from '../../loans/dueDateSchedule';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
 import { MessageType } from '../messageType.enum';
@@ -26,7 +30,9 @@ import { UpcomingDueReminderService } from '../upcomingDueReminder.service';
 import { QueryMessageLogsDto } from './dto/queryMessageLogs.dto';
 
 const DEFAULT_PAGE = 1;
-const DEFAULT_PAGE_SIZE = 20;
+// 50, matching clients.service.ts's DEFAULT_PAGE_SIZE — see the same note
+// in dashboard.service.ts (style cleanup 2026-09-05).
+const DEFAULT_PAGE_SIZE = 50;
 
 @Injectable()
 export class MessageLogsService {
@@ -57,12 +63,23 @@ export class MessageLogsService {
     if (query.status) {
       base.status = query.status;
     }
+    // Bug fix, 2026-09-05 — same root cause and fix as
+    // AuditLogService.findAll: `new Date(query.dateFrom/dateTo)` parses a
+    // plain 'YYYY-MM-DD' as UTC midnight, 5 hours before midnight in
+    // Bogotá. dateTo was the worse of the two — its cutoff landed hours
+    // before the selected day even started locally, so filtering "Hasta"
+    // a given day silently excluded that whole day's messages instead of
+    // including them. See bogotaStartOfDayUtc/bogotaEndOfDayUtc's own
+    // comments in dueDateSchedule.ts for the exact math.
     if (query.dateFrom && query.dateTo) {
-      base.sentAt = Between(new Date(query.dateFrom), new Date(query.dateTo));
+      base.sentAt = Between(
+        bogotaStartOfDayUtc(query.dateFrom),
+        bogotaEndOfDayUtc(query.dateTo),
+      );
     } else if (query.dateFrom) {
-      base.sentAt = MoreThanOrEqual(new Date(query.dateFrom));
+      base.sentAt = MoreThanOrEqual(bogotaStartOfDayUtc(query.dateFrom));
     } else if (query.dateTo) {
-      base.sentAt = LessThanOrEqual(new Date(query.dateTo));
+      base.sentAt = LessThanOrEqual(bogotaEndOfDayUtc(query.dateTo));
     }
 
     // The list screen shows the client's name, not just their id, and

@@ -106,6 +106,24 @@ export class InterestConceptTypesController {
     return this.interestConceptTypesService.deactivate(id);
   }
 
+  @Patch(':id/activate')
+  @RequireModule(AppModule.InterestConceptTypes)
+  @Audit('interestConceptType.activate', 'interestConceptType')
+  @ApiOperation({
+    summary:
+      'Reactivate a deactivated interest concept type (admin or granted the interest_concept_types module)',
+    description:
+      'Makes the type selectable again for new loans. Safe even for a type already used on past loans — those keep the name/value they were assigned with regardless (see PATCH :id/deactivate).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The concept type was reactivated.',
+  })
+  @ApiResponse({ status: 404, description: 'Concept type not found.' })
+  activate(@Param('id') id: string): Promise<InterestConceptType> {
+    return this.interestConceptTypesService.activate(id);
+  }
+
   @Delete(':id')
   @RequireModule(AppModule.InterestConceptTypes)
   @HttpCode(HttpStatus.NO_CONTENT)

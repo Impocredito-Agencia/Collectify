@@ -12,7 +12,10 @@ import {
   LoanStatus,
 } from '../loans/entities/loan.entity';
 import { Payment } from '../loans/entities/payment.entity';
-import { MessageLog } from '../whatsapp/entities/messageLog.entity';
+import {
+  MessageLog,
+  MessageLogStatus,
+} from '../whatsapp/entities/messageLog.entity';
 
 import { DashboardService } from './dashboard.service';
 import { OverdueClientsSortBy } from './dto/queryOverdueClients.dto';
@@ -20,7 +23,7 @@ import { OverdueClientsSortBy } from './dto/queryOverdueClients.dto';
 describe('DashboardService', () => {
   let service: DashboardService;
   let loansRepository: { find: jest.Mock; count: jest.Mock };
-  let installmentsRepository: { find: jest.Mock };
+  let installmentsRepository: { find: jest.Mock; count: jest.Mock };
   let paymentsRepository: { find: jest.Mock };
   let messageLogsRepository: { count: jest.Mock };
 
@@ -111,6 +114,7 @@ describe('DashboardService', () => {
     };
     installmentsRepository = {
       find: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
     };
     paymentsRepository = {
       find: jest.fn().mockResolvedValue([]),
@@ -165,16 +169,41 @@ describe('DashboardService', () => {
         { clientId: 'client-3' },
         { clientId: 'client-4' },
       ]);
-      messageLogsRepository.count.mockResolvedValue(7);
+      // 5 active loans across 4 clients — one client has two active loans,
+      // which is exactly why totalActiveLoans and totalActiveClients differ.
+      loansRepository.count.mockResolvedValue(5);
+      installmentsRepository.count.mockResolvedValue(3);
+      // Distinguishes the two countMessagesXThisWeek() calls, which both
+      // hit this same mocked repository.count — matches on the `status`
+      // filter each one passes rather than call order.
+      messageLogsRepository.count.mockImplementation(
+        (options?: { where?: { status?: MessageLogStatus } }) =>
+          Promise.resolve(
+            options?.where?.status === MessageLogStatus.Failed ? 2 : 7,
+          ),
+      );
 
       const result = await service.getSummary();
 
       expect(result.totalActiveClients).toBe(4);
+      expect(result.totalActiveLoans).toBe(5);
+      expect(loansRepository.count).toHaveBeenCalledWith({
+        where: { status: LoanStatus.Active },
+      });
       expect(result.totalOverdueInstallments).toBe(2);
+      expect(result.upcomingDueInstallments).toBe(3);
       // interest_a = 100000 * 0.06/30 * 30 = 6000 -> totalDue 106000
       // interest_b = 50000 * 0.06/30 * 10 = 1000 -> totalDue 51000
       expect(result.totalAmountOverdue).toBeCloseTo(157000, 5);
+      // Same installmentsRepository.find mock backs both the overdue fetch
+      // and sumOutstandingPrincipal's fetch (this repo mock doesn't
+      // distinguish by query) — both installments have a null
+      // principalPortion, so this is amount_a + amount_b = 150000.
+      expect(result.totalOutstandingPrincipal).toBe(150000);
+      // 157000 / 150000 * 100 = 104.666...% -> rounded to 1 decimal.
+      expect(result.overdueRate).toBeCloseTo(104.7, 5);
       expect(result.messagesSentThisWeek).toBe(7);
+      expect(result.messagesFailedThisWeek).toBe(2);
     });
 
     it('returns zeroes when there are no overdue installments', async () => {
@@ -182,6 +211,68 @@ describe('DashboardService', () => {
 
       expect(result.totalOverdueInstallments).toBe(0);
       expect(result.totalAmountOverdue).toBe(0);
+      expect(result.totalActiveLoans).toBe(0);
+      expect(result.totalOutstandingPrincipal).toBe(0);
+      // Division-by-zero guard: no active portfolio means 0%, not NaN.
+      expect(result.overdueRate).toBe(0);
+      expect(result.messagesFailedThisWeek).toBe(0);
+      expect(result.upcomingDueInstallments).toBe(0);
+    });
+
+    it('queries upcomingDueInstallments as a [today, today+5] window, not the overdue LessThan(today) filter', async () => {
+      installmentsRepository.count.mockResolvedValue(4);
+
+      const result = await service.getSummary();
+
+      expect(result.upcomingDueInstallments).toBe(4);
+      const today = new Date().toISOString().slice(0, 10);
+      const in5Days = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      expect(installmentsRepository.count).toHaveBeenCalledWith({
+        where: {
+          status: InstallmentStatus.Pending,
+          dueDate: expect.objectContaining({
+            _type: 'between',
+            _value: [today, in5Days],
+          }) as unknown,
+          loan: { status: LoanStatus.Active },
+        },
+      });
+    });
+
+    it('falls back to the installment amount when principalPortion is null, for outstanding principal', async () => {
+      const client = makeClient();
+      const loan = makeLoan(client);
+      const withPortion = makeInstallment(loan, {
+        id: 'inst-portion',
+        amount: 120000,
+        principalPortion: 80000,
+        dueDate: '2099-01-01', // not overdue — outstanding principal counts it anyway
+      });
+      const legacyNoPortion = makeInstallment(loan, {
+        id: 'inst-legacy',
+        amount: 90000,
+        principalPortion: null,
+        dueDate: '2099-01-01',
+      });
+      installmentsRepository.find.mockResolvedValue([
+        withPortion,
+        legacyNoPortion,
+      ]);
+
+      const result = await service.getSummary();
+
+      // 80000 (its own principalPortion) + 90000 (falls back to amount).
+      expect(result.totalOutstandingPrincipal).toBe(170000);
+      expect(installmentsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: InstallmentStatus.Pending,
+            loan: { status: LoanStatus.Active },
+          }) as unknown,
+        }),
+      );
     });
   });
 

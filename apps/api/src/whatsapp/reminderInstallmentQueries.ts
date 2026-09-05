@@ -1,5 +1,6 @@
 import { LessThan, In, Repository } from 'typeorm';
 
+import { todayDateString } from '../loans/dueDateSchedule';
 import {
   Installment,
   InstallmentStatus,
@@ -27,7 +28,11 @@ export async function findOverdueInstallmentsForClient(
   installmentsRepository: Repository<Installment>,
   clientId: string,
 ): Promise<OverdueInstallmentResult[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  // Bug fix, 2026-09-04 — was `new Date().toISOString().slice(0, 10)` (the
+  // UTC calendar date, wrong for ~5 hours a day in Bogotá); todayDateString()
+  // now corrects for the fixed UTC-5 offset. See its own comment in
+  // dueDateSchedule.ts and docs/DATABASE.md's note of that date.
+  const today = todayDateString();
 
   const installments = await installmentsRepository.find({
     where: {
@@ -58,7 +63,8 @@ export async function findOverdueInstallmentsForClient(
 export async function findClientIdsWithOverdueInstallments(
   installmentsRepository: Repository<Installment>,
 ): Promise<string[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  // Bug fix, 2026-09-04 — see todayDateString()'s own comment above.
+  const today = todayDateString();
 
   const installments = await installmentsRepository.find({
     where: {

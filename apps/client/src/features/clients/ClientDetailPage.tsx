@@ -236,204 +236,12 @@ export function ClientDetailPage() {
         />
       </div>
 
-      {/* Phase 21 — extended profile (KYC), sectioned the same way as
-          ClientForm.tsx. Each DetailField skips rendering when its value
-          is empty, so a client with a mostly-blank profile (e.g. one
-          created before this phase) doesn't show a wall of "—" lines. See
-          docs/phasesClient/PHASE_21_CLIENT_PROFILE.md. */}
-      <div className="flex flex-col gap-4">
-        <DetailSection title="Datos personales">
-          {/* Repeats the cédula already shown in the header above — per
-              client feedback, seeing it again here next to the rest of
-              the identification fields (tipo, fechas, lugar) is more
-              useful than making them scroll up to cross-reference it. */}
-          <DetailField label="Cédula" value={client.documentNumber} />
-          <DetailField
-            label="Documento"
-            value={
-              client.documentType
-                ? DOCUMENT_TYPE_LABELS[client.documentType]
-                : null
-            }
-          />
-          <DetailField
-            label="Fecha de nacimiento"
-            value={
-              client.dateOfBirth ? formatDateOnly(client.dateOfBirth) : null
-            }
-          />
-          <DetailField
-            label="Fecha de expedición"
-            value={
-              client.documentIssueDate
-                ? formatDateOnly(client.documentIssueDate)
-                : null
-            }
-          />
-          <DetailField
-            label="Lugar de expedición"
-            value={client.documentIssuePlace}
-          />
-          <DetailField label="Ocupación" value={client.occupation} />
-          <DetailField label="Empresa" value={client.employerName} />
-          <DetailField
-            label="Ingreso mensual"
-            value={
-              client.monthlyIncome !== null
-                ? formatCurrency(client.monthlyIncome)
-                : null
-            }
-          />
-        </DetailSection>
-
-        <DetailSection title="Contacto">
-          {/* Repeats the celular already shown in the header above — same
-              reasoning as the Cédula repeat in DATOS PERSONALES: right
-              next to "Celular alterno" is more useful than the header. */}
-          <DetailField
-            label="Celular"
-            value={formatPhoneNumber(client.phoneNumber)}
-          />
-          <DetailField
-            label="Celular alterno"
-            value={
-              client.alternatePhoneNumber
-                ? formatPhoneNumber(client.alternatePhoneNumber)
-                : null
-            }
-          />
-          <DetailField label="Correo electrónico" value={client.email} />
-        </DetailSection>
-
-        <DetailSection title="Direcciones">
-          <DetailField
-            label="Dirección de residencia"
-            value={client.homeAddress}
-          />
-          <DetailField
-            label="Dirección de trabajo"
-            value={client.workAddress}
-          />
-          <DetailField label="Barrio" value={client.neighborhood} />
-          <DetailField label="Ciudad" value={client.city} />
-        </DetailSection>
-
-        <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
-          <span className="text-section-label font-normal tracking-normal text-subtle">
-            Referencias
-          </span>
-          {client.references.length === 0 ? (
-            <p className="text-small text-muted">
-              Sin referencias registradas.
-            </p>
-          ) : (
-            <div className="flex flex-col gap-2.5">
-              {client.references.map((reference) => (
-                <div
-                  key={reference.id}
-                  className="flex items-center justify-between rounded border border-border bg-input px-3.5 py-2.5"
-                >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-small font-medium text-white">
-                      {reference.fullName}
-                    </span>
-                    <span className="text-meta text-muted">
-                      {reference.relationship}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-meta text-muted">
-                      {formatPhoneNumber(reference.phoneNumber)}
-                    </span>
-                    <span className="rounded-[3px] border border-border bg-background px-2 py-[3px] text-meta text-muted">
-                      {CLIENT_REFERENCE_TYPE_LABELS[reference.type]}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
-          <span className="text-section-label font-normal tracking-normal text-subtle">
-            Documentos
-          </span>
-          {!client.idDocumentFrontUrl &&
-          !client.idDocumentBackUrl &&
-          !client.selfieImageUrl ? (
-            <p className="text-small text-muted">Sin documentos cargados.</p>
-          ) : (
-            <div className="flex items-center gap-4">
-              <DocumentThumbnail
-                label="Documento — frente"
-                url={client.idDocumentFrontUrl}
-                alt={`Documento de identidad (frente) de ${client.firstName} ${client.lastName}`}
-                onEnlarge={setEnlargedImage}
-              />
-              <DocumentThumbnail
-                label="Documento — reverso"
-                url={client.idDocumentBackUrl}
-                alt={`Documento de identidad (reverso) de ${client.firstName} ${client.lastName}`}
-                onEnlarge={setEnlargedImage}
-              />
-              <DocumentThumbnail
-                label="Selfie"
-                url={client.selfieImageUrl}
-                alt={`Selfie de ${client.firstName} ${client.lastName}`}
-                onEnlarge={setEnlargedImage}
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
-          <span className="text-section-label font-normal tracking-normal text-subtle">
-            Autorización de tratamiento de datos
-          </span>
-          <div className="flex items-center gap-3">
-            {client.dataProcessingConsent ? (
-              <StatusBadge tone="success">Autorización firmada</StatusBadge>
-            ) : (
-              <StatusBadge tone="danger">
-                Sin autorización registrada
-              </StatusBadge>
-            )}
-            {client.consentGivenAt && (
-              <span className="text-meta text-muted">
-                {new Date(client.consentGivenAt).toLocaleDateString('es-CO')}
-              </span>
-            )}
-          </div>
-          {client.consentDocumentUrl &&
-            (isPdfUrl(client.consentDocumentUrl) ? (
-              <a
-                href={client.consentDocumentUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="self-start text-meta text-muted hover:text-white hover:underline"
-              >
-                Ver evidencia de autorización (PDF)
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() =>
-                  setEnlargedImage({
-                    url: client.consentDocumentUrl!,
-                    alt: `Evidencia de autorización de ${client.firstName} ${client.lastName}`,
-                  })
-                }
-                className="self-start text-meta text-muted hover:text-white hover:underline"
-              >
-                Ver evidencia de autorización
-              </button>
-            ))}
-        </div>
-
-        <MessageFrequencySection client={client} canManage={canManageClient} />
-      </div>
-
+      {/* Program-first ordering (client request, 2026-09-04): the loans
+          table, message history, and messaging config are what an
+          admin/cobrador actually opens this page to check day-to-day —
+          they now come before the KYC/personal-info block instead of
+          after it, which used to bury them below a screen and a half of
+          rarely-changing profile data. */}
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
           <span className="text-section-label font-normal tracking-normal text-subtle">
@@ -624,6 +432,219 @@ export function ClientDetailPage() {
         </div>
       </div>
 
+      <MessageFrequencySection client={client} canManage={canManageClient} />
+
+      {/* Phase 21 — extended profile (KYC), sectioned the same way as
+          ClientForm.tsx. Each DetailField skips rendering when its value
+          is empty, so a client with a mostly-blank profile (e.g. one
+          created before this phase) doesn't show a wall of "—" lines. See
+          docs/phasesClient/PHASE_21_CLIENT_PROFILE.md.
+          Moved below Préstamos/Historial (client request, 2026-09-04) —
+          this is reference info an admin checks occasionally, not the
+          day-to-day view. Also switched from one full-width section per
+          block to denser card grids: a 2-column field grid stretched
+          across the whole page width left large horizontal gaps for
+          short values ("se pierde mucho espacio"). */}
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-4">
+          <DetailSection title="Contacto">
+            {/* Repeats the celular already shown in the header above —
+                same reasoning as the Cédula repeat in DATOS PERSONALES:
+                right next to "Celular alterno" is more useful than the
+                header. */}
+            <DetailField
+              label="Celular"
+              value={formatPhoneNumber(client.phoneNumber)}
+            />
+            <DetailField
+              label="Celular alterno"
+              value={
+                client.alternatePhoneNumber
+                  ? formatPhoneNumber(client.alternatePhoneNumber)
+                  : null
+              }
+            />
+            <DetailField label="Correo electrónico" value={client.email} />
+          </DetailSection>
+
+          <DetailSection title="Direcciones">
+            <DetailField
+              label="Dirección de residencia"
+              value={client.homeAddress}
+            />
+            <DetailField
+              label="Dirección de trabajo"
+              value={client.workAddress}
+            />
+            <DetailField label="Barrio" value={client.neighborhood} />
+            <DetailField label="Ciudad" value={client.city} />
+          </DetailSection>
+        </div>
+
+        <DetailSection title="Datos personales" columns={4}>
+          {/* Repeats the cédula already shown in the header above — per
+              client feedback, seeing it again here next to the rest of
+              the identification fields (tipo, fechas, lugar) is more
+              useful than making them scroll up to cross-reference it. */}
+          <DetailField label="Cédula" value={client.documentNumber} />
+          <DetailField
+            label="Fecha de nacimiento"
+            value={
+              client.dateOfBirth ? formatDateOnly(client.dateOfBirth) : null
+            }
+          />
+          <DetailField
+            label="Tipo de documento"
+            value={
+              client.documentType
+                ? DOCUMENT_TYPE_LABELS[client.documentType]
+                : null
+            }
+          />
+          <DetailField
+            label="Fecha de expedición"
+            value={
+              client.documentIssueDate
+                ? formatDateOnly(client.documentIssueDate)
+                : null
+            }
+          />
+          <DetailField
+            label="Lugar de expedición"
+            value={client.documentIssuePlace}
+          />
+          <DetailField label="Ocupación" value={client.occupation} />
+          <DetailField label="Empresa" value={client.employerName} />
+          <DetailField
+            label="Ingreso mensual"
+            value={
+              client.monthlyIncome !== null
+                ? formatCurrency(client.monthlyIncome)
+                : null
+            }
+          />
+        </DetailSection>
+
+        <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+          <span className="text-section-label font-normal tracking-normal text-subtle">
+            Referencias
+          </span>
+          {client.references.length === 0 ? (
+            <p className="text-small text-muted">
+              Sin referencias registradas.
+            </p>
+          ) : (
+            // grid, not a single flex column: each reference card is short
+            // (name + one phone + a badge), so one per row at full page
+            // width left the same kind of wasted horizontal space as the
+            // old Datos personales layout — 2 per row uses it better.
+            <div className="grid grid-cols-2 gap-2.5">
+              {client.references.map((reference) => (
+                <div
+                  key={reference.id}
+                  className="flex items-center justify-between rounded border border-border bg-input px-3.5 py-2.5"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-small font-medium text-white">
+                      {reference.fullName}
+                    </span>
+                    <span className="text-meta text-muted">
+                      {reference.relationship}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-meta text-muted">
+                      {formatPhoneNumber(reference.phoneNumber)}
+                    </span>
+                    <span className="rounded-[3px] border border-border bg-background px-2 py-[3px] text-meta text-muted">
+                      {CLIENT_REFERENCE_TYPE_LABELS[reference.type]}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+            <span className="text-section-label font-normal tracking-normal text-subtle">
+              Documentos
+            </span>
+            {!client.idDocumentFrontUrl &&
+            !client.idDocumentBackUrl &&
+            !client.selfieImageUrl ? (
+              <p className="text-small text-muted">Sin documentos cargados.</p>
+            ) : (
+              <div className="flex items-center gap-4">
+                <DocumentThumbnail
+                  label="Documento — frente"
+                  url={client.idDocumentFrontUrl}
+                  alt={`Documento de identidad (frente) de ${client.firstName} ${client.lastName}`}
+                  onEnlarge={setEnlargedImage}
+                />
+                <DocumentThumbnail
+                  label="Documento — reverso"
+                  url={client.idDocumentBackUrl}
+                  alt={`Documento de identidad (reverso) de ${client.firstName} ${client.lastName}`}
+                  onEnlarge={setEnlargedImage}
+                />
+                <DocumentThumbnail
+                  label="Selfie"
+                  url={client.selfieImageUrl}
+                  alt={`Selfie de ${client.firstName} ${client.lastName}`}
+                  onEnlarge={setEnlargedImage}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+            <span className="text-section-label font-normal tracking-normal text-subtle">
+              Autorización de tratamiento de datos
+            </span>
+            <div className="flex items-center gap-3">
+              {client.dataProcessingConsent ? (
+                <StatusBadge tone="success">Autorización firmada</StatusBadge>
+              ) : (
+                <StatusBadge tone="danger">
+                  Sin autorización registrada
+                </StatusBadge>
+              )}
+              {client.consentGivenAt && (
+                <span className="text-meta text-muted">
+                  {new Date(client.consentGivenAt).toLocaleDateString('es-CO')}
+                </span>
+              )}
+            </div>
+            {client.consentDocumentUrl &&
+              (isPdfUrl(client.consentDocumentUrl) ? (
+                <a
+                  href={client.consentDocumentUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="self-start text-meta text-muted hover:text-white hover:underline"
+                >
+                  Ver evidencia de autorización (PDF)
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEnlargedImage({
+                      url: client.consentDocumentUrl!,
+                      alt: `Evidencia de autorización de ${client.firstName} ${client.lastName}`,
+                    })
+                  }
+                  className="self-start text-meta text-muted hover:text-white hover:underline"
+                >
+                  Ver evidencia de autorización
+                </button>
+              ))}
+          </div>
+        </div>
+      </div>
+
       {isEditing && (
         <ClientForm
           client={client}
@@ -806,19 +827,32 @@ function MessageFrequencySection({
   );
 }
 
+// columns defaults to 2 (Contacto/Direcciones, each with few enough
+// fields that 2 columns already reads tight); Datos personales passes 4
+// since it has 8 fields and otherwise reads as a tall, sparse column at
+// full page width. Hardcoded to explicit classnames (not a template
+// string) since Tailwind's build only picks up literal class names.
 function DetailSection({
   title,
   children,
+  columns = 2,
 }: {
   title: string;
   children: ReactNode;
+  columns?: 2 | 3 | 4;
 }) {
+  const gridColsClassName =
+    columns === 4
+      ? 'grid-cols-4'
+      : columns === 3
+        ? 'grid-cols-3'
+        : 'grid-cols-2';
   return (
     <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
       <span className="text-section-label font-normal tracking-normal text-subtle">
         {title}
       </span>
-      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-small">
+      <div className={`grid ${gridColsClassName} gap-x-6 gap-y-2 text-small`}>
         {children}
       </div>
     </div>

@@ -2,6 +2,12 @@ import ExcelJS from 'exceljs';
 
 import { parseClientLoanWorkbook } from './clientLoanImportParser';
 
+// Descripción del crédito became required 2026-09-04 (same CreateLoanDto
+// change as the interactive "Nuevo préstamo" form — see
+// clientLoanImportColumns.ts), so it's now part of the minimal valid row
+// every test in this file builds from — appended at the end so none of
+// the existing index-based row mutations below (row[1], row[4], row[8])
+// shift.
 const REQUIRED_HEADERS = [
   'Nombre',
   'Apellido',
@@ -13,6 +19,7 @@ const REQUIRED_HEADERS = [
   'Fecha de desembolso',
   'Frecuencia de pago',
   'Número de cuotas',
+  'Descripción del crédito',
 ];
 
 const REQUIRED_ROW = [
@@ -26,6 +33,7 @@ const REQUIRED_ROW = [
   '2026-08-01',
   'mensual',
   12,
+  'Compra de televisor',
 ];
 
 async function buildWorkbook(
@@ -70,6 +78,7 @@ describe('parseClientLoanWorkbook', () => {
       disbursedAt: '2026-08-01',
       installmentFrequency: 'monthly',
       totalInstallments: 12,
+      description: 'Compra de televisor',
     });
     expect(result.rows[0].concepts).toEqual([]);
   });

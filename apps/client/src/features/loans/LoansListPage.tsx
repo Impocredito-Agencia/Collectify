@@ -2,8 +2,8 @@ import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
-import { FilterTab } from '@/components/ui/FilterTab';
 import { Legend } from '@/components/ui/Legend';
+import { Pager } from '@/components/ui/Pager';
 import { Select } from '@/components/ui/Select';
 import { Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
@@ -168,31 +168,11 @@ export function LoansListPage() {
           <p className="text-label text-muted">
             Mostrando {loans.length} de {meta.total} préstamos
           </p>
-          <div className="flex items-center gap-1">
-            <FilterTab
-              label="←"
-              isActive={false}
-              disabled={page <= 1}
-              onClick={() => setPage((current) => current - 1)}
-            />
-            {Array.from(
-              { length: meta.totalPages },
-              (_, index) => index + 1,
-            ).map((pageNumber) => (
-              <FilterTab
-                key={pageNumber}
-                label={pageNumber}
-                isActive={pageNumber === page}
-                onClick={() => setPage(pageNumber)}
-              />
-            ))}
-            <FilterTab
-              label="→"
-              isActive={false}
-              disabled={page >= meta.totalPages}
-              onClick={() => setPage((current) => current + 1)}
-            />
-          </div>
+          <Pager
+            page={page}
+            totalPages={meta.totalPages}
+            onPageChange={setPage}
+          />
         </div>
       )}
 
@@ -226,6 +206,6 @@ function EmptyRow({
 }
 
 // Pagination controls (prev/next + page numbers) now use the shared
-// FilterTab component — was a local PageButton with its own hover-less
-// styling, one of the raw-button holdouts found in the 2026-09-04
-// consolidation sweep. See FilterTab.tsx's `disabled` prop comment.
+// Pager component (2026-09-05) — see @/components/ui/Pager.tsx. Previously
+// rendered one FilterTab per page with no truncation, unlike Clientes'
+// already-windowed pager.

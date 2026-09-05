@@ -73,8 +73,31 @@ type FieldName =
   | 'moratoryConcepts'
   | 'coDebtorClientId'
   | 'downPaymentAmount'
-  | 'downPaymentDueDate';
+  | 'downPaymentDueDate'
+  | 'description';
 type FieldErrors = Partial<Record<FieldName, string>>;
+
+// Same fix as ClientForm.tsx's scrollToFirstError, applied here 2026-09-05
+// — this form is long enough (Modal has `scroll`) that a validation error
+// on a field near the top (e.g. "Cliente") was completely invisible if the
+// admin had already scrolled down to "Crear préstamo": nothing visibly
+// happened, since fieldErrors were set but the only feedback was an inline
+// message on a field that's off-screen. Order matches the fields'
+// top-to-bottom visual order in the JSX below.
+const FIELD_ORDER: FieldName[] = [
+  'clientId',
+  'promissoryNoteNumber',
+  'downPaymentAmount',
+  'downPaymentDueDate',
+  'principalAmount',
+  'totalInstallments',
+  'firstDueDate',
+  'concepts',
+  'moratoryConcepts',
+  'description',
+  'coDebtorClientId',
+];
+const fieldElementId = (name: FieldName) => `loan-form-field-${name}`;
 
 let nextRowId = 0;
 function makeRowId(): string {
@@ -94,7 +117,7 @@ function makeRowId(): string {
 // pick — see SystemInterestRateRow below. It replaces both the old
 // standalone "Tasa de interés moratorio (%)" input (interestRate) and the
 // earlier "mandatory catalog concept" mechanism. interestRate is still
-// sent as a fixed 0, since the API keeps it required — see handleSubmit.
+// sent as a fixed 0, since the API keeps it required — see performSubmit.
 export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const { user } = useAuth();
   // Phase 23 — "los cobradores no miren el amortizador pero sí deben poder
@@ -204,6 +227,23 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
 
   useEscapeKey(onClose);
+
+  // Called explicitly right after each `setFieldErrors` that can produce a
+  // fresh set of errors (both the client-side validate() below and the
+  // server-side rejections in performSubmit's catch block) — not wired up
+  // as a useEffect on fieldErrors, since onChange handlers also clear
+  // individual field errors as the admin types, and re-scrolling on every
+  // one of those would yank the form out from under whatever they're
+  // currently fixing. See ClientForm.tsx's identical helper.
+  const scrollToFirstError = (errors: FieldErrors) => {
+    const firstInvalidField = FIELD_ORDER.find((name) => errors[name]);
+    if (!firstInvalidField) {
+      return;
+    }
+    document
+      .getElementById(fieldElementId(firstInvalidField))
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   const { data: conceptTypes } = useInterestConceptTypes({ isActive: true });
   const createConceptType = useCreateInterestConceptType();
@@ -392,6 +432,13 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     ) {
       errors.moratoryConcepts = `Los intereses moratorios no pueden superar la tasa de usura vigente (${currentUsuryRate.ratePercentage}%).`;
     }
+    // Required (2026-09-04, client request) — this is what the client
+    // acquired with the loan (a phone, a TV, a computer...), and it's sent
+    // verbatim in the automatic "new loan" WhatsApp message, so a blank
+    // value there was never actually harmless.
+    if (!description.trim()) {
+      errors.description = 'Este campo es obligatorio.';
+    }
     if (hasCoDebtor && !coDebtorClient) {
       errors.coDebtorClientId = 'Selecciona un cliente como codeudor.';
     } else if (
@@ -420,7 +467,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   // concepts/moratoryConcepts are now purely optional catalog fees — the
   // loan's own corriente/moratorio interest goes through
   // corrienteInterestRate/moratoryInterestRate as top-level fields
-  // instead (see handleSubmit/handlePreview).
+  // instead (see performSubmit/handlePreview).
   const toConceptAssignments = (): LoanConceptAssignment[] =>
     concepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
@@ -461,17 +508,32 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     }
   };
 
-  const handleSubmit = async (event: FormEvent) => {
+  // Redesign, 2026-09-04 (client feedback) — mirrors
+  // RefinanceLoanForm.tsx's identical showRefinanceConfirm/performSubmit
+  // split (see that file's own comments for the full reasoning). Once
+  // EditLoanDialog's brief post-creation-editing experiment was reverted,
+  // the client wanted a loan's numbers treated as genuinely final from the
+  // moment "Crear préstamo" is clicked — this button used to submit
+  // directly. Now it only validates and opens ConfirmCreateLoanDialog;
+  // performSubmit (the actual mutation, unchanged below) only ever runs
+  // from that dialog's own confirm button.
+  const [showCreateConfirm, setShowCreateConfirm] = useState(false);
+
+  const handleFormSubmit = (event: FormEvent) => {
     event.preventDefault();
     setFormError(null);
 
     const errors = validate();
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
+      scrollToFirstError(errors);
       return;
     }
     setFieldErrors({});
+    setShowCreateConfirm(true);
+  };
 
+  const performSubmit = async () => {
     setIsSubmitting(true);
 
     try {
@@ -500,7 +562,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               downPaymentDueDate,
             }
           : {}),
-        description: description.trim() || undefined,
+        description: description.trim(),
         ...(hasCoDebtor && coDebtorClient
           ? {
               coDebtorClientId: coDebtorClient.id,
@@ -514,9 +576,11 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 409) {
-          setFieldErrors({
+          const errors: FieldErrors = {
             promissoryNoteNumber: 'Ya existe un préstamo con este número.',
-          });
+          };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
           // Phase 10 guard — LoansService.create() rejects with one of two
           // distinct English messages (see loans.service.ts's
           // assertClientCanTakeNewLoan); matched here and translated,
@@ -526,16 +590,22 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
           // validate() first, but this covers it too (e.g. a stale form
           // left open across a deploy).
         } else if (err.statusCode === 400 && /pagaré/i.test(err.message)) {
-          setFieldErrors({ promissoryNoteNumber: err.message });
+          const errors: FieldErrors = { promissoryNoteNumber: err.message };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
         } else if (err.statusCode === 400 && /overdue/i.test(err.message)) {
-          setFieldErrors({
+          const errors: FieldErrors = {
             clientId:
               'Este cliente tiene una cuota con más de 30 días de mora y no puede recibir un nuevo préstamo.',
-          });
+          };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
         } else if (err.statusCode === 400 && /cupo/i.test(err.message)) {
-          setFieldErrors({
+          const errors: FieldErrors = {
             principalAmount: 'El monto supera el cupo disponible del cliente.',
-          });
+          };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
         } else {
           setFormError(err.message);
         }
@@ -567,9 +637,13 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
 
         <div className="mt-5 border-t border-border" />
 
-        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-6">
+        <form onSubmit={handleFormSubmit} className="mt-5 flex flex-col gap-6">
           <FormSection title="Cliente">
-            <Field label="Cliente" error={fieldErrors.clientId}>
+            <Field
+              label="Cliente"
+              error={fieldErrors.clientId}
+              id={fieldElementId('clientId')}
+            >
               {selectedClient ? (
                 <div className="flex items-center justify-between rounded border border-border bg-input px-3.5 py-2.5">
                   <span className="text-control text-white">
@@ -645,6 +719,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                 <Field
                   label="N° de pagaré"
                   error={fieldErrors.promissoryNoteNumber}
+                  id={fieldElementId('promissoryNoteNumber')}
                 >
                   <input
                     value={promissoryNoteNumber}
@@ -704,6 +779,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                     <Field
                       label="Valor de la cuota inicial"
                       error={fieldErrors.downPaymentAmount}
+                      id={fieldElementId('downPaymentAmount')}
                     >
                       <CurrencyInput
                         value={downPaymentAmount}
@@ -723,6 +799,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                     <Field
                       label="Fecha de la cuota inicial"
                       error={fieldErrors.downPaymentDueDate}
+                      id={fieldElementId('downPaymentDueDate')}
                     >
                       <DatePicker
                         value={downPaymentDueDate}
@@ -753,6 +830,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                 <Field
                   label={hasDownPayment ? 'Capital a financiar' : 'Capital'}
                   error={fieldErrors.principalAmount}
+                  id={fieldElementId('principalAmount')}
                 >
                   <CurrencyInput
                     value={principalAmount}
@@ -770,7 +848,11 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                     )}
                   />
                 </Field>
-                <Field label="N° cuotas" error={fieldErrors.totalInstallments}>
+                <Field
+                  label="N° cuotas"
+                  error={fieldErrors.totalInstallments}
+                  id={fieldElementId('totalInstallments')}
+                >
                   <input
                     type="number"
                     min={1}
@@ -792,6 +874,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                       : 'Fecha de la primera cuota'
                   }
                   error={fieldErrors.firstDueDate}
+                  id={fieldElementId('firstDueDate')}
                 >
                   <DatePicker
                     value={firstDueDate}
@@ -828,7 +911,11 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             </FormSection>
 
             <FormSection title="Cargos adicionales y cronograma">
-              <Field label="Cargos adicionales" error={fieldErrors.concepts}>
+              <Field
+                label="Cargos adicionales"
+                error={fieldErrors.concepts}
+                id={fieldElementId('concepts')}
+              >
                 <div className="flex flex-col gap-2">
                   <SystemInterestRateRow
                     name="Intereses corrientes"
@@ -861,7 +948,13 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                         }}
                         options={conceptTypeOptions}
                         placeholder="Selecciona un cargo"
-                        className="flex-1"
+                        // min-w-0, 2026-09-05 — see LoanQuotePage.tsx's
+                        // identical concept-row Select for the full
+                        // explanation: flex-1 alone can't shrink a flex item
+                        // below its content's intrinsic width, so a long
+                        // concept name pushed the value input/"Quitar" out
+                        // instead of truncating.
+                        className="min-w-0 flex-1"
                       />
                       <input
                         type="number"
@@ -920,6 +1013,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               <Field
                 label="Cargos moratorios"
                 error={fieldErrors.moratoryConcepts}
+                id={fieldElementId('moratoryConcepts')}
               >
                 <div className="flex flex-col gap-2">
                   <SystemInterestRateRow
@@ -953,7 +1047,13 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                         }}
                         options={moratoryConceptTypeOptions}
                         placeholder="Selecciona un cargo"
-                        className="flex-1"
+                        // min-w-0, 2026-09-05 — see LoanQuotePage.tsx's
+                        // identical concept-row Select for the full
+                        // explanation: flex-1 alone can't shrink a flex item
+                        // below its content's intrinsic width, so a long
+                        // concept name pushed the value input/"Quitar" out
+                        // instead of truncating.
+                        className="min-w-0 flex-1"
                       />
                       <input
                         type="number"
@@ -1101,18 +1201,41 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             </FormSection>
 
             <FormSection title="Detalles adicionales">
-              <Field label="Descripción (opcional)">
+              {/* Renamed from "Descripción (opcional)" and made required
+                  (2026-09-04, client request) — this is the product the
+                  client acquired with the loan (a phone, a TV, a
+                  computer...), not a free-form note, and it's sent
+                  verbatim as the "Detalle del producto" placeholder in the
+                  automatic "new loan" WhatsApp message (see
+                  newLoanTemplateSelection.ts on the api side) — a blank
+                  value there used to silently fall back to
+                  "No especificado" in every outgoing message. */}
+              <Field
+                label="Producto financiado"
+                error={fieldErrors.description}
+                id={fieldElementId('description')}
+              >
                 <textarea
                   value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  placeholder="Ej: Compra de electrodoméstico…"
+                  onChange={(event) => {
+                    setDescription(event.target.value);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      description: undefined,
+                    }));
+                  }}
+                  placeholder="Ej: Celular Samsung Galaxy A55, Televisor 55'', Computador portátil…"
                   rows={2}
                   // Not inputClassName(false) — that has a fixed h-[42px] meant
                   // for single-line inputs, which fights with rows={2} and
                   // squeezes the placeholder text with no vertical padding.
                   // py-2.5 instead lets the textarea size itself naturally,
                   // matching MessageTemplateForm.tsx's textarea.
-                  className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
+                  className={`w-full resize-none rounded border px-3.5 py-2 text-control text-white placeholder-mid focus:outline-none ${
+                    fieldErrors.description
+                      ? 'border-danger'
+                      : 'border-border focus:border-subtle'
+                  } bg-input`}
                 />
               </Field>
             </FormSection>
@@ -1147,7 +1270,11 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
 
               {hasCoDebtor && (
                 <div className="flex flex-col gap-3">
-                  <Field label="Codeudor" error={fieldErrors.coDebtorClientId}>
+                  <Field
+                    label="Codeudor"
+                    error={fieldErrors.coDebtorClientId}
+                    id={fieldElementId('coDebtorClientId')}
+                  >
                     {coDebtorClient ? (
                       <div className="flex items-center justify-between rounded border border-border bg-input px-3.5 py-2.5">
                         <span className="text-control text-white">
@@ -1262,6 +1389,17 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         </form>
       </Modal>
 
+      {showCreateConfirm && (
+        <ConfirmCreateLoanDialog
+          isSubmitting={isSubmitting}
+          onCancel={() => setShowCreateConfirm(false)}
+          onConfirm={() => {
+            setShowCreateConfirm(false);
+            void performSubmit();
+          }}
+        />
+      )}
+
       {newConceptTypeTarget && (
         <InterestConceptTypeForm
           defaultCategory={
@@ -1290,9 +1428,56 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   );
 }
 
+// Mirrors RefinanceLoanForm.tsx's ConfirmRefinanceDialog — client feedback,
+// 2026-09-04: every préstamo's numbers (principalAmount, schedule,
+// interestRate, every concept) are fixed the instant it's created, and
+// creating one sends the "new loan" WhatsApp message immediately with no
+// draft step server-side. So this confirmation, not the form's own submit
+// button, is what actually triggers performSubmit — see handleFormSubmit
+// above, which only opens this dialog.
+function ConfirmCreateLoanDialog({
+  isSubmitting,
+  onCancel,
+  onConfirm,
+}: {
+  isSubmitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEscapeKey(onCancel);
+
+  return (
+    <Modal maxWidth="max-w-[420px]">
+      <h2 className="text-[16px] font-medium text-white">
+        Confirmar creación de préstamo
+      </h2>
+      <p className="mt-2.5 text-small text-muted">
+        Una vez creado, el préstamo queda fijo — monto, tasa y cuotas ya no se
+        podrán editar después (solo la descripción). Si algo queda mal, la única
+        forma de corregirlo es refinanciando.
+      </p>
+      <p className="mt-2.5 text-small text-muted">
+        Al confirmar, se envía de inmediato el mensaje de WhatsApp al cliente
+        con los datos del préstamo. Esta acción no se puede deshacer.
+      </p>
+
+      <div className="mt-6 border-t border-border" />
+
+      <div className="mt-5 flex items-center justify-end gap-3">
+        <Button variant="secondary" onClick={onCancel} disabled={isSubmitting}>
+          Cancelar
+        </Button>
+        <Button onClick={onConfirm} disabled={isSubmitting}>
+          {isSubmitting ? 'Creando…' : 'Sí, crear préstamo'}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 // Inline surfacing of the client's cupo/mora-block status once picked —
 // mirrors the same rejection reasons the backend would otherwise only
-// reveal after submit (see the 400-handling in handleSubmit above). Purely
+// reveal after submit (see the 400-handling in performSubmit above). Purely
 // informational: the backend is still the source of truth and re-checks
 // both at submit time regardless of what this shows.
 function ClientCapacityNotice({

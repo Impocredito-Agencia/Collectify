@@ -5,9 +5,20 @@ import { apiClient } from '@/lib/apiClient';
 // everywhere else (enrichInstallment) — calculated on read, never stored.
 export interface DashboardSummary {
   totalActiveClients: number;
+  totalActiveLoans: number;
+  // Remaining principal (not original principalAmount) across every active
+  // loan's pending installments — see dashboard.service.ts's own comment.
+  totalOutstandingPrincipal: number;
   totalOverdueInstallments: number;
+  // Pending installments due today through today+5 (inclusive) on an
+  // active loan — see dashboard.service.ts's own comment.
+  upcomingDueInstallments: number;
   totalAmountOverdue: number;
+  // totalAmountOverdue / totalOutstandingPrincipal as a percentage (1
+  // decimal) — a simple at-a-glance ratio, not a formal delinquency rate.
+  overdueRate: number;
   messagesSentThisWeek: number;
+  messagesFailedThisWeek: number;
 }
 
 // Matches apps/api/src/dashboard/dashboard.service.ts's OverdueClientSummary.

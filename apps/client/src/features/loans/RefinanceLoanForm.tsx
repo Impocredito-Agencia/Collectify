@@ -82,10 +82,42 @@ type FieldName =
   | 'downPaymentDueDate';
 type FieldErrors = Partial<Record<FieldName, string>>;
 
+// Same fix as ClientForm.tsx's/LoanForm.tsx's scrollToFirstError, applied
+// here 2026-09-05 — this form is exactly as long as LoanForm.tsx (Modal
+// has `scroll`), same bug: a validation error near the top was invisible
+// once the admin scrolled down to "Refinanciar". Order matches the
+// fields' top-to-bottom visual order in the JSX below.
+const FIELD_ORDER: FieldName[] = [
+  'promissoryNoteNumber',
+  'downPaymentAmount',
+  'downPaymentDueDate',
+  'principalAmount',
+  'totalInstallments',
+  'firstDueDate',
+  'concepts',
+  'moratoryConcepts',
+  'coDebtorClientId',
+];
+const fieldElementId = (name: FieldName) => `refinance-loan-form-field-${name}`;
+
 let nextRowId = 0;
 function makeRowId(): string {
   nextRowId += 1;
   return `refi-row-${nextRowId}`;
+}
+
+// The API's suggestedPrincipalAmount is the exact payoff figure (capital
+// pendiente + interés causado), which almost always carries a few loose
+// pesos of fractional interest — pre-filling "Capital renegociado" with
+// that raw number produced an oddly precise default like
+// "$8.242.222,707" (CurrencyInput assumes whole pesos and doesn't round,
+// see its own doc comment). Loans in this business are otherwise always
+// quoted/paid in round thousands (same convention as the smoothed cuota
+// amortization — see generateSchedule.ts), so the default shown here
+// rounds to the nearest one instead — client feedback, 2026-09-04. Still
+// fully editable either way.
+function roundToNearestThousand(amount: number): number {
+  return Math.round(amount / 1000) * 1000;
 }
 
 // Mirrors LoanForm.tsx's Phase 14 rewrite exactly (schedule generated from
@@ -179,16 +211,31 @@ export function RefinanceLoanForm({
   const [refinanceQuote, setRefinanceQuote] = useState<RefinanceQuote | null>(
     null,
   );
-  // Phase 25 — refinancing with overdue/near-due installments is now
-  // allowed (see docs/phases/PHASE_25_REFINANCE_OVERDUE.md), but folding
-  // interés ya causado into the new principal isn't obvious from the form
-  // alone. A non-zero totalInterestOwed on the quote is exactly the signal
-  // that this refinance is including that interest, so gate the actual
-  // submit behind one extra confirmation step to avoid it happening by
-  // accident/misclick.
-  const [showOverdueConfirm, setShowOverdueConfirm] = useState(false);
+  // Originally Phase 25 — only shown when refinancing with overdue/near-due
+  // installments folded interés ya causado into the new principal (see
+  // docs/phases/PHASE_25_REFINANCE_OVERDUE.md), since that isn't obvious
+  // from the form alone. Generalized 2026-09-04 (client feedback) to gate
+  // EVERY refinance, not just that case — see handleFormSubmit's own
+  // comment for why. The overdue-specific paragraph inside
+  // ConfirmRefinanceDialog still only renders when there's actually
+  // something overdue to call out (installmentNumbers non-empty).
+  const [showRefinanceConfirm, setShowRefinanceConfirm] = useState(false);
 
   useEscapeKey(onClose);
+
+  // See LoanForm.tsx's identical helper for the full explanation — called
+  // right after each setFieldErrors that can produce a fresh set of errors
+  // (validate() failures in handlePreview/handleFormSubmit below, and the
+  // server-side rejections in performSubmit's catch block).
+  const scrollToFirstError = (errors: FieldErrors) => {
+    const firstInvalidField = FIELD_ORDER.find((name) => errors[name]);
+    if (!firstInvalidField) {
+      return;
+    }
+    document
+      .getElementById(fieldElementId(firstInvalidField))
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   const { data: conceptTypes } = useInterestConceptTypes({ isActive: true });
   const createConceptType = useCreateInterestConceptType();
@@ -226,7 +273,9 @@ export function RefinanceLoanForm({
       .mutateAsync(oldLoanId)
       .then((quote) => {
         setRefinanceQuote(quote);
-        setPrincipalAmount(quote.suggestedPrincipalAmount);
+        setPrincipalAmount(
+          roundToNearestThousand(quote.suggestedPrincipalAmount),
+        );
         setConcepts(
           quote.concepts.map((concept) => ({
             rowId: makeRowId(),
@@ -266,7 +315,11 @@ export function RefinanceLoanForm({
     setAdditionalPrincipalPayment(value);
     if (refinanceQuote) {
       setPrincipalAmount(
-        Math.max(0, refinanceQuote.suggestedPrincipalAmount - value),
+        Math.max(
+          0,
+          roundToNearestThousand(refinanceQuote.suggestedPrincipalAmount) -
+            value,
+        ),
       );
       setFieldErrors((prev) => ({ ...prev, principalAmount: undefined }));
     }
@@ -280,7 +333,7 @@ export function RefinanceLoanForm({
   // within the 5-day early-maturity window). A matured/near-due
   // installment always has interestApplied > 0; one that's genuinely not
   // due yet always has interestApplied === 0 — see calculatePayoff.ts.
-  // Surfaced in ConfirmOverdueRefinanceDialog for traceability.
+  // Surfaced in ConfirmRefinanceDialog for traceability.
   const overdueInstallmentNumbers = (refinanceQuote?.payoff.installments ?? [])
     .filter((installment) => installment.interestApplied > 0)
     .map((installment) => installment.installmentNumber);
@@ -464,6 +517,7 @@ export function RefinanceLoanForm({
     const errors = validate();
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
+      scrollToFirstError(errors);
       return;
     }
     setFieldErrors({});
@@ -486,9 +540,9 @@ export function RefinanceLoanForm({
     }
   };
 
-  // Runs form validation, then either opens the overdue-interest
-  // confirmation (see showOverdueConfirm above) or goes straight to
-  // performSubmit when there's nothing to confirm.
+  // Runs form validation, then always opens the refinance confirmation
+  // (see showRefinanceConfirm above) — performSubmit only ever runs from
+  // that dialog's "Sí, refinanciar" now.
   const handleFormSubmit = (event: FormEvent) => {
     event.preventDefault();
     setFormError(null);
@@ -496,15 +550,22 @@ export function RefinanceLoanForm({
     const errors = validate();
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
+      scrollToFirstError(errors);
       return;
     }
     setFieldErrors({});
 
-    if ((refinanceQuote?.payoff.totalInterestOwed ?? 0) > 0) {
-      setShowOverdueConfirm(true);
-      return;
-    }
-    void performSubmit();
+    // Client feedback, 2026-09-04 — this confirmation used to only appear
+    // when the refinance was folding in interés ya causado (overdue/near-due
+    // installments). Now shows unconditionally: after seeing EditLoanDialog's
+    // brief post-creation-editing experiment and deciding against it (see
+    // that component's own comment), the client wants every refinance —
+    // not just the overdue-interest case — gated behind an explicit "this
+    // can't be undone and the client gets notified right now" confirmation,
+    // since the actual submit (performSubmit below) both closes out the old
+    // loan irreversibly AND sends the new loan's WhatsApp message
+    // synchronously, with no draft/undo step in between.
+    setShowRefinanceConfirm(true);
   };
 
   const performSubmit = async () => {
@@ -550,13 +611,17 @@ export function RefinanceLoanForm({
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 409) {
-          setFieldErrors({
+          const errors: FieldErrors = {
             promissoryNoteNumber: 'Ya existe un préstamo con este número.',
-          });
+          };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
           // Same format check as LoanForm.tsx's catch block — see its
           // comment. Normally caught client-side first.
         } else if (err.statusCode === 400 && /pagaré/i.test(err.message)) {
-          setFieldErrors({ promissoryNoteNumber: err.message });
+          const errors: FieldErrors = { promissoryNoteNumber: err.message };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
         } else {
           setFormError(err.message);
         }
@@ -583,12 +648,18 @@ export function RefinanceLoanForm({
           {oldLoanLabel} · Saldo actual:{' '}
           {formatCurrency(oldLoanOutstandingBalance)}
         </p>
-        <p className="mt-2.5 text-meta text-mid">
-          Este préstamo quedará como "Refinanciado" y sus cuotas pendientes se
-          cancelarán. Se crea un préstamo nuevo con los términos de abajo — el
-          monto renegociado viene precargado con lo que el cliente realmente
-          debe hoy (capital pendiente + interés ya causado, sin cobrar interés
-          futuro), pero podés editarlo libremente.
+        {/* text-muted (not text-mid) — text-mid's #4a4e54 was too dark
+            against the surface background to read comfortably; text-muted
+            is the same gray used for secondary text everywhere else in the
+            app. Also shortened (client feedback, 2026-09-04): same info,
+            fewer words. Always "usted", never "vos"/"podés" — standing
+            house-style rule (client, 2026-09-04): every user-facing string
+            in this app addresses the admin formally. */}
+        <p className="mt-2.5 text-meta text-muted">
+          Este préstamo pasará a "Refinanciado" y sus cuotas pendientes se
+          cancelarán. Se crea uno nuevo con los términos de abajo — el monto ya
+          viene precargado con la deuda actual del cliente (capital pendiente +
+          interés causado, sin interés futuro), pero puede editarlo.
         </p>
 
         <div className="mt-3.5">
@@ -604,6 +675,7 @@ export function RefinanceLoanForm({
                 <Field
                   label="N° de pagaré (nuevo)"
                   error={fieldErrors.promissoryNoteNumber}
+                  id={fieldElementId('promissoryNoteNumber')}
                 >
                   <input
                     value={promissoryNoteNumber}
@@ -656,6 +728,7 @@ export function RefinanceLoanForm({
                     <Field
                       label="Valor de la cuota inicial"
                       error={fieldErrors.downPaymentAmount}
+                      id={fieldElementId('downPaymentAmount')}
                     >
                       <CurrencyInput
                         value={downPaymentAmount}
@@ -675,6 +748,7 @@ export function RefinanceLoanForm({
                     <Field
                       label="Fecha de la cuota inicial"
                       error={fieldErrors.downPaymentDueDate}
+                      id={fieldElementId('downPaymentDueDate')}
                     >
                       <DatePicker
                         value={downPaymentDueDate}
@@ -705,6 +779,7 @@ export function RefinanceLoanForm({
                 <Field
                   label="Capital renegociado"
                   error={fieldErrors.principalAmount}
+                  id={fieldElementId('principalAmount')}
                 >
                   <CurrencyInput
                     value={principalAmount}
@@ -722,7 +797,11 @@ export function RefinanceLoanForm({
                     )}
                   />
                 </Field>
-                <Field label="N° cuotas" error={fieldErrors.totalInstallments}>
+                <Field
+                  label="N° cuotas"
+                  error={fieldErrors.totalInstallments}
+                  id={fieldElementId('totalInstallments')}
+                >
                   <input
                     type="number"
                     min={1}
@@ -743,29 +822,99 @@ export function RefinanceLoanForm({
                 </Field>
               </div>
 
+              {/* Third pass (client feedback, 2026-09-04 — second pass
+                  "lo hiciste demasiado bien", i.e. it now outweighs the
+                  rest of the form). Toned back down to the same visual
+                  weight as every other filled-in field: each figure sits
+                  in an inputClassName-style box (h-[42px], text-control,
+                  same as Field/CurrencyInput) instead of StatCard's 18-24px
+                  "hero number" treatment, and the header dropped from
+                  text-section-label back to text-label. Also split the old
+                  single "Capital sugerido" into two figures per the
+                  client's own explanation: the exact payoff total (capital
+                  + interés, rounded only to the peso — "Capital a
+                  refinanciar") next to the one that actually pre-fills
+                  "Capital renegociado" below, rounded to the nearest
+                  thousand ("Capital sugerido" — see roundToNearestThousand
+                  above). Before this, "Capital renegociado" silently
+                  pre-filled with the raw, oddly-precise payoff figure
+                  (e.g. "$8.242.222,707") while this card showed it
+                  rounded — the two numbers looked inconsistent for no
+                  visible reason. */}
               {refinanceQuote && (
-                <div className="rounded border border-border bg-input p-3">
-                  <span className="text-meta text-muted">
+                <div className="flex flex-col gap-3 rounded border border-border bg-surface p-4">
+                  <span className="text-label text-muted">
                     Cómo se calculó el monto sugerido
                   </span>
-                  <div className="mt-2 flex items-center justify-between text-meta">
-                    <span className="text-muted">Capital pendiente</span>
-                    <span className="text-white">
-                      {formatCurrency(refinanceQuote.payoff.totalPrincipalOwed)}
-                    </span>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[10px] font-normal text-muted">
+                        Capital pendiente
+                      </p>
+                      <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
+                        {formatCurrency(
+                          refinanceQuote.payoff.totalPrincipalOwed,
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-normal text-muted">
+                        Interés causado
+                      </p>
+                      <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
+                        {formatCurrency(
+                          refinanceQuote.payoff.totalInterestOwed,
+                        )}
+                      </p>
+                    </div>
                   </div>
-                  <div className="mt-1 flex items-center justify-between text-meta">
-                    <span className="text-muted">Interés causado</span>
-                    <span className="text-white">
-                      {formatCurrency(refinanceQuote.payoff.totalInterestOwed)}
-                    </span>
+
+                  {/* "suman" → "=" (client feedback, 2026-09-04): with two
+                      figures below now instead of one, "suman" implied
+                      both were a sum of the row above, which is only true
+                      of "Capital a refinanciar" — "Capital sugerido" is a
+                      rounding of THAT number, not a second sum of
+                      pendiente+interés. "=" stays accurate for both
+                      readings, and the caption below spells out the
+                      second relationship explicitly instead of relying on
+                      the divider to carry it. */}
+                  <div className="flex items-center gap-3">
+                    <span className="h-px flex-1 bg-border" />
+                    <span className="text-meta text-mid">=</span>
+                    <span className="h-px flex-1 bg-border" />
                   </div>
-                  <div className="mt-1 flex items-center justify-between text-meta font-medium">
-                    <span className="text-muted">Capital sugerido</span>
-                    <span className="text-white">
-                      {formatCurrency(refinanceQuote.suggestedPrincipalAmount)}
-                    </span>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[10px] font-normal text-muted">
+                        Capital a refinanciar
+                      </p>
+                      <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
+                        {formatCurrency(
+                          refinanceQuote.suggestedPrincipalAmount,
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-normal text-muted">
+                        Capital sugerido
+                      </p>
+                      <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
+                        {formatCurrency(
+                          roundToNearestThousand(
+                            refinanceQuote.suggestedPrincipalAmount,
+                          ),
+                        )}
+                      </p>
+                    </div>
                   </div>
+
+                  <p className="text-meta text-mid">
+                    "Capital sugerido" redondea el capital a refinanciar a la
+                    unidad de mil más cercana — es el valor con el que se
+                    precarga "Capital renegociado" más abajo.
+                  </p>
                 </div>
               )}
 
@@ -777,11 +926,17 @@ export function RefinanceLoanForm({
                   className={inputClassName(false)}
                 />
                 <span className="mt-1 text-meta text-muted">
-                  Se resta del monto sugerido — el campo "Monto renegociado"
-                  sigue siendo editable después. Si este refinanciamiento es
-                  solo para abonar a capital, contá en la Descripción (más
-                  abajo) cuánto se abonó — así queda identificable en el pagaré
-                  nuevo y en el registro de auditoría.
+                  {/* Fixed stale field name (client feedback, 2026-09-04) —
+                      said "Monto renegociado", but the field below is
+                      labeled "Capital renegociado" (renamed in the
+                      2026-09-03 Monto→Capital terminology sweep — this
+                      note was missed then). */}
+                  Se resta del capital sugerido — el campo "Capital renegociado"
+                  (más abajo) sigue siendo editable después. Si este
+                  refinanciamiento es solo para abonar a capital, cuente en la
+                  Descripción (más abajo) cuánto se abonó — así queda
+                  identificable en el pagaré nuevo y en el registro de
+                  auditoría.
                 </span>
               </Field>
 
@@ -793,6 +948,7 @@ export function RefinanceLoanForm({
                       : 'Fecha de la primera cuota'
                   }
                   error={fieldErrors.firstDueDate}
+                  id={fieldElementId('firstDueDate')}
                 >
                   <DatePicker
                     value={firstDueDate}
@@ -829,7 +985,11 @@ export function RefinanceLoanForm({
             </FormSection>
 
             <FormSection title="Cargos adicionales y cronograma">
-              <Field label="Cargos adicionales" error={fieldErrors.concepts}>
+              <Field
+                label="Cargos adicionales"
+                error={fieldErrors.concepts}
+                id={fieldElementId('concepts')}
+              >
                 <div className="flex flex-col gap-2">
                   <SystemInterestRateRow
                     name="Intereses corrientes"
@@ -862,7 +1022,13 @@ export function RefinanceLoanForm({
                         }}
                         options={conceptTypeOptions}
                         placeholder="Selecciona un cargo"
-                        className="flex-1"
+                        // min-w-0, 2026-09-05 — see LoanQuotePage.tsx's
+                        // identical concept-row Select for the full
+                        // explanation: flex-1 alone can't shrink a flex item
+                        // below its content's intrinsic width, so a long
+                        // concept name pushed the value input/"Quitar" out
+                        // instead of truncating.
+                        className="min-w-0 flex-1"
                       />
                       <input
                         type="number"
@@ -921,6 +1087,7 @@ export function RefinanceLoanForm({
               <Field
                 label="Cargos moratorios"
                 error={fieldErrors.moratoryConcepts}
+                id={fieldElementId('moratoryConcepts')}
               >
                 <div className="flex flex-col gap-2">
                   <SystemInterestRateRow
@@ -954,7 +1121,13 @@ export function RefinanceLoanForm({
                         }}
                         options={moratoryConceptTypeOptions}
                         placeholder="Selecciona un cargo"
-                        className="flex-1"
+                        // min-w-0, 2026-09-05 — see LoanQuotePage.tsx's
+                        // identical concept-row Select for the full
+                        // explanation: flex-1 alone can't shrink a flex item
+                        // below its content's intrinsic width, so a long
+                        // concept name pushed the value input/"Quitar" out
+                        // instead of truncating.
+                        className="min-w-0 flex-1"
                       />
                       <input
                         type="number"
@@ -1130,7 +1303,11 @@ export function RefinanceLoanForm({
 
             {hasCoDebtor && (
               <div className="flex flex-col gap-3">
-                <Field label="Codeudor" error={fieldErrors.coDebtorClientId}>
+                <Field
+                  label="Codeudor"
+                  error={fieldErrors.coDebtorClientId}
+                  id={fieldElementId('coDebtorClientId')}
+                >
                   {coDebtorClient ? (
                     <div className="flex items-center justify-between rounded border border-border bg-input px-3.5 py-2.5">
                       <span className="text-control text-white">
@@ -1243,13 +1420,13 @@ export function RefinanceLoanForm({
         </form>
       </Modal>
 
-      {showOverdueConfirm && (
-        <ConfirmOverdueRefinanceDialog
+      {showRefinanceConfirm && (
+        <ConfirmRefinanceDialog
           installmentNumbers={overdueInstallmentNumbers}
           isSubmitting={isSubmitting}
-          onCancel={() => setShowOverdueConfirm(false)}
+          onCancel={() => setShowRefinanceConfirm(false)}
           onConfirm={() => {
-            setShowOverdueConfirm(false);
+            setShowRefinanceConfirm(false);
             void performSubmit();
           }}
         />
@@ -1283,12 +1460,19 @@ export function RefinanceLoanForm({
   );
 }
 
-// Phase 25 — extra confirmation step before a refinance that folds
-// interés ya causado (from overdue or within-5-days installments) into
-// the new principal, so this doesn't happen from an accidental click on
-// "Refinanciar préstamo". Styled after DeleteLoanDialog.tsx, the closest
-// existing confirmation-on-top-of-a-form pattern in this codebase.
-function ConfirmOverdueRefinanceDialog({
+// Originally Phase 25 (only for the overdue-interest case) — generalized
+// 2026-09-04 (client feedback) to gate every refinance. See
+// handleFormSubmit's own comment: once EditLoanDialog's brief
+// post-creation-editing experiment was reverted, the client wanted a
+// loan's numbers treated as genuinely final the moment they're saved, so
+// the one remaining door for "I got something wrong" — Refinanciar — now
+// always spells out, up front, that this can't be undone and that the new
+// loan's WhatsApp message goes out the instant "Sí, refinanciar" is
+// clicked (performSubmit calls the same synchronous create+send the
+// backend always has — there's no draft step to catch a mistake
+// afterward). Styled after DeleteLoanDialog.tsx, the closest existing
+// confirmation-on-top-of-a-form pattern in this codebase.
+function ConfirmRefinanceDialog({
   installmentNumbers,
   isSubmitting,
   onCancel,
@@ -1306,16 +1490,24 @@ function ConfirmOverdueRefinanceDialog({
       <h2 className="text-[16px] font-medium text-white">
         Confirmar refinanciamiento
       </h2>
-      <p className="mt-2.5 text-small text-white">
-        {installmentNumbers.length > 1
-          ? `Las cuotas ${formatInstallmentList(installmentNumbers)} están vencidas o próximas a vencer.`
-          : `La cuota ${formatInstallmentList(installmentNumbers)} está vencida o próxima a vencer.`}
-      </p>
+      {installmentNumbers.length > 0 && (
+        <p className="mt-2.5 text-small text-white">
+          {installmentNumbers.length > 1
+            ? `Las cuotas ${formatInstallmentList(installmentNumbers)} están vencidas o próximas a vencer.`
+            : `La cuota ${formatInstallmentList(installmentNumbers)} está vencida o próxima a vencer.`}
+        </p>
+      )}
       <p className="mt-2.5 text-small text-muted">
         El préstamo actual quedará como "Refinanciado": sus cuotas pendientes se
         cancelan y a partir de ahí solo queda como historial — no se podrá
-        volver a registrar pagos ni hacer ninguna otra operación sobre él. Esta
-        acción no se puede deshacer.
+        volver a registrar pagos ni hacer ninguna otra operación sobre él.
+      </p>
+      <p className="mt-2.5 text-small text-muted">
+        El préstamo nuevo queda fijo desde este momento — monto, tasa y cuotas
+        ya no se podrán editar después (solo la descripción). Si algo queda mal,
+        la única forma de corregirlo es refinanciando de nuevo. Al confirmar, se
+        envía de inmediato el mensaje de WhatsApp al cliente con los datos del
+        préstamo nuevo. Esta acción no se puede deshacer.
       </p>
 
       <div className="mt-6 border-t border-border" />

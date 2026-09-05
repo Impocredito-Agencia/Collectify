@@ -218,6 +218,34 @@ export function LoanQuotePage() {
       ? 'mensual'
       : 'quincenal';
 
+  // 2026-09-05 — same dynamic-column approach as LoanDetailPage's real
+  // installments table (see its own comment): derive one column per charge
+  // name actually present in the preview instead of hardcoding "Intereses
+  // corrientes" + whatever catalog concepts happen to be assigned. No C/M
+  // badge here unlike LoanDetailPage's version — this tool only ever quotes
+  // corriente concepts (see corrienteConceptTypes above), so every column
+  // would carry the same badge with no distinguishing value.
+  //
+  // Filtered to Corriente only (style cleanup, 2026-09-05, client
+  // feedback — "esa columna de intereses moratorios no sirve para nada
+  // aquí") — resolveConceptsWithInterest (loans.service.ts) unconditionally
+  // adds a system "Intereses moratorios" entry to every schedule it builds,
+  // preview included, and a preview's moratory interest is ALWAYS 0 —
+  // nothing can be overdue in a hypothetical schedule (see
+  // PreviewedInstallment's own comment). That column would read $0 on every
+  // single row, always, with no exception — pure noise here, unlike
+  // LoanForm/RefinanceLoanForm, where it's worth confirming before really
+  // committing to a loan.
+  const chargeNames = Array.from(
+    new Set(
+      (preview?.installments ?? []).flatMap((installment) =>
+        installment.conceptBreakdown
+          .filter((concept) => concept.category === ConceptCategory.Corriente)
+          .map((concept) => concept.name),
+      ),
+    ),
+  );
+
   return (
     <div className="flex flex-col gap-5">
       <Header
@@ -229,7 +257,16 @@ export function LoanQuotePage() {
 
       <StaleUsuryRateBanner />
 
-      <div className="grid grid-cols-[420px_1fr] gap-8">
+      {/* items-start, 2026-09-05: without it, this grid's default
+          align-items: stretch made the left column match the right
+          column's height once the schedule table grew tall (many cuotas)
+          — and since every standalone <Field> here uses the default
+          layout="row" (flex-1 in a *column* flex container), each one then
+          stretched vertically to help fill that extra height, opening up
+          large gaps between fields that aren't sitting in a horizontal
+          row. items-start keeps the left panel sized to its own content
+          regardless of how tall the right side gets. */}
+      <div className="grid grid-cols-[420px_1fr] gap-8 items-start">
         <div className="flex flex-col gap-3.5 rounded-lg bg-surface p-5">
           {/* Redesign, 2026-09-03 — same "cuota inicial" checkbox as
               LoanForm.tsx, purely for display here: this tool persists
@@ -365,7 +402,15 @@ export function LoanQuotePage() {
                     }}
                     options={conceptTypeOptions}
                     placeholder="Selecciona un cargo"
-                    className="flex-1"
+                    // min-w-0, 2026-09-05: a flex item's default min-width
+                    // is "auto" (its content's intrinsic width), which beats
+                    // flex-1 — so a long concept name (e.g. "Cargos por
+                    // desembolso prioritario") forced this Select wider than
+                    // its share of the row instead of truncating, squeezing
+                    // the value input and "Quitar" over to the right. min-w-0
+                    // lets flex-1 actually shrink it, so the existing
+                    // `truncate` on Select's label span can do its job.
+                    className="min-w-0 flex-1"
                   />
                   <input
                     type="number"
@@ -443,7 +488,14 @@ export function LoanQuotePage() {
             </div>
           ) : (
             <>
-              <div className="rounded border border-border bg-surface p-10 text-center">
+              {/* Style cleanup, 2026-09-05 (client feedback) — same subdued
+                  accent-bordered treatment as PayoffDialog's "Total a pagar
+                  hoy" (border-accent/30 bg-accent/5): this card's number is
+                  this tool's whole reason to exist, same role as that other
+                  card's total, so it gets the same visual weight instead of
+                  the plain border-border/bg-surface every other neutral
+                  panel on this page uses. */}
+              <div className="rounded-lg border border-accent/30 bg-accent/5 p-10 text-center">
                 <p className="text-label text-muted">Cuota {frequencyLabel}</p>
                 <p className="mt-2 text-[48px] font-semibold leading-tight text-white">
                   {monthlyAmount !== null ? formatCurrency(monthlyAmount) : '—'}
@@ -456,16 +508,126 @@ export function LoanQuotePage() {
                 </p>
               </div>
 
-              <div className="overflow-hidden rounded border border-border bg-surface">
-                <table className="w-full border-collapse">
+              {/* Style cleanup, 2026-09-05 (client feedback, round 2 — the
+                  previous max-w truncation still cut off "Intereses
+                  corrientes" while leaving visible slack elsewhere in the
+                  row) — w-full forced this table to exactly the
+                  container's width, so auto table-layout redistributed
+                  whatever slack existed (this table's total natural
+                  content is usually narrower than a desktop-width card)
+                  across columns in whatever proportions the browser felt
+                  like, independent of each header span's own max-w-[Npx]
+                  truncation cap — a column could end up rendered far wider
+                  than its truncated header text actually needed, which is
+                  exactly the "cut off AND lots of blank space" combo
+                  reported. Dropping w-full lets the table shrink-to-fit
+                  its real content instead (the normal, un-stretched
+                  behavior for an auto-layout table with no explicit
+                  width) — every column ends up exactly as wide as its
+                  (possibly truncated) content needs, no more. overflow-x-auto
+                  on the wrapper (replacing overflow-hidden) is the
+                  safety net for the rare loan with enough concepts that
+                  the un-stretched table genuinely doesn't fit — same
+                  pattern LoanDetailPage's InstallmentsTable already uses
+                  for that exact case. */}
+              {/* Style cleanup, 2026-09-05 (client feedback, round 4 — "cuenta
+                  el espacio total... primero ubica Cuota con el ancho
+                  necesario... el resto lo divides por el numero de
+                  columnas que falten"). Only Cuota gets a fixed width now,
+                  sized just enough for the word "Cuota" to sit centered
+                  without being cut (w-20 — px-3.5 padding plus the word
+                  itself). table-fixed then gives every OTHER column
+                  (Vence, Capital, every concept column, Total) an equal
+                  share of whatever space is left — no more individually
+                  guessed px widths for Vence/Capital/Total. A long concept
+                  name no longer gets truncate+ellipsis+title; it wraps to
+                  two centered lines instead (whitespace-normal + break-words
+                  + text-center), per explicit instruction: cutting a word
+                  off is worse than a taller header row. */}
+              <div className="overflow-x-auto rounded border border-border bg-surface">
+                <table className="w-full table-fixed border-collapse">
                   <thead className="bg-input">
+                    {/* Style cleanup, 2026-09-05 (client feedback, round 5 —
+                        "los titulos de cada columna estan mal") — Th
+                        hardcodes `text-left` as a base class (unlike Td,
+                        which has no default alignment), and a plain
+                        `text-center` override in className wasn't beating
+                        it in the compiled stylesheet here, so every header
+                        stayed left-aligned even though the cells below it
+                        were correctly centered. An inline `style` always
+                        wins over a class-based utility regardless of
+                        stylesheet source order, so headers use that
+                        instead of relying on class-order luck. */}
+                    {/* Round 6 — the header row's own height (h-8 via
+                        `compact`) was sized for one line, so a two-line
+                        concept title like "Cargos por desembolso
+                        prioritario" pressed right up against the row's top
+                        and bottom borders. `height` here is an inline-style
+                        override of that h-8, taller ONLY for the header
+                        row — the body rows keep their normal compact
+                        height. `verticalAlign: 'middle'` (replacing the
+                        earlier `align-top` on concept headers) is what
+                        actually centers every header — one-line and
+                        two-line alike — inside that taller row; align-top
+                        was why some titles looked vertically off. */}
                     <tr className="divide-x divide-border">
-                      <Th compact>Cuota</Th>
-                      <Th compact>Vence</Th>
-                      <Th compact className="text-right">
+                      <Th
+                        compact
+                        className="w-20 whitespace-nowrap"
+                        style={{
+                          textAlign: 'center',
+                          verticalAlign: 'middle',
+                          height: '48px',
+                        }}
+                      >
+                        Cuota
+                      </Th>
+                      <Th
+                        compact
+                        className="whitespace-nowrap"
+                        style={{
+                          textAlign: 'center',
+                          verticalAlign: 'middle',
+                          height: '48px',
+                        }}
+                      >
+                        Vence
+                      </Th>
+                      <Th
+                        compact
+                        className="whitespace-nowrap"
+                        style={{
+                          textAlign: 'center',
+                          verticalAlign: 'middle',
+                          height: '48px',
+                        }}
+                      >
                         Capital
                       </Th>
-                      <Th compact className="text-right">
+                      {chargeNames.map((name) => (
+                        <Th
+                          key={name}
+                          compact
+                          style={{
+                            textAlign: 'center',
+                            verticalAlign: 'middle',
+                            height: '48px',
+                          }}
+                        >
+                          <span className="block whitespace-normal break-words leading-tight">
+                            {name}
+                          </span>
+                        </Th>
+                      ))}
+                      <Th
+                        compact
+                        className="whitespace-nowrap"
+                        style={{
+                          textAlign: 'center',
+                          verticalAlign: 'middle',
+                          height: '48px',
+                        }}
+                      >
                         Total
                       </Th>
                     </tr>
@@ -476,16 +638,25 @@ export function LoanQuotePage() {
                         +1. */}
                     {hasDownPayment && (
                       <tr className="divide-x divide-border">
-                        <Td compact>1</Td>
-                        <Td compact>
+                        <Td compact className="whitespace-nowrap text-center">
+                          1
+                        </Td>
+                        <Td compact className="whitespace-nowrap text-center">
                           {downPaymentDueDate
                             ? formatDateOnly(downPaymentDueDate)
                             : '—'}
                         </Td>
-                        <Td compact className="text-right">
+                        <Td compact className="whitespace-nowrap text-center">
                           {formatCurrency(downPaymentAmount)}
                         </Td>
-                        <Td compact className="text-right">
+                        {/* A down payment carries no interest/charges of its
+                            own — it's a plain installment. */}
+                        {chargeNames.map((name) => (
+                          <Td key={name} compact muted className="text-center">
+                            —
+                          </Td>
+                        ))}
+                        <Td compact className="whitespace-nowrap text-center">
                           {formatCurrency(downPaymentAmount)}
                         </Td>
                       </tr>
@@ -495,15 +666,32 @@ export function LoanQuotePage() {
                         key={installment.installmentNumber}
                         className="divide-x divide-border"
                       >
-                        <Td compact>
+                        <Td compact className="whitespace-nowrap text-center">
                           {installment.installmentNumber +
                             (hasDownPayment ? 1 : 0)}
                         </Td>
-                        <Td compact>{formatDateOnly(installment.dueDate)}</Td>
-                        <Td compact className="text-right">
+                        <Td compact className="whitespace-nowrap text-center">
+                          {formatDateOnly(installment.dueDate)}
+                        </Td>
+                        <Td compact className="whitespace-nowrap text-center">
                           {formatCurrency(installment.principalPortion)}
                         </Td>
-                        <Td compact className="text-right">
+                        {chargeNames.map((name) => {
+                          const charge = installment.conceptBreakdown.find(
+                            (concept) => concept.name === name,
+                          );
+                          return (
+                            <Td
+                              key={name}
+                              compact
+                              muted={!charge}
+                              className="text-center"
+                            >
+                              {charge ? formatCurrency(charge.amount) : '—'}
+                            </Td>
+                          );
+                        })}
+                        <Td compact className="whitespace-nowrap text-center">
                           {formatCurrency(installment.amount)}
                         </Td>
                       </tr>

@@ -17,12 +17,33 @@ import { InterestConceptTypesService } from '../interestConceptTypes/interestCon
 import { UsuryRateService } from '../usuryRates/usuryRates.service';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
+import { addDaysToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
 import { LoanInstallmentConcept } from './entities/loanInstallmentConcept.entity';
 import { Payment } from './entities/payment.entity';
 import { PaymentImage } from './entities/paymentImage.entity';
 import { LoansService } from './loans.service';
+
+// Bug fix, 2026-09-04 (see installmentCalculations.ts and
+// docs/DATABASE.md's note of that date) — several tests below build a
+// dueDate relative to the real `new Date()` (since the service methods
+// they exercise always call the real `new Date()` internally too, with no
+// injectable override). That dueDate must be anchored to Bogotá's current
+// calendar date the same way the fix computes "today" (shifted -5h before
+// reading the date), not raw UTC "now" — otherwise, during the narrow UTC
+// 00:00-05:00 window (7pm-midnight in Bogotá), an exact-day-count
+// assertion here would land one off from what the service actually
+// computes: an intermittent CI flake, not a real bug. Reuses
+// dueDateSchedule.ts's own pure UTC date-string arithmetic rather than
+// date-fns, for the same reason that file avoids date-fns itself (see its
+// own top-of-file comment).
+function bogotaTodayPlusDays(days: number): string {
+  const bogotaToday = new Date(Date.now() - 5 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  return addDaysToDateString(bogotaToday, days);
+}
 
 describe('LoansService', () => {
   let service: LoansService;
@@ -54,6 +75,7 @@ describe('LoansService', () => {
     create: jest.Mock;
     save: jest.Mock;
     find: jest.Mock;
+    update: jest.Mock;
   };
   let interestConceptTypesService: {
     findOneOrThrow: jest.Mock;
@@ -151,6 +173,7 @@ describe('LoansService', () => {
       create: jest.fn((dto: Partial<LoanInstallmentConcept>) => dto),
       save: jest.fn().mockResolvedValue([]),
       find: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     interestConceptTypesService = {
       findOneOrThrow: jest
@@ -283,6 +306,7 @@ describe('LoansService', () => {
       // tests below are unchanged from before the redesign.
       concepts: [],
       moratoryConcepts: [],
+      description: 'Compra de televisor',
     };
 
     beforeEach(() => {
@@ -1377,7 +1401,9 @@ describe('LoansService', () => {
             overdueDays: 0,
           }),
         ],
-        meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
+        // limit 50 since 2026-09-05's default-page-size bump (style cleanup —
+        // matches clients.service.ts's DEFAULT_PAGE_SIZE).
+        meta: { page: 1, limit: 50, total: 1, totalPages: 1 },
       });
       expect(loansRepository.find).toHaveBeenCalledWith({
         where: { clientId: 'client-1', status: LoanStatus.Active },
@@ -1458,9 +1484,6 @@ describe('LoansService', () => {
 
     it('aggregates outstandingBalance, installmentsPaid, and overdueDays from installments', async () => {
       loansRepository.find.mockResolvedValue([mockLoan]);
-      const overdueDueDate = new Date();
-      overdueDueDate.setDate(overdueDueDate.getDate() - 10);
-      const overdueDateString = overdueDueDate.toISOString().slice(0, 10);
 
       installmentsRepository.find.mockResolvedValue([
         {
@@ -1468,7 +1491,7 @@ describe('LoansService', () => {
           loanId: 'loan-1',
           installmentNumber: 1,
           amount: 300000,
-          dueDate: overdueDateString,
+          dueDate: bogotaTodayPlusDays(-10),
           status: InstallmentStatus.Pending,
         },
         {
@@ -1547,13 +1570,6 @@ describe('LoansService', () => {
 
     it('sets overdueBalance to only the overdue installments, unlike outstandingBalance which includes upcoming ones too', async () => {
       loansRepository.find.mockResolvedValue([mockLoan]);
-      const overdueDueDate = new Date();
-      overdueDueDate.setDate(overdueDueDate.getDate() - 10);
-      const overdueDateString = overdueDueDate.toISOString().slice(0, 10);
-
-      const upcomingDueDate = new Date();
-      upcomingDueDate.setDate(upcomingDueDate.getDate() + 20);
-      const upcomingDateString = upcomingDueDate.toISOString().slice(0, 10);
 
       installmentsRepository.find.mockResolvedValue([
         {
@@ -1561,7 +1577,7 @@ describe('LoansService', () => {
           loanId: 'loan-1',
           installmentNumber: 1,
           amount: 300000,
-          dueDate: overdueDateString,
+          dueDate: bogotaTodayPlusDays(-10),
           status: InstallmentStatus.Pending,
         },
         {
@@ -1569,7 +1585,7 @@ describe('LoansService', () => {
           loanId: 'loan-1',
           installmentNumber: 2,
           amount: 300000,
-          dueDate: upcomingDateString,
+          dueDate: bogotaTodayPlusDays(20),
           status: InstallmentStatus.Pending,
         },
       ]);
@@ -1784,22 +1800,28 @@ describe('LoansService', () => {
   });
 
   describe('update', () => {
-    it('updates the interest rate when the loan exists', async () => {
+    // interestRate/moratoryConcepts were both tried as editable fields here
+    // (2026-09-04) and reverted the same day — see UpdateLoanDto's own
+    // comment. description is now the only scalar field PATCH /loans/:id
+    // actually changes, alongside the co-debtor fields below.
+    it('updates the description when the loan exists', async () => {
       loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
       loansRepository.save.mockImplementation((loan: Loan) =>
         Promise.resolve(loan),
       );
 
-      const result = await service.update(mockLoan.id, { interestRate: 5 });
+      const result = await service.update(mockLoan.id, {
+        description: 'Compra de televisor',
+      });
 
-      expect(result.interestRate).toBe(5);
+      expect(result.description).toBe('Compra de televisor');
     });
 
     it('throws NotFoundException when the loan does not exist', async () => {
       loansRepository.findOneBy.mockResolvedValue(null);
 
       await expect(
-        service.update('missing-id', { interestRate: 5 }),
+        service.update('missing-id', { description: 'Compra de televisor' }),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -1832,7 +1854,7 @@ describe('LoansService', () => {
         Promise.resolve(loan),
       );
 
-      await service.update(mockLoan.id, { interestRate: 5 });
+      await service.update(mockLoan.id, { description: 'Compra de televisor' });
 
       expect(clientsService.findOne).not.toHaveBeenCalled();
     });
@@ -2009,6 +2031,9 @@ describe('LoansService', () => {
   });
 
   describe('getRefinanceQuote', () => {
+    // bogotaTodayPlusDays is defined at module scope above — see its own
+    // comment for why several tests below need it instead of a raw
+    // `new Date(); setDate(...)`.
     function pendingInstallment(
       overrides: Partial<Installment> = {},
     ): Installment {
@@ -2110,13 +2135,11 @@ describe('LoansService', () => {
     // accrued interest is folded directly into suggestedPrincipalAmount.
     // These four tests replace the old blockedByPendingInstallments ones.
     it('does not add extra interest for an installment beyond the 5-day early-maturity window', async () => {
-      const inThreeWeeks = new Date();
-      inThreeWeeks.setDate(inThreeWeeks.getDate() + 21);
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
           amount: 300000,
           principalPortion: 270000,
-          dueDate: inThreeWeeks.toISOString().slice(0, 10),
+          dueDate: bogotaTodayPlusDays(21),
         }),
       ]);
       installmentsRepository.findOne.mockResolvedValue(
@@ -2129,13 +2152,11 @@ describe('LoansService', () => {
     });
 
     it('folds an installment due within 5 days into the new principal, corriente interest only (not yet actually overdue)', async () => {
-      const inFourDays = new Date();
-      inFourDays.setDate(inFourDays.getDate() + 4);
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
           amount: 300000,
           principalPortion: 270000,
-          dueDate: inFourDays.toISOString().slice(0, 10),
+          dueDate: bogotaTodayPlusDays(4),
         }),
       ]);
       installmentsRepository.findOne.mockResolvedValue(
@@ -2151,13 +2172,11 @@ describe('LoansService', () => {
     });
 
     it('includes both corriente and moratory interest for an actually overdue installment (hand-calculated)', async () => {
-      const threeDaysAgo = new Date();
-      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
           amount: 300000,
           principalPortion: 270000,
-          dueDate: threeDaysAgo.toISOString().slice(0, 10),
+          dueDate: bogotaTodayPlusDays(-3),
         }),
       ]);
       installmentsRepository.findOne.mockResolvedValue(
@@ -2173,13 +2192,11 @@ describe('LoansService', () => {
     });
 
     it('folds an installment due in exactly 5 days into the new principal (inclusive boundary)', async () => {
-      const inFiveDays = new Date();
-      inFiveDays.setDate(inFiveDays.getDate() + 5);
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
           amount: 300000,
           principalPortion: 270000,
-          dueDate: inFiveDays.toISOString().slice(0, 10),
+          dueDate: bogotaTodayPlusDays(5),
         }),
       ]);
       installmentsRepository.findOne.mockResolvedValue(

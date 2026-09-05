@@ -27,12 +27,20 @@ import { ClientReference } from './entities/clientReference.entity';
 
 const DEFAULT_PAGE = 1;
 // Bumped from 20 (2026-09-03) — with the client's real client count around
-// 400, 20/page meant ~20 pages, and ClientsListPage.tsx's pager renders
-// one button per page with no truncation (see that component), so 20
-// buttons in a row was already unwieldy before the count grows further.
-// 50 brings that down to ~8 pages. Only this service's default changes —
-// AuditLog/Loans/Installments/Dashboard/WhatsappWebhook/MessageLogs each
-// keep their own separate DEFAULT_PAGE_SIZE = 20 constant, unaffected.
+// 400, 20/page meant ~20 pages, and ClientsListPage.tsx's pager originally
+// rendered one button per page with no truncation, so 20 buttons in a row
+// was already unwieldy before the count grows further. 50 brings that down
+// to ~8 pages, paired with the windowed Pager component (see
+// apps/client/src/components/ui/Pager.tsx).
+//
+// Style cleanup 2026-09-05 brought Dashboard/Loans/MessageLogs/AuditLog up
+// to this same 50/page default and pager, since they show the same kind of
+// large, ever-growing list. Left at their old DEFAULT_PAGE_SIZE = 20:
+// Installments (findAll is unused by any paginated UI — LoanDetailPage
+// gets its installments from the loan detail response, not this endpoint)
+// and WhatsappWebhook (its admin list on WhatsappInboundMessagesPage has no
+// pager UI at all yet — a separate, bigger gap: see that page's own
+// "requires server-side pagination per conversation" comment).
 const DEFAULT_PAGE_SIZE = 50;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
 

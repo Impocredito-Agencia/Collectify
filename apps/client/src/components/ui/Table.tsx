@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 interface ThProps {
   children?: ReactNode;
@@ -6,6 +6,19 @@ interface ThProps {
   // See TdProps.compact — same shorter-row opt-in, kept in sync so a
   // compact table's header and body cells still line up.
   compact?: boolean;
+  // Escape hatch for the rare case where a className override can't beat
+  // the hardcoded `text-left` below (LoanQuotePage's schedule-preview
+  // header, 2026-09-05 — a `text-center` override wasn't winning the
+  // cascade there). An inline style always wins over a class-based
+  // utility regardless of stylesheet source order, so this is the one
+  // reliable way to override alignment on a Th. Optional and unused by
+  // every other call site.
+  style?: CSSProperties;
+  // Native HTML tooltip — PayoffDialog's Σ C/M headers use this to spell
+  // out "Interés corriente"/"Interés moratorio" on hover, since the header
+  // label itself is just the compact symbol/badge. Plain pass-through to
+  // the underlying <th>.
+  title?: string;
 }
 
 interface TdProps {
@@ -23,6 +36,11 @@ interface TdProps {
   // Opt-in and per-call-site (not a global height change) so every other
   // table's row height is untouched — confirmed with the human, 2026-09-03.
   compact?: boolean;
+  // Native HTML tooltip — PayoffDialog's corriente/moratorio total cells
+  // use this to list each individual concept name+amount on hover, since
+  // the cell itself only shows the aggregate. Plain pass-through to the
+  // underlying <td>.
+  title?: string;
 }
 
 // Table cells (style cleanup, 2026-09-02) — every list/detail table in the
@@ -58,10 +76,18 @@ interface TdProps {
 // hex (see index.css), only the size was off. Changed once, here, so it
 // applies to every table in the app that imports this `Th` — that's the
 // whole point of having centralized it.
-export function Th({ children, className = '', compact = false }: ThProps) {
+export function Th({
+  children,
+  className = '',
+  compact = false,
+  style,
+  title,
+}: ThProps) {
   return (
     <th
       className={`${compact ? 'h-8' : 'h-[38px]'} px-3.5 text-left text-small font-normal tracking-normal text-muted ${className}`}
+      style={style}
+      title={title}
     >
       {children}
     </th>
@@ -79,6 +105,7 @@ export function Td({
   className = '',
   muted = false,
   compact = false,
+  title,
 }: TdProps) {
   const height = compact ? 'h-8' : 'h-11';
   return (
@@ -88,6 +115,7 @@ export function Td({
           ? `${height} px-3.5 text-small text-muted ${className}`
           : `${height} px-3.5 text-small font-medium text-strong ${className}`
       }
+      title={title}
     >
       {children}
     </td>

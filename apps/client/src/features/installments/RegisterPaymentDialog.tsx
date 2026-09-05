@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
@@ -66,10 +66,10 @@ export function RegisterPaymentDialog({
   // (formatCurrency's convention everywhere else in the app), so the
   // default shown here is rounded the same way rather than dumping the raw
   // float into the field. Still fully editable — this only affects the
-  // pre-filled default.
-  const [amountPaid, setAmountPaid] = useState(
-    Math.round(installment.totalDue),
-  );
+  // pre-filled default. Math.ceil, not Math.round: rounding to nearest can
+  // round DOWN (e.g. 108333.33 → 108333), pre-filling an amount a fraction
+  // of a peso short of the real balance — rounding up never does.
+  const [amountPaid, setAmountPaid] = useState(Math.ceil(installment.totalDue));
   const [paidAt, setPaidAt] = useState(todayDateString());
   const [observation, setObservation] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +87,7 @@ export function RegisterPaymentDialog({
   );
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEscapeKey(onClose);
 
@@ -253,13 +254,29 @@ export function RegisterPaymentDialog({
               ))}
             </div>
           )}
+          {/* 2026-09-05: raw <input type="file"> replaced with the shared
+              Button (same "misma bolsa de todos los botones" pass applied to
+              ImportClientsDialog.tsx) — the native picker button had a
+              different size/shape/hover than every other button here. The
+              real input stays mounted but visually hidden and is triggered
+              via ref; the thumbnails above already show what's picked, so no
+              separate filename text is needed. */}
           <input
+            ref={fileInputRef}
             type="file"
             accept="image/*"
             multiple
             onChange={handleFileChange}
-            className="w-full text-control text-muted file:mr-3 file:rounded file:border file:border-border file:bg-input file:px-3 file:py-1.5 file:text-meta file:text-muted hover:file:text-white"
+            className="hidden"
           />
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-fit"
+          >
+            Agregar foto
+          </Button>
           {uploadError && (
             <p className="text-small text-danger" role="alert">
               {uploadError}

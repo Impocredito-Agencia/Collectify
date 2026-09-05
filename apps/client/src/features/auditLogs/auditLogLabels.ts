@@ -3,8 +3,10 @@
 // fired, see apps/api/src/auditLog/auditLog.interceptor.ts), not real
 // enums, so admins were seeing raw values like "client.create" and
 // "client" · <uuid> in the Auditoría screen with no way to tell what
-// actually happened. Shared between AuditLogsPage.tsx's table and
-// AuditLogDrawer.tsx's detail view so both stay in sync.
+// actually happened. Used by AuditLogsPage.tsx's table (the drawer that
+// used to also consume this, AuditLogDrawer.tsx, was removed 2026-09-05 —
+// its raw-JSON payload view wasn't useful to a non-technical user; see
+// this file's own git history / the page's comment for the reasoning).
 //
 // Extend this list whenever a new @Audit('x.y', 'z') call is added to the
 // backend (grep `@Audit(` under apps/api/src) — an action/entityType
@@ -58,6 +60,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'interestConceptType.create': 'Creó un tipo de cargo',
   'interestConceptType.update': 'Editó un tipo de cargo',
   'interestConceptType.deactivate': 'Desactivó un tipo de cargo',
+  'interestConceptType.activate': 'Reactivó un tipo de cargo',
   'interestConceptType.delete': 'Eliminó un tipo de cargo',
 };
 
