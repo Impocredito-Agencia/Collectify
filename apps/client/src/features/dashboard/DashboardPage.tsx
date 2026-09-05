@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
-import { FilterTab } from '@/components/ui/FilterTab';
+import { Pager } from '@/components/ui/Pager';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Select } from '@/components/ui/Select';
 import { StatCard } from '@/components/ui/StatCard';
@@ -14,6 +14,7 @@ import {
   useOverdueClients,
 } from '@/features/dashboard/useDashboard';
 import { moraBadgeClasses } from '@/features/loans/loanStatusDisplay';
+import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { formatCurrency } from '@/lib/format';
 
 import type { ReactNode } from 'react';
@@ -63,8 +64,10 @@ const YEAR_OPTIONS = [0, 1, 2, 3].map((offset) => {
 // "Contactados", "Recaudado") aren't backed by anything real and were never
 // built. What IS role-gated (client's explicit rule, post-review): a
 // cobrador must not see any monetary figure except the overdue-clients
-// list itself (needed to actually collect) — "Monto total en mora" and
-// "Pagos recibidos" are admin-only cards. See DESIGN_TOKENS.md.
+// list itself (needed to actually collect) — "Monto total en mora",
+// "Cartera total vigente" (2026-09-05) and "Pagos recibidos" are admin-only
+// cards. "% de cartera en mora" and "Tasa de usura vigente" are ratios, not
+// exact peso amounts, so both roles see those. See DESIGN_TOKENS.md.
 export function DashboardPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -77,6 +80,7 @@ export function DashboardPage() {
   const [year, setYear] = useState(now.getFullYear());
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary();
+  const { data: currentUsuryRate } = useCurrentUsuryRate();
   const {
     data: overdueClients,
     isLoading: overdueLoading,
@@ -96,16 +100,30 @@ export function DashboardPage() {
 
       <div className="flex flex-col gap-2.5">
         <span className="text-section-label font-normal tracking-normal text-subtle">
-          KPIS
+          Cartera
         </span>
 
-        <div
-          className={`grid gap-4 ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'}`}
-        >
+        {/* Grid fijo a 4 columnas (no dependiente del conteo de tarjetas) —
+            así el ancho de cada tarjeta es siempre el mismo sin importar
+            cuántas haya, y las filas se acomodan solas por wrap en vez de
+            forzar todo en una sola fila cada vez más angosta. Fila 1:
+            conteos de cartera/cobranza. Fila 2: proporciones (% en mora,
+            tasa de usura, ambos roles) + los dos montos exactos en pesos
+            que siguen siendo admin-only (misma regla de siempre — ver
+            comentario arriba). Para el cobrador la fila 2 solo tiene 2
+            tarjetas y deja las otras 2 columnas vacías; se prefirió eso a
+            estirar las tarjetas para llenar el espacio. */}
+        <div className="grid grid-cols-4 gap-4">
           <StatCard
             label="Clientes con préstamos activos"
             value={
               summaryLoading ? '—' : String(summary?.totalActiveClients ?? 0)
+            }
+          />
+          <StatCard
+            label="Préstamos activos"
+            value={
+              summaryLoading ? '—' : String(summary?.totalActiveLoans ?? 0)
             }
           />
           <StatCard
@@ -116,6 +134,34 @@ export function DashboardPage() {
                 : String(summary?.totalOverdueInstallments ?? 0)
             }
           />
+          <StatCard
+            label="Cuotas por vencer (próximos 5 días)"
+            value={
+              summaryLoading
+                ? '—'
+                : String(summary?.upcomingDueInstallments ?? 0)
+            }
+          />
+          <StatCard
+            label="% de cartera en mora"
+            value={summaryLoading ? '—' : `${summary?.overdueRate ?? 0}%`}
+          />
+          <StatCard
+            label="Tasa de usura vigente"
+            value={
+              currentUsuryRate ? `${currentUsuryRate.ratePercentage}%` : '—'
+            }
+          />
+          {isAdmin && (
+            <StatCard
+              label="Cartera total vigente"
+              value={
+                summaryLoading
+                  ? '—'
+                  : formatCurrency(summary?.totalOutstandingPrincipal ?? 0)
+              }
+            />
+          )}
           {isAdmin && (
             <StatCard
               label="Monto total en mora"
@@ -126,10 +172,31 @@ export function DashboardPage() {
               }
             />
           )}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        <span className="text-section-label font-normal tracking-normal text-subtle">
+          Mensajería
+        </span>
+
+        {/* Mismo grid-cols-4 que Cartera arriba, aunque solo haya 2
+            tarjetas — así quedan del mismo ancho que las de Cartera en vez
+            de estirarse para llenar la fila (lo que se veía como cajas
+            enormes y vacías con un solo número adentro). */}
+        <div className="grid grid-cols-4 gap-4">
           <StatCard
             label="Mensajes enviados esta semana"
             value={
               summaryLoading ? '—' : String(summary?.messagesSentThisWeek ?? 0)
+            }
+          />
+          <StatCard
+            label="Mensajes fallidos esta semana"
+            value={
+              summaryLoading
+                ? '—'
+                : String(summary?.messagesFailedThisWeek ?? 0)
             }
           />
         </div>
@@ -207,31 +274,11 @@ export function DashboardPage() {
             <p className="text-label text-muted">
               Mostrando {clients.length} de {meta.total} clientes
             </p>
-            <div className="flex items-center gap-1">
-              <FilterTab
-                label="←"
-                isActive={false}
-                disabled={page <= 1}
-                onClick={() => setPage((current) => current - 1)}
-              />
-              {Array.from(
-                { length: meta.totalPages },
-                (_, index) => index + 1,
-              ).map((pageNumber) => (
-                <FilterTab
-                  key={pageNumber}
-                  label={pageNumber}
-                  isActive={pageNumber === page}
-                  onClick={() => setPage(pageNumber)}
-                />
-              ))}
-              <FilterTab
-                label="→"
-                isActive={false}
-                disabled={page >= meta.totalPages}
-                onClick={() => setPage((current) => current + 1)}
-              />
-            </div>
+            <Pager
+              page={page}
+              totalPages={meta.totalPages}
+              onPageChange={setPage}
+            />
           </div>
         )}
       </div>
@@ -309,5 +356,6 @@ function EmptyRow({
   );
 }
 
-// Pagination controls now use the shared FilterTab component — see
-// LoansListPage.tsx's identical 2026-09-04 consolidation note.
+// Pagination controls now use the shared Pager component (2026-09-05) —
+// see @/components/ui/Pager.tsx. Previously rendered one FilterTab per
+// page with no truncation, unlike Clientes' already-windowed pager.

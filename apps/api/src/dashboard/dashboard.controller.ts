@@ -27,9 +27,17 @@ export class DashboardController {
   @ApiOperation({
     summary: 'At-a-glance portfolio summary',
     description:
-      'totalActiveClients counts clients with at least one active loan. totalAmountOverdue reuses the ' +
-      'Phase 4 overdue/interest formula per installment (calculated on read, never stored). ' +
-      'messagesSentThisWeek is scoped to the current calendar week (Monday-Sunday), matching the weekly reminder cron.',
+      'totalActiveClients counts clients with at least one active loan (deduped by client). ' +
+      'totalActiveLoans counts active loans directly, so a client with two active loans counts once ' +
+      'toward totalActiveClients but twice here. totalOutstandingPrincipal sums remaining principal ' +
+      "(not original principalAmount) across every active loan's pending installments. " +
+      'totalAmountOverdue reuses the Phase 4 overdue/interest formula per installment (calculated on ' +
+      'read, never stored). overdueRate is totalAmountOverdue / totalOutstandingPrincipal as a percentage ' +
+      '(1 decimal), a simple at-a-glance ratio rather than a formal delinquency-rate calculation. ' +
+      'upcomingDueInstallments counts pending installments due today through today+5 (inclusive), a ' +
+      'continuous window distinct from the specific 5/3/1-day WhatsApp reminder trigger days. ' +
+      'messagesSentThisWeek/messagesFailedThisWeek are scoped to the current calendar week ' +
+      '(Monday-Sunday), matching the weekly reminder cron.',
   })
   @ApiResponse({ status: 200, description: 'Returns the summary numbers.' })
   getSummary(): Promise<DashboardSummary> {
