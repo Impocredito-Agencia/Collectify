@@ -1,28 +1,26 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsNumber,
-  IsOptional,
-  IsString,
-  IsUUID,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsOptional, IsString, IsUUID } from 'class-validator';
 
-// Only interest_rate, description, and the co-debtor fields (Phase 21,
-// updated to a client link in Phase 26) are editable post-creation.
-// interest_rate is confirmed manually editable per docs/DATABASE.md.
-// description and the co-debtor fields are plain metadata with no
-// cascading effects. Other fields (principal, schedule) would have
-// cascading effects on already-generated installments that aren't scoped
-// here.
+// Only description and the co-debtor fields (Phase 21, updated to a client
+// link in Phase 26) are editable post-creation. Both are plain metadata
+// with no cascading effects.
+//
+// Client feedback, 2026-09-04 (final call, after trying a broader edit
+// surface first): interestRate and moratoryConcepts briefly lived here too
+// — see git history / docs/DATABASE.md's "Resolved" note on `interest_rate`
+// for the full back-and-forth — but the client decided the same day that
+// even a "safe" correction (a moratory concept's value, or the legacy
+// interestRate fallback) wasn't worth keeping once they saw it in
+// practice: there was little real use for it, and it muddies a much
+// simpler rule — a préstamo's numbers are fixed the moment it's created;
+// anything wrong there needs Refinanciar (which regenerates the schedule
+// AND notifies the client), never a silent PATCH. principalAmount, the
+// cuota schedule, interestRate, and every concept (corriente or
+// moratorio) are therefore all immutable here on purpose. Only
+// description survived as an editable field — a pure typo/wording fix
+// has no bearing on what the client owes and doesn't need Refinanciar's
+// full weight (new pagaré, cancelled installments, new WhatsApp message).
 export class UpdateLoanDto {
-  @ApiPropertyOptional({ example: 6 })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  interestRate?: number;
-
   @ApiPropertyOptional({
     example: 'Compra de Apple MacBook Air M5, 512GB',
   })
