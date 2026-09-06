@@ -195,6 +195,10 @@ export function RefinanceLoanForm({
   const [coDebtorRelationship, setCoDebtorRelationship] = useState(
     oldLoanCoDebtorRelationship ?? '',
   );
+
+  // See LoanForm.tsx's identical isNewLoan state — same off-by-default
+  // rule for the new loan this refinance creates.
+  const [isNewLoan, setIsNewLoan] = useState(false);
   // QoL — never offer the loan's own client as a codeudor candidate, so
   // there's nothing to pick that would only get rejected at submit time.
   const coDebtorSearchResults = (coDebtorResults?.items ?? []).filter(
@@ -606,6 +610,7 @@ export function RefinanceLoanForm({
             oldLoanCoDebtorClient
             ? { coDebtorClientId: null, coDebtorRelationship: null }
             : {}),
+        isNewLoan,
       });
       onClose();
     } catch (err) {
@@ -1397,6 +1402,23 @@ export function RefinanceLoanForm({
               </div>
             )}
           </div>
+
+          {/* See LoanForm.tsx's identical checkbox. */}
+          <label className="flex items-center gap-2.5 rounded border border-border bg-input p-3">
+            <input
+              type="checkbox"
+              checked={isNewLoan}
+              onChange={(event) => setIsNewLoan(event.target.checked)}
+              className="size-4 shrink-0 rounded border-border bg-background accent-white"
+            />
+            <span className="text-control text-white">
+              Es un préstamo nuevo
+            </span>
+            <span className="text-meta text-muted">
+              (desmárcalo si estás cargando un préstamo antiguo — no se enviará
+              el mensaje de WhatsApp de nuevo pagaré)
+            </span>
+          </label>
 
           {formError && (
             <p className="text-small text-danger" role="alert">

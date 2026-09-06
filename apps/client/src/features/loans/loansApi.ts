@@ -171,6 +171,12 @@ export interface CreateLoanInput {
   // with none. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
   coDebtorClientId?: string;
   coDebtorRelationship?: string;
+  // Added 2026-09-06 — whether this is a genuinely new credit event that
+  // should get the scheduled "new loan" WhatsApp message, as opposed to a
+  // historical/backfilled loan being entered after the fact. Defaults to
+  // false ("es viejo") server-side when omitted — see createLoan.dto.ts
+  // (api) and Loan.isNewLoan.
+  isNewLoan?: boolean;
 }
 
 // Matches apps/api/src/loans/dto/previewSchedule.dto.ts exactly — the
@@ -300,6 +306,8 @@ export interface RefinanceLoanInput {
   // docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
   coDebtorClientId?: string | null;
   coDebtorRelationship?: string | null;
+  // See CreateLoanInput.isNewLoan.
+  isNewLoan?: boolean;
 }
 
 // Style cleanup (2026-09-03) — mirrors the @Matches regex on
