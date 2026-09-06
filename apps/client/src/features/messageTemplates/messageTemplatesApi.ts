@@ -111,6 +111,25 @@ export const REMINDER_FAMILY_TYPES: MessageType[] = [
   MessageType.UpcomingAndOverdueMixed,
 ];
 
+// Split out of REMINDER_FAMILY_TYPES (2026-09-06) — mirrors
+// apps/api/src/whatsapp/reminderFamily.ts's OVERDUE_FAMILY_TYPES /
+// UPCOMING_FAMILY_TYPES exactly, so MessageTemplatesPage can list which
+// templates share each individual family's schedule (not just the
+// combined union above). UpcomingAndOverdueMixed intentionally appears in
+// both, same as on the backend.
+export const OVERDUE_FAMILY_TYPES: MessageType[] = [
+  MessageType.SingleOverdueInstallment,
+  MessageType.SingleOverdueInstallmentWithSurcharge,
+  MessageType.MultipleOverdueInstallments,
+  MessageType.UpcomingAndOverdueMixed,
+];
+
+export const UPCOMING_FAMILY_TYPES: MessageType[] = [
+  MessageType.SingleUpcomingInstallment,
+  MessageType.MultipleUpcomingInstallments,
+  MessageType.UpcomingAndOverdueMixed,
+];
+
 // Templates are read-only content, editable only via a migration —
 // unchanged since Phase 9's refactor, still true under the 13-type
 // catalog. See docs/DATABASE.md "Changed after Phase 9".

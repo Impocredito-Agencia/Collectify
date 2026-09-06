@@ -11,7 +11,9 @@ import {
   MESSAGE_TYPE_LABELS,
   MessageType,
   NEW_LOAN_FAMILY_TYPES,
+  OVERDUE_FAMILY_TYPES,
   REMINDER_FAMILY_TYPES,
+  UPCOMING_FAMILY_TYPES,
 } from '@/features/messageTemplates/messageTemplatesApi';
 import { useMessageTemplates } from '@/features/messageTemplates/useMessageTemplates';
 import {
@@ -63,6 +65,16 @@ const FAMILY_SCHEDULE_OWNER: Record<ReminderFamily, MessageType> = {
   [ReminderFamily.NewLoan]: NEW_LOAN_FAMILY_TYPES[0],
 };
 
+// Added 2026-09-06 (human request) — every template that shares a
+// family's schedule, listed on that family's own card so it's clear at a
+// glance what a pause/reschedule actually affects, without having to
+// cross-reference the grid of 13 cards below.
+const FAMILY_TYPES: Record<ReminderFamily, MessageType[]> = {
+  [ReminderFamily.Overdue]: OVERDUE_FAMILY_TYPES,
+  [ReminderFamily.UpcomingDue]: UPCOMING_FAMILY_TYPES,
+  [ReminderFamily.NewLoan]: NEW_LOAN_FAMILY_TYPES,
+};
+
 function triggerDescription(type: MessageType): string {
   if (NEW_LOAN_FAMILY_TYPES.includes(type)) {
     return 'Se envía por el horario automático de su familia (ver arriba) — solo para préstamos marcados como "nuevo" al crearlos. Un préstamo histórico/cargado después no lo dispara.';
@@ -104,6 +116,7 @@ export function MessageTemplatesPage() {
                 </span>
                 <FamilyCronControl
                   family={family}
+                  types={FAMILY_TYPES[family]}
                   scheduleOwner={templates?.find(
                     (template) =>
                       template.type === FAMILY_SCHEDULE_OWNER[family],
@@ -175,9 +188,11 @@ function pad2(value: number): string {
 // the admin toggling which day(s) of the week it fires on instead.
 function FamilyCronControl({
   family,
+  types,
   scheduleOwner,
 }: {
   family: ReminderFamily;
+  types: MessageType[];
   scheduleOwner: MessageTemplate | undefined;
 }) {
   const { data: cronStatus } = useCronStatus(family);
@@ -261,6 +276,17 @@ function FamilyCronControl({
             {cronStatus.running ? 'Pausar' : 'Reanudar'}
           </Button>
         )}
+      </div>
+
+      <div className="flex flex-wrap gap-1">
+        {types.map((type) => (
+          <span
+            key={type}
+            className="rounded-[3px] border border-border bg-input px-2 py-[3px] text-meta font-medium text-muted"
+          >
+            {MESSAGE_TYPE_LABELS[type]}
+          </span>
+        ))}
       </div>
 
       <form onSubmit={handleSaveSchedule} className="flex flex-col gap-2">
