@@ -27,6 +27,15 @@ export interface WhatsappConfig {
   // X-Hub-Signature-256. See docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md.
   webhookVerifyToken: string;
   appSecret: string;
+  // Global kill switch (2026-09-06 incident response) — when true, every
+  // outbound send (sendTextMessage/sendTemplateMessage/
+  // sendInteractiveButtonsMessage) short-circuits before ever calling
+  // Meta's API, the same way a missing phoneNumberId/accessToken already
+  // does. Covers every message type unconditionally — cron reminders,
+  // the synchronous new-loan/payment-confirmation sends, and self-service
+  // menu replies alike — since all three send methods funnel through
+  // WhatsAppService. See WhatsAppService for the actual check.
+  sendingPaused: boolean;
 }
 
 export interface CronConfig {
@@ -74,6 +83,7 @@ export default (): Configuration => ({
     businessAccountId: process.env.META_WHATSAPP_BUSINESS_ACCOUNT_ID ?? '',
     webhookVerifyToken: process.env.META_WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? '',
     appSecret: process.env.META_WHATSAPP_APP_SECRET ?? '',
+    sendingPaused: process.env.WHATSAPP_SENDING_PAUSED === 'true',
   },
   cron: {
     overdueReminderExpression: process.env.OVERDUE_REMINDER_CRON ?? '0 9 * * 1',

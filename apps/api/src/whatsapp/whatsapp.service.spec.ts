@@ -32,6 +32,19 @@ describe('WhatsAppService', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('skips the send and returns false when sending is globally paused, even with valid credentials', async () => {
+    configService.get.mockReturnValue({
+      phoneNumberId: 'phone-id',
+      accessToken: 'token',
+      sendingPaused: true,
+    });
+
+    const result = await service.sendTextMessage('+573001234567', 'hello');
+
+    expect(result).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('sends the message and returns true when the API responds ok', async () => {
     configService.get.mockReturnValue({
       phoneNumberId: 'phone-id',
@@ -88,6 +101,24 @@ describe('WhatsAppService', () => {
         'una_cuota_vencida',
         'es',
         ['Señor Juan', '2', '#100', '$50.000', 'hace 3 días', 'Nota'],
+      );
+
+      expect(result).toEqual({ sent: false, whatsappMessageId: null });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('skips the send and returns sent: false when sending is globally paused', async () => {
+      configService.get.mockReturnValue({
+        phoneNumberId: 'phone-id',
+        accessToken: 'token',
+        sendingPaused: true,
+      });
+
+      const result = await service.sendTemplateMessage(
+        '+573001234567',
+        'una_cuota_vencida',
+        'es',
+        ['Señor Juan'],
       );
 
       expect(result).toEqual({ sent: false, whatsappMessageId: null });
@@ -214,6 +245,23 @@ describe('WhatsAppService', () => {
       configService.get.mockReturnValue({
         phoneNumberId: '',
         accessToken: '',
+      });
+
+      const result = await service.sendInteractiveButtonsMessage(
+        '+573001234567',
+        'Selecciona una opción:',
+        buttons,
+      );
+
+      expect(result).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('skips the send and returns false when sending is globally paused', async () => {
+      configService.get.mockReturnValue({
+        phoneNumberId: 'phone-id',
+        accessToken: 'token',
+        sendingPaused: true,
       });
 
       const result = await service.sendInteractiveButtonsMessage(

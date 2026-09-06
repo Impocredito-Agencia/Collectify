@@ -48,6 +48,9 @@ META_WHATSAPP_BUSINESS_ACCOUNT_ID=
 META_WHATSAPP_WEBHOOK_VERIFY_TOKEN=
 META_WHATSAPP_APP_SECRET=
 
+# ── WhatsApp — global kill switch (2026-09-06 incident response) ──
+WHATSAPP_SENDING_PAUSED=false
+
 # ── Scheduled jobs ──────────────────────────────────────
 OVERDUE_REMINDER_CRON=0 9 * * 1,3,5
 UPCOMING_DUE_REMINDER_CRON=0 8 * * *
@@ -77,6 +80,7 @@ CLIENT_URL=http://localhost:5173
 | `META_WHATSAPP_BUSINESS_ACCOUNT_ID` | ⚠️ Pending | The WhatsApp Business Account ID tied to the Meta app. Same status as above. |
 | `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN` | ✅ | Added Phase 22. An admin-chosen random string, checked against Meta's `hub.verify_token` during the one-time webhook verification handshake (`GET /whatsapp/webhook`) — generate with `openssl rand -hex 32`. Must match whatever is entered in the Meta App Dashboard's webhook configuration. |
 | `META_WHATSAPP_APP_SECRET` | ✅ | Added Phase 22. The Meta app's own secret (App Dashboard → Settings → Basic), used to verify the `X-Hub-Signature-256` header on every inbound webhook POST — this is what proves a request actually came from Meta. Never log or expose this value. |
+| `WHATSAPP_SENDING_PAUSED` | ✅ | Added 2026-09-06 (incident response — needed to pause every outbound WhatsApp send while re-importing real client/loan data). `true`/`false`, default `false`. When `true`, `WhatsAppService`'s three send methods (text, template, interactive buttons) short-circuit before ever calling Meta's API — covers every message type unconditionally: cron reminders, the synchronous new-loan/payment-confirmation sends, and self-service menu replies alike. Toggle back to `false` (or unset) and redeploy/restart to resume sending — see the relevant PR for the reactivation plan once decided. |
 | `OVERDUE_REMINDER_CRON` | ✅ | Cron expression controlling when the overdue reminder job runs. Default `0 9 * * 1,3,5` = every Monday, Wednesday, and Friday at 9:00 AM. Changed from a single weekly run (Monday only) at the client's request — the message content is still one consolidated summary per client, it's just sent three times a week instead of once. |
 | `UPCOMING_DUE_REMINDER_CRON` | ✅ | Cron expression controlling when the daily upcoming-due ("Aviso") reminder job runs. Default `0 8 * * *` = every day at 8:00 AM. Added in Phase 9 — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. |
 | `UPCOMING_DUE_REMINDER_DAYS` | ✅ | Comma-separated list of day thresholds before an installment's due date to send the "Aviso" reminder. Default `5,3,1`. Added in Phase 9. |
