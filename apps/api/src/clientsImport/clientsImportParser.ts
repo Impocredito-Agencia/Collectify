@@ -2,29 +2,17 @@ import ExcelJS from 'exceljs';
 
 import {
   allColumnDefinitions,
-  buildConceptColumnGroups,
-  ColumnDefinition,
   CLIENT_COLUMNS,
-  LOAN_COLUMNS,
-} from './clientLoanImportColumns';
+  ColumnDefinition,
+} from './clientsImportColumns';
 
-export interface ParsedConceptRow {
-  name: string;
-  calculationType: string;
-  value: number;
-}
-
-export interface ParsedClientLoanRow {
+export interface ParsedClientRow {
   row: number;
   client: Record<string, string | number>;
-  loan: Record<string, string | number>;
-  concepts: ParsedConceptRow[];
   // Every column's raw cell text, success or not — carried through so a
-  // failure detected downstream (ClientLoanImportService, not this
-  // parser — e.g. a repeated cédula with conflicting data, or a loan
-  // that fails LoansService.create) can still regenerate a fully accurate
-  // "download errors" row, including the "Cargo adicional" columns,
-  // which don't otherwise survive into the parsed `concepts` array.
+  // failure detected downstream (ClientsImportService, not this parser —
+  // e.g. a repeated cédula with conflicting data) can still regenerate a
+  // fully accurate "download errors" row.
   rawValues: Record<string, string>;
 }
 
@@ -33,14 +21,14 @@ export interface RowError {
   reason: string;
   // The raw (unparsed) cell text for every known column in this row —
   // carried along so a failed row can be written back out verbatim into
-  // the "download errors" file (clientLoanImportTemplate.ts
-  // buildErrorsWorkbook) for the admin to fix and re-upload, without
+  // the "download errors" file (clientsImportTemplate.ts
+  // buildImportErrorsWorkbook) for the admin to fix and re-upload, without
   // anyone having to retype the whole row from scratch.
   rawValues: Record<string, string>;
 }
 
-export interface ClientLoanParseResult {
-  rows: ParsedClientLoanRow[];
+export interface ClientParseResult {
+  rows: ParsedClientRow[];
   errors: RowError[];
 }
 
@@ -49,8 +37,7 @@ export interface ClientLoanParseResult {
 // alike) has this same fixed shape, so real data always starts here.
 const FIRST_DATA_ROW = 3;
 
-// Same unwrapping rules as clientsImportParser.ts's cellText — ExcelJS
-// hands back rich-text/formula cells as objects, not plain values.
+// ExcelJS hands back rich-text/formula cells as objects, not plain values.
 function cellText(value: unknown): string {
   if (value === null || value === undefined) {
     return '';
@@ -83,17 +70,13 @@ function normalizeHeader(value: unknown): string {
     .toLowerCase();
 }
 
-// Parses the combined clients+loans workbook. Throws on structural
-// problems (no sheet, unreadable file, missing required columns) — those
-// abort the whole import, same as clientsImportParser.ts. Per-row
-// problems are collected into `errors` instead of thrown, so one bad row
-// doesn't sink the rest — same "partial success" pattern, but note this
-// import's business rule (confirmed with the client, 2026-08-19) is
-// all-or-nothing *within* a row: a row error here means neither the
-// client nor the loan for that row gets created downstream.
-export async function parseClientLoanWorkbook(
+// Parses the clients-only workbook. Throws on structural problems (no
+// sheet, unreadable file, missing required columns) — those abort the
+// whole import. Per-row problems are collected into `errors` instead of
+// thrown, so one bad row doesn't sink the rest.
+export async function parseClientsWorkbook(
   buffer: Buffer,
-): Promise<ClientLoanParseResult> {
+): Promise<ClientParseResult> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as never);
 
@@ -125,15 +108,13 @@ export async function parseClientLoanWorkbook(
     );
   }
 
-  const conceptGroups = buildConceptColumnGroups();
-  const rows: ParsedClientLoanRow[] = [];
+  const rows: ParsedClientRow[] = [];
   const errors: RowError[] = [];
 
   sheet.eachRow((row, rowNumber) => {
     // Row 1 = headers, row 2 = the fill-in instructions/examples row
-    // (clientLoanImportTemplate.ts addInstructionsRow) — always skipped,
-    // regardless of what ends up written there, so a stray value someone
-    // typed into it is never mistaken for a real row. Data starts at row 3.
+    // (clientsImportTemplate.ts addInstructionsRow) — always skipped,
+    // regardless of what ends up written there. Data starts at row 3.
     if (rowNumber < FIRST_DATA_ROW) {
       return;
     }
@@ -152,55 +133,15 @@ export async function parseClientLoanWorkbook(
     }
 
     const rowErrors: string[] = [];
-
     const client: Record<string, string | number> = {};
     parseColumnGroup(CLIENT_COLUMNS, rawValues, client, rowErrors);
-
-    const loan: Record<string, string | number> = {};
-    parseColumnGroup(LOAN_COLUMNS, rawValues, loan, rowErrors);
-
-    const concepts: ParsedConceptRow[] = [];
-    for (const group of conceptGroups) {
-      const name = rawValues[group.nameColumn.key];
-      const typeRaw = rawValues[group.typeColumn.key];
-      const valueRaw = rawValues[group.valueColumn.key];
-
-      // A blank "Nombre" means the whole group is unused — Tipo/Valor are
-      // ignored even if something stray was left in them.
-      if (name === '') {
-        continue;
-      }
-
-      const normalizedType = typeRaw
-        .normalize('NFD')
-        .replace(/\p{Diacritic}/gu, '')
-        .trim()
-        .toLowerCase();
-      const calculationType = group.typeColumn.enumValues?.[normalizedType];
-      if (!calculationType) {
-        rowErrors.push(
-          `Cargo adicional #${group.index}: tipo inválido o vacío ("${typeRaw}") — use "porcentaje" o "fijo"`,
-        );
-        continue;
-      }
-
-      const value = Number(valueRaw.replace(',', '.'));
-      if (valueRaw === '' || Number.isNaN(value) || value < 0) {
-        rowErrors.push(
-          `Cargo adicional #${group.index}: valor inválido o vacío ("${valueRaw}")`,
-        );
-        continue;
-      }
-
-      concepts.push({ name, calculationType, value });
-    }
 
     if (rowErrors.length > 0) {
       errors.push({ row: rowNumber, reason: rowErrors.join('; '), rawValues });
       return;
     }
 
-    rows.push({ row: rowNumber, client, loan, concepts, rawValues });
+    rows.push({ row: rowNumber, client, rawValues });
   });
 
   return { rows, errors };

@@ -1,12 +1,7 @@
 import ExcelJS from 'exceljs';
 
-import {
-  allColumnDefinitions,
-  CLIENT_COLUMNS,
-  LOAN_COLUMNS,
-  buildConceptColumnGroups,
-} from './clientLoanImportColumns';
-import { RowError } from './clientLoanImportParser';
+import { allColumnDefinitions, CLIENT_COLUMNS } from './clientsImportColumns';
+import { RowError } from './clientsImportParser';
 
 // Human-friendly header labels, keyed by column key — separate from the
 // alias list (which is lowercased/accent-stripped for matching) so the
@@ -31,26 +26,15 @@ const DISPLAY_HEADERS: Record<string, string> = {
   occupation: 'Ocupación',
   employerName: 'Empresa',
   monthlyIncome: 'Ingresos mensuales',
-  promissoryNoteNumber: 'Pagaré',
-  principalAmount: 'Monto del crédito',
-  interestRate: 'Tasa moratoria (%)',
-  disbursedAt: 'Fecha de desembolso',
-  installmentFrequency: 'Frecuencia de pago (mensual/quincenal)',
-  totalInstallments: 'Número de cuotas',
-  description: 'Descripción del crédito',
 };
 
-// Per-column fill-in instructions/examples for row 2 — added because the
-// admin's own report (2026-08-19) was that ambiguous fields like phone
-// numbers (+57 or not?) and dates (DD/MM/YYYY? MM/DD/YYYY? spelled out?)
-// were causing avoidable row errors on upload. Dates in particular MUST be
-// AAAA-MM-DD: validated downstream via class-validator's @IsDateString(),
-// same as every other date field in this codebase, which only accepts
-// ISO 8601 — "01/01/2026" or "primero de enero de 2026" will always fail,
-// no amount of parser leniency changes that, so this is guidance, not
-// auto-correction. Phone numbers, by contrast, already tolerate both
-// forms (@IsPhoneNumber('CO') parses national or E.164 format), so the
-// hint here documents what already works rather than a new constraint.
+// Per-column fill-in instructions/examples for row 2 — ambiguous fields
+// like phone numbers (+57 or not?) and dates (DD/MM/YYYY? MM/DD/YYYY?
+// spelled out?) were confirmed (2026-08-19) to cause avoidable row
+// errors on upload otherwise. Dates in particular MUST be AAAA-MM-DD:
+// validated downstream via class-validator's @IsDateString(), same as
+// every other date field in this codebase, which only accepts ISO 8601 —
+// this is guidance, not auto-correction.
 const FIELD_HINTS: Record<string, string> = {
   firstName: 'Ej: Juana',
   lastName: 'Ej: Pérez',
@@ -79,70 +63,25 @@ const FIELD_HINTS: Record<string, string> = {
   occupation: 'Opcional. Ej: Comerciante',
   employerName: 'Opcional. Ej: Tienda La Esquina',
   monthlyIncome: 'Opcional. Solo números. Ej: 1500000',
-  promissoryNoteNumber: 'Ej: #743',
-  principalAmount: 'Solo números, sin puntos de miles. Ej: 900000',
-  interestRate: 'Solo el número, sin el símbolo %. Ej: 6',
-  disbursedAt: 'Formato AAAA-MM-DD (año-mes-día). Ej: 2026-07-09',
-  installmentFrequency: 'Escribe: mensual o quincenal',
-  totalInstallments: 'Número entero de cuotas. Ej: 12',
-  // "Cuota inicial" (down payment) is deliberately not importable via
-  // Excel, 2026-09-03 — the redesign requires both an amount AND its own
-  // due date (it's a real installment now, not an informational figure),
-  // which doesn't fit this bulk/historical-load flow. Set it manually
-  // afterward if needed. See docs/GLOSSARY.md.
-  // No longer optional (2026-09-04) — this is the product acquired with
-  // the loan (a phone, a TV, a computer...), sent in the automatic "new
-  // loan" WhatsApp message. See clientLoanImportColumns.ts.
-  description: 'Ej: Compra de celular, televisor, computador…',
 };
-
-const CONCEPT_NAME_HINT =
-  'Debe coincidir exactamente con un concepto activo en Conceptos de interés';
-const CONCEPT_TYPE_HINT = 'Escribe: porcentaje o fijo';
-const CONCEPT_VALUE_HINT = 'Solo números. Ej: 2.5';
 
 function headerFor(key: string, fallbackAlias: string): string {
   return DISPLAY_HEADERS[key] ?? fallbackAlias;
 }
 
 function buildHeaders(): string[] {
-  const headers = [
-    ...CLIENT_COLUMNS.map((c) => headerFor(c.key, c.aliases[0])),
-    ...LOAN_COLUMNS.map((c) => headerFor(c.key, c.aliases[0])),
-  ];
-  for (const group of buildConceptColumnGroups()) {
-    headers.push(
-      `Cargo adicional #${group.index} - Nombre`,
-      `Cargo adicional #${group.index} - Tipo (porcentaje/fijo)`,
-      `Cargo adicional #${group.index} - Valor`,
-    );
-  }
-  return headers;
+  return CLIENT_COLUMNS.map((c) => headerFor(c.key, c.aliases[0]));
 }
 
-// Mirrors buildHeaders() column-for-column — kept as a separate function
-// (not folded into DISPLAY_HEADERS) since a header and its instructions
-// are conceptually different things, even though they're written to
-// adjacent rows.
 function buildFieldHints(): string[] {
-  const hints = [
-    ...CLIENT_COLUMNS.map((c) => FIELD_HINTS[c.key] ?? ''),
-    ...LOAN_COLUMNS.map((c) => FIELD_HINTS[c.key] ?? ''),
-  ];
-  // One fixed hint set per group — the wording doesn't depend on the
-  // group's index, only how many groups exist.
-  buildConceptColumnGroups().forEach(() => {
-    hints.push(CONCEPT_NAME_HINT, CONCEPT_TYPE_HINT, CONCEPT_VALUE_HINT);
-  });
-  return hints;
+  return CLIENT_COLUMNS.map((c) => FIELD_HINTS[c.key] ?? '');
 }
 
 // Row 2 is a fixed structural convention for every workbook this module
 // generates (template and errors-export alike): per-column fill-in
 // instructions/examples, always skipped by the parser regardless of what
-// ends up written in it (see the row-skip in clientLoanImportParser.ts).
-// Frozen alongside the header row so it stays visible while an admin
-// scrolls through many data rows — that's the whole point of it existing.
+// ends up written in it. Frozen alongside the header row so it stays
+// visible while an admin scrolls through many data rows.
 function addInstructionsRow(sheet: ExcelJS.Worksheet, hints: string[]): void {
   const row = sheet.addRow(hints);
   row.font = { italic: true, size: 10, color: { argb: 'FF666666' } };
@@ -151,15 +90,14 @@ function addInstructionsRow(sheet: ExcelJS.Worksheet, hints: string[]): void {
   sheet.views = [{ state: 'frozen', ySplit: 2 }];
 }
 
-// GET /clients/import-template — an empty workbook with exactly the
+// POST /clients/import-template — an empty workbook with exactly the
 // columns the parser accepts, built from the same column definitions
-// (clientLoanImportColumns.ts) so the template and the parser can never
-// drift apart. One row = one credit — a client with several loans
-// appears on several rows with the same cédula, see
-// ClientLoanImportService for how repeats are reconciled.
+// (clientsImportColumns.ts) so the template and the parser can never
+// drift apart. Clients only — see apps/api/src/loanImport for assigning a
+// loan to an existing client by cédula.
 export async function buildImportTemplateWorkbook(): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Clientes y créditos');
+  const sheet = workbook.addWorksheet('Clientes');
 
   const headers = buildHeaders();
   sheet.addRow(headers);
@@ -176,11 +114,7 @@ export async function buildImportTemplateWorkbook(): Promise<Buffer> {
 // re-upload through the exact same endpoint, instead of retyping
 // everything from scratch. Stateless: the caller (frontend) already has
 // this exact `RowError[]` from the import response, nothing is persisted
-// server-side between the import attempt and this call. Keeps the same
-// row-1-header/row-2-instructions shape as the template, both because the
-// admin is fixing the exact same kind of format mistakes this file is
-// full of, and because the parser expects data to start at row 3 no
-// matter which of these two endpoints produced the file being re-uploaded.
+// server-side between the import attempt and this call.
 export async function buildImportErrorsWorkbook(
   errors: RowError[],
 ): Promise<Buffer> {
