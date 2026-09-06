@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -191,4 +192,18 @@ export class CreateLoanDto {
   @IsOptional()
   @IsString()
   coDebtorRelationship?: string;
+
+  // Added 2026-09-06 — see Loan.isNewLoan. Defaults to false ("es viejo")
+  // when omitted, so a historical/backfilled loan never needs this set
+  // explicitly to behave safely.
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Whether this is a genuinely new credit event that should get the scheduled "new loan" ' +
+      'WhatsApp message, as opposed to a historical/backfilled loan being entered after the ' +
+      'fact. Defaults to false (no message) when omitted.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isNewLoan?: boolean;
 }

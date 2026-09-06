@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { IsNull } from 'typeorm';
 
 import { Client } from '../clients/entities/client.entity';
 import {
@@ -24,6 +25,8 @@ describe('NewLoanReminderService', () => {
   let service: NewLoanReminderService;
   let loansRepository: {
     findOne: jest.Mock;
+    find: jest.Mock;
+    update: jest.Mock;
     createQueryBuilder: jest.Mock;
   };
   let installmentsRepository: { find: jest.Mock };
@@ -78,6 +81,7 @@ describe('NewLoanReminderService', () => {
       refinancedFromLoanId: null,
       refinancedFromLoan: null,
       description: 'Compra de Apple MacBook Air M5',
+      isNewLoan: false,
       coDebtorClientId: null,
       coDebtorClient: null,
       coDebtorRelationship: null,
@@ -110,6 +114,8 @@ describe('NewLoanReminderService', () => {
     otherLoanCount = 0;
     loansRepository = {
       findOne: jest.fn(),
+      find: jest.fn(),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
       createQueryBuilder: jest.fn(() => ({
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
@@ -256,6 +262,106 @@ describe('NewLoanReminderService', () => {
       await expect(service.sendNewLoanMessage('missing-id')).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    // Redesign, 2026-09-06 — marking newLoanMessageSentAt lives here now
+    // (not in a caller-side wrapper), so a manual POST /message-logs/:id/retry
+    // and the scheduled sweep are both safe to call without double-sending.
+    it('marks newLoanMessageSentAt on the loan when the send succeeds', async () => {
+      loansRepository.findOne.mockResolvedValue(loan());
+
+      await service.sendNewLoanMessage('loan-1');
+
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: 'loan-1' },
+        { newLoanMessageSentAt: expect.any(Date) as unknown },
+      );
+    });
+
+    it('does not mark newLoanMessageSentAt when the send fails', async () => {
+      loansRepository.findOne.mockResolvedValue(loan());
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: false,
+        whatsappMessageId: null,
+      });
+
+      await service.sendNewLoanMessage('loan-1');
+
+      expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('runPendingLoanNotifications', () => {
+    beforeEach(() => {
+      installmentsRepository.find.mockResolvedValue([
+        installment({ id: 'inst-1', installmentNumber: 1 }),
+      ]);
+      messageTemplatesService.findByTypeOrThrow.mockResolvedValue({
+        metaTemplateName: 'some_template',
+        metaLanguageCode: 'es',
+      });
+    });
+
+    it('queries only loans flagged isNewLoan with no message sent yet', async () => {
+      loansRepository.find.mockResolvedValue([]);
+
+      await service.runPendingLoanNotifications();
+
+      expect(loansRepository.find).toHaveBeenCalledWith({
+        where: { isNewLoan: true, newLoanMessageSentAt: IsNull() },
+      });
+    });
+
+    it('sends the message for every pending loan found', async () => {
+      loansRepository.find.mockResolvedValue([
+        loan({ id: 'loan-1' }),
+        loan({ id: 'loan-2' }),
+      ]);
+      loansRepository.findOne.mockImplementation(
+        (options: { where: { id: string } }) =>
+          Promise.resolve(loan({ id: options.where.id })),
+      );
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: 'wamid.TEST',
+      });
+
+      await service.runPendingLoanNotifications();
+
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledTimes(2);
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: 'loan-1' },
+        { newLoanMessageSentAt: expect.any(Date) as unknown },
+      );
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: 'loan-2' },
+        { newLoanMessageSentAt: expect.any(Date) as unknown },
+      );
+    });
+
+    it("one loan's failure does not stop the rest of the batch", async () => {
+      loansRepository.find.mockResolvedValue([
+        loan({ id: 'loan-1' }),
+        loan({ id: 'loan-2' }),
+      ]);
+      loansRepository.findOne.mockImplementation(
+        (options: { where: { id: string } }) =>
+          options.where.id === 'loan-1'
+            ? Promise.resolve(null) // sendNewLoanMessage throws NotFoundException
+            : Promise.resolve(loan({ id: options.where.id })),
+      );
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: 'wamid.TEST',
+      });
+
+      await service.runPendingLoanNotifications();
+
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: 'loan-2' },
+        { newLoanMessageSentAt: expect.any(Date) as unknown },
+      );
+      expect(loansRepository.update).toHaveBeenCalledTimes(1);
     });
   });
 });
