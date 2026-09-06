@@ -38,16 +38,18 @@ import type { MessageTemplate } from '@/features/messageTemplates/messageTemplat
 // 2, sharing one schedule each (see apps/api/src/whatsapp/reminderFamily.ts).
 // A schedule is no longer a property of an individual template card, so
 // it's shown once per family above the grid (FamilyCronControl below),
-// not embedded in each of the 13 cards. new-loan/refinance and
-// payment-confirmation templates have no schedule at all — sent
-// synchronously at their triggering event, per
-// docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md's "Technical decisions".
+// not embedded in each of the 13 cards. Payment-confirmation/paid-in-full
+// templates have no schedule at all — sent synchronously at their
+// triggering event, per docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md's
+// "Technical decisions". new-loan/refinance moved OUT of that "no
+// schedule" group 2026-09-06 — see reminderFamily.ts's NewLoan family.
 // The curated-audience concept (Phase 18) stays retired, per
 // docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.
 
 const FAMILY_LABELS: Record<ReminderFamily, string> = {
   [ReminderFamily.Overdue]: 'Cuotas vencidas',
   [ReminderFamily.UpcomingDue]: 'Cuotas próximas a vencer',
+  [ReminderFamily.NewLoan]: 'Nuevo pagaré / Refinanciación',
 };
 
 // The "schedule owner" row per family — matches
@@ -58,11 +60,12 @@ const FAMILY_LABELS: Record<ReminderFamily, string> = {
 const FAMILY_SCHEDULE_OWNER: Record<ReminderFamily, MessageType> = {
   [ReminderFamily.Overdue]: MessageType.SingleOverdueInstallment,
   [ReminderFamily.UpcomingDue]: MessageType.SingleUpcomingInstallment,
+  [ReminderFamily.NewLoan]: NEW_LOAN_FAMILY_TYPES[0],
 };
 
 function triggerDescription(type: MessageType): string {
   if (NEW_LOAN_FAMILY_TYPES.includes(type)) {
-    return 'Se envía automáticamente, una sola vez, al crear o refinanciar el préstamo — no tiene horario ni reintento programado.';
+    return 'Se envía por el horario automático de su familia (ver arriba) — solo para préstamos marcados como "nuevo" al crearlos. Un préstamo histórico/cargado después no lo dispara.';
   }
   if (REMINDER_FAMILY_TYPES.includes(type)) {
     return 'Se envía por el horario automático de su familia de recordatorio (ver arriba). La frecuencia de envío para un cliente puntual se ajusta desde su propio perfil.';
@@ -93,7 +96,7 @@ export function MessageTemplatesPage() {
           <span className="text-card-title font-medium text-white">
             Recordatorios automáticos
           </span>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {Object.values(ReminderFamily).map((family) => (
               <div key={family} className="rounded border border-border p-3.5">
                 <span className="mb-2 block text-small font-medium text-white">

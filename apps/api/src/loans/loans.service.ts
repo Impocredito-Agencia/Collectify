@@ -26,9 +26,6 @@ import {
   CurrentUsuryRate,
   UsuryRateService,
 } from '../usuryRates/usuryRates.service';
-import { MessageLogStatus } from '../whatsapp/entities/messageLog.entity';
-import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
-
 import {
   ConceptAssignment,
   generateAmortizationSchedule,
@@ -201,6 +198,8 @@ interface PersistLoanParams {
   // `clientId` above — validated in persistLoanWithInstallments.
   coDebtorClientId?: string | null;
   coDebtorRelationship?: string | null;
+  // See CreateLoanDto.isNewLoan. Defaults to false in persistLoanWithInstallments.
+  isNewLoan?: boolean;
 }
 
 @Injectable()
@@ -220,7 +219,6 @@ export class LoansService {
     private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     private readonly interestConceptTypesService: InterestConceptTypesService,
     private readonly usuryRateService: UsuryRateService,
-    private readonly newLoanReminderService: NewLoanReminderService,
     private readonly clientsService: ClientsService,
     private readonly dataSource: DataSource,
   ) {}
@@ -268,12 +266,17 @@ export class LoansService {
           description: dto.description,
           coDebtorClientId: dto.coDebtorClientId,
           coDebtorRelationship: dto.coDebtorRelationship,
+          isNewLoan: dto.isNewLoan,
         },
         manager,
       ),
     );
 
-    await this.sendNewLoanMessageSafely(savedLoan.id);
+    // Redesign, 2026-09-06 — no longer sent synchronously here. A loan
+    // created with isNewLoan: true is picked up by the scheduled "new
+    // loan" cron sweep (NewLoanReminderService.runPendingLoanNotifications)
+    // instead, so it fires at the admin-configured schedule rather than
+    // immediately — see WhatsappCronService's NewLoan family.
 
     return this.findOne(savedLoan.id);
   }
@@ -405,12 +408,14 @@ export class LoansService {
             dto.coDebtorRelationship === undefined
               ? oldLoan.coDebtorRelationship
               : dto.coDebtorRelationship,
+          isNewLoan: dto.isNewLoan,
         },
         manager,
       );
     });
 
-    await this.sendNewLoanMessageSafely(newLoan.id);
+    // See the identical comment in create() — no longer sent
+    // synchronously, picked up by the scheduled cron sweep instead.
 
     return this.findOne(newLoan.id);
   }
@@ -1065,6 +1070,7 @@ export class LoansService {
       refinancedFromLoanId: params.refinancedFromLoanId ?? null,
       coDebtorClientId: params.coDebtorClientId ?? null,
       coDebtorRelationship: params.coDebtorRelationship ?? null,
+      isNewLoan: params.isNewLoan ?? false,
     });
 
     let savedLoan: Loan;
@@ -1377,33 +1383,6 @@ export class LoansService {
     if (rate > ceiling + EPSILON) {
       throw new BadRequestException(
         `La tasa de ${label} (${rate}%) no puede superar la tasa de usura vigente (${ceiling}%).`,
-      );
-    }
-  }
-
-  // A failed/skipped "new loan" WhatsApp message must never fail the loan
-  // creation itself — same principle as the rest of the whatsapp module
-  // (messaging failures are a business outcome, logged, not an application
-  // error). See docs/phases/PHASE_9_MESSAGE_TYPES.md.
-  //
-  // Only a genuinely Sent result marks newLoanMessageSentAt — a Failed
-  // result (WhatsAppService itself reported failure, no exception thrown)
-  // must leave it null, so the Phase 18 retry cron picks the loan back up.
-  // See docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
-  private async sendNewLoanMessageSafely(loanId: string): Promise<void> {
-    try {
-      const messageLog =
-        await this.newLoanReminderService.sendNewLoanMessage(loanId);
-      if (messageLog.status === MessageLogStatus.Sent) {
-        await this.loansRepository.update(
-          { id: loanId },
-          { newLoanMessageSentAt: new Date() },
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to send new-loan WhatsApp message for loan ${loanId}`,
-        error,
       );
     }
   }

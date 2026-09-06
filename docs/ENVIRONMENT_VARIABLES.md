@@ -56,6 +56,7 @@ OVERDUE_REMINDER_CRON=0 9 * * 1,3,5
 UPCOMING_DUE_REMINDER_CRON=0 8 * * *
 UPCOMING_DUE_REMINDER_DAYS=5,3,1
 ACCOUNT_SUMMARY_REMINDER_CRON=0 8 1 * *
+NEW_LOAN_REMINDER_CRON=0 10 * * 1
 
 # ── CORS ────────────────────────────────────────────────
 CLIENT_URL=http://localhost:5173
@@ -84,7 +85,8 @@ CLIENT_URL=http://localhost:5173
 | `OVERDUE_REMINDER_CRON` | ✅ | Cron expression controlling when the overdue reminder job runs. Default `0 9 * * 1,3,5` = every Monday, Wednesday, and Friday at 9:00 AM. Changed from a single weekly run (Monday only) at the client's request — the message content is still one consolidated summary per client, it's just sent three times a week instead of once. |
 | `UPCOMING_DUE_REMINDER_CRON` | ✅ | Cron expression controlling when the daily upcoming-due ("Aviso") reminder job runs. Default `0 8 * * *` = every day at 8:00 AM. Added in Phase 9 — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. |
 | `UPCOMING_DUE_REMINDER_DAYS` | ✅ | Comma-separated list of day thresholds before an installment's due date to send the "Aviso" reminder. Default `5,3,1`. Added in Phase 9. |
-| `ACCOUNT_SUMMARY_REMINDER_CRON` | ✅ | Cron expression for the account-summary cron (Phase 18) — sends to every client with at least one active loan (corrected after client QA, 2026-08-18; originally audience-only). Default `0 8 1 * *` = 8:00 AM on the 1st of each month. Admin-editable via `MessageTemplate.cronExpression`, which takes precedence over this code default when set — see `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. `new_loan` has no cron variable at all — it's sent synchronously at loan creation only, with no periodic job. |
+| `ACCOUNT_SUMMARY_REMINDER_CRON` | ✅ | Cron expression for the account-summary cron (Phase 18) — sends to every client with at least one active loan (corrected after client QA, 2026-08-18; originally audience-only). Default `0 8 1 * *` = 8:00 AM on the 1st of each month. Admin-editable via `MessageTemplate.cronExpression`, which takes precedence over this code default when set — see `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
+| `NEW_LOAN_REMINDER_CRON` | ✅ | Added 2026-09-06. Cron expression for the "new loan"/refinance family (`ReminderFamily.NewLoan`) — sweeps loans where `is_new_loan` is true and `new_loan_message_sent_at` is still null, per the schedule below. Default `0 10 * * 1` = every Monday at 10:00 AM. Admin-editable via `MessageTemplate.cronExpression`, same precedence as the other cron vars above. Supersedes the 2026-08-18 decision that `new_loan` has no cron at all — see `Loan.isNewLoan` and `NewLoanReminderService.runPendingLoanNotifications`. Payment confirmation and "pagado en su totalidad" are NOT part of this — they stay synchronous, unaffected by this variable. |
 | `CLIENT_URL` | ✅ | The client's URL, used to configure CORS. `http://localhost:5173` locally; the Cloudflare Workers URL in production. |
 
 ### On the pending Meta Cloud API credentials

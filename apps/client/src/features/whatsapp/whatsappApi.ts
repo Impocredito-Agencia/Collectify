@@ -6,13 +6,15 @@ import type { MessageTemplate } from '@/features/messageTemplates/messageTemplat
 // Matches apps/api/src/whatsapp/reminderFamily.ts — Phase 33 replaced the
 // old per-MessageType cron jobs (one each for new_loan/upcoming_due/
 // overdue/account_summary) with one job per FAMILY, since "vencida" now
-// spans 4 templates and "próxima a vencer" spans 2. new_loan/refinance and
-// payment-confirmation templates have no cron job at all — they're sent
-// synchronously at their triggering event. See
-// docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md.
+// spans 4 templates and "próxima a vencer" spans 2. NewLoan added
+// 2026-09-06 (supersedes "new_loan/refinance sent synchronously, no cron
+// job at all") — payment-confirmation/paid-in-full templates are the only
+// ones left with no cron job, still sent synchronously at their
+// triggering event. See docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md.
 export enum ReminderFamily {
   Overdue = 'overdue',
   UpcomingDue = 'upcoming_due',
+  NewLoan = 'new_loan',
 }
 
 // Matches apps/api/src/whatsapp/whatsapp.controller.ts's

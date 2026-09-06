@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -174,4 +175,16 @@ export class RefinanceLoanDto {
   @IsOptional()
   @IsString()
   coDebtorRelationship?: string | null;
+
+  // See CreateLoanDto.isNewLoan — same default-false, opt-in scheduled
+  // "new loan" message for the loan this refinance creates.
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Whether the new loan this refinance creates should get the scheduled "new loan" WhatsApp ' +
+      'message — see CreateLoanDto. Defaults to false when omitted.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isNewLoan?: boolean;
 }

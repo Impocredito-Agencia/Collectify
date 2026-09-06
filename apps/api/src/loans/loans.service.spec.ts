@@ -15,7 +15,6 @@ import {
 } from '../interestConceptTypes/entities/interestConceptType.entity';
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
 import { UsuryRateService } from '../usuryRates/usuryRates.service';
-import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 import { addDaysToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
@@ -81,7 +80,6 @@ describe('LoansService', () => {
     findOneOrThrow: jest.Mock;
   };
   let usuryRateService: { getCurrentRate: jest.Mock };
-  let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
   let clientsService: {
     hasMoraBlock: jest.Mock;
     getCreditUsage: jest.Mock;
@@ -134,6 +132,7 @@ describe('LoansService', () => {
     refinancedFromLoan: null,
     description: null,
     newLoanMessageSentAt: null,
+    isNewLoan: false,
     coDebtorClientId: null,
     coDebtorClient: null,
     coDebtorRelationship: null,
@@ -201,9 +200,6 @@ describe('LoansService', () => {
         createdAt: new Date(),
         isStale: false,
       }),
-    };
-    newLoanReminderService = {
-      sendNewLoanMessage: jest.fn().mockResolvedValue(undefined),
     };
     // Default: no mora block, no cupo configured (creditAvailable: null
     // means unrestricted — see ClientsService.getCreditUsage) — so every
@@ -278,10 +274,6 @@ describe('LoansService', () => {
         {
           provide: UsuryRateService,
           useValue: usuryRateService,
-        },
-        {
-          provide: NewLoanReminderService,
-          useValue: newLoanReminderService,
         },
         { provide: ClientsService, useValue: clientsService },
         { provide: DataSource, useValue: dataSource },
@@ -724,22 +716,26 @@ describe('LoansService', () => {
       });
     });
 
-    it('sends the new-loan WhatsApp message for the created loan', async () => {
+    // Redesign, 2026-09-06 — the "new loan" WhatsApp message is no longer
+    // sent synchronously from create(); it's picked up later by
+    // NewLoanReminderService.runPendingLoanNotifications() on a schedule
+    // (see whatsappCron.service.spec.ts / newLoanReminder.service.spec.ts
+    // for that behavior). create() itself is only responsible for
+    // persisting isNewLoan on the loan row.
+    it('defaults isNewLoan to false when the dto omits it', async () => {
       await service.create(createDto);
 
-      expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
-        'loan-2',
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ isNewLoan: false }),
       );
     });
 
-    it('still returns the created loan when the new-loan message fails to send', async () => {
-      newLoanReminderService.sendNewLoanMessage.mockRejectedValue(
-        new Error('WhatsApp is down'),
+    it('persists isNewLoan: true when the dto sets it', async () => {
+      await service.create({ ...createDto, isNewLoan: true });
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ isNewLoan: true }),
       );
-
-      const result = await service.create(createDto);
-
-      expect(result.id).toBe('loan-2');
     });
 
     // Phase 10 — docs/phases/PHASE_10_CLIENT_CAPACITY.md's cupo/mora-block
@@ -1005,11 +1001,12 @@ describe('LoansService', () => {
       expect(loansRepository.save).toHaveBeenCalled();
     });
 
-    it('sends the new-loan WhatsApp message for the new loan', async () => {
+    // See the identical comment on create()'s isNewLoan tests above.
+    it('defaults isNewLoan to false on the new loan when the dto omits it', async () => {
       await service.refinance(mockLoan.id, refinanceDto);
 
-      expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
-        'loan-2',
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ isNewLoan: false }),
       );
     });
 

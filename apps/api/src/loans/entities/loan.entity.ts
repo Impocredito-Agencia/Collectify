@@ -74,15 +74,27 @@ export class Loan {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  // Set once the "new loan" WhatsApp message actually succeeds — either
-  // from the synchronous send at creation/refinance time, or from the
-  // Phase 18 retry cron picking up a loan whose synchronous send failed.
-  // Lets that cron find "loans still needing their message" directly,
-  // instead of the fragile message-content string-matching
-  // LoanDetailPage.tsx used before. See
-  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  // Redesign, 2026-09-06 — the "new loan" message is no longer sent
+  // synchronously at creation; it's picked up by a scheduled cron sweep
+  // (NewLoanReminderService.runPendingLoanNotifications) over loans where
+  // isNewLoan is true and this column is still null. Set once that send
+  // actually succeeds (by sendNewLoanMessage itself, regardless of
+  // whether it ran from the sweep or from a manual
+  // POST /message-logs/:id/retry) — never touched on a failed send, so
+  // the next sweep run picks the loan back up automatically.
   @Column({ type: 'timestamptz', nullable: true })
   newLoanMessageSentAt!: Date | null;
+
+  // Added 2026-09-06 — distinguishes a genuinely new credit event (should
+  // get the scheduled "new loan" WhatsApp message) from a historical/
+  // backfilled loan being entered into the platform after the fact (bulk
+  // import, or an old loan book still being typed in by hand) — those
+  // must never trigger the message. Decided once, explicitly, at creation
+  // (a checkbox on LoanForm/RefinanceLoanForm); default false ("es
+  // viejo") so nothing needs it set to behave safely. See the migration
+  // comment (AddIsNewLoanToLoans) for why the default matters.
+  @Column({ default: false })
+  isNewLoan!: boolean;
 
   @ManyToOne(() => Loan, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'refinanced_from_loan_id' })

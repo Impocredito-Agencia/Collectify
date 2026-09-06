@@ -80,6 +80,7 @@ describe('OverdueReminderService', () => {
     refinancedFromLoan: null,
     description: null,
     newLoanMessageSentAt: null,
+    isNewLoan: false,
     coDebtorClientId: null,
     coDebtorClient: null,
     coDebtorRelationship: null,

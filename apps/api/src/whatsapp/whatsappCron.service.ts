@@ -7,8 +7,10 @@ import { Configuration } from '../config/configuration';
 
 import { MessageTemplate } from './entities/messageTemplate.entity';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
+import { NewLoanReminderService } from './newLoanReminder.service';
 import { OverdueReminderService } from './overdueReminder.service';
 import {
+  NEW_LOAN_FAMILY_TYPES,
   OVERDUE_FAMILY_TYPES,
   ReminderFamily,
   UPCOMING_FAMILY_TYPES,
@@ -19,21 +21,23 @@ import { UpcomingDueReminderService } from './upcomingDueReminder.service';
 // 2026-09-01), not per exact MessageType: "vencida" now spans 4 templates
 // and "próxima a vencer" spans 2, but the admin's existing pause/resume/
 // reschedule mechanics shouldn't fragment into 6 separate jobs over it. See
-// reminderFamily.ts. `new_loan`/refinance and payment-confirmation types
-// have no cron job at all — they're sent synchronously at their triggering
-// event (NewLoanReminderService, PaymentConfirmationService).
+// reminderFamily.ts. NewLoan added 2026-09-06 (see that file's comment) —
+// payment-confirmation/paid-in-full types still have no cron job at all,
+// sent synchronously at their triggering event (PaymentConfirmationService).
 //
 // Each family's schedule is still sourced from a single MessageTemplate
 // row's `cronExpression` — the first type listed in that family's array
-// (OVERDUE_FAMILY_TYPES[0] / UPCOMING_FAMILY_TYPES[0]) is the "schedule
-// owner" row an admin edits via PATCH /whatsapp/cron/:family/schedule; the
-// other types in the family don't carry their own schedule.
+// (OVERDUE_FAMILY_TYPES[0] / UPCOMING_FAMILY_TYPES[0] / NEW_LOAN_FAMILY_TYPES[0])
+// is the "schedule owner" row an admin edits via
+// PATCH /whatsapp/cron/:family/schedule; the other types in the family
+// don't carry their own schedule.
 const SCHEDULE_OWNER: Record<
   ReminderFamily,
   (typeof OVERDUE_FAMILY_TYPES)[number]
 > = {
   [ReminderFamily.Overdue]: OVERDUE_FAMILY_TYPES[0],
   [ReminderFamily.UpcomingDue]: UPCOMING_FAMILY_TYPES[0],
+  [ReminderFamily.NewLoan]: NEW_LOAN_FAMILY_TYPES[0],
 };
 
 // Bug fix, 2026-09-03 (human report): a schedule saved via the admin
@@ -55,6 +59,7 @@ export class WhatsappCronService implements OnModuleInit {
   constructor(
     private readonly overdueReminderService: OverdueReminderService,
     private readonly upcomingDueReminderService: UpcomingDueReminderService,
+    private readonly newLoanReminderService: NewLoanReminderService,
     private readonly messageTemplatesService: MessageTemplatesService,
     private readonly configService: ConfigService<Configuration, true>,
     private readonly schedulerRegistry: SchedulerRegistry,
@@ -114,14 +119,19 @@ export class WhatsappCronService implements OnModuleInit {
   }
 
   private defaultExpression(family: ReminderFamily): string {
-    const { overdueReminderExpression, upcomingDueReminderExpression } =
-      this.configService.get('cron', { infer: true });
+    const {
+      overdueReminderExpression,
+      upcomingDueReminderExpression,
+      newLoanReminderExpression,
+    } = this.configService.get('cron', { infer: true });
 
     switch (family) {
       case ReminderFamily.Overdue:
         return overdueReminderExpression;
       case ReminderFamily.UpcomingDue:
         return upcomingDueReminderExpression;
+      case ReminderFamily.NewLoan:
+        return newLoanReminderExpression;
     }
   }
 
@@ -131,6 +141,8 @@ export class WhatsappCronService implements OnModuleInit {
         return this.overdueReminderService.runWeeklyReminder();
       case ReminderFamily.UpcomingDue:
         return this.upcomingDueReminderService.runDailyReminder();
+      case ReminderFamily.NewLoan:
+        return this.newLoanReminderService.runPendingLoanNotifications();
     }
   }
 
