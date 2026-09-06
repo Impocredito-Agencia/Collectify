@@ -23,10 +23,7 @@ import {
 import { ReminderFamily } from '@/features/whatsapp/whatsappApi';
 import { ApiError } from '@/lib/apiClient';
 
-import type {
-  Periodicity,
-  ScheduleConfig,
-} from '@/features/messageTemplates/cronScheduleUtils';
+import type { ScheduleConfig } from '@/features/messageTemplates/cronScheduleUtils';
 import type { MessageTemplate } from '@/features/messageTemplates/messageTemplatesApi';
 
 // content stays read-only — templates are fixed per message type, editable
@@ -149,38 +146,30 @@ export function MessageTemplatesPage() {
   );
 }
 
-const PERIODICITY_OPTIONS: { value: Periodicity; label: string }[] = [
-  { value: 'daily', label: 'Cada día' },
-  { value: 'weekly', label: 'Cada semana' },
-  { value: 'biweekly', label: 'Cada 15 días' },
-  { value: 'monthly', label: 'Cada mes' },
-];
-
 const DAY_OF_WEEK_OPTIONS = [
-  { value: 1, label: 'Lunes' },
-  { value: 2, label: 'Martes' },
-  { value: 3, label: 'Miércoles' },
-  { value: 4, label: 'Jueves' },
-  { value: 5, label: 'Viernes' },
-  { value: 6, label: 'Sábado' },
-  { value: 0, label: 'Domingo' },
+  { value: 1, label: 'Lun' },
+  { value: 2, label: 'Mar' },
+  { value: 3, label: 'Mié' },
+  { value: 4, label: 'Jue' },
+  { value: 5, label: 'Vie' },
+  { value: 6, label: 'Sáb' },
+  { value: 0, label: 'Dom' },
 ];
-
-const DAY_OF_MONTH_OPTIONS = Array.from(
-  { length: 28 },
-  (_, index) => index + 1,
-);
 
 function pad2(value: number): string {
   return String(value).padStart(2, '0');
 }
 
-// A friendly periodicity+time picker instead of a raw cron expression
+// A friendly day-of-week+time picker instead of a raw cron expression
 // (added after client QA, 2026-08-18 — see docs/phasesClient/PHASE_18_MESSAGE_AUDIENCES.md).
 // Phase 33: parametrized by FAMILY, not template — one schedule now
 // covers several templates. `scheduleOwner` is that family's schedule-
 // owner row (FAMILY_SCHEDULE_OWNER above), read only for its
 // cronExpression seed; undefined while templates are still loading.
+//
+// Simplified 2026-09-05 (human request): dropped the periodicity picker
+// (cada día/semana/15 días/mes) — every schedule is always weekly, with
+// the admin toggling which day(s) of the week it fires on instead.
 function FamilyCronControl({
   family,
   scheduleOwner,
@@ -216,7 +205,16 @@ function FamilyCronControl({
     setIsDirty(true);
   };
 
+  const toggleDayOfWeek = (day: number) => {
+    updateConfig({
+      daysOfWeek: config.daysOfWeek.includes(day)
+        ? config.daysOfWeek.filter((d) => d !== day)
+        : [...config.daysOfWeek, day],
+    });
+  };
+
   const isTogglePending = pauseCron.isPending || resumeCron.isPending;
+  const hasNoDaysSelected = config.daysOfWeek.length === 0;
 
   const handleSaveSchedule = async (
     event: React.FormEvent<HTMLFormElement>,
@@ -263,52 +261,28 @@ function FamilyCronControl({
       </div>
 
       <form onSubmit={handleSaveSchedule} className="flex flex-col gap-2">
+        <span className="text-meta text-muted">Recordatorios semanales</span>
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={config.periodicity}
-            onChange={(event) =>
-              updateConfig({ periodicity: event.target.value as Periodicity })
-            }
-            className="h-9 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
-          >
-            {PERIODICITY_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-
-          {config.periodicity === 'weekly' && (
-            <select
-              value={config.dayOfWeek}
-              onChange={(event) =>
-                updateConfig({ dayOfWeek: Number(event.target.value) })
-              }
-              className="h-9 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
-            >
-              {DAY_OF_WEEK_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
+          <div className="flex flex-wrap gap-1">
+            {DAY_OF_WEEK_OPTIONS.map((option) => {
+              const isSelected = config.daysOfWeek.includes(option.value);
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => toggleDayOfWeek(option.value)}
+                  className={`h-9 rounded border px-2.5 text-meta ${
+                    isSelected
+                      ? 'border-accent bg-accent text-white'
+                      : 'border-border bg-input text-muted hover:text-white'
+                  }`}
+                >
                   {option.label}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {config.periodicity === 'monthly' && (
-            <select
-              value={config.dayOfMonth}
-              onChange={(event) =>
-                updateConfig({ dayOfMonth: Number(event.target.value) })
-              }
-              className="h-9 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
-            >
-              {DAY_OF_MONTH_OPTIONS.map((day) => (
-                <option key={day} value={day}>
-                  Día {day}
-                </option>
-              ))}
-            </select>
-          )}
+                </button>
+              );
+            })}
+          </div>
 
           <input
             type="time"
@@ -323,13 +297,18 @@ function FamilyCronControl({
           <Button
             type="submit"
             variant="secondary"
-            disabled={!isDirty || updateSchedule.isPending}
+            disabled={!isDirty || hasNoDaysSelected || updateSchedule.isPending}
             className="shrink-0"
           >
             {updateSchedule.isPending ? 'Guardando…' : 'Guardar horario'}
           </Button>
         </div>
-        {isDirty && (
+        {hasNoDaysSelected && (
+          <span className="text-meta text-danger">
+            Seleccioná al menos un día.
+          </span>
+        )}
+        {!hasNoDaysSelected && isDirty && (
           <span className="text-meta text-warning">Cambios sin guardar</span>
         )}
       </form>

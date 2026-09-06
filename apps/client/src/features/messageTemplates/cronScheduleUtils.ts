@@ -1,63 +1,50 @@
-// Converts between a friendly periodicity+time picker (what the admin
-// actually interacts with — "cada día", "cada semana", "cada 15 días",
-// "cada mes", plus an hour) and the cron expression the api's
+// Converts between a friendly day-of-week+time picker (what the admin
+// actually interacts with) and the cron expression the api's
 // PATCH /whatsapp/cron/:type/schedule endpoint still expects. Added after
 // client QA (2026-08-18): typing a raw cron expression was confirmed as
 // too error-prone for day-to-day use — see
 // docs/phasesClient/PHASE_18_MESSAGE_AUDIENCES.md.
 //
-// "Cada 15 días" has no native cron equivalent (cron only understands
-// calendar fields, not a rolling N-day interval) — the closest practical
-// approximation, and the one used here, is firing on the 1st and 16th of
-// every month.
-
-export type Periodicity = 'daily' | 'weekly' | 'biweekly' | 'monthly';
+// Simplified 2026-09-05 (human request): the periodicity picker (cada
+// día/semana/15 días/mes) is gone — every reminder schedule is now always
+// weekly, with the admin picking which day(s) of the week it fires on.
+// "Cada 15 días"/"cada mes" never had a clean cron equivalent anyway (cron
+// only understands calendar fields, not a rolling N-day interval, and a
+// single day-of-month isn't a fixed day of week) — this removes that
+// approximation instead of trying to preserve it.
 
 export interface ScheduleConfig {
-  periodicity: Periodicity;
   hour: number; // 0-23
   minute: number; // 0-59
-  // Only meaningful when periodicity is 'weekly'. 0 = Sunday, matching
-  // cron's own day-of-week field.
-  dayOfWeek: number;
-  // Only meaningful when periodicity is 'monthly'. Capped at 1-28 so it's
-  // always valid regardless of the month's actual length.
-  dayOfMonth: number;
+  // 0 = Sunday, matching cron's own day-of-week field. At least one day
+  // is required — the UI is responsible for not submitting an empty list.
+  daysOfWeek: number[];
 }
 
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
 export const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
-  periodicity: 'daily',
   hour: 9,
   minute: 0,
-  dayOfWeek: 1,
-  dayOfMonth: 1,
+  daysOfWeek: ALL_DAYS,
 };
-
-const BIWEEKLY_DAYS_OF_MONTH = '1,16';
 
 export function buildCronExpression(config: ScheduleConfig): string {
   const minute = String(config.minute);
   const hour = String(config.hour);
-
-  switch (config.periodicity) {
-    case 'daily':
-      return `${minute} ${hour} * * *`;
-    case 'weekly':
-      return `${minute} ${hour} * * ${config.dayOfWeek}`;
-    case 'biweekly':
-      return `${minute} ${hour} ${BIWEEKLY_DAYS_OF_MONTH} * *`;
-    case 'monthly':
-      return `${minute} ${hour} ${config.dayOfMonth} * *`;
-  }
+  const daysOfWeek = [...config.daysOfWeek].sort((a, b) => a - b).join(',');
+  return `${minute} ${hour} * * ${daysOfWeek}`;
 }
 
-// Best-effort reverse parse — only recognizes expressions shaped exactly
-// like something buildCronExpression() itself would produce. A
-// hand-written expression from before this picker existed (e.g. the
-// overdue reminder's original "0 9 * * 1,3,5", three weekdays at once) has
-// no equivalent in this simplified model and returns null; the caller
-// falls back to DEFAULT_SCHEDULE_CONFIG rather than guessing a lossy
-// approximation.
+// Best-effort reverse parse — only recognizes expressions shaped like a
+// day-of-week-only schedule (day-of-month and month wildcarded). A
+// pre-existing "cada 15 días"/"cada mes" expression (day-of-month based)
+// or any other hand-written expression has no equivalent in this
+// simplified model and returns null; the caller falls back to
+// DEFAULT_SCHEDULE_CONFIG rather than guessing a lossy approximation. A
+// wildcarded day-of-week field ("every day", the old "cada día" shape)
+// parses cleanly as every day of the week selected — same actual
+// behavior, just expressed as an explicit list now.
 export function parseCronExpression(
   expression: string | null | undefined,
 ): ScheduleConfig | null {
@@ -78,37 +65,17 @@ export function parseCronExpression(
   ) {
     return null;
   }
-  if (monthStr !== '*') return null;
+  if (monthStr !== '*' || dayOfMonthStr !== '*') return null;
 
-  if (dayOfMonthStr === '*' && dayOfWeekStr === '*') {
-    return { ...DEFAULT_SCHEDULE_CONFIG, periodicity: 'daily', hour, minute };
-  }
-  if (dayOfMonthStr === '*' && /^[0-6]$/.test(dayOfWeekStr)) {
-    return {
-      ...DEFAULT_SCHEDULE_CONFIG,
-      periodicity: 'weekly',
-      hour,
-      minute,
-      dayOfWeek: Number(dayOfWeekStr),
-    };
-  }
-  if (dayOfMonthStr === BIWEEKLY_DAYS_OF_MONTH && dayOfWeekStr === '*') {
-    return {
-      ...DEFAULT_SCHEDULE_CONFIG,
-      periodicity: 'biweekly',
-      hour,
-      minute,
-    };
-  }
-  if (/^([1-9]|1[0-9]|2[0-8])$/.test(dayOfMonthStr) && dayOfWeekStr === '*') {
-    return {
-      ...DEFAULT_SCHEDULE_CONFIG,
-      periodicity: 'monthly',
-      hour,
-      minute,
-      dayOfMonth: Number(dayOfMonthStr),
-    };
+  if (dayOfWeekStr === '*') {
+    return { hour, minute, daysOfWeek: ALL_DAYS };
   }
 
-  return null;
+  const daysOfWeek = dayOfWeekStr.split(',').map(Number);
+  const isValidDayList = daysOfWeek.every(
+    (day) => Number.isInteger(day) && day >= 0 && day <= 6,
+  );
+  if (!isValidDayList || daysOfWeek.length === 0) return null;
+
+  return { hour, minute, daysOfWeek };
 }
