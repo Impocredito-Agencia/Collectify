@@ -1,18 +1,9 @@
 import ExcelJS from 'exceljs';
 
-import { parseClientLoanWorkbook } from './clientLoanImportParser';
+import { parseLoansWorkbook } from './loanImportParser';
 
-// Descripción del crédito became required 2026-09-04 (same CreateLoanDto
-// change as the interactive "Nuevo préstamo" form — see
-// clientLoanImportColumns.ts), so it's now part of the minimal valid row
-// every test in this file builds from — appended at the end so none of
-// the existing index-based row mutations below (row[1], row[4], row[8])
-// shift.
 const REQUIRED_HEADERS = [
-  'Nombre',
-  'Apellido',
-  'Cédula',
-  'Teléfono',
+  'Cédula del cliente',
   'Pagaré',
   'Monto del crédito',
   'Tasa moratoria',
@@ -23,10 +14,7 @@ const REQUIRED_HEADERS = [
 ];
 
 const REQUIRED_ROW = [
-  'Juana',
-  'Pérez',
   '1234567890',
-  '+573001234567',
   '#743',
   900000,
   6,
@@ -41,14 +29,12 @@ async function buildWorkbook(
   rows: (string | number | null)[][],
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Clientes y créditos');
+  const sheet = workbook.addWorksheet('Créditos');
   sheet.addRow(headers);
   // Row 2 is always the fill-in-instructions row in the real generated
-  // template (clientLoanImportTemplate.ts) — parseClientLoanWorkbook skips
-  // it unconditionally, so every fixture here reproduces that same
-  // structural shape (data starts at row 3), even though its content
-  // doesn't matter for these tests. See the dedicated test below for
-  // proof that non-blank content in row 2 is still ignored.
+  // template (loanImportTemplate.ts) — parseLoansWorkbook skips it
+  // unconditionally, so every fixture here reproduces that same
+  // structural shape (data starts at row 3).
   sheet.addRow(headers.map(() => ''));
   for (const row of rows) {
     sheet.addRow(row);
@@ -57,20 +43,15 @@ async function buildWorkbook(
   return Buffer.from(arrayBuffer);
 }
 
-describe('parseClientLoanWorkbook', () => {
-  it('parses a row with only the required client+loan columns', async () => {
+describe('parseLoansWorkbook', () => {
+  it('parses a row with only the required loan columns', async () => {
     const buffer = await buildWorkbook(REQUIRED_HEADERS, [REQUIRED_ROW]);
 
-    const result = await parseClientLoanWorkbook(buffer);
+    const result = await parseLoansWorkbook(buffer);
 
     expect(result.errors).toEqual([]);
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0].client).toMatchObject({
-      firstName: 'Juana',
-      lastName: 'Pérez',
-      documentNumber: '1234567890',
-      phoneNumber: '+573001234567',
-    });
+    expect(result.rows[0].documentNumber).toBe('1234567890');
     expect(result.rows[0].loan).toMatchObject({
       promissoryNoteNumber: '#743',
       principalAmount: 900000,
@@ -87,8 +68,8 @@ describe('parseClientLoanWorkbook', () => {
     await expect(
       buildWorkbook(
         REQUIRED_HEADERS.filter((h) => h !== 'Pagaré'),
-        [REQUIRED_ROW.filter((_, i) => i !== 4)],
-      ).then(parseClientLoanWorkbook),
+        [REQUIRED_ROW.filter((_, i) => i !== 1)],
+      ).then(parseLoansWorkbook),
     ).rejects.toThrow(/missing required column/i);
   });
 
@@ -98,23 +79,25 @@ describe('parseClientLoanWorkbook', () => {
       REQUIRED_ROW.map(() => null),
     ]);
 
-    const result = await parseClientLoanWorkbook(buffer);
+    const result = await parseLoansWorkbook(buffer);
 
     expect(result.rows).toHaveLength(1);
     expect(result.errors).toEqual([]);
   });
 
   it('reports a row error (with raw values preserved) when a required field is missing', async () => {
-    const rowMissingLastName = [...REQUIRED_ROW];
-    rowMissingLastName[1] = '';
-    const buffer = await buildWorkbook(REQUIRED_HEADERS, [rowMissingLastName]);
+    const rowMissingPromissoryNote = [...REQUIRED_ROW];
+    rowMissingPromissoryNote[1] = '';
+    const buffer = await buildWorkbook(REQUIRED_HEADERS, [
+      rowMissingPromissoryNote,
+    ]);
 
-    const result = await parseClientLoanWorkbook(buffer);
+    const result = await parseLoansWorkbook(buffer);
 
     expect(result.rows).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].reason).toMatch(/apellido/i);
-    expect(result.errors[0].rawValues.firstName).toBe('Juana');
+    expect(result.errors[0].reason).toMatch(/pagar/i);
+    expect(result.errors[0].rawValues.documentNumber).toBe('1234567890');
   });
 
   it('parses a "cargo adicional" group when its Nombre column is filled', async () => {
@@ -127,7 +110,7 @@ describe('parseClientLoanWorkbook', () => {
     const row = [...REQUIRED_ROW, 'Gastos de cobranza', 'porcentaje', 2.5];
     const buffer = await buildWorkbook(headers, [row]);
 
-    const result = await parseClientLoanWorkbook(buffer);
+    const result = await parseLoansWorkbook(buffer);
 
     expect(result.errors).toEqual([]);
     expect(result.rows[0].concepts).toEqual([
@@ -142,11 +125,10 @@ describe('parseClientLoanWorkbook', () => {
       'Cargo adicional #1 - Tipo',
       'Cargo adicional #1 - Valor',
     ];
-    // Nombre blank but Tipo/Valor stray-filled — should still be ignored.
     const row = [...REQUIRED_ROW, '', 'fijo', 5000];
     const buffer = await buildWorkbook(headers, [row]);
 
-    const result = await parseClientLoanWorkbook(buffer);
+    const result = await parseLoansWorkbook(buffer);
 
     expect(result.errors).toEqual([]);
     expect(result.rows[0].concepts).toEqual([]);
@@ -162,7 +144,7 @@ describe('parseClientLoanWorkbook', () => {
     const row = [...REQUIRED_ROW, 'Interés', 'no-se-que-tipo', 2.5];
     const buffer = await buildWorkbook(headers, [row]);
 
-    const result = await parseClientLoanWorkbook(buffer);
+    const result = await parseLoansWorkbook(buffer);
 
     expect(result.rows).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
@@ -185,7 +167,7 @@ describe('parseClientLoanWorkbook', () => {
       [[...REQUIRED_ROW, ...groupValues]],
     );
 
-    const result = await parseClientLoanWorkbook(buffer);
+    const result = await parseLoansWorkbook(buffer);
 
     expect(result.errors).toEqual([]);
     expect(result.rows[0].concepts).toHaveLength(4);
@@ -193,26 +175,26 @@ describe('parseClientLoanWorkbook', () => {
 
   it('normalizes "quincenal" to the biweekly enum value', async () => {
     const row = [...REQUIRED_ROW];
-    row[8] = 'Quincenal';
+    row[5] = 'Quincenal';
     const buffer = await buildWorkbook(REQUIRED_HEADERS, [row]);
 
-    const result = await parseClientLoanWorkbook(buffer);
+    const result = await parseLoansWorkbook(buffer);
 
     expect(result.rows[0].loan.installmentFrequency).toBe('biweekly');
   });
 
   it("ignores row 2 (reserved for the template's fill-in instructions) even when it has content", async () => {
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Clientes y créditos');
+    const sheet = workbook.addWorksheet('Créditos');
     sheet.addRow(REQUIRED_HEADERS);
     sheet.addRow(REQUIRED_HEADERS.map(() => 'Ej: instrucción de ejemplo'));
     sheet.addRow(REQUIRED_ROW);
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
-    const result = await parseClientLoanWorkbook(buffer);
+    const result = await parseLoansWorkbook(buffer);
 
     expect(result.errors).toEqual([]);
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0].client.firstName).toBe('Juana');
+    expect(result.rows[0].documentNumber).toBe('1234567890');
   });
 });
