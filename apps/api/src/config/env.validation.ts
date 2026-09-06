@@ -22,6 +22,11 @@ export const envValidationSchema = Joi.object({
   META_WHATSAPP_ACCESS_TOKEN: Joi.string().allow('').default(''),
   META_WHATSAPP_BUSINESS_ACCOUNT_ID: Joi.string().allow('').default(''),
 
+  // Global kill switch (2026-09-06 incident response) — set to "true" to
+  // stop every outbound WhatsApp send, of every type, without a code
+  // change. See WhatsAppService / WhatsappConfig.sendingPaused.
+  WHATSAPP_SENDING_PAUSED: Joi.boolean().default(false),
+
   OVERDUE_REMINDER_CRON: Joi.string().default('0 9 * * 1'),
 
   CLIENT_URL: Joi.string().uri().required(),
