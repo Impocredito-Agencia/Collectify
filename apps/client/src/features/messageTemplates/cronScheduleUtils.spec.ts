@@ -7,92 +7,59 @@ import {
 } from './cronScheduleUtils';
 
 describe('buildCronExpression', () => {
-  it('builds a daily expression', () => {
+  it('builds an expression firing on a single day of week', () => {
     expect(
       buildCronExpression({
-        ...DEFAULT_SCHEDULE_CONFIG,
-        periodicity: 'daily',
-        hour: 8,
-        minute: 30,
-      }),
-    ).toBe('30 8 * * *');
-  });
-
-  it('builds a weekly expression using dayOfWeek', () => {
-    expect(
-      buildCronExpression({
-        ...DEFAULT_SCHEDULE_CONFIG,
-        periodicity: 'weekly',
         hour: 9,
         minute: 0,
-        dayOfWeek: 5,
+        daysOfWeek: [5],
       }),
     ).toBe('0 9 * * 5');
   });
 
-  it('builds a biweekly expression as day-of-month 1 and 16', () => {
+  it('builds an expression firing on several days of week, sorted', () => {
     expect(
       buildCronExpression({
-        ...DEFAULT_SCHEDULE_CONFIG,
-        periodicity: 'biweekly',
-        hour: 7,
-        minute: 15,
+        hour: 16,
+        minute: 30,
+        daysOfWeek: [5, 1, 3],
       }),
-    ).toBe('15 7 1,16 * *');
+    ).toBe('30 16 * * 1,3,5');
   });
 
-  it('builds a monthly expression using dayOfMonth', () => {
-    expect(
-      buildCronExpression({
-        ...DEFAULT_SCHEDULE_CONFIG,
-        periodicity: 'monthly',
-        hour: 8,
-        minute: 0,
-        dayOfMonth: 20,
-      }),
-    ).toBe('0 8 20 * *');
+  it('builds an expression firing on every day of week', () => {
+    expect(buildCronExpression(DEFAULT_SCHEDULE_CONFIG)).toBe(
+      '0 9 * * 0,1,2,3,4,5,6',
+    );
   });
 });
 
 describe('parseCronExpression', () => {
-  it('round-trips a daily expression', () => {
-    const config = parseCronExpression('0 9 * * *');
-    expect(config).toMatchObject({
-      periodicity: 'daily',
-      hour: 9,
-      minute: 0,
-    });
-    expect(config && buildCronExpression(config)).toBe('0 9 * * *');
-  });
-
-  it('round-trips a weekly expression', () => {
+  it('round-trips a single-day expression', () => {
     const config = parseCronExpression('0 8 * * 3');
-    expect(config).toMatchObject({
-      periodicity: 'weekly',
-      hour: 8,
-      minute: 0,
-      dayOfWeek: 3,
-    });
+    expect(config).toMatchObject({ hour: 8, minute: 0, daysOfWeek: [3] });
     expect(config && buildCronExpression(config)).toBe('0 8 * * 3');
   });
 
-  it('round-trips a biweekly expression', () => {
-    const config = parseCronExpression('0 8 1,16 * *');
-    expect(config).toMatchObject({ periodicity: 'biweekly' });
-    expect(config && buildCronExpression(config)).toBe('0 8 1,16 * *');
+  it('round-trips a multi-day expression', () => {
+    const config = parseCronExpression('0 16 * * 1,3,5');
+    expect(config).toMatchObject({
+      hour: 16,
+      minute: 0,
+      daysOfWeek: [1, 3, 5],
+    });
+    expect(config && buildCronExpression(config)).toBe('0 16 * * 1,3,5');
   });
 
-  it('round-trips a monthly expression', () => {
-    const config = parseCronExpression('0 8 1 * *');
-    expect(config).toMatchObject({ periodicity: 'monthly', dayOfMonth: 1 });
-    expect(config && buildCronExpression(config)).toBe('0 8 1 * *');
+  it('parses a wildcarded day-of-week as every day selected', () => {
+    const config = parseCronExpression('0 9 * * *');
+    expect(config).toMatchObject({ hour: 9, minute: 0 });
+    expect(config?.daysOfWeek.sort()).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });
 
-  it('returns null for an expression outside the 4 supported shapes', () => {
-    // The overdue reminder's original hand-written default — three
-    // weekdays in one expression, which this simplified picker can't
-    // represent.
-    expect(parseCronExpression('0 9 * * 1,3,5')).toBeNull();
+  it('returns null for a day-of-month-based expression (old biweekly/monthly shape)', () => {
+    expect(parseCronExpression('0 8 1,16 * *')).toBeNull();
+    expect(parseCronExpression('0 8 20 * *')).toBeNull();
   });
 
   it('returns null for null/undefined/empty input', () => {
