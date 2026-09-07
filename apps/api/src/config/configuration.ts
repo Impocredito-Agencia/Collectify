@@ -41,16 +41,18 @@ export interface WhatsappConfig {
 export interface CronConfig {
   overdueReminderExpression: string;
   upcomingDueReminderExpression: string;
-  upcomingDueReminderDays: number[];
+  // Simplified 2026-09-07 (human) — was a comma-separated list of three
+  // exact day-before-due checkpoints ("5,3,1"), each triggering its own
+  // one-shot reminder. Now that reminderInstallmentQueries.ts checks a
+  // cumulative "due within N days" window instead (see its own doc
+  // comment), only the largest of those three ever mattered — so this
+  // simplified to a single number instead of carrying a list where two of
+  // the three values were silently ignored. Default 5.
+  upcomingDueReminderDays: number;
   // Code-level default for account_summary, added to the cron mechanism in
   // Phase 18. MessageTemplate.cronExpression (DB, admin-editable) takes
   // precedence when set — see WhatsappCronService.
   accountSummaryReminderExpression: string;
-  // Added 2026-09-06 — code-level default for the NewLoan family (see
-  // reminderFamily.ts), same admin-editable-via-DB precedence as the
-  // other two above. Supersedes the "new_loan has no cron expression at
-  // all" note this comment used to carry.
-  newLoanReminderExpression: string;
 }
 
 export interface Configuration {
@@ -91,16 +93,13 @@ export default (): Configuration => ({
     overdueReminderExpression: process.env.OVERDUE_REMINDER_CRON ?? '0 9 * * 1',
     upcomingDueReminderExpression:
       process.env.UPCOMING_DUE_REMINDER_CRON ?? '0 8 * * *',
-    upcomingDueReminderDays: (process.env.UPCOMING_DUE_REMINDER_DAYS ?? '5,3,1')
-      .split(',')
-      .map((value) => parseInt(value.trim(), 10)),
+    upcomingDueReminderDays: parseInt(
+      process.env.UPCOMING_DUE_REMINDER_DAYS ?? '5',
+      10,
+    ),
     // Sent to every client with an active loan — monthly, 1st of the
     // month, 8am.
     accountSummaryReminderExpression:
       process.env.ACCOUNT_SUMMARY_REMINDER_CRON ?? '0 8 1 * *',
-    // Default: every Monday at 10am — matches the example the business
-    // gave when this was designed (2026-09-06).
-    newLoanReminderExpression:
-      process.env.NEW_LOAN_REMINDER_CRON ?? '0 10 * * 1',
   },
 });

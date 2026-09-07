@@ -69,10 +69,18 @@ export class InterestConceptType {
   @Column({ type: 'enum', enum: ConceptCalculationType })
   defaultCalculationType!: ConceptCalculationType;
 
+  // Widened 2026-09-06 (human request) — decimal(12,2) -> decimal(12,4),
+  // same target precision as UsuryRate.ratePercentage, so a percentage cargo
+  // can actually be entered/stored to 4 decimal places instead of silently
+  // rounding to 2 on save. Scoped to percentage concepts only: a
+  // fixed_amount concept is a currency amount, which has no legitimate use
+  // for more than 2 decimals — enforced in CreateInterestConceptTypeDto (see
+  // its own comment), not at this column level, since one column serves
+  // both calculation types. See migration WidenConceptValuePrecision.
   @Column({
     type: 'decimal',
     precision: 12,
-    scale: 2,
+    scale: 4,
     nullable: true,
     transformer: decimalTransformer,
   })

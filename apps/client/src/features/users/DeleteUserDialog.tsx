@@ -47,7 +47,7 @@ export function DeleteUserDialog({
     <Modal maxWidth="max-w-[420px]">
       <h2 className="text-[16px] font-medium text-white">Eliminar usuario</h2>
       <p className="mt-2.5 text-small text-muted">
-        ¿Estás seguro de que deseas eliminar a {userName}? Esta acción es
+        ¿Está seguro de que desea eliminar a {userName}? Esta acción es
         permanente y no se puede deshacer — la cuenta desaparece por completo, a
         diferencia de desactivarla.
       </p>

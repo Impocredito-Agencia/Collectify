@@ -3,7 +3,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 
-import { ConceptCategory } from '../../interestConceptTypes/entities/interestConceptType.entity';
+import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '../../interestConceptTypes/entities/interestConceptType.entity';
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { Loan, LoanStatus } from '../entities/loan.entity';
 import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entity';
@@ -149,6 +152,8 @@ describe('InstallmentsService', () => {
           nameSnapshot: 'Interés remuneratorio',
           category: ConceptCategory.Corriente,
           computedAmount: 4000,
+          value: 5,
+          calculationType: ConceptCalculationType.Percentage,
         },
       ]);
 
@@ -159,6 +164,8 @@ describe('InstallmentsService', () => {
           name: 'Interés remuneratorio',
           amount: 4000,
           category: ConceptCategory.Corriente,
+          value: 5,
+          calculationType: ConceptCalculationType.Percentage,
         },
       ]);
     });

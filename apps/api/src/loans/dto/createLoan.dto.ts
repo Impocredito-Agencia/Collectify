@@ -195,13 +195,21 @@ export class CreateLoanDto {
 
   // Added 2026-09-06 — see Loan.isNewLoan. Defaults to false ("es viejo")
   // when omitted, so a historical/backfilled loan never needs this set
-  // explicitly to behave safely.
+  // explicitly to behave safely. LoanForm.tsx (the interactive admin
+  // panel) always sends `true` now — its own checkbox was removed the
+  // same day (confirmed with the human): with the message now sent
+  // synchronously (see LoansService.create()'s own comment on the
+  // 2026-09-06 revert), a historical loan typed in through that form
+  // relies on WHATSAPP_SENDING_PAUSED instead. This field stays optional
+  // purely so bulk Excel import (LoanImportService), which never sets it,
+  // keeps defaulting to false unaffected.
   @ApiPropertyOptional({
     default: false,
     description:
-      'Whether this is a genuinely new credit event that should get the scheduled "new loan" ' +
-      'WhatsApp message, as opposed to a historical/backfilled loan being entered after the ' +
-      'fact. Defaults to false (no message) when omitted.',
+      'Whether this is a genuinely new credit event that should get the "new loan" WhatsApp ' +
+      'message, sent synchronously right after the loan is created, as opposed to a ' +
+      'historical/backfilled loan being entered after the fact. Defaults to false (no ' +
+      'message) when omitted.',
   })
   @IsOptional()
   @IsBoolean()

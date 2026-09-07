@@ -31,14 +31,14 @@ const DEFAULT_PAGE = 1;
 // already had, instead of leaving them at the old 20/page default.
 const DEFAULT_PAGE_SIZE = 50;
 const WEEK_STARTS_ON_MONDAY = 1;
-// Matches the longest lead time in upcomingDueReminderDays ([5,3,1] by
-// default — see config/configuration.ts), so "cuotas por vencer" on this
-// KPI lines up with when the first WhatsApp reminder would actually go
-// out, rather than being an arbitrary different number. Unlike that
-// config's specific trigger days, this is a continuous window (today
-// through today+5), not just the exact 5/3/1-day marks — a dashboard count
-// should include every cuota in that stretch, not only the ones landing on
-// a reminder day.
+// Matches upcomingDueReminderDays (5 by default — see
+// config/configuration.ts), so "cuotas por vencer" on this KPI lines up
+// with the WhatsApp reminder window, rather than being an arbitrary
+// different number. Kept as its own constant rather than importing the
+// cron config here — this predates 2026-09-07's rework of that config from
+// three exact trigger days (5,3,1) to a single cumulative-window size, and
+// the two happen to describe the exact same "continuous window (today
+// through today+5)" concept now, purely coincidentally.
 const UPCOMING_DUE_WINDOW_DAYS = 5;
 
 export interface DashboardSummary {

@@ -10,7 +10,6 @@ import { In, Repository } from 'typeorm';
 
 import { Client } from '../clients/entities/client.entity';
 import { Configuration } from '../config/configuration';
-import { addDaysToDateString, todayDateString } from '../loans/dueDateSchedule';
 import { Installment } from '../loans/entities/installment.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
@@ -22,7 +21,6 @@ import { NotaAdicionalInput, NotaAdicionalState } from './notaAdicional';
 import { OVERDUE_FAMILY_TYPES } from './reminderFamily';
 import {
   findClientIdsWithOverdueInstallments,
-  findClientIdsWithUpcomingInstallments,
   findOverdueInstallmentsForClient,
   findUpcomingInstallmentsForClient,
 } from './reminderInstallmentQueries';
@@ -34,17 +32,19 @@ import { WhatsAppService } from './whatsapp.service';
 // SingleOverdueInstallmentWithSurcharge, MultipleOverdueInstallments,
 // UpcomingAndOverdueMixed), see reminderTemplateSelection.ts.
 //
-// The weekly cron deliberately EXCLUDES a client who currently also has an
-// upcoming installment — the daily job (UpcomingDueReminderService) covers
-// them with the fuller mixed picture instead, so the two jobs never both
-// pick UpcomingAndOverdueMixed for the same client on the same day.
-// Confirmed with the human (2026-09-01): keep the existing two-job
-// structure (one per family, not one per exact template) rather than
-// fragmenting further. sendReminderForClient itself (used by the manual
-// on-demand endpoint too) always looks at both sets regardless — an admin
-// explicitly asking for one client's status should see the accurate
-// picture, exclusion only applies to which clients the automated weekly
-// run picks up.
+// Reversed 2026-09-07 (human) — the weekly job now OWNS the mixed picture:
+// a client with both an overdue and an upcoming installment gets sent the
+// mixed template from HERE, not from the daily job. Rationale (human):
+// overdue installments take precedence over upcoming ones, so whichever
+// job actually fires for that client should be the one built around the
+// overdue debt, not the one built around what's still to come. This
+// reverses the original Phase 33 assignment (confirmed 2026-09-01, kept
+// the daily job as owner) — see UpcomingDueReminderService's doc comment,
+// which now excludes these clients instead. sendReminderForClient itself
+// (used by the manual on-demand endpoint too) always looks at both sets
+// regardless — an admin explicitly asking for one client's status should
+// see the accurate picture; the exclusion only applies to which clients
+// each automated cron run picks up.
 @Injectable()
 export class OverdueReminderService {
   private readonly logger = new Logger(OverdueReminderService.name);
@@ -67,17 +67,8 @@ export class OverdueReminderService {
   ) {}
 
   async runWeeklyReminder(): Promise<void> {
-    const overdueClientIds = await findClientIdsWithOverdueInstallments(
+    const dynamicClientIds = await findClientIdsWithOverdueInstallments(
       this.installmentsRepository,
-    );
-    const upcomingClientIds = new Set(
-      await findClientIdsWithUpcomingInstallments(
-        this.installmentsRepository,
-        this.upcomingTargetDates(),
-      ),
-    );
-    const dynamicClientIds = overdueClientIds.filter(
-      (clientId) => !upcomingClientIds.has(clientId),
     );
 
     const clientIds =
@@ -122,7 +113,7 @@ export class OverdueReminderService {
     const upcoming = await findUpcomingInstallmentsForClient(
       this.installmentsRepository,
       clientId,
-      this.upcomingTargetDates(),
+      this.maxUpcomingDaysUntilDue(),
     );
     // The template catalog has no "nothing to report" variant (unlike the
     // old account_summary message, which could render an empty/$0 list) —
@@ -212,13 +203,16 @@ export class OverdueReminderService {
       : { state: NotaAdicionalState.Normal };
   }
 
-  private upcomingTargetDates(): string[] {
-    const today = todayDateString();
+  // Reworked 2026-09-07 alongside reminderInstallmentQueries.ts's move to a
+  // cumulative window ("due within N days" instead of three exact
+  // checkpoints) — UPCOMING_DUE_REMINDER_DAYS simplified from a
+  // comma-separated list to a single number the same day, once only its
+  // max was ever used. Kept as its own method (rather than inlining the
+  // config read at each call site) for a self-documenting name.
+  private maxUpcomingDaysUntilDue(): number {
     const { upcomingDueReminderDays } = this.configService.get('cron', {
       infer: true,
     });
-    return upcomingDueReminderDays.map((days) =>
-      addDaysToDateString(today, days),
-    );
+    return upcomingDueReminderDays;
   }
 }

@@ -63,11 +63,18 @@ export class LoanInstallmentConcept {
   category!: ConceptCategory;
 
   // The % (for percentage concepts) or flat currency figure (for
-  // fixed_amount concepts) actually used for this installment.
+  // fixed_amount concepts) actually used for this installment. Widened
+  // 2026-09-06 (human request) — decimal(12,2) -> decimal(12,4), same
+  // target precision as UsuryRate.ratePercentage — scoped to percentage
+  // concepts only, a fixed_amount concept has no legitimate use for more
+  // than 2 decimals (enforced in LoanConceptAssignmentDto, not at this
+  // column level, since one column serves both calculation types). See
+  // migration WidenConceptValuePrecision and
+  // InterestConceptType.defaultValue's identical comment.
   @Column({
     type: 'decimal',
     precision: 12,
-    scale: 2,
+    scale: 4,
     transformer: decimalTransformer,
   })
   value!: number;

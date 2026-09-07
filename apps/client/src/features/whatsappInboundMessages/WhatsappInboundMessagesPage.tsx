@@ -230,7 +230,7 @@ export function WhatsappInboundMessagesPage() {
           ) : (
             !isLoading && (
               <p className="text-small text-muted">
-                Elegí una conversación para ver los mensajes.
+                Elija una conversación para ver los mensajes.
               </p>
             )
           )}
@@ -423,7 +423,7 @@ function ReplyBox({
       )}
       {replyMutation.isSuccess && replyMutation.data === false && (
         <p className="text-meta text-danger" role="alert">
-          WhatsApp no confirmó el envío — revisá las credenciales de Meta.
+          WhatsApp no confirmó el envío — revise las credenciales de Meta.
         </p>
       )}
       <div className="flex items-center gap-2">
@@ -433,7 +433,7 @@ function ReplyBox({
           onKeyDown={(event) => {
             if (event.key === 'Enter') handleSend();
           }}
-          placeholder="Escribí una respuesta…"
+          placeholder="Escriba una respuesta…"
           className="h-[38px] flex-1 rounded bg-input px-3 text-small text-white placeholder-mid focus:outline-none"
         />
         <Button

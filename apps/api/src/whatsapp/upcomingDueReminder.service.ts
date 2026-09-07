@@ -10,7 +10,6 @@ import { In, Repository } from 'typeorm';
 
 import { Client } from '../clients/entities/client.entity';
 import { Configuration } from '../config/configuration';
-import { addDaysToDateString, todayDateString } from '../loans/dueDateSchedule';
 import { Installment } from '../loans/entities/installment.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
@@ -21,6 +20,7 @@ import { MessageTemplatesService } from './messageTemplates/messageTemplates.ser
 import { NotaAdicionalInput, NotaAdicionalState } from './notaAdicional';
 import { UPCOMING_FAMILY_TYPES } from './reminderFamily';
 import {
+  findClientIdsWithOverdueInstallments,
   findClientIdsWithUpcomingInstallments,
   findOverdueInstallmentsForClient,
   findUpcomingInstallmentsForClient,
@@ -31,9 +31,17 @@ import { WhatsAppService } from './whatsapp.service';
 
 // Phase 33 rewrite — picks among SingleUpcomingInstallment,
 // MultipleUpcomingInstallments, and UpcomingAndOverdueMixed, see
-// reminderTemplateSelection.ts. Unlike OverdueReminderService's weekly
-// job, the daily job here does NOT exclude anyone — it's the one that owns
-// the mixed picture (see OverdueReminderService's doc comment for why).
+// reminderTemplateSelection.ts.
+//
+// Reversed 2026-09-07 (human) — the daily job now EXCLUDES a client who
+// currently also has an overdue installment; the weekly job
+// (OverdueReminderService) covers them with the mixed picture instead, so
+// the two jobs never both pick UpcomingAndOverdueMixed for the same client
+// on the same day. Rationale (human): overdue installments take
+// precedence over upcoming ones, so the overdue-focused job should be the
+// one that owns the mixed case, not this one. This is the inverse of the
+// original Phase 33 assignment (confirmed 2026-09-01) — see
+// OverdueReminderService's doc comment for the full reasoning.
 @Injectable()
 export class UpcomingDueReminderService {
   private readonly logger = new Logger(UpcomingDueReminderService.name);
@@ -56,10 +64,17 @@ export class UpcomingDueReminderService {
   ) {}
 
   async runDailyReminder(): Promise<void> {
-    const dynamicClientIds = await findClientIdsWithUpcomingInstallments(
+    const upcomingClientIds = await findClientIdsWithUpcomingInstallments(
       this.installmentsRepository,
-      this.upcomingTargetDates(),
+      this.maxUpcomingDaysUntilDue(),
     );
+    const overdueClientIds = new Set(
+      await findClientIdsWithOverdueInstallments(this.installmentsRepository),
+    );
+    const dynamicClientIds = upcomingClientIds.filter(
+      (clientId) => !overdueClientIds.has(clientId),
+    );
+
     const clientIds =
       await this.messageFrequencyThrottleService.filterOutThrottledClients(
         dynamicClientIds,
@@ -93,7 +108,7 @@ export class UpcomingDueReminderService {
     const upcoming = await findUpcomingInstallmentsForClient(
       this.installmentsRepository,
       clientId,
-      this.upcomingTargetDates(),
+      this.maxUpcomingDaysUntilDue(),
     );
     if (upcoming.length === 0 && !options?.allowEmpty) {
       throw new BadRequestException(
@@ -186,13 +201,16 @@ export class UpcomingDueReminderService {
       : { state: NotaAdicionalState.Normal };
   }
 
-  private upcomingTargetDates(): string[] {
-    const today = todayDateString();
+  // Reworked 2026-09-07 alongside reminderInstallmentQueries.ts's move to a
+  // cumulative window ("due within N days" instead of three exact
+  // checkpoints) — UPCOMING_DUE_REMINDER_DAYS simplified from a
+  // comma-separated list to a single number the same day, once only its
+  // max was ever used. Kept as its own method (rather than inlining the
+  // config read at each call site) for a self-documenting name.
+  private maxUpcomingDaysUntilDue(): number {
     const { upcomingDueReminderDays } = this.configService.get('cron', {
       infer: true,
     });
-    return upcomingDueReminderDays.map((days) =>
-      addDaysToDateString(today, days),
-    );
+    return upcomingDueReminderDays;
   }
 }

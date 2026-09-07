@@ -139,6 +139,74 @@ describe('InterestConceptTypesService', () => {
         expect.objectContaining({ defaultValue: 2 }),
       );
     });
+
+    // Feature request, 2026-09-06 (human) — widened alongside
+    // WidenConceptValuePrecision so a percentage cargo can actually be
+    // stored to 4 decimals instead of silently rounding to 2. Still capped
+    // at 2 for fixed_amount, since that's a plain currency figure.
+    it('accepts a percentage default value with up to 4 decimal places', async () => {
+      repository.save.mockImplementation(
+        (entity: Partial<InterestConceptType>) =>
+          Promise.resolve({ ...mockConceptType, ...entity }),
+      );
+
+      await service.create({
+        name: 'Interés remuneratorio',
+        defaultCalculationType: ConceptCalculationType.Percentage,
+        defaultValue: 2.1234,
+        category: ConceptCategory.Corriente,
+      });
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultValue: 2.1234 }),
+      );
+    });
+
+    it('rejects a percentage default value with more than 4 decimal places', async () => {
+      await expect(
+        service.create({
+          name: 'Interés remuneratorio',
+          defaultCalculationType: ConceptCalculationType.Percentage,
+          defaultValue: 2.12345,
+          category: ConceptCategory.Corriente,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a fixed_amount default value with more than 2 decimal places', async () => {
+      await expect(
+        service.create({
+          name: 'Seguro',
+          defaultCalculationType: ConceptCalculationType.FixedAmount,
+          defaultValue: 15000.123,
+          category: ConceptCategory.Corriente,
+          fixedAmountDistribution:
+            FixedAmountDistribution.SplitAcrossInstallments,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('accepts a fixed_amount default value with exactly 2 decimal places', async () => {
+      repository.save.mockImplementation(
+        (entity: Partial<InterestConceptType>) =>
+          Promise.resolve({ ...mockConceptType, ...entity }),
+      );
+
+      await service.create({
+        name: 'Seguro',
+        defaultCalculationType: ConceptCalculationType.FixedAmount,
+        defaultValue: 15000.12,
+        category: ConceptCategory.Corriente,
+        fixedAmountDistribution:
+          FixedAmountDistribution.SplitAcrossInstallments,
+      });
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultValue: 15000.12 }),
+      );
+    });
   });
 
   describe('update', () => {
@@ -162,6 +230,37 @@ describe('InterestConceptTypesService', () => {
       await expect(
         service.update('missing-id', { defaultValue: 5 }),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects updating defaultValue to a percentage with more than 4 decimal places', async () => {
+      repository.findOneBy.mockResolvedValue({ ...mockConceptType });
+
+      await expect(
+        service.update('concept-type-1', { defaultValue: 5.12345 }),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    // Cross-field case: defaultValue itself isn't touched by this update,
+    // but flipping the calculation type to fixed_amount makes the existing
+    // 4-decimal percentage value invalid — must be validated against the
+    // RESULTING combination, not just whatever this one request happens to
+    // include.
+    it('rejects flipping calculationType to fixed_amount when the existing stored value has more than 2 decimal places', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockConceptType,
+        defaultCalculationType: ConceptCalculationType.Percentage,
+        defaultValue: 2.1234,
+      });
+
+      await expect(
+        service.update('concept-type-1', {
+          defaultCalculationType: ConceptCalculationType.FixedAmount,
+          fixedAmountDistribution:
+            FixedAmountDistribution.SplitAcrossInstallments,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.save).not.toHaveBeenCalled();
     });
   });
 

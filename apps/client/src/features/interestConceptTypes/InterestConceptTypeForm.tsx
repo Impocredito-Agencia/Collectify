@@ -101,7 +101,7 @@ export function InterestConceptTypeForm({
       errors.name = 'El nombre es obligatorio.';
     }
     if (requiresDistribution && !fixedAmountDistribution) {
-      errors.fixedAmountDistribution = 'Elegí cómo se reparte este cargo.';
+      errors.fixedAmountDistribution = 'Elija cómo se reparte este cargo.';
     }
     return errors;
   };
@@ -204,7 +204,7 @@ export function InterestConceptTypeForm({
                 }));
               }}
               options={DISTRIBUTION_OPTIONS}
-              placeholder="Elegí una opción"
+              placeholder="Elija una opción"
             />
           </Field>
         )}

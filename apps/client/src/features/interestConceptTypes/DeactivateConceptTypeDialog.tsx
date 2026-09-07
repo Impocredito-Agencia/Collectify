@@ -14,6 +14,13 @@ interface DeactivateConceptTypeDialogProps {
 // called the mutation directly, no confirmation step at all, unlike every
 // other deactivate action in the app: DeactivateClientDialog.tsx,
 // DeactivateUserDialog.tsx). Mirrors those.
+//
+// Copy fixed 2026-09-07 (human report) — this dialog originally said "no
+// hay forma de reactivarlo desde aquí", written before reactivation existed
+// at all. InterestConceptTypesService.activate() (2026-09-05) added exactly
+// that — the "Desactivados" tab's "Activar" button — so the old wording was
+// stale/wrong from the day it shipped. Updated to describe what's actually
+// true today.
 export function DeactivateConceptTypeDialog({
   conceptTypeName,
   onConfirm,
@@ -38,12 +45,11 @@ export function DeactivateConceptTypeDialog({
       <h2 className="text-card-title font-medium text-white">
         Desactivar cargo
       </h2>
-      <p className="mt-2.5 text-small text-muted">
-        ¿Estás seguro de que deseas desactivar "{conceptTypeName}"? Desaparecerá
-        del selector para préstamos nuevos — los préstamos que ya lo usaron no
-        se ven afectados. Actualmente no hay forma de reactivarlo desde aquí;
-        solo podrás eliminarlo permanentemente después, y solo si nunca se usó
-        en ningún préstamo.
+      <p className="mt-2.5 text-small text-muted text-justify">
+        ¿Está seguro de que desea desactivar "{conceptTypeName}"? Dejará de
+        estar disponible para préstamos nuevos, sin afectar los que ya lo usan.
+        Puede reactivarlo luego desde "Desactivados"; eliminarlo es un paso
+        aparte, solo posible si nunca se usó.
       </p>
 
       <div className="mt-6 border-t border-border" />

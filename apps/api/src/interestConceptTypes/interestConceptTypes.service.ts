@@ -6,12 +6,16 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { countDecimalPlaces } from '../common/numberPrecision';
 import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 
 import { CreateInterestConceptTypeDto } from './dto/createInterestConceptType.dto';
 import { QueryInterestConceptTypesDto } from './dto/queryInterestConceptTypes.dto';
 import { UpdateInterestConceptTypeDto } from './dto/updateInterestConceptType.dto';
-import { InterestConceptType } from './entities/interestConceptType.entity';
+import {
+  ConceptCalculationType,
+  InterestConceptType,
+} from './entities/interestConceptType.entity';
 
 @Injectable()
 export class InterestConceptTypesService {
@@ -41,9 +45,31 @@ export class InterestConceptTypesService {
     return conceptType;
   }
 
+  // Feature request, 2026-09-06 (human) — needs both defaultValue and
+  // defaultCalculationType together, which is why it's a service-layer
+  // check rather than a DTO decorator — see countDecimalPlaces's own
+  // comment for the full reasoning (same precedent as
+  // LoansService.assertCoDebtorIsValid/assertDownPaymentIsValid).
+  private assertValuePrecision(
+    value: number | null | undefined,
+    calculationType: ConceptCalculationType,
+  ): void {
+    if (value == null) return;
+    const maxDecimalPlaces =
+      calculationType === ConceptCalculationType.Percentage ? 4 : 2;
+    if (countDecimalPlaces(value) > maxDecimalPlaces) {
+      throw new BadRequestException(
+        calculationType === ConceptCalculationType.Percentage
+          ? `El valor porcentual admite hasta ${maxDecimalPlaces} decimales.`
+          : `Un monto fijo admite hasta ${maxDecimalPlaces} decimales.`,
+      );
+    }
+  }
+
   async create(
     dto: CreateInterestConceptTypeDto,
   ): Promise<InterestConceptType> {
+    this.assertValuePrecision(dto.defaultValue, dto.defaultCalculationType);
     const conceptType = this.repository.create({
       name: dto.name,
       defaultCalculationType: dto.defaultCalculationType,
@@ -60,6 +86,20 @@ export class InterestConceptTypesService {
     dto: UpdateInterestConceptTypeDto,
   ): Promise<InterestConceptType> {
     const conceptType = await this.findOneOrThrow(id);
+
+    // Resolved against whichever combination will actually be in effect
+    // once this update applies — either field can be omitted (a partial
+    // update leaves it unchanged), so validating dto.defaultValue against
+    // dto.defaultCalculationType alone would miss e.g. flipping
+    // calculationType to fixed_amount while leaving an existing
+    // 4-decimal percentage value in place untouched.
+    const resultingCalculationType =
+      dto.defaultCalculationType ?? conceptType.defaultCalculationType;
+    const resultingValue =
+      dto.defaultValue !== undefined
+        ? dto.defaultValue
+        : conceptType.defaultValue;
+    this.assertValuePrecision(resultingValue, resultingCalculationType);
 
     if (dto.name !== undefined) conceptType.name = dto.name;
     if (dto.defaultCalculationType !== undefined) {

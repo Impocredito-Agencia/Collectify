@@ -15,6 +15,7 @@ import {
 } from '../interestConceptTypes/entities/interestConceptType.entity';
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
 import { UsuryRateService } from '../usuryRates/usuryRates.service';
+import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 import { addDaysToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
@@ -86,6 +87,7 @@ describe('LoansService', () => {
     findOne: jest.Mock;
     findByIdIncludingDeleted: jest.Mock;
   };
+  let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
   let dataSource: { transaction: jest.Mock };
 
   // Optional catalog fees (Phase 14) — no longer anything to do with the
@@ -220,6 +222,13 @@ describe('LoansService', () => {
       findOne: jest.fn().mockResolvedValue({ id: 'co-debtor-1' }),
       findByIdIncludingDeleted: jest.fn().mockResolvedValue(null),
     };
+    // Reverted, 2026-09-06 — create()/refinance() call this synchronously
+    // again (see loans.service.ts's own comment on the revert). Resolves
+    // by default so tests that don't care about messaging aren't affected;
+    // tests below assert on whether/how it's called.
+    newLoanReminderService = {
+      sendNewLoanMessage: jest.fn().mockResolvedValue(undefined),
+    };
     // Mock manager.getRepository() routes to the same mock repositories
     // above by entity class, so persistLoanWithInstallments (now run
     // inside dataSource.transaction()) exercises the exact mocks every
@@ -276,6 +285,10 @@ describe('LoansService', () => {
           useValue: usuryRateService,
         },
         { provide: ClientsService, useValue: clientsService },
+        {
+          provide: NewLoanReminderService,
+          useValue: newLoanReminderService,
+        },
         { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
@@ -716,12 +729,6 @@ describe('LoansService', () => {
       });
     });
 
-    // Redesign, 2026-09-06 — the "new loan" WhatsApp message is no longer
-    // sent synchronously from create(); it's picked up later by
-    // NewLoanReminderService.runPendingLoanNotifications() on a schedule
-    // (see whatsappCron.service.spec.ts / newLoanReminder.service.spec.ts
-    // for that behavior). create() itself is only responsible for
-    // persisting isNewLoan on the loan row.
     it('defaults isNewLoan to false when the dto omits it', async () => {
       await service.create(createDto);
 
@@ -736,6 +743,44 @@ describe('LoansService', () => {
       expect(loansRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ isNewLoan: true }),
       );
+    });
+
+    // Reverted, 2026-09-06 (confirmed with the human) — back to sending
+    // synchronously right from create(), same as before the short-lived
+    // cron-sweep redesign. See loans.service.ts's own comment on why.
+    it('does not send a new-loan WhatsApp message when isNewLoan is false (the default)', async () => {
+      await service.create(createDto);
+
+      expect(newLoanReminderService.sendNewLoanMessage).not.toHaveBeenCalled();
+    });
+
+    it('sends the new-loan WhatsApp message synchronously when isNewLoan is true', async () => {
+      loansRepository.save.mockResolvedValue({
+        ...mockLoan,
+        id: 'loan-2',
+        isNewLoan: true,
+      });
+
+      await service.create({ ...createDto, isNewLoan: true });
+
+      expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
+        'loan-2',
+      );
+    });
+
+    it('does not let a failed new-loan message send block loan creation', async () => {
+      loansRepository.save.mockResolvedValue({
+        ...mockLoan,
+        id: 'loan-2',
+        isNewLoan: true,
+      });
+      newLoanReminderService.sendNewLoanMessage.mockRejectedValue(
+        new Error('WhatsApp API down'),
+      );
+
+      await expect(
+        service.create({ ...createDto, isNewLoan: true }),
+      ).resolves.toBeDefined();
     });
 
     // Phase 10 — docs/phases/PHASE_10_CLIENT_CAPACITY.md's cupo/mora-block
@@ -863,8 +908,11 @@ describe('LoansService', () => {
   });
 
   describe('refinance', () => {
+    // Redesign, 2026-09-06 — the dto no longer accepts promissoryNoteNumber
+    // (see RefinanceLoanDto's own comment): the new loan always keeps the
+    // OLD loan's own number ('#743', from mockLoan above) instead of being
+    // assigned one of its own.
     const refinanceDto = {
-      promissoryNoteNumber: '#1000',
       principalAmount: 600000,
       interestRate: 5,
       disbursedAt: '2026-07-10',
@@ -878,7 +926,7 @@ describe('LoansService', () => {
     const newLoanRecord: Loan = {
       ...mockLoan,
       id: 'loan-2',
-      promissoryNoteNumber: '#1000',
+      promissoryNoteNumber: mockLoan.promissoryNoteNumber,
       principalAmount: 600000,
       interestRate: 5,
       totalInstallments: 2,
@@ -889,7 +937,11 @@ describe('LoansService', () => {
       loansRepository.findOneBy
         .mockResolvedValueOnce({ ...mockLoan }) // old loan lookup — cloned, refinance() mutates .status in place
         .mockResolvedValueOnce(newLoanRecord); // findOne(newLoan.id) at the end
-      loansRepository.findOne.mockResolvedValue(null); // uniqueness check + reverse lookup
+      // Only the reverse lookup inside the final this.findOne(newLoan.id)
+      // call hits loansRepository.findOne during a refinance now — the
+      // promissory-note uniqueness check is skipped entirely for the new
+      // loan (see skipPromissoryNoteNumberUniquenessCheck's own comment).
+      loansRepository.findOne.mockResolvedValue(null);
       loansRepository.save
         .mockImplementationOnce((loan: Loan) => Promise.resolve(loan)) // old loan status update
         .mockResolvedValueOnce(newLoanRecord); // new loan save
@@ -924,7 +976,6 @@ describe('LoansService', () => {
         expect.objectContaining({
           clientId: mockLoan.clientId,
           refinancedFromLoanId: mockLoan.id,
-          promissoryNoteNumber: '#1000',
           totalInstallments: 2,
         }),
       );
@@ -937,6 +988,36 @@ describe('LoansService', () => {
         expect.objectContaining({ installmentNumber: 1, amount: 390000 }),
         expect.objectContaining({ installmentNumber: 2, amount: 390000 }),
       ]);
+    });
+
+    // Business change, 2026-09-06 (confirmed with the human) — a
+    // refinanced pagaré is REPLACED under the same number, not reassigned a
+    // new one. The strict, all-statuses assertPromissoryNoteNumberIsUnique
+    // check is deliberately NOT run against this reused number (it would
+    // always find at least oldLoan itself and reject) — instead
+    // persistLoanWithInstallments skips it entirely via
+    // skipPromissoryNoteNumberUniquenessCheck, since the number isn't being
+    // freely chosen here. create() (a genuinely new loan) never sets that
+    // flag and still goes through the full strict check — see its own
+    // "rejects a duplicate promissory note number" test above, unaffected
+    // by this change.
+    it("reuses the old loan's own promissory note number on the new loan, instead of accepting one from the dto or validating it as free", async () => {
+      await service.refinance(mockLoan.id, refinanceDto);
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          promissoryNoteNumber: mockLoan.promissoryNoteNumber,
+        }),
+      );
+      // Only the reverse-lookup findOne (inside the closing this.findOne())
+      // runs — never one with a promissoryNoteNumber filter.
+      expect(loansRepository.findOne).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            promissoryNoteNumber: expect.anything() as unknown,
+          }) as unknown,
+        }),
+      );
     });
 
     // Closing out the old loan, cancelling its installments, and creating
@@ -1001,13 +1082,42 @@ describe('LoansService', () => {
       expect(loansRepository.save).toHaveBeenCalled();
     });
 
-    // See the identical comment on create()'s isNewLoan tests above.
-    it('defaults isNewLoan to false on the new loan when the dto omits it', async () => {
-      await service.refinance(mockLoan.id, refinanceDto);
+    // Redesign, 2026-09-06 (confirmed with the human) — unlike create(),
+    // refinance() no longer takes isNewLoan from the dto at all (removed
+    // from RefinanceLoanDto entirely): a refinance can only ever apply to
+    // a loan already active in the system, so it's always treated as a
+    // real, live event and always scheduled for the "new loan" WhatsApp
+    // message, regardless of what the dto sends.
+    it('always sets isNewLoan: true on the new loan, even if the dto tries to override it', async () => {
+      await service.refinance(mockLoan.id, {
+        ...refinanceDto,
+        isNewLoan: false,
+      } as typeof refinanceDto);
 
       expect(loansRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ isNewLoan: false }),
+        expect.objectContaining({ isNewLoan: true }),
       );
+    });
+
+    // Reverted, 2026-09-06 (confirmed with the human) — sent synchronously
+    // again right after the transaction commits, same as create(). Always
+    // fires for a refinance since isNewLoan is hardcoded true above.
+    it('sends the new-loan WhatsApp message synchronously for the new loan', async () => {
+      await service.refinance(mockLoan.id, refinanceDto);
+
+      expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
+        newLoanRecord.id,
+      );
+    });
+
+    it('does not let a failed new-loan message send block the refinance', async () => {
+      newLoanReminderService.sendNewLoanMessage.mockRejectedValue(
+        new Error('WhatsApp API down'),
+      );
+
+      await expect(
+        service.refinance(mockLoan.id, refinanceDto),
+      ).resolves.toBeDefined();
     });
 
     // Phase 26 — the new loan carries over the old loan's co-debtor by
@@ -1291,6 +1401,8 @@ describe('LoansService', () => {
           nameSnapshot: 'Interés remuneratorio',
           category: ConceptCategory.Corriente,
           computedAmount: 6000,
+          value: 5,
+          calculationType: ConceptCalculationType.Percentage,
         },
       ]);
 
@@ -1301,6 +1413,8 @@ describe('LoansService', () => {
           name: 'Interés remuneratorio',
           amount: 6000,
           category: ConceptCategory.Corriente,
+          value: 5,
+          calculationType: ConceptCalculationType.Percentage,
         },
       ]);
       expect(result.installments[0].principalPortion).toBe(300000);
@@ -1793,6 +1907,67 @@ describe('LoansService', () => {
           ],
         }),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    // Feature request, 2026-09-06 (human) — widened alongside
+    // WidenConceptValuePrecision so a percentage cargo can actually be
+    // stored to 4 decimals instead of silently rounding to 2. Still capped
+    // at 2 for fixed_amount, since that's a plain currency figure. Exercised
+    // via resolveConcepts (shared by create()/refinance()/previewSchedule())
+    // — previewSchedule is the simplest surface, no persistence mocks
+    // needed.
+    it('rejects a percentage concept value with more than 4 decimal places', async () => {
+      await expect(
+        service.previewSchedule({
+          principalAmount: 900000,
+          disbursedAt: '2026-01-01',
+          installmentFrequency: InstallmentFrequency.Monthly,
+          totalInstallments: 3,
+          concepts: [
+            {
+              conceptTypeId: mockConceptType.id,
+              calculationType: ConceptCalculationType.Percentage,
+              value: 2.12345,
+            },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a fixed_amount concept value with more than 2 decimal places', async () => {
+      await expect(
+        service.previewSchedule({
+          principalAmount: 900000,
+          disbursedAt: '2026-01-01',
+          installmentFrequency: InstallmentFrequency.Monthly,
+          totalInstallments: 3,
+          concepts: [
+            {
+              conceptTypeId: mockConceptType.id,
+              calculationType: ConceptCalculationType.FixedAmount,
+              value: 15000.123,
+            },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('accepts a percentage concept value with exactly 4 decimal places', async () => {
+      const result = await service.previewSchedule({
+        principalAmount: 900000,
+        disbursedAt: '2026-01-01',
+        installmentFrequency: InstallmentFrequency.Monthly,
+        totalInstallments: 3,
+        concepts: [
+          {
+            conceptTypeId: mockConceptType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: 2.1234,
+          },
+        ],
+      });
+
+      expect(result.installments).toHaveLength(3);
     });
   });
 
