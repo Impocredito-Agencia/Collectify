@@ -1,6 +1,9 @@
 import { apiClient } from '@/lib/apiClient';
 
-import type { ConceptCategory } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import type {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '@/features/interestConceptTypes/interestConceptTypesApi';
 
 // Matches apps/api/src/loans/entities/installment.entity.ts exactly.
 export enum InstallmentStatus {
@@ -18,6 +21,18 @@ export interface ConceptBreakdownItem {
   name: string;
   amount: number;
   category: ConceptCategory;
+  // Added 2026-09-06 (client request — no visual way to tell what rate a
+  // given pagaré was actually made at, since two pagarés could legitimately
+  // differ as the usury ceiling moves month to month, and the currency
+  // amount alone doesn't reveal it). The % (Percentage) or flat figure
+  // (FixedAmount) actually applied for this charge — constant across every
+  // cuota of the same loan (only the resulting `amount` changes cuota to
+  // cuota), so LoanDetailPage shows it once, in the column header, rather
+  // than repeating it on every row. Optional: PayoffQuote reuses this same
+  // shape for a corriente line item with no rate to attach — see the
+  // backend's identical comment on this field.
+  value?: number;
+  calculationType?: ConceptCalculationType;
 }
 
 // Matches apps/api/src/loans/installments/enrichInstallment.ts's
