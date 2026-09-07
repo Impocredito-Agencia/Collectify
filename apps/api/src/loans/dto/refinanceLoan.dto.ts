@@ -2,17 +2,14 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
-  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
-  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsPositive,
   IsString,
   IsUUID,
-  Matches,
   Max,
   Min,
   ValidateNested,
@@ -27,20 +24,14 @@ import { LoanConceptAssignmentDto } from './loanConceptAssignment.dto';
 // totalInstallments, and concepts, as of Phase 14. clientId isn't accepted
 // here: the new loan always belongs to the same client as the loan being
 // refinanced.
+//
+// Redesign, 2026-09-06 (confirmed with the human) — promissoryNoteNumber is
+// no longer accepted here. The new loan now always keeps the SAME
+// promissory note number as the loan it replaces (a refinanced #0800 stays
+// #0800) instead of getting a fresh one — LoansService.refinance() sets it
+// server-side from the old loan's own number. See docs/DATABASE.md
+// "Refinancing".
 export class RefinanceLoanDto {
-  // Style cleanup (2026-09-03) — same #0000 format rule as CreateLoanDto;
-  // see that file's comment for the full reasoning.
-  @ApiProperty({
-    example: '#1191',
-    description: "The new loan's own promissory note number.",
-  })
-  @IsString()
-  @IsNotEmpty()
-  @Matches(/^#\d{4,}$/, {
-    message: 'El número de pagaré debe tener el formato #0000.',
-  })
-  promissoryNoteNumber!: string;
-
   @ApiProperty({
     example: 950000,
     description:
@@ -176,15 +167,11 @@ export class RefinanceLoanDto {
   @IsString()
   coDebtorRelationship?: string | null;
 
-  // See CreateLoanDto.isNewLoan — same default-false, opt-in scheduled
-  // "new loan" message for the loan this refinance creates.
-  @ApiPropertyOptional({
-    default: false,
-    description:
-      'Whether the new loan this refinance creates should get the scheduled "new loan" WhatsApp ' +
-      'message — see CreateLoanDto. Defaults to false when omitted.',
-  })
-  @IsOptional()
-  @IsBoolean()
-  isNewLoan?: boolean;
+  // Redesign, 2026-09-06 (confirmed with the human) — no longer a field
+  // here at all. Unlike CreateLoanDto's isNewLoan (which distinguishes a
+  // real new credit event from a historical/backfilled one being typed in
+  // after the fact), a refinance can only ever be run against a loan
+  // that's already active in the system today — it's always a real, live
+  // event, so LoansService.refinance() now hardcodes isNewLoan: true and
+  // always schedules the "new loan" WhatsApp message.
 }

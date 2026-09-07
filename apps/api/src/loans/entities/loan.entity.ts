@@ -74,25 +74,32 @@ export class Loan {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  // Redesign, 2026-09-06 — the "new loan" message is no longer sent
-  // synchronously at creation; it's picked up by a scheduled cron sweep
-  // (NewLoanReminderService.runPendingLoanNotifications) over loans where
-  // isNewLoan is true and this column is still null. Set once that send
-  // actually succeeds (by sendNewLoanMessage itself, regardless of
-  // whether it ran from the sweep or from a manual
-  // POST /message-logs/:id/retry) — never touched on a failed send, so
-  // the next sweep run picks the loan back up automatically.
+  // A cron-sweep redesign briefly lived here (2026-09-06) and was reverted
+  // the same day (confirmed with the human) — see NewLoanReminderService's
+  // own comment. The "new loan" message is sent synchronously again, right
+  // from LoansService.create()/refinance(), gated by isNewLoan below. This
+  // column is now purely an audit trail — set once sendNewLoanMessage
+  // actually succeeds (whether triggered synchronously or via a manual
+  // POST /message-logs/:id/retry) — nothing reads it to decide whether to
+  // (re)send.
   @Column({ type: 'timestamptz', nullable: true })
   newLoanMessageSentAt!: Date | null;
 
   // Added 2026-09-06 — distinguishes a genuinely new credit event (should
-  // get the scheduled "new loan" WhatsApp message) from a historical/
-  // backfilled loan being entered into the platform after the fact (bulk
-  // import, or an old loan book still being typed in by hand) — those
-  // must never trigger the message. Decided once, explicitly, at creation
-  // (a checkbox on LoanForm/RefinanceLoanForm); default false ("es
-  // viejo") so nothing needs it set to behave safely. See the migration
-  // comment (AddIsNewLoanToLoans) for why the default matters.
+  // get the "new loan" WhatsApp message, sent synchronously right after
+  // create()/refinance() persists) from a historical/backfilled loan
+  // being entered into the platform after the fact (bulk import, or an
+  // old loan book still being typed in by hand) — those must never
+  // trigger the message. No checkbox anywhere anymore — removed from
+  // RefinanceLoanForm first (always true there, see refinance()'s own
+  // comment), then from LoanForm too, the same day (confirmed with the
+  // human): LoanForm now always sends `true`, since a historical loan
+  // typed in through the interactive panel relies on
+  // WHATSAPP_SENDING_PAUSED for the duration of the backfill instead.
+  // Default stays false ("es viejo") purely so bulk Excel import
+  // (LoanImportService), which never sets this field, keeps its existing
+  // safe-by-default behavior. See the migration comment
+  // (AddIsNewLoanToLoans) for why the default matters.
   @Column({ default: false })
   isNewLoan!: boolean;
 

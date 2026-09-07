@@ -17,6 +17,7 @@ import {
 
 import { ClientsService } from '../clients/clients.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import { countDecimalPlaces } from '../common/numberPrecision';
 import {
   ConceptCalculationType,
   ConceptCategory,
@@ -26,6 +27,7 @@ import {
   CurrentUsuryRate,
   UsuryRateService,
 } from '../usuryRates/usuryRates.service';
+import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 import {
   ConceptAssignment,
   generateAmortizationSchedule,
@@ -200,6 +202,18 @@ interface PersistLoanParams {
   coDebtorRelationship?: string | null;
   // See CreateLoanDto.isNewLoan. Defaults to false in persistLoanWithInstallments.
   isNewLoan?: boolean;
+  // Redesign, 2026-09-06 (confirmed with the human) — set only by
+  // refinance(), which passes the OLD loan's own promissoryNoteNumber
+  // straight through as this new loan's number (see its own comment).
+  // That number, by construction, always already exists on at least the
+  // loan being refinanced — assertPromissoryNoteNumberIsUnique would
+  // therefore always reject it if run. Skipping the check here is safe
+  // specifically BECAUSE the number isn't being chosen/typed by anyone; a
+  // genuinely new loan (create()) never sets this and always goes through
+  // the full strict check, which continues to permanently block reusing
+  // any historical (paid/refinanced) number — only a refinance of that
+  // exact loan may carry its number forward.
+  skipPromissoryNoteNumberUniquenessCheck?: boolean;
 }
 
 @Injectable()
@@ -220,6 +234,7 @@ export class LoansService {
     private readonly interestConceptTypesService: InterestConceptTypesService,
     private readonly usuryRateService: UsuryRateService,
     private readonly clientsService: ClientsService,
+    private readonly newLoanReminderService: NewLoanReminderService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -272,13 +287,40 @@ export class LoansService {
       ),
     );
 
-    // Redesign, 2026-09-06 — no longer sent synchronously here. A loan
-    // created with isNewLoan: true is picked up by the scheduled "new
-    // loan" cron sweep (NewLoanReminderService.runPendingLoanNotifications)
-    // instead, so it fires at the admin-configured schedule rather than
-    // immediately — see WhatsappCronService's NewLoan family.
+    // Reverted, 2026-09-06 (confirmed with the human) — back to sending
+    // synchronously right here, same as before the short-lived
+    // 2026-09-05/06 cron-sweep redesign (see NewLoanReminderService's own
+    // comment). The sweep introduced a real gap: a historical loan that
+    // slipped through with isNewLoan left true would only get caught (and
+    // wrongly message the client) whenever the next scheduled run
+    // happened, possibly well after WHATSAPP_SENDING_PAUSED had already
+    // been lifted for legitimate traffic. Sending immediately means
+    // whatever pause is active AT CREATION TIME is what governs it, which
+    // is exactly the window the human already manages by hand during a
+    // historical backfill. isNewLoan still gates whether this is even
+    // attempted — untouched by this revert.
+    if (savedLoan.isNewLoan) {
+      await this.sendNewLoanMessageSafely(savedLoan.id);
+    }
 
     return this.findOne(savedLoan.id);
+  }
+
+  // Shared by create() and refinance() — mirrors
+  // InstallmentsService.sendPaymentConfirmationSafely's "callers catch and
+  // log their own failures, a failed send never blocks the operation"
+  // principle. A failed/skipped send is a business outcome (see
+  // WhatsAppService's WHATSAPP_SENDING_PAUSED handling), not a reason to
+  // fail the loan creation/refinance itself.
+  private async sendNewLoanMessageSafely(loanId: string): Promise<void> {
+    try {
+      await this.newLoanReminderService.sendNewLoanMessage(loanId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send new-loan WhatsApp message for loan ${loanId}`,
+        error,
+      );
+    }
   }
 
   // Runs the same schedule generation as create()/refinance() without
@@ -377,7 +419,18 @@ export class LoansService {
       return this.persistLoanWithInstallments(
         {
           clientId: oldLoan.clientId,
-          promissoryNoteNumber: dto.promissoryNoteNumber,
+          // Business change, 2026-09-06 (confirmed with the human) — the
+          // new loan REPLACES the old one under the same pagaré number,
+          // instead of getting a new one of its own; no longer accepts a
+          // client-supplied number — see RefinanceLoanDto's own comment for
+          // the removed field. skipPromissoryNoteNumberUniquenessCheck is
+          // required here: this number always already exists (on oldLoan,
+          // and possibly earlier loans in the same refinancing chain too),
+          // so the normal strict check — which the human specifically asked
+          // to keep unchanged for genuinely new loans — would always reject
+          // it. See PersistLoanParams' own comment on that flag.
+          promissoryNoteNumber: oldLoan.promissoryNoteNumber,
+          skipPromissoryNoteNumberUniquenessCheck: true,
           principalAmount: dto.principalAmount,
           interestRate: dto.interestRate,
           disbursedAt: dto.disbursedAt,
@@ -408,22 +461,35 @@ export class LoansService {
             dto.coDebtorRelationship === undefined
               ? oldLoan.coDebtorRelationship
               : dto.coDebtorRelationship,
-          isNewLoan: dto.isNewLoan,
+          // Redesign, 2026-09-06 (confirmed with the human) — always true,
+          // no longer dto-driven. Unlike create(), a refinance is never a
+          // historical/backfilled event being typed in after the fact: it
+          // can only be run against a loan that's already active in the
+          // system today, so it's always a real, live event that should
+          // notify the client. The "isNewLoan" concept (distinguishing a
+          // real event from a backfill) only makes sense for create() —
+          // see RefinanceLoanDto's own comment for the removed field.
+          isNewLoan: true,
         },
         manager,
       );
     });
 
-    // See the identical comment in create() — no longer sent
-    // synchronously, picked up by the scheduled cron sweep instead.
+    // See the identical comment in create() — sent synchronously right
+    // here again, per the 2026-09-06 revert. A refinance's isNewLoan is
+    // hardcoded true above, so this always fires.
+    await this.sendNewLoanMessageSafely(newLoan.id);
 
     return this.findOne(newLoan.id);
   }
 
   // Style cleanup (2026-09-03) — suggests the next pagaré number for
-  // LoanForm/RefinanceLoanForm to pre-fill (still editable; the client
-  // wants #0000-style padding going forward, not a hard lock — see
-  // docs/GLOSSARY.md "Loan / Pagaré"). Takes the highest numeric part
+  // LoanForm to pre-fill (still editable; the client wants #0000-style
+  // padding going forward, not a hard lock — see docs/GLOSSARY.md
+  // "Loan / Pagaré"). No longer used by RefinanceLoanForm as of the
+  // 2026-09-06 redesign — a refinance now keeps the old loan's own number
+  // instead of getting a new one, so there's nothing left to suggest there.
+  // Takes the highest numeric part
   // across ALL loans, including soft-deleted ones (withDeleted, same as
   // assertPromissoryNoteNumberIsUnique below — a deleted loan's number is
   // still "used" and must never be handed out again), adds 1, and pads to
@@ -1027,10 +1093,12 @@ export class LoansService {
       LoanInstallmentConcept,
     );
 
-    await this.assertPromissoryNoteNumberIsUnique(
-      params.promissoryNoteNumber,
-      loansRepository,
-    );
+    if (!params.skipPromissoryNoteNumberUniquenessCheck) {
+      await this.assertPromissoryNoteNumberIsUnique(
+        params.promissoryNoteNumber,
+        loansRepository,
+      );
+    }
     await this.assertCoDebtorIsValid(params.clientId, params.coDebtorClientId);
     this.assertDownPaymentIsValid(
       params.downPaymentAmount,
@@ -1257,15 +1325,41 @@ export class LoansService {
     // These are optional catalog fees (Phase 14) — no usury-ceiling
     // enforcement here. The ceiling only bounds the system-generated
     // interest field, see resolveConceptsWithInterest.
-    const resolved = concepts.map((concept) => ({
-      conceptTypeId: concept.conceptTypeId,
-      name: typeById.get(concept.conceptTypeId)?.name ?? '',
-      calculationType: concept.calculationType,
-      value: concept.value,
-      fixedAmountDistribution: typeById.get(concept.conceptTypeId)
-        ?.fixedAmountDistribution,
-    }));
+    const resolved = concepts.map((concept) => {
+      const name = typeById.get(concept.conceptTypeId)?.name ?? '';
+      this.assertConceptValuePrecision(concept, name);
+      return {
+        conceptTypeId: concept.conceptTypeId,
+        name,
+        calculationType: concept.calculationType,
+        value: concept.value,
+        fixedAmountDistribution: typeById.get(concept.conceptTypeId)
+          ?.fixedAmountDistribution,
+      };
+    });
     return resolved;
+  }
+
+  // Feature request, 2026-09-06 (human) — same rule as
+  // InterestConceptTypesService.assertValuePrecision, applied here to a
+  // concept ASSIGNMENT (what the admin actually picked for this loan)
+  // instead of a catalog default: a percentage concept can carry up to 4
+  // decimals (see WidenConceptValuePrecision migration), a fixed_amount one
+  // — a plain currency figure — only 2. See countDecimalPlaces's own
+  // comment for why this lives here instead of a DTO decorator.
+  private assertConceptValuePrecision(
+    concept: LoanConceptAssignmentDto,
+    name: string,
+  ): void {
+    const maxDecimalPlaces =
+      concept.calculationType === ConceptCalculationType.Percentage ? 4 : 2;
+    if (countDecimalPlaces(concept.value) > maxDecimalPlaces) {
+      throw new BadRequestException(
+        concept.calculationType === ConceptCalculationType.Percentage
+          ? `El cargo "${name}" es porcentual y admite hasta ${maxDecimalPlaces} decimales.`
+          : `El cargo "${name}" es un monto fijo y admite hasta ${maxDecimalPlaces} decimales.`,
+      );
+    }
   }
 
   // Phase 23 — mirrors resolveConcepts above, but for moratory concepts:
@@ -1293,12 +1387,16 @@ export class LoansService {
       nameByConceptTypeId.set(conceptTypeId, conceptType.name);
     }
 
-    const resolved = concepts.map((concept) => ({
-      conceptTypeId: concept.conceptTypeId,
-      name: nameByConceptTypeId.get(concept.conceptTypeId) ?? '',
-      calculationType: concept.calculationType,
-      value: concept.value,
-    }));
+    const resolved = concepts.map((concept) => {
+      const name = nameByConceptTypeId.get(concept.conceptTypeId) ?? '';
+      this.assertConceptValuePrecision(concept, name);
+      return {
+        conceptTypeId: concept.conceptTypeId,
+        name,
+        calculationType: concept.calculationType,
+        value: concept.value,
+      };
+    });
     return resolved;
   }
 
@@ -1395,6 +1493,22 @@ export class LoansService {
     return loan;
   }
 
+  // Unchanged by the 2026-09-06 refinancing redesign — deliberately kept
+  // strict (confirmed with the human): a genuinely NEW loan (create(), or a
+  // refinance's own dto-driven fields — just not its promissoryNoteNumber
+  // anymore, see below) can never reuse a number that belonged to ANY other
+  // loan, ever, regardless of status or soft-delete. Only refinance()'s own
+  // inherited number is exempt from this check entirely (see
+  // persistLoanWithInstallments's skipPromissoryNoteNumberUniquenessCheck
+  // param) — it's not "picking" a number to validate, it's mechanically
+  // carrying the old loan's own number forward, which by construction
+  // always already exists (on the loan being refinanced, and possibly on
+  // earlier loans in the same refinancing chain too). Letting a check like
+  // this one see that reused number would always reject it. The DB's own
+  // partial unique index (ScopePromissoryNoteNumberUniquenessToActiveLoans
+  // — WHERE status = 'active' AND deleted_at IS NULL) is what actually
+  // allows that legitimate repetition to be stored, and remains the
+  // last-resort guard against a concurrent double-refinance race.
   private async assertPromissoryNoteNumberIsUnique(
     promissoryNoteNumber: string,
     loansRepository: Repository<Loan>,
