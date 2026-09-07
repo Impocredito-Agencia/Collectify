@@ -70,7 +70,7 @@ export function UserRow({
               // RowActionButton's own comment on the no-onClick/no-to
               // branch. Same box as Desactivar so this row doesn't look
               // off-center next to Ver perfil/Permisos.
-              <RowActionButton tone="subtle">Tu cuenta</RowActionButton>
+              <RowActionButton tone="subtle">Su cuenta</RowActionButton>
             ) : (
               <RowActionButton onClick={onDeactivate} tone="subtle">
                 Desactivar

@@ -255,7 +255,7 @@ export function PayoffDialog({
           className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-small text-amber-300"
           role="alert"
         >
-          ¿Estás seguro? Esta acción no se puede deshacer.
+          ¿Está seguro? Esta acción no se puede deshacer.
         </p>
       )}
 

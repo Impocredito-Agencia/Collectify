@@ -37,7 +37,7 @@ export function DeactivateUserDialog({
         Desactivar usuario
       </h2>
       <p className="mt-2.5 text-small text-muted">
-        ¿Estás seguro de que deseas desactivar a {userName}? No podrá iniciar
+        ¿Está seguro de que desea desactivar a {userName}? No podrá iniciar
         sesión hasta que sea reactivado.
       </p>
 

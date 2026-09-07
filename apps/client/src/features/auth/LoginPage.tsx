@@ -165,7 +165,7 @@ export function LoginPage() {
               type="button"
               className="text-small text-subtle hover:text-muted"
             >
-              ¿Olvidaste tu contraseña?
+              ¿Olvidó su contraseña?
             </button>
           </div>
 

@@ -51,8 +51,8 @@ export function DeleteLoanDialog({
     <Modal maxWidth="max-w-[420px]">
       <h2 className="text-[16px] font-medium text-white">Eliminar préstamo</h2>
       <p className="mt-2.5 text-small text-muted">
-        ¿Estás seguro de que deseas eliminar {loanLabel}? Esta acción no se
-        puede deshacer desde el panel.
+        ¿Está seguro de que desea eliminar {loanLabel}? Esta acción no se puede
+        deshacer desde el panel.
       </p>
 
       <div className="mt-6 border-t border-border" />

@@ -62,7 +62,7 @@ export function ChangePasswordCard() {
   const validate = (): FieldErrors => {
     const errors: FieldErrors = {};
     if (!currentPassword) {
-      errors.currentPassword = 'Ingresa tu contraseña actual.';
+      errors.currentPassword = 'Ingrese su contraseña actual.';
     }
     if (newPassword.length < 8) {
       errors.newPassword =
@@ -90,7 +90,7 @@ export function ChangePasswordCard() {
     try {
       await authApi.changePassword({ currentPassword, newPassword });
       resetFields();
-      setSuccessMessage('Tu contraseña se actualizó correctamente.');
+      setSuccessMessage('Su contraseña se actualizó correctamente.');
     } catch (err) {
       if (err instanceof ApiError && err.statusCode === 401) {
         setFieldErrors({

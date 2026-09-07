@@ -36,7 +36,7 @@ export function DeactivateClientDialog({
         Desactivar cliente
       </h2>
       <p className="mt-2.5 text-small text-muted">
-        ¿Estás seguro de que deseas desactivar a {clientName}? No podrá recibir
+        ¿Está seguro de que desea desactivar a {clientName}? No podrá recibir
         cobros hasta que sea reactivado.
       </p>
 
