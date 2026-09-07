@@ -47,8 +47,8 @@ export interface TemplateSelectionResult {
 // UpcomingAndOverdueMixed template is only ever defined in one place.
 // Which of the two SERVICES is allowed to actually select it for an
 // automated (cron) send is a separate concern — see
-// UpcomingDueReminderService's doc comment for why the daily job owns
-// that case exclusively.
+// OverdueReminderService's doc comment (reversed 2026-09-07) for why the
+// weekly job owns that case exclusively now, not the daily one.
 export function selectReminderTemplate(
   clientFullName: string,
   overdue: ReminderOverdueInstallment[],
