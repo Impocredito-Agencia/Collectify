@@ -177,9 +177,7 @@ describe('OverdueReminderService', () => {
         {
           provide: ConfigService,
           useValue: {
-            get: jest
-              .fn()
-              .mockReturnValue({ upcomingDueReminderDays: [5, 3, 1] }),
+            get: jest.fn().mockReturnValue({ upcomingDueReminderDays: 5 }),
           },
         },
       ],
@@ -324,16 +322,14 @@ describe('OverdueReminderService', () => {
   });
 
   describe('runWeeklyReminder', () => {
-    // installmentsRepository.find is called for
-    // findClientIdsWithOverdueInstallments, then for
-    // findClientIdsWithUpcomingInstallments (the exclusion check).
-    function mockDynamicClients(
-      overdueRows: Installment[],
-      upcomingRows: Installment[] = [],
-    ) {
-      installmentsRepository.find
-        .mockResolvedValueOnce(overdueRows)
-        .mockResolvedValueOnce(upcomingRows);
+    // installmentsRepository.find is called once, for
+    // findClientIdsWithOverdueInstallments. Reversed 2026-09-07 (human,
+    // see the service's own doc comment): the weekly job no longer
+    // cross-checks upcoming installments to exclude anyone — it now owns
+    // the mixed picture, so every dynamically-overdue client goes through,
+    // upcoming installments or not.
+    function mockDynamicClients(overdueRows: Installment[]) {
+      installmentsRepository.find.mockResolvedValueOnce(overdueRows);
     }
 
     it('sends a reminder to every dynamically-overdue client with no whitelist involved', async () => {
@@ -351,14 +347,11 @@ describe('OverdueReminderService', () => {
       expect(sendSpy).toHaveBeenCalledWith('client-2');
     });
 
-    it('excludes a client who also currently has an upcoming installment — the daily job covers them', async () => {
-      mockDynamicClients(
-        [
-          overdueInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
-          overdueInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
-        ],
-        [overdueInstallment({ loan: { ...mockLoan, clientId: 'client-2' } })],
-      );
+    it('no longer excludes a client who also currently has an upcoming installment — this job now owns the mixed picture', async () => {
+      mockDynamicClients([
+        overdueInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
+        overdueInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
+      ]);
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
         .mockResolvedValue({} as MessageLog);
@@ -366,10 +359,11 @@ describe('OverdueReminderService', () => {
       await service.runWeeklyReminder();
 
       expect(sendSpy).toHaveBeenCalledWith('client-1');
-      expect(sendSpy).not.toHaveBeenCalledWith('client-2');
+      expect(sendSpy).toHaveBeenCalledWith('client-2');
+      expect(installmentsRepository.find).toHaveBeenCalledTimes(1);
     });
 
-    it('passes the dynamically-overdue client ids (minus the excluded ones) through the frequency throttle', async () => {
+    it('passes the dynamically-overdue client ids through the frequency throttle', async () => {
       mockDynamicClients([
         overdueInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         overdueInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),

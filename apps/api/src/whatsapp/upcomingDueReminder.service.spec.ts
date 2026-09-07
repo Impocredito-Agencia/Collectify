@@ -175,9 +175,7 @@ describe('UpcomingDueReminderService', () => {
         {
           provide: ConfigService,
           useValue: {
-            get: jest
-              .fn()
-              .mockReturnValue({ upcomingDueReminderDays: [5, 3, 1] }),
+            get: jest.fn().mockReturnValue({ upcomingDueReminderDays: 5 }),
           },
         },
       ],
@@ -294,8 +292,22 @@ describe('UpcomingDueReminderService', () => {
   });
 
   describe('runDailyReminder', () => {
+    // installmentsRepository.find is called twice: once for
+    // findClientIdsWithUpcomingInstallments, then for
+    // findClientIdsWithOverdueInstallments (the exclusion check, added
+    // 2026-09-07 — see the service's own doc comment for why the daily job
+    // now defers clients with an overdue installment to the weekly job).
+    function mockDynamicClients(
+      upcomingRows: Installment[],
+      overdueRows: Installment[] = [],
+    ) {
+      installmentsRepository.find
+        .mockResolvedValueOnce(upcomingRows)
+        .mockResolvedValueOnce(overdueRows);
+    }
+
     it('sends a reminder to every dynamically-upcoming client with no whitelist involved', async () => {
-      installmentsRepository.find.mockResolvedValue([
+      mockDynamicClients([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
       ]);
@@ -309,8 +321,26 @@ describe('UpcomingDueReminderService', () => {
       expect(sendSpy).toHaveBeenCalledWith('client-2');
     });
 
-    it('passes the dynamically-upcoming client ids through the frequency throttle', async () => {
-      installmentsRepository.find.mockResolvedValue([
+    it('excludes a client who also currently has an overdue installment — the weekly job covers them now', async () => {
+      mockDynamicClients(
+        [
+          upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
+          upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
+        ],
+        [upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } })],
+      );
+      const sendSpy = jest
+        .spyOn(service, 'sendReminderForClient')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runDailyReminder();
+
+      expect(sendSpy).toHaveBeenCalledWith('client-1');
+      expect(sendSpy).not.toHaveBeenCalledWith('client-2');
+    });
+
+    it('passes the dynamically-upcoming client ids (minus the excluded ones) through the frequency throttle', async () => {
+      mockDynamicClients([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
       ]);
       jest
@@ -325,7 +355,7 @@ describe('UpcomingDueReminderService', () => {
     });
 
     it('only sends to the clients the frequency throttle actually returns', async () => {
-      installmentsRepository.find.mockResolvedValue([
+      mockDynamicClients([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
       ]);
@@ -343,7 +373,7 @@ describe('UpcomingDueReminderService', () => {
     });
 
     it('continues with the next client when one fails', async () => {
-      installmentsRepository.find.mockResolvedValue([
+      mockDynamicClients([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
       ]);
