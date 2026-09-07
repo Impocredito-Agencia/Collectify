@@ -3,9 +3,9 @@ import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import {
-  ClientLoanImportResult,
-  clientLoanImportApi,
-} from '@/features/clients/clientLoanImportApi';
+  ClientsImportResult,
+  clientsImportApi,
+} from '@/features/clients/clientsImportApi';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 interface ImportClientsDialogProps {
@@ -17,17 +17,21 @@ interface ImportClientsDialogProps {
 }
 
 // No Figma frame for this — 100% new per the Phase 8 scope confirmed with
-// the client (2026-08-19, see docs/phasesClient/PHASE_8_POLISH.md). One
-// row of the uploaded file = one credit; the same cédula can repeat
-// across rows for a client with several loans. All-or-nothing per row —
-// see ClientLoanImportService for the exact rule.
+// the client (2026-08-19, see docs/phasesClient/PHASE_8_POLISH.md).
 //
 // "Modo de carga" (normal/histórico) removed 2026-09-03 — client
 // feedback: "histórico" (which skipped the mora/cupo guard, for bulk-
 // loading loans already overdue or out of credit limit) was never used
-// in practice, just an extra decision in the dialog for no benefit. Every
-// upload now goes through the same guard as creating a loan by hand — see
-// ClientLoanImportService.processRow's comment on this.
+// in practice, just an extra decision in the dialog for no benefit.
+//
+// Split from a combined clients+loans import into clients-only (2026-09-06,
+// human request) — each row is now just a client, no loan data. A cédula
+// that already exists is a no-op (surfaced below as "ya existían", not an
+// error) as long as the row's data matches what's on file; a mismatch is
+// still a row error. This dialog never creates a loan — the backend split
+// off a separate POST /loans/import (see apps/api/src/loanImport, matched
+// by cédula), but there's no UI for it on the Préstamos list yet; that's a
+// deliberately separate follow-up, not built in this pass.
 export function ImportClientsDialog({
   onClose,
   onImported,
@@ -36,7 +40,7 @@ export function ImportClientsDialog({
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isExportingErrors, setIsExportingErrors] = useState(false);
-  const [result, setResult] = useState<ClientLoanImportResult | null>(null);
+  const [result, setResult] = useState<ClientsImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -46,7 +50,7 @@ export function ImportClientsDialog({
     setIsDownloadingTemplate(true);
     setError(null);
     try {
-      await clientLoanImportApi.downloadTemplate();
+      await clientsImportApi.downloadTemplate();
     } catch {
       setError('No se pudo descargar la plantilla. Intenta de nuevo.');
     } finally {
@@ -60,7 +64,7 @@ export function ImportClientsDialog({
     setError(null);
     setResult(null);
     try {
-      const summary = await clientLoanImportApi.importFile(file);
+      const summary = await clientsImportApi.importFile(file);
       setResult(summary);
       if (summary.created > 0) {
         onImported?.();
@@ -78,7 +82,7 @@ export function ImportClientsDialog({
     if (!result || result.skipped.length === 0) return;
     setIsExportingErrors(true);
     try {
-      await clientLoanImportApi.exportErrors(result.skipped);
+      await clientsImportApi.exportErrors(result.skipped);
     } catch {
       setError('No se pudo generar el archivo de errores.');
     } finally {
@@ -89,11 +93,12 @@ export function ImportClientsDialog({
   return (
     <Modal maxWidth="max-w-[560px]">
       <h2 className="text-card-title font-medium text-white">
-        Importar clientes y créditos
+        Importar clientes
       </h2>
       <p className="mt-2.5 text-small text-muted">
-        Cada fila del archivo representa un crédito — un mismo cliente puede
-        repetirse en varias filas si tiene más de un préstamo.
+        Cada fila del archivo representa un cliente, sin datos de crédito. Si la
+        cédula ya existe y los datos coinciden, la fila no se vuelve a crear; si
+        difieren, se marca como error para revisar.
       </p>
 
       <div className="mt-6 flex flex-col gap-4">
@@ -165,6 +170,11 @@ export function ImportClientsDialog({
               {result.created} de {result.totalRows} filas cargadas
               correctamente.
             </p>
+            {result.alreadyExisted > 0 && (
+              <p className="mt-1 text-small text-muted">
+                {result.alreadyExisted} fila(s) ya existían — no se modificaron.
+              </p>
+            )}
             {result.skipped.length > 0 && (
               <>
                 <p className="mt-1 text-small text-danger">

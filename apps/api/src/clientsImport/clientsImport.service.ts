@@ -41,7 +41,6 @@ const CLIENT_MATCH_FIELDS: (keyof CreateClientDto)[] = [
   'homeAddress',
   'workAddress',
   'city',
-  'neighborhood',
   'occupation',
   'employerName',
 ];
