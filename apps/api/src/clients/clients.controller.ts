@@ -23,7 +23,11 @@ import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { AppModule } from '../users/entities/userModulePermission.entity';
 
-import { ClientDetail, ClientsService } from './clients.service';
+import {
+  ClientDetail,
+  ClientListItem,
+  ClientsService,
+} from './clients.service';
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
@@ -43,7 +47,9 @@ export class ClientsController {
   @Get()
   @ApiOperation({ summary: 'List clients (paginated, searchable, filterable)' })
   @ApiResponse({ status: 200, description: 'Returns a page of clients.' })
-  findAll(@Query() query: QueryClientsDto): Promise<PaginatedResult<Client>> {
+  findAll(
+    @Query() query: QueryClientsDto,
+  ): Promise<PaginatedResult<ClientListItem>> {
     return this.clientsService.findAll(query);
   }
 

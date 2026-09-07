@@ -70,6 +70,22 @@ export interface ClientDetail extends Client {
   messageFrequency: ClientMessageFrequency | null;
 }
 
+// "Préstamos activos" + "En mora" columns on ClientsListPage.tsx (client
+// request, 2026-09-05) — the table had a lot of unused horizontal space,
+// and these are the two things an admin/cobrador actually wants to know
+// at a glance without opening each client's own detail page.
+// maxOverdueDays is 0 for a client with no overdue installments (not
+// necessarily "no active loans" — a client can have active loans with
+// every installment still current). Same "any overdueDays > 0 across the
+// client's active loans" definition as ClientDetailPage's own "En mora"
+// stat card (totalOverdueBalance), not the stricter >30-day threshold
+// used for isMoraBlocked/hasMoraBlock — that one specifically gates new
+// loan creation, this one is just informational.
+export interface ClientListItem extends Client {
+  activeLoanCount: number;
+  maxOverdueDays: number;
+}
+
 interface EnrichedInstallment {
   status: InstallmentStatus;
   overdueDays: number;
@@ -165,7 +181,9 @@ export class ClientsService {
   // without a database-side function. At this business's scale (a single
   // lending company's client list, not a multi-tenant SaaS), fetching the
   // filtered set before paginating is not a performance concern.
-  async findAll(query: QueryClientsDto): Promise<PaginatedResult<Client>> {
+  async findAll(
+    query: QueryClientsDto,
+  ): Promise<PaginatedResult<ClientListItem>> {
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
 
@@ -179,11 +197,74 @@ export class ClientsService {
 
     const total = items.length;
     const start = (page - 1) * limit;
+    const pageItems = items.slice(start, start + limit);
 
     return {
-      items: items.slice(start, start + limit),
+      items: await this.enrichClientListItems(pageItems),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  // Batched across just this page's clients (at most `limit`, not every
+  // match findAll() sorted through) — two queries total regardless of how
+  // many clients are on the page, instead of an N+1 loop calling something
+  // like enrichActiveInstallments per client. Mirrors that method's own
+  // logic (active loans only; legacy interestRate fallback, no per-concept
+  // moratory charges — same limitation that method already has) but
+  // aggregated across many clients' loans/installments in one pass.
+  private async enrichClientListItems(
+    clients: Client[],
+  ): Promise<ClientListItem[]> {
+    if (clients.length === 0) {
+      return [];
+    }
+
+    const clientIds = clients.map((client) => client.id);
+    const loans = await this.loansRepository.find({
+      where: { clientId: In(clientIds), status: LoanStatus.Active },
+    });
+
+    const activeLoanCountByClientId = new Map<string, number>();
+    const clientIdByLoanId = new Map<string, string>();
+    const interestRateByLoanId = new Map<string, number>();
+    for (const loan of loans) {
+      activeLoanCountByClientId.set(
+        loan.clientId,
+        (activeLoanCountByClientId.get(loan.clientId) ?? 0) + 1,
+      );
+      clientIdByLoanId.set(loan.id, loan.clientId);
+      interestRateByLoanId.set(loan.id, loan.interestRate);
+    }
+
+    const maxOverdueDaysByClientId = new Map<string, number>();
+    if (loans.length > 0) {
+      const installments = await this.installmentsRepository.find({
+        where: { loanId: In(loans.map((loan) => loan.id)) },
+      });
+      for (const installment of installments) {
+        const { overdueDays } = enrichInstallment(
+          installment,
+          interestRateByLoanId.get(installment.loanId) ?? 0,
+        );
+        if (overdueDays <= 0) {
+          continue;
+        }
+        const clientId = clientIdByLoanId.get(installment.loanId);
+        if (!clientId) {
+          continue;
+        }
+        maxOverdueDaysByClientId.set(
+          clientId,
+          Math.max(maxOverdueDaysByClientId.get(clientId) ?? 0, overdueDays),
+        );
+      }
+    }
+
+    return clients.map((client) => ({
+      ...client,
+      activeLoanCount: activeLoanCountByClientId.get(client.id) ?? 0,
+      maxOverdueDays: maxOverdueDaysByClientId.get(client.id) ?? 0,
+    }));
   }
 
   // 'all' means no filter at all (both active and soft-deleted). Any
