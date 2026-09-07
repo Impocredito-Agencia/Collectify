@@ -42,7 +42,6 @@ describe('DashboardService', () => {
       alternatePhoneNumber: null,
       homeAddress: null,
       workAddress: null,
-      neighborhood: null,
       city: null,
       occupation: null,
       employerName: null,
@@ -107,6 +106,31 @@ describe('DashboardService', () => {
       ...overrides,
     };
   }
+
+  // Bug fix, 2026-09-06 — several tests below build a `dueDate` fixture by
+  // subtracting N days from the real `Date.now()` and slicing to a UTC
+  // calendar-date string, then assert an exact overdueDays/interest result.
+  // That's only safe when "now" and "now minus N days" share the same UTC
+  // calendar day as their Bogotá calendar day — true most of the day, but
+  // false during UTC 00:00-05:00 (7pm-midnight in Bogotá), when the two
+  // diverge by one (see dueDateSchedule.ts's todayDateString() comment for
+  // the root cause). Whenever this suite happened to run in that window,
+  // gatherOverdueInstallments's own overdueDays calculation (correctly
+  // Bogotá-aware, via calculateOverdueDays) came out one day short of what
+  // the test's naive UTC arithmetic expected — an intermittent, time-of-day
+  // -dependent failure, not a real defect in the service. Pinning the clock
+  // to noon UTC (7am Bogotá, safely mid-day on both sides) for the whole
+  // suite makes every "N days ago" fixture below land on the same calendar
+  // day in UTC and in Bogotá, regardless of when the suite actually runs —
+  // same fix pattern as installmentCalculations.spec.ts's bogotaNoon().
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-06-15T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
 
   beforeEach(async () => {
     loansRepository = {
