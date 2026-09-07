@@ -48,11 +48,10 @@ export function DeleteConceptTypeDialog({
   return (
     <Modal maxWidth="max-w-[420px]">
       <h2 className="text-[16px] font-medium text-white">Eliminar cargo</h2>
-      <p className="mt-2.5 text-small text-muted">
-        ¿Estás seguro de que deseas eliminar "{conceptTypeName}"? Esta acción es
-        permanente y no se puede deshacer. Solo es posible si este cargo nunca
-        se usó en ningún préstamo — si ya se usó, seguirá bloqueado y solo podrá
-        quedar desactivado.
+      <p className="mt-2.5 text-small text-muted text-justify">
+        ¿Está seguro de que desea eliminar "{conceptTypeName}"? Esta acción es
+        permanente. Solo es posible si nunca se usó en un préstamo; si ya se
+        usó, quedará bloqueado y solo podrá desactivarse.
       </p>
 
       <div className="mt-6 border-t border-border" />
