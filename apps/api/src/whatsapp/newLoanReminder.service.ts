@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
@@ -14,23 +14,23 @@ import {
 } from './newLoanTemplateSelection';
 import { WhatsAppService } from './whatsapp.service';
 
-// Redesign, 2026-09-06 (supersedes the 2026-08-18 "no periodic retry
-// sweep, synchronous send only" decision — docs/phases/PHASE_18_MESSAGE_AUDIENCES.md
-// "Extended after client QA") — sendNewLoanMessage() itself is now called
-// from two places: `runPendingLoanNotifications()` below, on the admin's
-// configured schedule (WhatsappCronService's NewLoan family), and a manual
-// POST /message-logs/:id/retry for a previously-failed send. LoansService
-// no longer calls this synchronously at loan creation — see
-// LoansService.create()/refinance() and Loan.isNewLoan for what decides
-// whether a loan is eligible for the sweep at all.
+// Reverted, 2026-09-06 (confirmed with the human) — the 2026-09-05/06
+// cron-sweep redesign (a WhatsappCronService "NewLoan" family running
+// sendNewLoanMessage via runPendingLoanNotifications() on a schedule) is
+// removed. It introduced a real gap: a historical/backfilled loan that
+// slipped through with isNewLoan left true would only get caught — and
+// wrongly message the client — whenever the next scheduled run happened,
+// which could land well after WHATSAPP_SENDING_PAUSED had already been
+// lifted for legitimate traffic. Back to how it worked before that
+// redesign: LoansService.create()/refinance() call sendNewLoanMessage()
+// synchronously right after persisting, gated by Loan.isNewLoan (always
+// true for refinance — see refinance()'s own comment). A manual
+// POST /message-logs/:id/retry still exists for a previously-failed send.
 //
 // Callers are expected to catch and log failures themselves rather than
 // let a messaging failure block anything — same principle as the rest of
 // this module (a failed/skipped send is a business outcome, not an
-// application error). newLoanMessageSentAt is only ever set here, on a
-// genuinely Sent result, regardless of which caller triggered the send —
-// centralizing it here (rather than in each caller) is what makes a
-// manual retry and the sweep both safe to call without double-sending.
+// application error).
 //
 // Phase 33 rewrite — picks among 5 templates (see
 // docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md and newLoanTemplateSelection.ts):
@@ -141,8 +141,9 @@ export class NewLoanReminderService {
 
     // Only a genuinely Sent result marks newLoanMessageSentAt — a Failed
     // result (WhatsAppService itself reported failure, no exception
-    // thrown) must leave it null, so runPendingLoanNotifications() picks
-    // the loan back up on its next scheduled run.
+    // thrown) leaves it null. Nothing re-picks the loan up automatically
+    // anymore (no sweep) — a failed send has to go through the manual
+    // POST /message-logs/:id/retry, same as any other failed message.
     if (sent) {
       await this.loansRepository.update(
         { id: loanId },
@@ -151,30 +152,6 @@ export class NewLoanReminderService {
     }
 
     return savedLog;
-  }
-
-  // Called on the admin's configured schedule (WhatsappCronService's
-  // NewLoan family, default weekly — see CronConfig.newLoanReminderExpression).
-  // isNewLoan: true scopes this to loans the admin explicitly marked as a
-  // genuinely new credit event (see Loan.isNewLoan); newLoanMessageSentAt
-  // IS NULL scopes it to ones that haven't gotten their message yet. One
-  // bad loan's failure is logged and never blocks the rest of the batch —
-  // same no-throw principle as sendNewLoanMessage's caller-facing contract.
-  async runPendingLoanNotifications(): Promise<void> {
-    const pendingLoans = await this.loansRepository.find({
-      where: { isNewLoan: true, newLoanMessageSentAt: IsNull() },
-    });
-
-    for (const loan of pendingLoans) {
-      try {
-        await this.sendNewLoanMessage(loan.id);
-      } catch (error) {
-        this.logger.error(
-          `Failed to send new-loan WhatsApp message for loan ${loan.id}`,
-          error,
-        );
-      }
-    }
   }
 
   // A client is "new" exactly when they have no OTHER loan on file, of any
