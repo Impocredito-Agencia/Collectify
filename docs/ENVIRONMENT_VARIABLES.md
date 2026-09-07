@@ -54,9 +54,8 @@ WHATSAPP_SENDING_PAUSED=false
 # ── Scheduled jobs ──────────────────────────────────────
 OVERDUE_REMINDER_CRON=0 9 * * 1,3,5
 UPCOMING_DUE_REMINDER_CRON=0 8 * * *
-UPCOMING_DUE_REMINDER_DAYS=5,3,1
+UPCOMING_DUE_REMINDER_DAYS=5
 ACCOUNT_SUMMARY_REMINDER_CRON=0 8 1 * *
-NEW_LOAN_REMINDER_CRON=0 10 * * 1
 
 # ── CORS ────────────────────────────────────────────────
 CLIENT_URL=http://localhost:5173
@@ -84,9 +83,10 @@ CLIENT_URL=http://localhost:5173
 | `WHATSAPP_SENDING_PAUSED` | ✅ | Added 2026-09-06 (incident response — needed to pause every outbound WhatsApp send while re-importing real client/loan data). `true`/`false`, default `false`. When `true`, `WhatsAppService`'s three send methods (text, template, interactive buttons) short-circuit before ever calling Meta's API — covers every message type unconditionally: cron reminders, the synchronous new-loan/payment-confirmation sends, and self-service menu replies alike. Toggle back to `false` (or unset) and redeploy/restart to resume sending — see the relevant PR for the reactivation plan once decided. |
 | `OVERDUE_REMINDER_CRON` | ✅ | Cron expression controlling when the overdue reminder job runs. Default `0 9 * * 1,3,5` = every Monday, Wednesday, and Friday at 9:00 AM. Changed from a single weekly run (Monday only) at the client's request — the message content is still one consolidated summary per client, it's just sent three times a week instead of once. |
 | `UPCOMING_DUE_REMINDER_CRON` | ✅ | Cron expression controlling when the daily upcoming-due ("Aviso") reminder job runs. Default `0 8 * * *` = every day at 8:00 AM. Added in Phase 9 — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. |
-| `UPCOMING_DUE_REMINDER_DAYS` | ✅ | Comma-separated list of day thresholds before an installment's due date to send the "Aviso" reminder. Default `5,3,1`. Added in Phase 9. |
+| `UPCOMING_DUE_REMINDER_DAYS` | ✅ | Single number, default `5` — size in days of the "due soon" reminder window (remind while an installment is due within the next N days). Added in Phase 9 as a comma-separated list of three exact day-before-due checkpoints (`5,3,1`); **reworked 2026-09-07 (human)** to a cumulative window instead, since an exact-day match silently drops a reminder whenever the admin's cron day-of-week picker skips the one day that check needed — see `reminderInstallmentQueries.ts`'s doc comment. Simplified from a list to a single number the same day, once only the max of the three values was ever used. |
 | `ACCOUNT_SUMMARY_REMINDER_CRON` | ✅ | Cron expression for the account-summary cron (Phase 18) — sends to every client with at least one active loan (corrected after client QA, 2026-08-18; originally audience-only). Default `0 8 1 * *` = 8:00 AM on the 1st of each month. Admin-editable via `MessageTemplate.cronExpression`, which takes precedence over this code default when set — see `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
-| `NEW_LOAN_REMINDER_CRON` | ✅ | Added 2026-09-06. Cron expression for the "new loan"/refinance family (`ReminderFamily.NewLoan`) — sweeps loans where `is_new_loan` is true and `new_loan_message_sent_at` is still null, per the schedule below. Default `0 10 * * 1` = every Monday at 10:00 AM. Admin-editable via `MessageTemplate.cronExpression`, same precedence as the other cron vars above. Supersedes the 2026-08-18 decision that `new_loan` has no cron at all — see `Loan.isNewLoan` and `NewLoanReminderService.runPendingLoanNotifications`. Payment confirmation and "pagado en su totalidad" are NOT part of this — they stay synchronous, unaffected by this variable. |
+
+`NEW_LOAN_REMINDER_CRON` briefly existed here (added 2026-09-06, a scheduled sweep for the "new loan"/refinance family) and was removed the same day (confirmed with the human) — the sweep let a historical/backfilled loan slip through and message the client whenever it next ran, possibly after `WHATSAPP_SENDING_PAUSED` had already been lifted for legitimate traffic. New-loan and refinance messages are sent synchronously again, from `LoansService.create()`/`refinance()`, gated by `Loan.isNewLoan` — same as payment confirmation and "pagado en su totalidad" below, unaffected either way.
 | `CLIENT_URL` | ✅ | The client's URL, used to configure CORS. `http://localhost:5173` locally; the Cloudflare Workers URL in production. |
 
 ### On the pending Meta Cloud API credentials
@@ -153,7 +153,7 @@ JWT_ACCESS_EXPIRATION=15m
 JWT_REFRESH_EXPIRATION=7d
 OVERDUE_REMINDER_CRON=0 9 * * 1,3,5
 UPCOMING_DUE_REMINDER_CRON=0 8 * * *
-UPCOMING_DUE_REMINDER_DAYS=5,3,1
+UPCOMING_DUE_REMINDER_DAYS=5
 ACCOUNT_SUMMARY_REMINDER_CRON=0 8 1 * *
 CLIENT_URL=<the Cloudflare Workers production URL for this project, e.g. https://collectify.<subdomain>.workers.dev>
 # META_WHATSAPP_* — see "On the pending Meta Cloud API credentials" above.
