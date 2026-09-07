@@ -1,3 +1,5 @@
+import { formatPromissoryNoteLabel } from '../common/promissoryNoteLabel';
+
 import { PaymentHistoryEntry } from './breakdownQueries';
 import {
   AccountSummaryInstallmentForMessage,
@@ -113,7 +115,7 @@ export function renderBreakdownMessage(
 
 function renderPaymentHistoryLine(payment: PaymentHistoryEntry): string {
   return (
-    `• Cuota No. ${payment.installmentNumber} del pagaré #${payment.promissoryNoteNumber}: ` +
+    `• Cuota No. ${payment.installmentNumber} del pagaré ${formatPromissoryNoteLabel(payment.promissoryNoteNumber)}: ` +
     `$${formatCurrency(payment.amountPaid)}, pagada el ${formatDateEs(payment.paidAt)}.`
   );
 }

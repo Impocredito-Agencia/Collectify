@@ -1,3 +1,5 @@
+import { formatPromissoryNoteLabel } from '../common/promissoryNoteLabel';
+
 // Renders the overdue reminder message — confirmed real format from
 // docs/GLOSSARY.md → "Overdue reminder":
 //
@@ -73,7 +75,7 @@ function renderInstallmentLine(
 ): string {
   return (
     `${bulletForIndex(index)} La cuota No. ${item.installmentNumber} del pagaré ` +
-    `#${item.promissoryNoteNumber} por $${formatCurrency(item.totalDue)} ` +
+    `${formatPromissoryNoteLabel(item.promissoryNoteNumber)} por $${formatCurrency(item.totalDue)} ` +
     `(incluidos intereses) venció hace ${item.overdueDays} días.`
   );
 }
@@ -195,7 +197,7 @@ function renderUpcomingInstallmentLine(
 ): string {
   return (
     `${bulletForIndex(index)} La cuota No. ${item.installmentNumber} del pagaré ` +
-    `#${item.promissoryNoteNumber} por $${formatCurrency(item.amount)} ` +
+    `${formatPromissoryNoteLabel(item.promissoryNoteNumber)} por $${formatCurrency(item.amount)} ` +
     `vence en ${item.daysUntilDue} días.`
   );
 }
@@ -285,7 +287,7 @@ export function renderAccountSummaryMessage(
       const lines = groupInstallments
         .map(renderAccountSummaryInstallmentLine)
         .join('\n');
-      return `Pagaré #${promissoryNoteNumber}:\n${lines}`;
+      return `Pagaré ${formatPromissoryNoteLabel(promissoryNoteNumber)}:\n${lines}`;
     })
     .join('\n\n');
   const grandTotal = formatCurrency(calculateAccountSummaryTotal(installments));

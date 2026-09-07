@@ -13,6 +13,7 @@ import { Repository } from 'typeorm';
 
 import { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
 import { Client } from '../clients/entities/client.entity';
+import { formatPromissoryNoteLabel } from '../common/promissoryNoteLabel';
 import { InterestConceptType } from '../interestConceptTypes/entities/interestConceptType.entity';
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
@@ -208,14 +209,16 @@ export class AuditLogInterceptor implements NestInterceptor {
       }
       case 'loan': {
         if (entity && typeof entity.promissoryNoteNumber === 'string') {
-          return `Pagaré #${entity.promissoryNoteNumber}`;
+          return `Pagaré ${formatPromissoryNoteLabel(entity.promissoryNoteNumber)}`;
         }
         if (params.id) {
           const loan = await this.loansRepository.findOne({
             where: { id: params.id },
             withDeleted: true,
           });
-          return loan ? `Pagaré #${loan.promissoryNoteNumber}` : null;
+          return loan
+            ? `Pagaré ${formatPromissoryNoteLabel(loan.promissoryNoteNumber)}`
+            : null;
         }
         return null;
       }
@@ -249,7 +252,7 @@ export class AuditLogInterceptor implements NestInterceptor {
         if (!installment) {
           return base;
         }
-        return `${base} — cuota ${installment.installmentNumber} del pagaré #${installment.loan.promissoryNoteNumber}`;
+        return `${base} — cuota ${installment.installmentNumber} del pagaré ${formatPromissoryNoteLabel(installment.loan.promissoryNoteNumber)}`;
       }
       case 'user': {
         if (entity && typeof entity.fullName === 'string') {
