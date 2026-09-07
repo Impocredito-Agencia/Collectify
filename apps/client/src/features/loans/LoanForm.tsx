@@ -500,8 +500,18 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         totalInstallments: count,
         concepts: toConceptAssignments(),
         moratoryConcepts: toMoratoryConceptAssignments(),
-        corrienteInterestRate: corrienteInterestRate || undefined,
-        moratoryInterestRate: moratoryInterestRate || undefined,
+        // Bug fix, 2026-09-07 — `value || undefined` treated an explicit 0
+        // as "not set" (0 is falsy in JS), so a deliberate 0% rate silently
+        // got dropped and the API defaulted it back to the usury ceiling
+        // (see CreateLoanDto.corrienteInterestRate/loans.service.ts
+        // resolveInterestRate). '' is the actual "not set" state here — see
+        // this file's own comment above the corrienteInterestRate/
+        // moratoryInterestRate useState calls — so only that should map to
+        // undefined.
+        corrienteInterestRate:
+          corrienteInterestRate === '' ? undefined : corrienteInterestRate,
+        moratoryInterestRate:
+          moratoryInterestRate === '' ? undefined : moratoryInterestRate,
       });
       setPreview(result);
     } catch {
@@ -555,8 +565,12 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         totalInstallments: count,
         concepts: toConceptAssignments(),
         moratoryConcepts: toMoratoryConceptAssignments(),
-        corrienteInterestRate: corrienteInterestRate || undefined,
-        moratoryInterestRate: moratoryInterestRate || undefined,
+        // Bug fix, 2026-09-07 — see the identical comment in handlePreview
+        // above: `|| undefined` dropped an explicit 0% rate.
+        corrienteInterestRate:
+          corrienteInterestRate === '' ? undefined : corrienteInterestRate,
+        moratoryInterestRate:
+          moratoryInterestRate === '' ? undefined : moratoryInterestRate,
         ...(hasDownPayment
           ? {
               downPaymentAmount,

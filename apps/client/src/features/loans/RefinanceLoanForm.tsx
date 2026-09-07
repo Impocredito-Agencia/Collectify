@@ -507,8 +507,14 @@ export function RefinanceLoanForm({
         totalInstallments: count,
         concepts: toConceptAssignments(),
         moratoryConcepts: toMoratoryConceptAssignments(),
-        corrienteInterestRate: corrienteInterestRate || undefined,
-        moratoryInterestRate: moratoryInterestRate || undefined,
+        // Bug fix, 2026-09-07 — see LoanForm.tsx's identical comment:
+        // `|| undefined` treated an explicit 0% rate as "not set" (0 is
+        // falsy in JS), so it silently fell back to the usury ceiling
+        // instead of actually creating the loan at 0%.
+        corrienteInterestRate:
+          corrienteInterestRate === '' ? undefined : corrienteInterestRate,
+        moratoryInterestRate:
+          moratoryInterestRate === '' ? undefined : moratoryInterestRate,
       });
       setPreview(result);
     } catch {
@@ -557,8 +563,11 @@ export function RefinanceLoanForm({
         totalInstallments: count,
         concepts: toConceptAssignments(),
         moratoryConcepts: toMoratoryConceptAssignments(),
-        corrienteInterestRate: corrienteInterestRate || undefined,
-        moratoryInterestRate: moratoryInterestRate || undefined,
+        // Bug fix, 2026-09-07 — see handlePreview's identical comment above.
+        corrienteInterestRate:
+          corrienteInterestRate === '' ? undefined : corrienteInterestRate,
+        moratoryInterestRate:
+          moratoryInterestRate === '' ? undefined : moratoryInterestRate,
         ...(hasDownPayment
           ? {
               downPaymentAmount,

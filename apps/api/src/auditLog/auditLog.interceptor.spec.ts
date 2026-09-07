@@ -502,7 +502,7 @@ describe('AuditLogInterceptor', () => {
       expect(auditLogService.record).toHaveBeenCalledWith(
         expect.objectContaining({
           entityLabel: expect.stringContaining(
-            '— cuota 3 del pagaré ##0910',
+            '— cuota 3 del pagaré #0910',
           ) as unknown,
         }),
       );

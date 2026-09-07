@@ -459,6 +459,24 @@ describe('LoansService', () => {
       expect(loansRepository.save).not.toHaveBeenCalled();
     });
 
+    // Relaxed 2026-09-07 (confirmed with the human) — a number is only
+    // blocked while it belongs to a loan TypeORM's default (non-deleted)
+    // query can still see. No `withDeleted: true` here means a soft-deleted
+    // loan's number (see LoansService.remove(), which only ever soft-deletes
+    // a loan with zero payments registered) is no longer permanently
+    // reserved — see assertPromissoryNoteNumberIsUnique's own comment for
+    // why this can never let two loans be simultaneously active under the
+    // same number.
+    it('checks uniqueness without withDeleted, so a soft-deleted loan no longer permanently reserves its number', async () => {
+      loansRepository.findOne.mockResolvedValue(null);
+
+      await service.create(createDto);
+
+      expect(loansRepository.findOne).toHaveBeenCalledWith({
+        where: { promissoryNoteNumber: createDto.promissoryNoteNumber },
+      });
+    });
+
     // Phase 24 — a loan cannot be created at all without the current
     // month's usury rate on file (hard block, replacing Phase 15's
     // warning-only model).
