@@ -22,7 +22,10 @@ import {
   useRegisterBulkPayments,
   useRegisterPayment,
 } from '@/features/installments/useInstallments';
-import { ConceptCategory } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '@/features/interestConceptTypes/interestConceptTypesApi';
 import { DeleteLoanDialog } from '@/features/loans/DeleteLoanDialog';
 import { EditLoanDialog } from '@/features/loans/EditLoanDialog';
 import {
@@ -384,6 +387,36 @@ export function LoanDetailPage() {
         <StatCard label="Incremento en mora" value={`${loan.interestRate}%`} />
       </div>
 
+      {/* Redesign, 2026-09-06 (client feedback) — moved here, right after
+          the loan's core stat cards, from all the way below Historial de
+          pagos (see git history for that layout) — the client couldn't
+          find it there, especially on a refinanced loan with a long
+          installment/payment history to scroll past first. This is the
+          same "core facts of the loan" area a brand-new loan's own
+          Descripción would sit in, so a refinance's description (e.g.
+          noting which old pagarés it merged, per the manual multi-loan-
+          refinance workaround) is just as visible as everything else here.
+          items-center (not items-start) so the description text is
+          vertically centered against the button's own height (the button
+          is taller than a bare text line, thanks to its py-2.5 padding). */}
+      <div className="flex items-center justify-between gap-4 text-small">
+        <p>
+          <span className="text-muted">Descripción: </span>
+          <span className={loan.description ? 'text-white' : 'text-mid'}>
+            {loan.description ?? 'Sin descripción'}
+          </span>
+        </p>
+        {canManageLoan && (
+          <Button
+            variant="secondary"
+            onClick={() => setIsEditing(true)}
+            className="shrink-0 whitespace-nowrap"
+          >
+            Editar descripción
+          </Button>
+        )}
+      </div>
+
       {/* Phase 26 — optional per loan, not per client (a client can have
           one loan with a codeudor and another without). The codeudor is
           now an existing Client, resolved server-side and linked to their
@@ -509,39 +542,6 @@ export function LoanDetailPage() {
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* Redesign, 2026-09-04 (client feedback) — Editar previously lived
-          right next to the field it changes as a standalone text-link
-          button; briefly moved into the top action button group (as
-          "Editar descripción"); then moved back next to Descripción, with
-          justify-between so the button sits at a fixed spot on the right
-          edge of the row regardless of description length. Moved again,
-          same day, to below Historial de pagos, per follow-up client
-          feedback — same justify-between layout, just relocated further
-          down the page. items-center (not items-start) so the description
-          text is vertically centered against the button's own height
-          (the button is taller than a bare text line, thanks to its
-          py-2.5 padding — items-start left the text pinned to the top of
-          the row while the button's padding made it look vertically
-          centered by comparison; items-center aligns both around the same
-          mid-line instead). */}
-      <div className="flex items-center justify-between gap-4 text-small">
-        <p>
-          <span className="text-muted">Descripción: </span>
-          <span className={loan.description ? 'text-white' : 'text-mid'}>
-            {loan.description ?? 'Sin descripción'}
-          </span>
-        </p>
-        {canManageLoan && (
-          <Button
-            variant="secondary"
-            onClick={() => setIsEditing(true)}
-            className="shrink-0 whitespace-nowrap"
-          >
-            Editar descripción
-          </Button>
-        )}
       </div>
 
       {/* Updated in Fase 5, now that the real shape is known: WhatsApp
@@ -682,14 +682,54 @@ function InstallmentsTable({
   onToggleSelected: (installmentId: string) => void;
 }) {
   const chargeCategoryByName = new Map<string, ConceptCategory>();
+  // Added 2026-09-06 (client request — no visual way to tell what rate a
+  // given pagaré was actually made at, since two pagarés could legitimately
+  // differ as the usury ceiling moves month to month). The rate/flat amount
+  // is the same across every cuota of a given charge on one loan — only the
+  // resulting currency amount changes cuota to cuota — so it's captured
+  // once here, from the first installment that has it, rather than
+  // repeated in every row. Shown as a tooltip on the column header (see
+  // chargeHeaderTitle below), not inline text, per the client's own
+  // preference — a fixed header row is easier to scan than 24 repeated %
+  // labels down a column.
+  const chargeRateByName = new Map<
+    string,
+    { value: number; calculationType: ConceptCalculationType }
+  >();
   for (const installment of loan.installments) {
     for (const concept of installment.conceptBreakdown) {
       if (!chargeCategoryByName.has(concept.name)) {
         chargeCategoryByName.set(concept.name, concept.category);
       }
+      if (
+        !chargeRateByName.has(concept.name) &&
+        concept.value != null &&
+        concept.calculationType != null
+      ) {
+        chargeRateByName.set(concept.name, {
+          value: concept.value,
+          calculationType: concept.calculationType,
+        });
+      }
     }
   }
   const chargeNames = Array.from(chargeCategoryByName.keys());
+
+  function chargeHeaderTitle(name: string): string {
+    const category =
+      chargeCategoryByName.get(name) === ConceptCategory.Moratorio
+        ? 'Moratorio'
+        : 'Corriente';
+    const rate = chargeRateByName.get(name);
+    if (!rate) {
+      return category;
+    }
+    const rateLabel =
+      rate.calculationType === ConceptCalculationType.Percentage
+        ? `${rate.value}%`
+        : `${formatCurrency(rate.value)} fijo`;
+    return `${category} · ${rateLabel}`;
+  }
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -705,21 +745,19 @@ function InstallmentsTable({
               <Th>Vence</Th>
               <Th>Cuota</Th>
               {chargeNames.map((name) => (
-                <Th key={name}>
+                <Th key={name} title={chargeHeaderTitle(name)}>
                   {name}
                   {/* Shortened to a single letter (style cleanup,
                       2026-09-04) — the full "Corriente"/"Moratorio" word ate
                       too much horizontal space per charge column, which ran
                       out fast on loans with several catalog charges. Same
-                      color coding as before; title= carries the full word
-                      for anyone who hovers. */}
+                      color coding as before. The header's own title=
+                      (chargeHeaderTitle, added 2026-09-06) now also carries
+                      the %/monto fijo this charge was actually assigned at
+                      — hover anywhere on the header cell to see it, instead
+                      of repeating it on all 24 rows below (see that
+                      function's own comment). */}
                   <span
-                    title={
-                      chargeCategoryByName.get(name) ===
-                      ConceptCategory.Moratorio
-                        ? 'Moratorio'
-                        : 'Corriente'
-                    }
                     className={`ml-1.5 rounded px-1 py-0.5 text-[9px] font-medium normal-case tracking-normal ${
                       chargeCategoryByName.get(name) ===
                       ConceptCategory.Moratorio

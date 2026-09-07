@@ -210,12 +210,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   );
   const [coDebtorRelationship, setCoDebtorRelationship] = useState('');
 
-  // Added 2026-09-06 — off by default ("es viejo"): the admin has to
-  // explicitly opt a loan into the scheduled "new loan" WhatsApp message.
-  // Safe default for a platform still being used to type in historical/
-  // backfilled loans alongside genuinely new ones — see
-  // apps/api/src/loans/entities/loan.entity.ts's isNewLoan comment.
-  const [isNewLoan, setIsNewLoan] = useState(false);
   // QoL — never offer the loan's own client as a codeudor candidate, so
   // there's nothing to pick that would only get rejected at submit time.
   const coDebtorSearchResults = (coDebtorResults?.items ?? []).filter(
@@ -578,7 +572,16 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                 : {}),
             }
           : {}),
-        isNewLoan,
+        // Reverted, 2026-09-06 (confirmed with the human) — no longer a
+        // checkbox here. This form is "crear préstamo nuevo"; a historical/
+        // backfilled loan typed in through it relies on
+        // WHATSAPP_SENDING_PAUSED being on for the duration of the backfill
+        // to suppress the new-loan message, same as it already relies on
+        // for the payment-confirmation messages of each historical cuota
+        // registered afterward. Bulk Excel import (LoanImportService) is
+        // unaffected — it never sets this field, so it still defaults to
+        // false there.
+        isNewLoan: true,
       });
       onClose();
     } catch (err) {
@@ -1374,24 +1377,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               )}
             </div>
           </fieldset>
-
-          {/* Added 2026-09-06 — off by default. See the isNewLoan state
-              comment above for why "es viejo" is the safe default. */}
-          <label className="flex items-center gap-2.5 rounded border border-border bg-input p-3">
-            <input
-              type="checkbox"
-              checked={isNewLoan}
-              onChange={(event) => setIsNewLoan(event.target.checked)}
-              className="size-4 shrink-0 rounded border-border bg-background accent-white"
-            />
-            <span className="text-control text-white">
-              Es un préstamo nuevo
-            </span>
-            <span className="text-meta text-muted">
-              (desmárcalo si estás cargando un préstamo antiguo — no se enviará
-              el mensaje de WhatsApp de nuevo pagaré)
-            </span>
-          </label>
 
           {formError && (
             <p className="text-small text-danger" role="alert">
