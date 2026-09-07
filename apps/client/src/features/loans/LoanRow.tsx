@@ -25,31 +25,32 @@ export function LoanRow({ loan, rowNumber }: LoanRowProps) {
     loan.status !== LoanStatus.Paid && loan.status !== LoanStatus.Refinanced;
 
   return (
-    <tr className="border-t border-border">
+    <tr className="divide-x divide-border border-t border-border">
       <Td muted>{rowNumber}</Td>
-      <Td>{loan.promissoryNoteNumber}</Td>
+      <Td className="whitespace-nowrap text-center">
+        {loan.promissoryNoteNumber}
+      </Td>
       <Td>{loan.clientFullName}</Td>
-      <Td>{formatCurrency(loan.principalAmount)}</Td>
-      <Td>{formatCurrency(loan.outstandingBalance)}</Td>
-      <Td>
+      <Td className="text-center">{formatCurrency(loan.outstandingBalance)}</Td>
+      <Td className="text-center">
         {loan.installmentsPaid}/{loan.totalInstallments}
       </Td>
-      <Td>
+      <Td className="text-center">
         <span
           className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(loan.overdueDays)}`}
         >
           {loan.overdueDays} días
         </span>
       </Td>
-      <Td>
+      <Td className="text-center">
         <span
           className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${estado.classes}`}
         >
           {estado.label}
         </span>
       </Td>
-      <Td>
-        <div className="flex gap-2">
+      <Td className="text-center">
+        <div className="flex justify-center gap-2">
           <RowActionButton to={`/prestamos/${loan.id}`}>Ver</RowActionButton>
           {hasPendingInstallments ? (
             <RowActionButton to={`/prestamos/${loan.id}?pago=1`}>

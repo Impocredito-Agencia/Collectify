@@ -16,6 +16,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { IsArray } from 'class-validator';
 
 import { Audit } from '../auditLog/decorators/audit.decorator';
 import { RequireModule } from '../auth/decorators/requireModule.decorator';
@@ -34,7 +35,16 @@ const XLSX_MIME_TYPE =
 const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const XLSX_RESPONSE_CONTENT_TYPE = XLSX_MIME_TYPE;
 
+// Bug fix, 2026-09-06: `errors` had no class-validator decorator at all,
+// so the global ValidationPipe (whitelist: true, forbidNonWhitelisted:
+// true — see main.ts) treated it as an unrecognized property and rejected
+// every real request with a 400, before it ever reached the service. Only
+// @IsArray() is needed here (not @ValidateNested()) — this endpoint is
+// stateless and just echoes each RowError's fields back into the workbook,
+// so the array items don't need to be validated/transformed into their own
+// class, only recognized as a known, whitelisted property.
 class ImportErrorsExportDto {
+  @IsArray()
   errors!: RowError[];
 }
 

@@ -135,12 +135,6 @@ export const CLIENT_COLUMNS: ColumnDefinition[] = [
     type: 'string',
   },
   {
-    key: 'neighborhood',
-    aliases: ['barrio', 'neighborhood'],
-    required: false,
-    type: 'string',
-  },
-  {
     key: 'city',
     aliases: ['ciudad', 'city'],
     required: false,

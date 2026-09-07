@@ -32,10 +32,13 @@ export interface ClientParseResult {
   errors: RowError[];
 }
 
-// Row 1 = headers, row 2 = fill-in instructions — every workbook this
-// module accepts (the downloaded template and the errors-export file
-// alike) has this same fixed shape, so real data always starts here.
-const FIRST_DATA_ROW = 3;
+// Row 1 = headers, row 2 onward = real data — every workbook this module
+// accepts (the downloaded template and the errors-export file alike) has
+// this same fixed shape. There used to be a fill-in-instructions row
+// between the two (removed 2026-09-06, human request — required columns
+// are now marked directly in the header text instead, see
+// clientsImportTemplate.ts's headerFor()), which is why this was 3 before.
+const FIRST_DATA_ROW = 2;
 
 // ExcelJS hands back rich-text/formula cells as objects, not plain values.
 function cellText(value: unknown): string {
@@ -62,8 +65,19 @@ function cellText(value: unknown): string {
   return '';
 }
 
+// Strips a trailing parenthetical note — e.g. "Nombre (O)" or "Dirección de
+// residencia (O una de las dos)" — before matching against `aliases`.
+// clientsImportTemplate.ts's headerFor() appends these to mark required
+// columns directly in the header text (added 2026-09-06, replacing the old
+// separate instructions row), so without this the generated template's own
+// headers would stop matching their own column definitions, making every
+// column look missing. Aliases never contain parentheses, so this is safe.
+function stripRequiredMarker(value: string): string {
+  return value.replace(/\s*\([^)]*\)\s*$/, '');
+}
+
 function normalizeHeader(value: unknown): string {
-  return cellText(value)
+  return stripRequiredMarker(cellText(value))
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
     .trim()
@@ -112,9 +126,7 @@ export async function parseClientsWorkbook(
   const errors: RowError[] = [];
 
   sheet.eachRow((row, rowNumber) => {
-    // Row 1 = headers, row 2 = the fill-in instructions/examples row
-    // (clientsImportTemplate.ts addInstructionsRow) — always skipped,
-    // regardless of what ends up written there. Data starts at row 3.
+    // Row 1 = headers, skipped — real data starts at row 2.
     if (rowNumber < FIRST_DATA_ROW) {
       return;
     }

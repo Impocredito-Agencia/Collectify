@@ -160,17 +160,16 @@ Unique on (`user_id`, `module`). **Row presence is the grant — there's no bool
 | `first_name` | VARCHAR | |
 | `last_name` | VARCHAR | |
 | `document_number` | VARCHAR | national ID (cédula) — confirmed required, present in both source spreadsheets as `DOCUMENTO`. As of Phase 26, also enforced (rejected if missing/empty) in `ClientsService.create()` for interactively-created clients — see "Added/changed in Phase 26" below. |
-| `phone_number` | VARCHAR | E.164 format, e.g. `+573001234567` |
+| `phone_number` | VARCHAR | E.164 format, e.g. `+573001234567`. As of 2026-09-06, this is enforced by normalization, not just documentation — see "Bug fix, 2026-09-06 — phone number normalization" below. |
 | `credit_limit` | DECIMAL(12,2), nullable | maximum credit exposure ("cupo") enforced at loan creation. Nullable — unset means no cupo is enforced for this client, same "absence of a value means the rule doesn't apply" convention as `loans.description`. Added Phase 10, see "Changed after Phase 10" below. |
 | `document_type` | ENUM (`cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`), nullable | Added Phase 21. As of Phase 26, `loans.co_debtor_document_type` (which shared this enum) is gone — a co-debtor is now a `Client` reference, so their `document_type` is read from this same column. |
 | `date_of_birth` | DATE, nullable | Added Phase 21. |
 | `document_issue_place` | VARCHAR, nullable | Added Phase 21. |
 | `document_issue_date` | DATE, nullable | Added Phase 21 (client feedback after reviewing the built form — `document_issue_place` already existed, the date didn't). |
 | `email` | VARCHAR, nullable | Added Phase 21. |
-| `alternate_phone_number` | VARCHAR, nullable | Added Phase 21. |
+| `alternate_phone_number` | VARCHAR, nullable | Added Phase 21. Same E.164 normalization as `phone_number` — see 2026-09-06 note above. |
 | `home_address` | TEXT, nullable | Added Phase 21. As of Phase 26, at least one of `home_address`/`work_address` is enforced (rejected if both are missing/empty) in `ClientsService.create()` for interactively-created clients — see "Added/changed in Phase 26" below. |
 | `work_address` | TEXT, nullable | Added Phase 21. Same either/or requirement as `home_address` above, as of Phase 26. |
-| `neighborhood` | VARCHAR, nullable | Added Phase 21. |
 | `city` | VARCHAR, nullable | Added Phase 21. |
 | `occupation` | VARCHAR, nullable | Added Phase 21. |
 | `employer_name` | VARCHAR, nullable | Added Phase 21. |
@@ -669,6 +668,20 @@ Fixed by tracing the button tap back to the exact reminder it replied to:
 - `EstadoCuenta`/`CuotasPendientes` (the self-service menu's own buttons) are unchanged — still the full account, by design.
 
 Verified against a real local Postgres: seeded a `message_logs`/`message_log_items` pair scoping one specific overdue installment (out of 3 pending on the same client/loan), posted a real signed webhook payload with a matching `context.id` through the running API, and directly queried `findInstallmentsBreakdownByIds` against the live DB — returned exactly that 1 installment vs. 3 for the same client's full account.
+
+## Removed, 2026-09-06 — `clients.neighborhood` ("Barrio")
+
+Client request: the field was never actually used anywhere once entered — no report, filter, or WhatsApp message referenced it — so it was dropped outright rather than kept as dead weight, same call already made once for `loans.usury_justification`/`usury_ceiling_exceeded_at_creation` (see "Added/changed in Phase 24" above).
+
+Dropped via a new migration (`1788700000000-DropNeighborhoodFromClients.ts`), not by editing the Phase 21 migration that added it — this project's migrations are never edited after being merged. Removed everywhere else it appeared: `Client` entity, `CreateClientDto`/`UpdateClientDto` (the latter inherits via `PartialType`), the Excel import (`clientsImportColumns.ts`'s column definition, `clientsImportTemplate.ts`'s header label, and `ClientsImportService`'s `CLIENT_MATCH_FIELDS` conflict check), `ClientForm.tsx`'s "Direcciones" section, and `ClientDetailPage.tsx`'s detail view.
+
+## Bug fix, 2026-09-06 — phone number normalization
+
+Client report, with a screenshot: a manually-created client showed `+57 321 940 2299` while a client imported the same day from Excel, typed as `3218204455`, was stored exactly as typed — no `+57`, no formatting. Root cause: `@IsPhoneNumber('CO')` on `CreateClientDto.phoneNumber`/`alternatePhoneNumber` and `CreateClientReferenceDto.phoneNumber` validates a number's format but never rewrites the value, so nothing canonicalized it before it reached the database — the frontend's `CO_PHONE_REGEX` gate on `ClientForm.tsx` only covers the interactive form, not the Excel import path, which has no client-side gate at all.
+
+Fixed with `normalizePhoneNumber()` (`apps/api/src/clients/normalizePhoneNumber.ts`, using `libphonenumber-js`), wired in as `@Transform(({ value }) => normalizePhoneNumber(value))` ahead of `@IsPhoneNumber('CO')` on all three fields above. Since class-transformer's `@Transform` runs before class-validator's checks — both under the global `ValidationPipe({ transform: true })` in `main.ts`, and via the direct `plainToInstance()` call `ClientsImportService` makes for every Excel row — one fix normalizes both the manual-creation and the Excel-import paths to the same E.164 form. A value that fails to parse as a valid Colombian number is left unchanged (trimmed only); `@IsPhoneNumber('CO')` still rejects it, same as before.
+
+Also added, same request: `onBlur` format validation on `ClientForm.tsx`'s `phoneNumber`/`alternatePhoneNumber` inputs, so a manually-typed bad format is flagged as soon as the user leaves the field instead of only at submit — this is a client-side regex check only, no additional request to the server.
 
 ## Related documents
 

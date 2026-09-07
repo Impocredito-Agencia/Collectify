@@ -61,7 +61,6 @@ describe('ClientsService', () => {
     alternatePhoneNumber: null,
     homeAddress: null,
     workAddress: null,
-    neighborhood: null,
     city: null,
     occupation: null,
     employerName: null,
@@ -103,7 +102,13 @@ describe('ClientsService', () => {
     };
     loansRepository = {
       count: jest.fn().mockResolvedValue(0),
-      find: jest.fn(),
+      // Defaults to no active loans at all — findAll() now enriches every
+      // page via enrichClientListItems(), which unconditionally calls
+      // loansRepository.find(); without this default, every findAll test
+      // below that doesn't care about activeLoanCount/maxOverdueDays would
+      // otherwise crash on `loans.map(...)` over an unmocked (undefined)
+      // result. Tests that DO care override this per-case.
+      find: jest.fn().mockResolvedValue([]),
     };
     installmentsRepository = { find: jest.fn() };
     clientReferencesRepository = {
@@ -472,7 +477,7 @@ describe('ClientsService', () => {
       const result = await service.findAll({});
 
       expect(result).toEqual({
-        items: [mockClient],
+        items: [{ ...mockClient, activeLoanCount: 0, maxOverdueDays: 0 }],
         meta: { page: 1, limit: 50, total: 1, totalPages: 1 },
       });
       expect(repository.find).toHaveBeenCalledWith({
@@ -553,6 +558,147 @@ describe('ClientsService', () => {
         limit: 5,
         total: 12,
         totalPages: 3,
+      });
+    });
+
+    // "Préstamos activos" + "En mora" columns on ClientsListPage.tsx (client
+    // request, 2026-09-05) — exercised here through findAll() since
+    // enrichClientListItems is private. maxOverdueDays uses the same "any
+    // overdueDays > 0" definition as ClientDetailPage's own "En mora" stat,
+    // not the stricter >30-day hasMoraBlock threshold.
+    describe('enrichClientListItems (Préstamos activos + En mora)', () => {
+      it('batches exactly two queries regardless of how many clients are on the page', async () => {
+        const clientTwo = { ...mockClient, id: 'client-2' };
+        repository.find.mockResolvedValue([mockClient, clientTwo]);
+        loansRepository.find.mockResolvedValue([
+          { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+          { id: 'loan-2', clientId: clientTwo.id, interestRate: 2 },
+        ]);
+        installmentsRepository.find.mockResolvedValue([]);
+
+        await service.findAll({});
+
+        expect(loansRepository.find).toHaveBeenCalledTimes(1);
+        expect(loansRepository.find).toHaveBeenCalledWith({
+          where: {
+            clientId: expect.objectContaining({ _type: 'in' }) as unknown,
+            status: LoanStatus.Active,
+          },
+        });
+        expect(installmentsRepository.find).toHaveBeenCalledTimes(1);
+        expect(installmentsRepository.find).toHaveBeenCalledWith({
+          where: {
+            loanId: expect.objectContaining({ _type: 'in' }) as unknown,
+          },
+        });
+      });
+
+      it('skips the installments query entirely when no client on the page has an active loan', async () => {
+        repository.find.mockResolvedValue([mockClient]);
+        loansRepository.find.mockResolvedValue([]);
+
+        const result = await service.findAll({});
+
+        expect(result.items[0]).toMatchObject({
+          activeLoanCount: 0,
+          maxOverdueDays: 0,
+        });
+        expect(installmentsRepository.find).not.toHaveBeenCalled();
+      });
+
+      it('counts active loans per client', async () => {
+        const clientTwo = { ...mockClient, id: 'client-2' };
+        repository.find.mockResolvedValue([mockClient, clientTwo]);
+        loansRepository.find.mockResolvedValue([
+          { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+          { id: 'loan-2', clientId: mockClient.id, interestRate: 2 },
+          { id: 'loan-3', clientId: clientTwo.id, interestRate: 2 },
+        ]);
+        installmentsRepository.find.mockResolvedValue([]);
+
+        const result = await service.findAll({});
+
+        expect(result.items.find((c) => c.id === mockClient.id)).toMatchObject({
+          activeLoanCount: 2,
+        });
+        expect(result.items.find((c) => c.id === clientTwo.id)).toMatchObject({
+          activeLoanCount: 1,
+        });
+      });
+
+      it('takes the maximum overdueDays across a client’s loans, ignoring non-overdue installments', async () => {
+        loansRepository.find.mockResolvedValue([
+          { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+          { id: 'loan-2', clientId: mockClient.id, interestRate: 2 },
+        ]);
+        installmentsRepository.find.mockResolvedValue([
+          {
+            id: 'inst-1',
+            loanId: 'loan-1',
+            amount: 300,
+            dueDate: daysAgo(5),
+            status: InstallmentStatus.Pending,
+          },
+          {
+            id: 'inst-2',
+            loanId: 'loan-2',
+            amount: 300,
+            dueDate: daysAgo(20),
+            status: InstallmentStatus.Pending,
+          },
+          {
+            id: 'inst-3',
+            loanId: 'loan-1',
+            amount: 300,
+            dueDate: daysAgo(-10), // not yet due — not overdue
+            status: InstallmentStatus.Pending,
+          },
+        ]);
+        repository.find.mockResolvedValue([mockClient]);
+
+        const result = await service.findAll({});
+
+        expect(result.items[0]).toMatchObject({ maxOverdueDays: 20 });
+      });
+
+      it('reports maxOverdueDays 0 for a client whose active-loan installments are all current', async () => {
+        repository.find.mockResolvedValue([mockClient]);
+        loansRepository.find.mockResolvedValue([
+          { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+        ]);
+        installmentsRepository.find.mockResolvedValue([
+          {
+            id: 'inst-1',
+            loanId: 'loan-1',
+            amount: 300,
+            dueDate: daysAgo(-5),
+            status: InstallmentStatus.Pending,
+          },
+        ]);
+
+        const result = await service.findAll({});
+
+        expect(result.items[0]).toMatchObject({ maxOverdueDays: 0 });
+      });
+
+      it('never lets a >30-day overdue installment silently disappear (uses the loose En mora definition, not hasMoraBlock’s threshold)', async () => {
+        repository.find.mockResolvedValue([mockClient]);
+        loansRepository.find.mockResolvedValue([
+          { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+        ]);
+        installmentsRepository.find.mockResolvedValue([
+          {
+            id: 'inst-1',
+            loanId: 'loan-1',
+            amount: 300,
+            dueDate: daysAgo(45),
+            status: InstallmentStatus.Pending,
+          },
+        ]);
+
+        const result = await service.findAll({});
+
+        expect(result.items[0]).toMatchObject({ maxOverdueDays: 45 });
       });
     });
   });

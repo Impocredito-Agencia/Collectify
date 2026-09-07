@@ -16,6 +16,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { IsArray } from 'class-validator';
 
 import { Audit } from '../auditLog/decorators/audit.decorator';
 import { RequireModule } from '../auth/decorators/requireModule.decorator';
@@ -31,7 +32,12 @@ const XLSX_MIME_TYPE =
 const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const XLSX_RESPONSE_CONTENT_TYPE = XLSX_MIME_TYPE;
 
+// Same bug fix as clientsImport.controller.ts's identical DTO
+// (2026-09-06): `errors` had no class-validator decorator, so the global
+// ValidationPipe's forbidNonWhitelisted rejected every real request with
+// a 400 before it reached the service.
 class ImportErrorsExportDto {
+  @IsArray()
   errors!: RowError[];
 }
 

@@ -13,12 +13,9 @@ async function buildWorkbook(
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Clientes');
   sheet.addRow(headers);
-  // Row 2 is always the fill-in-instructions row in the real generated
-  // template (clientsImportTemplate.ts) — parseClientsWorkbook skips it
-  // unconditionally, so every fixture here reproduces that same
-  // structural shape (data starts at row 3), even though its content
-  // doesn't matter for these tests.
-  sheet.addRow(headers.map(() => ''));
+  // Row 1 = headers, row 2 onward = real data — matches the real generated
+  // template (clientsImportTemplate.ts), which no longer has a fill-in-
+  // instructions row between the two (removed 2026-09-06).
   for (const row of rows) {
     sheet.addRow(row);
   }
@@ -43,8 +40,8 @@ describe('parseClientsWorkbook', () => {
   });
 
   it('parses optional client columns when present', async () => {
-    const headers = [...REQUIRED_HEADERS, 'Ciudad', 'Barrio'];
-    const row = [...REQUIRED_ROW, 'Bogotá', 'Centro'];
+    const headers = [...REQUIRED_HEADERS, 'Ciudad', 'Ocupación'];
+    const row = [...REQUIRED_ROW, 'Bogotá', 'Comerciante'];
     const buffer = await buildWorkbook(headers, [row]);
 
     const result = await parseClientsWorkbook(buffer);
@@ -52,7 +49,7 @@ describe('parseClientsWorkbook', () => {
     expect(result.errors).toEqual([]);
     expect(result.rows[0].client).toMatchObject({
       city: 'Bogotá',
-      neighborhood: 'Centro',
+      occupation: 'Comerciante',
     });
   });
 
@@ -90,18 +87,47 @@ describe('parseClientsWorkbook', () => {
     expect(result.errors[0].rawValues.firstName).toBe('Juana');
   });
 
-  it("ignores row 2 (reserved for the template's fill-in instructions) even when it has content", async () => {
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Clientes');
-    sheet.addRow(REQUIRED_HEADERS);
-    sheet.addRow(REQUIRED_HEADERS.map(() => 'Ej: instrucción de ejemplo'));
-    sheet.addRow(REQUIRED_ROW);
-    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+  // Regression test — clientsImportTemplate.ts's headerFor() appends a
+  // "(O)"/"(O una de las dos)" marker to a required column's header text
+  // (2026-09-06). The real generated template's headers must still match
+  // their own column definitions, or every column looks missing.
+  it('matches headers carrying the "(O)" required-column marker', async () => {
+    const headers = [
+      'Nombre (O)',
+      'Apellido (O)',
+      'Cédula (O)',
+      'Teléfono (O)',
+      'Dirección de residencia (O una de las dos)',
+    ];
+    const row = [...REQUIRED_ROW, 'Cra 1 #2-3'];
+    const buffer = await buildWorkbook(headers, [row]);
 
     const result = await parseClientsWorkbook(buffer);
 
     expect(result.errors).toEqual([]);
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0].client.firstName).toBe('Juana');
+    expect(result.rows[0].client).toMatchObject({
+      firstName: 'Juana',
+      lastName: 'Pérez',
+      documentNumber: '1234567890',
+      phoneNumber: '+573001234567',
+      homeAddress: 'Cra 1 #2-3',
+    });
+  });
+
+  it('parses a second data row immediately after the header row, with no gap', async () => {
+    const secondRow = ['Carlos', 'Gómez', '9876543210', '+573009876543'];
+    const buffer = await buildWorkbook(REQUIRED_HEADERS, [
+      REQUIRED_ROW,
+      secondRow,
+    ]);
+
+    const result = await parseClientsWorkbook(buffer);
+
+    expect(result.errors).toEqual([]);
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.map((row) => row.client.firstName)).toEqual([
+      'Juana',
+      'Carlos',
+    ]);
   });
 });

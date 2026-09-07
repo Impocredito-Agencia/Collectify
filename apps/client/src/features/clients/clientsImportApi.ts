@@ -1,11 +1,18 @@
 /**
  * The three endpoints here don't fit apiClient.ts's shape: the upload is
  * multipart/form-data (not JSON), and the two "download an .xlsx" endpoints
- * return a raw binary file (ClientLoanImportController uses @Res() to bypass
+ * return a raw binary file (ClientsImportController uses @Res() to bypass
  * the global {success, data} envelope entirely — see that controller's
  * comment). So this file talks to the API directly with fetch, reusing
  * tokenStore the same way apiClient.ts does, rather than forcing these
  * through a JSON-shaped wrapper that doesn't apply here.
+ *
+ * Renamed from clientLoanImportApi.ts (2026-09-06) — ClientsImportController
+ * only ever creates clients now; assigning a loan to one of them is a
+ * separate upload (see apps/api/src/loanImport, matched by cédula). The
+ * route path itself is still literally `/clients/import-with-loans` (kept
+ * that way deliberately — see that controller's own comment on why), but
+ * everything client-side now calls it what it actually is.
  */
 
 import { ApiError } from '@/lib/apiClient';
@@ -19,9 +26,14 @@ export interface RowError {
   rawValues: Record<string, string>;
 }
 
-export interface ClientLoanImportResult {
+export interface ClientsImportResult {
   totalRows: number;
   created: number;
+  // A row whose cédula already matched an existing client with no
+  // conflicting data — nothing was created, but it's not an error either.
+  // Kept separate from `created` so the summary doesn't overstate how many
+  // new clients actually landed.
+  alreadyExisted: number;
   skipped: RowError[];
 }
 
@@ -59,11 +71,11 @@ async function downloadFile(
   URL.revokeObjectURL(url);
 }
 
-export const clientLoanImportApi = {
+export const clientsImportApi = {
   downloadTemplate: (): Promise<void> =>
     downloadFile(
       '/clients/import-template',
-      'plantilla-clientes-creditos.xlsx',
+      'plantilla-clientes.xlsx',
       'No se pudo descargar la plantilla',
     ),
 
@@ -75,7 +87,7 @@ export const clientLoanImportApi = {
       { errors },
     ),
 
-  importFile: async (file: File): Promise<ClientLoanImportResult> => {
+  importFile: async (file: File): Promise<ClientsImportResult> => {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -85,7 +97,7 @@ export const clientLoanImportApi = {
       body: formData,
     });
     const payload = (await response.json()) as
-      | { success: true; data: ClientLoanImportResult }
+      | { success: true; data: ClientsImportResult }
       | { success: false; message: string; statusCode: number };
 
     if (!payload.success) {

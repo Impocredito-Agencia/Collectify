@@ -1,6 +1,10 @@
 import ExcelJS from 'exceljs';
 
-import { allColumnDefinitions, CLIENT_COLUMNS } from './clientsImportColumns';
+import {
+  allColumnDefinitions,
+  CLIENT_COLUMNS,
+  ColumnDefinition,
+} from './clientsImportColumns';
 import { RowError } from './clientsImportParser';
 
 // Human-friendly header labels, keyed by column key — separate from the
@@ -21,73 +25,44 @@ const DISPLAY_HEADERS: Record<string, string> = {
   alternatePhoneNumber: 'Teléfono alterno',
   homeAddress: 'Dirección de residencia',
   workAddress: 'Dirección de trabajo',
-  neighborhood: 'Barrio',
   city: 'Ciudad',
   occupation: 'Ocupación',
   employerName: 'Empresa',
   monthlyIncome: 'Ingresos mensuales',
 };
 
-// Per-column fill-in instructions/examples for row 2 — ambiguous fields
-// like phone numbers (+57 or not?) and dates (DD/MM/YYYY? MM/DD/YYYY?
-// spelled out?) were confirmed (2026-08-19) to cause avoidable row
-// errors on upload otherwise. Dates in particular MUST be AAAA-MM-DD:
-// validated downstream via class-validator's @IsDateString(), same as
-// every other date field in this codebase, which only accepts ISO 8601 —
-// this is guidance, not auto-correction.
-const FIELD_HINTS: Record<string, string> = {
-  firstName: 'Ej: Juana',
-  lastName: 'Ej: Pérez',
-  documentNumber: 'Solo números, sin puntos ni espacios. Ej: 1234567890',
-  phoneNumber: 'Con o sin +57, solo números. Ej: +573001234567 o 3001234567',
-  creditLimit: 'Opcional. Solo números. Ej: 2000000',
-  documentType:
-    'Opcional. Escribe: cédula de ciudadanía, cédula de extranjería o pasaporte',
-  dateOfBirth: 'Opcional. Formato AAAA-MM-DD (año-mes-día). Ej: 1998-04-12',
-  documentIssuePlace: 'Opcional. Ej: Bogotá D.C.',
-  documentIssueDate: 'Opcional. Formato AAAA-MM-DD. Ej: 2015-03-20',
-  email: 'Opcional. Ej: juana.perez@example.com',
-  alternatePhoneNumber: 'Opcional. Con o sin +57. Ej: +573009876543',
-  // Phase 26 — no longer optional: at least one of the two is required
-  // (enforced in ClientsService.create(), same rule as the interactive
-  // "Nuevo cliente" form — not exempted for import). Neither column alone
-  // is individually required, so this can't just drop the "Opcional."
-  // marker the way documentNumber's hint above does; the pairing has to be
-  // spelled out instead.
-  homeAddress:
-    'Obligatorio si no llenas "Dirección de trabajo". Ej: Cra 45 #12-30, Barrio Centro',
-  workAddress:
-    'Obligatorio si no llenas "Dirección de residencia". Ej: Av. Siempre Viva 742',
-  neighborhood: 'Opcional. Ej: Centro',
-  city: 'Opcional. Ej: Bogotá',
-  occupation: 'Opcional. Ej: Comerciante',
-  employerName: 'Opcional. Ej: Tienda La Esquina',
-  monthlyIncome: 'Opcional. Solo números. Ej: 1500000',
-};
+// Suffix appended to a column's header to mark it required, in place of
+// the fill-in-instructions row this module used to generate (removed
+// 2026-09-06, human request — the template now has nothing but the
+// header row, no example/instructions row underneath it). homeAddress and
+// workAddress are a special case: ClientsService.create() requires at
+// least one of the two, never both individually, so a plain "(O)" on
+// either would overstate the rule — see REQUIRED_SUFFIX below.
+const REQUIRED_SUFFIX = ' (O)';
+const ADDRESS_PAIR_SUFFIX = ' (O una de las dos)';
 
-function headerFor(key: string, fallbackAlias: string): string {
-  return DISPLAY_HEADERS[key] ?? fallbackAlias;
+function headerFor(column: ColumnDefinition): string {
+  const label = DISPLAY_HEADERS[column.key] ?? column.aliases[0];
+  if (column.key === 'homeAddress' || column.key === 'workAddress') {
+    return `${label}${ADDRESS_PAIR_SUFFIX}`;
+  }
+  return column.required ? `${label}${REQUIRED_SUFFIX}` : label;
 }
 
-function buildHeaders(): string[] {
-  return CLIENT_COLUMNS.map((c) => headerFor(c.key, c.aliases[0]));
+function buildHeaders(columns: ColumnDefinition[]): string[] {
+  return columns.map(headerFor);
 }
 
-function buildFieldHints(): string[] {
-  return CLIENT_COLUMNS.map((c) => FIELD_HINTS[c.key] ?? '');
-}
-
-// Row 2 is a fixed structural convention for every workbook this module
-// generates (template and errors-export alike): per-column fill-in
-// instructions/examples, always skipped by the parser regardless of what
-// ends up written in it. Frozen alongside the header row so it stays
-// visible while an admin scrolls through many data rows.
-function addInstructionsRow(sheet: ExcelJS.Worksheet, hints: string[]): void {
-  const row = sheet.addRow(hints);
-  row.font = { italic: true, size: 10, color: { argb: 'FF666666' } };
-  row.alignment = { wrapText: true, vertical: 'top' };
-  row.height = 45;
-  sheet.views = [{ state: 'frozen', ySplit: 2 }];
+// Row 1 = headers only, frozen so it stays visible while scrolling through
+// many data rows — no second row of examples/instructions underneath it
+// (removed 2026-09-06; required columns are now marked directly in the
+// header text via headerFor() above instead). Shared by both workbooks
+// this module builds, since parseClientsWorkbook expects the exact same
+// single-header-row shape from either one — see FIRST_DATA_ROW in
+// clientsImportParser.ts.
+function freezeHeaderRow(sheet: ExcelJS.Worksheet): void {
+  sheet.getRow(1).font = { bold: true };
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
 // POST /clients/import-template — an empty workbook with exactly the
@@ -99,10 +74,9 @@ export async function buildImportTemplateWorkbook(): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Clientes');
 
-  const headers = buildHeaders();
+  const headers = buildHeaders(CLIENT_COLUMNS);
   sheet.addRow(headers);
-  sheet.getRow(1).font = { bold: true };
-  addInstructionsRow(sheet, buildFieldHints());
+  freezeHeaderRow(sheet);
   sheet.columns = headers.map(() => ({ width: 26 }));
 
   return Buffer.from(await workbook.xlsx.writeBuffer());
@@ -122,13 +96,9 @@ export async function buildImportErrorsWorkbook(
   const sheet = workbook.addWorksheet('Filas con error');
 
   const columns = allColumnDefinitions();
-  const headers = [...buildHeaders(), 'Motivo del error'];
+  const headers = [...buildHeaders(columns), 'Motivo del error'];
   sheet.addRow(headers);
-  sheet.getRow(1).font = { bold: true };
-  addInstructionsRow(sheet, [
-    ...buildFieldHints(),
-    'Corrige lo indicado y vuelve a subir el archivo',
-  ]);
+  freezeHeaderRow(sheet);
   sheet.columns = headers.map(() => ({ width: 26 }));
 
   for (const error of errors) {

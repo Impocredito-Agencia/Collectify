@@ -26,11 +26,18 @@ import type { ReactNode } from 'react';
 // Matches Figma frame 40:3 ("F-10 / Clientes — Desktop 1440"), with one
 // remaining deliberate departure from the mockup — see
 // apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps":
-//   - "Préstamos" / "Última actividad" columns dropped: not backed by any
-//     endpoint yet (arrive with Phase 4/7).
+//   - "Última actividad" column dropped: not backed by any endpoint.
+//   - "Préstamos" was dropped for the same reason but came back
+//     (2026-09-06) as two columns — "Préstamos activos" (count) and
+//     "En mora" (max overdueDays across the client's active loans) —
+//     backed by ClientsService.enrichClientListItems, batched per page
+//     rather than per row.
 // The "Importar Excel" button noted as dropped here previously is now
 // built — see ImportClientsDialog.tsx (Phase 8 scope, confirmed with the
-// client 2026-08-19).
+// client 2026-08-19). Relabeled "Importar clientes" (2026-09-06) once the
+// backend split the old combined clients+loans importer in two — this
+// dialog only ever creates clients now, see ImportClientsDialog.tsx's own
+// comment.
 // The "Todos" tab WAS missing for the same reason (isActive was a strict
 // true/false), but that turned out to be worth fixing rather than dropping
 // — ClientsService.findAll/QueryClientsDto now accept isActive: 'all'.
@@ -44,8 +51,8 @@ const STATUS_FILTER_TO_IS_ACTIVE: Record<StatusFilter, boolean | 'all'> = {
 
 export function ClientsListPage() {
   const { user } = useAuth();
-  // Phase 20 — was isAdmin. Gates "Nuevo cliente"/"Importar Excel"
-  // (ClientsController/ClientLoanImportController) and the row actions
+  // Phase 20 — was isAdmin. Gates "Nuevo cliente"/"Importar clientes"
+  // (ClientsController/ClientsImportController) and the row actions
   // passed down to ClientRow — both migrated to
   // @RequireModule(AppModule.Clients). See
   // docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
@@ -136,7 +143,7 @@ export function ClientsListPage() {
             variant="secondary"
             onClick={() => setIsImportDialogOpen(true)}
           >
-            Importar Excel
+            Importar clientes
           </Button>
         )}
 
@@ -175,15 +182,29 @@ export function ClientsListPage() {
       )}
 
       <div className="overflow-hidden rounded-lg bg-surface">
-        <table className="w-full">
+        {/* Style cleanup, 2026-09-06 (client feedback — hand-tuned
+            per-column percentages, "no podemos acomodar una por una",
+            still didn't distribute the row's width well). Replaced with
+            the same table-fixed recipe LoanQuotePage's schedule-preview
+            table already uses successfully: give an explicit, content-sized
+            width to the ONE column whose content is genuinely fixed-size
+            ("#" — a row number never needs more than a couple of digits —
+            same role "Cuota" plays there), and leave every OTHER column
+            with no width at all. table-fixed then splits 100% of the
+            remaining row width EQUALLY across those columns automatically —
+            no more guessing percentages by content type, and no leftover
+            unused space on wide screens. */}
+        <table className="w-full table-fixed">
           <thead className="bg-input">
-            <tr>
-              <Th className="w-12">#</Th>
-              <Th>Nombre</Th>
-              <Th>Cédula</Th>
-              <Th>Celular</Th>
-              <Th>Estado</Th>
-              <Th>Acciones</Th>
+            <tr className="divide-x divide-border">
+              <Th className="w-10 whitespace-nowrap">#</Th>
+              <Th style={{ textAlign: 'center' }}>Nombre</Th>
+              <Th style={{ textAlign: 'center' }}>Cédula</Th>
+              <Th style={{ textAlign: 'center' }}>Celular</Th>
+              <Th style={{ textAlign: 'center' }}>Préstamos activos</Th>
+              <Th style={{ textAlign: 'center' }}>En mora</Th>
+              <Th style={{ textAlign: 'center' }}>Estado</Th>
+              <Th style={{ textAlign: 'center' }}>Acciones</Th>
             </tr>
           </thead>
           <tbody>
@@ -276,7 +297,7 @@ function EmptyRow({
   return (
     <tr>
       <td
-        colSpan={6}
+        colSpan={8}
         className={`p-6 text-center text-small ${tone === 'error' ? 'text-danger' : 'text-muted'}`}
       >
         {children}

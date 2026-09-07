@@ -117,21 +117,40 @@ export function LoansListPage() {
         )}
       </div>
 
+      {/* Style cleanup, 2026-09-06 — same table-fixed recipe as Clientes'
+          list (itself copied from LoanQuotePage's schedule-preview table):
+          give an explicit, content-sized width to the ONE column whose
+          content is genuinely fixed-size ("#" — a row number), leave every
+          OTHER column with no width at all so table-fixed splits the
+          remaining row width EQUALLY across them, and put column borders
+          (divide-x) alongside the existing row borders. Headers/data are
+          centered to match, except "#" (untouched) and "Cliente" — its
+          header centers with the rest, but the name itself stays
+          left-aligned, same "Nombre" treatment as Clientes' list. */}
       <div className="overflow-hidden rounded-lg bg-surface">
-        <table className="w-full">
+        <table className="w-full table-fixed">
           <thead className="bg-input">
-            <tr>
-              <Th className="w-12">#</Th>
-              <Th>ID</Th>
-              <Th>Cliente</Th>
-              <Th>Capital inicial</Th>
-              <Th className="whitespace-nowrap">
+            <tr className="divide-x divide-border">
+              <Th className="w-10 whitespace-nowrap">#</Th>
+              <Th
+                className="w-24 whitespace-nowrap"
+                style={{ textAlign: 'center' }}
+              >
+                ID
+              </Th>
+              <Th style={{ textAlign: 'center' }}>Cliente</Th>
+              <Th style={{ textAlign: 'center' }}>
                 Saldo total (capital + incremento)
               </Th>
-              <Th>Cuotas</Th>
-              <Th>Días mora</Th>
-              <Th>Estado</Th>
-              <Th>Acciones</Th>
+              <Th style={{ textAlign: 'center' }}>Cuotas</Th>
+              <Th style={{ textAlign: 'center' }}>Días mora</Th>
+              <Th style={{ textAlign: 'center' }}>Estado</Th>
+              <Th
+                className="w-32 whitespace-nowrap"
+                style={{ textAlign: 'center' }}
+              >
+                Acciones
+              </Th>
             </tr>
           </thead>
           <tbody>
@@ -196,7 +215,7 @@ function EmptyRow({
   return (
     <tr>
       <td
-        colSpan={9}
+        colSpan={8}
         className={`p-6 text-center text-small ${tone === 'error' ? 'text-danger' : 'text-muted'}`}
       >
         {children}
