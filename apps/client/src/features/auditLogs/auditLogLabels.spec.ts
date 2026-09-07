@@ -34,6 +34,21 @@ describe('formatAuditAction', () => {
     expect(formatAuditAction('user.delete')).toBe('Eliminó un usuario');
   });
 
+  // 2026-09-06 — the combined clients+loans Excel importer was split into
+  // two endpoints (see apps/api/src/clientsImport and apps/api/src/
+  // loanImport), each firing its own @Audit() call under a new action
+  // name. This map was never updated for the rename, so Auditoría showed
+  // raw "clientsImport.execute" instead of a translated label — caught
+  // from a live screenshot.
+  it('translates both actions from the 2026-09-06 clients/loans import split', () => {
+    expect(formatAuditAction('clientsImport.execute')).toBe(
+      'Importó clientes desde Excel',
+    );
+    expect(formatAuditAction('loanImport.execute')).toBe(
+      'Importó préstamos desde Excel',
+    );
+  });
+
   // Style cleanup, 2026-09-04 — the interestConceptType @Audit() calls
   // (added 2026-09-03, see DATABASE.md) were never backfilled into this
   // map, so the client saw raw "interestConceptType.create" etc. in
@@ -100,6 +115,15 @@ describe('formatAuditEntityType', () => {
   it('translates clientLoanImport, the entityType that previously fell through unlabeled', () => {
     expect(formatAuditEntityType('clientLoanImport')).toBe(
       'Importación de clientes',
+    );
+  });
+
+  it('translates clientsImport and loanImport, the entityTypes from the 2026-09-06 import split', () => {
+    expect(formatAuditEntityType('clientsImport')).toBe(
+      'Importación de clientes',
+    );
+    expect(formatAuditEntityType('loanImport')).toBe(
+      'Importación de préstamos',
     );
   });
 

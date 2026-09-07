@@ -51,8 +51,19 @@ export const ACTION_LABELS: Record<string, string> = {
   'usuryRate.create': 'Creó una tasa de usura',
   // Phase 8 — same gap: the Excel import endpoint has always had this
   // decorator, but this map was only ever backfilled for actions added
-  // from Phase 11 onward.
+  // from Phase 11 onward. Kept even after the 2026-09-06 split below —
+  // existing historical rows logged before the split still carry this
+  // exact action string and must keep translating.
   'clientLoanImport.execute': 'Importó clientes y préstamos desde Excel',
+  // 2026-09-06 — the combined clients+loans importer above was split into
+  // two endpoints (ClientsImportController and LoanImportController, see
+  // apps/api/src/clientsImport and apps/api/src/loanImport), each with its
+  // own @Audit() call using the new action/entityType names. Same sync gap
+  // as everywhere else in this file: the rename shipped without updating
+  // this map, so Auditoría showed raw "clientsImport.execute" instead of a
+  // translated label — caught by the client from a live screenshot.
+  'clientsImport.execute': 'Importó clientes desde Excel',
+  'loanImport.execute': 'Importó préstamos desde Excel',
   // Style cleanup, 2026-09-04 — same sync gap yet again: the
   // interestConceptType @Audit() calls were only added 2026-09-03 (see
   // DATABASE.md), and this map was never backfilled, so the client saw raw
@@ -75,8 +86,13 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   payment: 'Pago',
   user: 'Usuario',
   usuryRate: 'Tasa de usura',
-  // Phase 32 — same sync gap as ACTION_LABELS above.
+  // Phase 32 — same sync gap as ACTION_LABELS above. Kept for historical
+  // rows logged before the 2026-09-06 split below.
   clientLoanImport: 'Importación de clientes',
+  // 2026-09-06 — same sync gap as ACTION_LABELS above, for the same
+  // clients/loans importer split.
+  clientsImport: 'Importación de clientes',
+  loanImport: 'Importación de préstamos',
   // Style cleanup, 2026-09-04 — same sync gap as ACTION_LABELS above.
   interestConceptType: 'Tipo de cargo',
 };
