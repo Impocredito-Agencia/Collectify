@@ -175,7 +175,14 @@ describe('installmentCalculations', () => {
         },
       ]);
 
-      expect(result).toEqual([{ name: 'Gastos de cobranza', amount: 15000 }]);
+      expect(result).toEqual([
+        {
+          name: 'Gastos de cobranza',
+          amount: 15000,
+          calculationType: ConceptCalculationType.FixedAmount,
+          value: 15000,
+        },
+      ]);
     });
 
     it('every concept is 0 when the installment is not yet overdue', () => {
@@ -193,8 +200,18 @@ describe('installmentCalculations', () => {
       ]);
 
       expect(result).toEqual([
-        { name: 'Interés moratorio', amount: 0 },
-        { name: 'Gastos de cobranza', amount: 0 },
+        {
+          name: 'Interés moratorio',
+          amount: 0,
+          calculationType: ConceptCalculationType.Percentage,
+          value: 6,
+        },
+        {
+          name: 'Gastos de cobranza',
+          amount: 0,
+          calculationType: ConceptCalculationType.FixedAmount,
+          value: 15000,
+        },
       ]);
     });
 

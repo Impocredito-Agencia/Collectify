@@ -83,7 +83,13 @@ describe('enrichInstallment', () => {
     // all — only assigned MORATORIO concepts switch the engine.
     expect(withoutConcepts.interest).toBe(legacyOnly.interest);
     expect(withoutConcepts.conceptBreakdown).toEqual([
-      { name: 'Interés remuneratorio', amount: 10000, category: 'corriente' },
+      {
+        name: 'Interés remuneratorio',
+        amount: 10000,
+        category: 'corriente',
+        value: 5,
+        calculationType: ConceptCalculationType.Percentage,
+      },
     ]);
   });
 
@@ -106,11 +112,19 @@ describe('enrichInstallment', () => {
 
     expect(result.interest).toBeGreaterThan(0);
     expect(result.conceptBreakdown).toEqual([
-      { name: 'Interés remuneratorio', amount: 10000, category: 'corriente' },
+      {
+        name: 'Interés remuneratorio',
+        amount: 10000,
+        category: 'corriente',
+        value: 5,
+        calculationType: ConceptCalculationType.Percentage,
+      },
       {
         name: 'Interés moratorio',
         amount: result.interest,
         category: 'moratorio',
+        value: 6,
+        calculationType: ConceptCalculationType.Percentage,
       },
     ]);
   });
@@ -134,7 +148,13 @@ describe('enrichInstallment', () => {
 
     expect(result.interest).toBe(0);
     expect(result.conceptBreakdown).toEqual([
-      { name: 'Interés remuneratorio', amount: 10000, category: 'corriente' },
+      {
+        name: 'Interés remuneratorio',
+        amount: 10000,
+        category: 'corriente',
+        value: 5,
+        calculationType: ConceptCalculationType.Percentage,
+      },
     ]);
   });
 });

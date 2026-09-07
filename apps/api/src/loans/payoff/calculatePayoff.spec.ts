@@ -442,11 +442,15 @@ describe('calculatePayoff', () => {
           name: 'Interés moratorio',
           amount: 6000, // 300000 * 0.06 / 30 * 10
           category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          value: 6,
         },
         {
           name: 'Gastos de cobranza',
           amount: 5000,
           category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.FixedAmount,
+          value: 5000,
         },
       ]);
     });
