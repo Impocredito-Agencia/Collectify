@@ -1493,29 +1493,40 @@ export class LoansService {
     return loan;
   }
 
-  // Unchanged by the 2026-09-06 refinancing redesign — deliberately kept
-  // strict (confirmed with the human): a genuinely NEW loan (create(), or a
-  // refinance's own dto-driven fields — just not its promissoryNoteNumber
-  // anymore, see below) can never reuse a number that belonged to ANY other
-  // loan, ever, regardless of status or soft-delete. Only refinance()'s own
-  // inherited number is exempt from this check entirely (see
-  // persistLoanWithInstallments's skipPromissoryNoteNumberUniquenessCheck
-  // param) — it's not "picking" a number to validate, it's mechanically
-  // carrying the old loan's own number forward, which by construction
-  // always already exists (on the loan being refinanced, and possibly on
-  // earlier loans in the same refinancing chain too). Letting a check like
-  // this one see that reused number would always reject it. The DB's own
-  // partial unique index (ScopePromissoryNoteNumberUniquenessToActiveLoans
-  // — WHERE status = 'active' AND deleted_at IS NULL) is what actually
-  // allows that legitimate repetition to be stored, and remains the
-  // last-resort guard against a concurrent double-refinance race.
+  // Relaxed 2026-09-07 (confirmed with the human, reverses the
+  // "regardless of status or soft-delete" rule this comment used to state):
+  // a genuinely NEW loan (create(), or a refinance's own dto-driven fields —
+  // just not its promissoryNoteNumber anymore, see below) can still never
+  // reuse a number that belongs to any EXISTING (non-deleted) loan, but a
+  // number that only ever belonged to a loan that was later soft-deleted via
+  // LoansService.remove() is now free to reuse. Safe specifically because
+  // remove() itself only ever allows deleting a loan that never had a single
+  // Payment registered against it — so there is no financial history a
+  // reused number could ever get confused with. Dropping `withDeleted: true`
+  // here is enough: TypeORM's default query already excludes soft-deleted
+  // rows, so this now only looks at loans that are still "live" in some
+  // status (active/paid/refinanced).
+  //
+  // Only refinance()'s own inherited number is exempt from this check
+  // entirely (see persistLoanWithInstallments's
+  // skipPromissoryNoteNumberUniquenessCheck param) — it's not "picking" a
+  // number to validate, it's mechanically carrying the old loan's own number
+  // forward, which by construction always already exists (on the loan being
+  // refinanced, and possibly on earlier loans in the same refinancing chain
+  // too). Letting a check like this one see that reused number would always
+  // reject it. The DB's own partial unique index
+  // (ScopePromissoryNoteNumberUniquenessToActiveLoans — WHERE status =
+  // 'active' AND deleted_at IS NULL) is what actually allows that legitimate
+  // repetition to be stored, and remains the last-resort guard against a
+  // concurrent double-refinance race — independent of this check, so
+  // relaxing this check can never let two loans be simultaneously active
+  // under the same number.
   private async assertPromissoryNoteNumberIsUnique(
     promissoryNoteNumber: string,
     loansRepository: Repository<Loan>,
   ): Promise<void> {
     const existing = await loansRepository.findOne({
       where: { promissoryNoteNumber },
-      withDeleted: true,
     });
     if (existing) {
       throw new ConflictException(
