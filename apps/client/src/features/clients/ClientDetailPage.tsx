@@ -476,7 +476,6 @@ export function ClientDetailPage() {
               label="Dirección de trabajo"
               value={client.workAddress}
             />
-            <DetailField label="Barrio" value={client.neighborhood} />
             <DetailField label="Ciudad" value={client.city} />
           </DetailSection>
         </div>
@@ -861,7 +860,7 @@ function DetailSection({
 
 // Same pattern as LoanDetailPage.tsx's DetailField (Phase 21 codeudor
 // section) — skips rendering entirely when the value is empty, so an
-// optional field left blank doesn't leave a dangling "Barrio: —" line.
+// optional field left blank doesn't leave a dangling "Ciudad: —" line.
 function DetailField({
   label,
   value,

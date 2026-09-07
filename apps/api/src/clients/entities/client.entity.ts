@@ -77,9 +77,6 @@ export class Client {
   workAddress!: string | null;
 
   @Column({ type: 'varchar', nullable: true })
-  neighborhood!: string | null;
-
-  @Column({ type: 'varchar', nullable: true })
   city!: string | null;
 
   @Column({ type: 'varchar', nullable: true })
