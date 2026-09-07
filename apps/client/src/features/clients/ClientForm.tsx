@@ -178,7 +178,6 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
 
   const [homeAddress, setHomeAddress] = useState(client?.homeAddress ?? '');
   const [workAddress, setWorkAddress] = useState(client?.workAddress ?? '');
-  const [neighborhood, setNeighborhood] = useState(client?.neighborhood ?? '');
   const [city, setCity] = useState(client?.city ?? '');
 
   const [referenceRows, setReferenceRows] = useState<ReferenceRow[]>(
@@ -498,7 +497,6 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
           : {}),
         ...(homeAddress.trim() ? { homeAddress: homeAddress.trim() } : {}),
         ...(workAddress.trim() ? { workAddress: workAddress.trim() } : {}),
-        ...(neighborhood.trim() ? { neighborhood: neighborhood.trim() } : {}),
         ...(city.trim() ? { city: city.trim() } : {}),
         ...(occupation.trim() ? { occupation: occupation.trim() } : {}),
         ...(employerName.trim() ? { employerName: employerName.trim() } : {}),
@@ -756,6 +754,22 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                     phoneNumber: undefined,
                   }));
                 }}
+                onBlur={(event) => {
+                  // Check the format as soon as the user leaves the field,
+                  // instead of only at submit — a purely client-side regex
+                  // test, so it adds no server load (2026-09-06 request).
+                  const trimmed = event.target.value.trim();
+                  if (!trimmed) {
+                    return;
+                  }
+                  if (!CO_PHONE_REGEX.test(trimmed)) {
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      phoneNumber:
+                        'Debe ser un número colombiano válido, ej: +573001234567.',
+                    }));
+                  }
+                }}
                 placeholder="Ej: +573158001234"
                 className={inputClassName(Boolean(fieldErrors.phoneNumber))}
               />
@@ -773,6 +787,21 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                     ...prev,
                     alternatePhoneNumber: undefined,
                   }));
+                }}
+                onBlur={(event) => {
+                  // Same immediate-feedback check as phoneNumber above —
+                  // optional field, so an empty value is not an error.
+                  const trimmed = event.target.value.trim();
+                  if (!trimmed) {
+                    return;
+                  }
+                  if (!CO_PHONE_REGEX.test(trimmed)) {
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      alternatePhoneNumber:
+                        'Debe ser un número colombiano válido, ej: +573001234567.',
+                    }));
+                  }
                 }}
                 placeholder="Ej: +573001234567"
                 className={inputClassName(
@@ -825,24 +854,14 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
               </span>
             )}
           </div>
-          <div className="flex gap-4">
-            <Field label="Barrio (opcional)">
-              <input
-                value={neighborhood}
-                onChange={(event) => setNeighborhood(event.target.value)}
-                placeholder="Ej: San Fernando"
-                className={inputClassName(false)}
-              />
-            </Field>
-            <Field label="Ciudad (opcional)">
-              <input
-                value={city}
-                onChange={(event) => setCity(event.target.value)}
-                placeholder="Ej: Cali"
-                className={inputClassName(false)}
-              />
-            </Field>
-          </div>
+          <Field label="Ciudad (opcional)">
+            <input
+              value={city}
+              onChange={(event) => setCity(event.target.value)}
+              placeholder="Ej: Cali"
+              className={inputClassName(false)}
+            />
+          </Field>
         </FormSection>
 
         <FormSection title="Referencias">

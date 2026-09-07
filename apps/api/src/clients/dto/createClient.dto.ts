@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
@@ -13,6 +14,7 @@ import {
 } from 'class-validator';
 
 import { DocumentType } from '../entities/client.entity';
+import { normalizePhoneNumber } from '../normalizePhoneNumber';
 
 export class CreateClientDto {
   @ApiProperty({ example: 'Juana' })
@@ -31,6 +33,7 @@ export class CreateClientDto {
   documentNumber!: string;
 
   @ApiProperty({ example: '+573001234567' })
+  @Transform(({ value }) => normalizePhoneNumber(value))
   @IsPhoneNumber('CO')
   phoneNumber!: string;
 
@@ -78,6 +81,7 @@ export class CreateClientDto {
 
   @ApiPropertyOptional({ example: '+573009876543' })
   @IsOptional()
+  @Transform(({ value }) => normalizePhoneNumber(value))
   @IsPhoneNumber('CO')
   alternatePhoneNumber?: string;
 
@@ -100,11 +104,6 @@ export class CreateClientDto {
   @IsOptional()
   @IsString()
   workAddress?: string;
-
-  @ApiPropertyOptional({ example: 'Centro' })
-  @IsOptional()
-  @IsString()
-  neighborhood?: string;
 
   @ApiPropertyOptional({ example: 'Medellín' })
   @IsOptional()
