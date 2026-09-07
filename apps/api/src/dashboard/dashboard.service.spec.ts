@@ -114,15 +114,18 @@ describe('DashboardService', () => {
   // calendar day as their Bogotá calendar day — true most of the day, but
   // false during UTC 00:00-05:00 (7pm-midnight in Bogotá), when the two
   // diverge by one (see dueDateSchedule.ts's todayDateString() comment for
-  // the root cause). Whenever this suite happened to run in that window,
-  // gatherOverdueInstallments's own overdueDays calculation (correctly
-  // Bogotá-aware, via calculateOverdueDays) came out one day short of what
-  // the test's naive UTC arithmetic expected — an intermittent, time-of-day
-  // -dependent failure, not a real defect in the service. Pinning the clock
-  // to noon UTC (7am Bogotá, safely mid-day on both sides) for the whole
-  // suite makes every "N days ago" fixture below land on the same calendar
-  // day in UTC and in Bogotá, regardless of when the suite actually runs —
-  // same fix pattern as installmentCalculations.spec.ts's bogotaNoon().
+  // the root cause). This exposed a REAL bug, not just a test-timing
+  // artifact: dashboard.service.ts's own gatherOverdueInstallments/
+  // countUpcomingDueInstallments built their `today`/`windowEnd` query
+  // bounds from the same raw, un-adjusted UTC date, inconsistent with
+  // enrichInstallment's Bogotá-aware overdueDays calculation used right
+  // next to them — now fixed there too, via todayDateString()/
+  // addDaysToDateString(). Pinning the clock to noon UTC (7am Bogotá,
+  // safely mid-day on both sides) for the whole suite makes every "N days
+  // ago" fixture below land on the same calendar day in UTC and in
+  // Bogotá, regardless of when the suite actually runs — same fix pattern
+  // as installmentCalculations.spec.ts's bogotaNoon() — independent of,
+  // and on top of, the production fix above.
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-06-15T12:00:00Z'));
@@ -260,6 +263,43 @@ describe('DashboardService', () => {
           dueDate: expect.objectContaining({
             _type: 'between',
             _value: [today, in5Days],
+          }) as unknown,
+          loan: { status: LoanStatus.Active },
+        },
+      });
+    });
+
+    // Regression test, 2026-09-06 — gatherOverdueInstallments/
+    // countUpcomingDueInstallments used to build `today`/`windowEnd` from
+    // raw `new Date().toISOString().slice(0, 10)` (the UTC calendar date)
+    // instead of the Bogotá-aware todayDateString()/addDaysToDateString().
+    // 2026-06-16T04:59:59Z is 11:59:59pm on June 15 in Bogotá (UTC-5) —
+    // still June 15 there, even though UTC's own calendar date is already
+    // June 16. Pins the clock right on that boundary so a regression back
+    // to the raw-UTC bug is caught directly, independent of whatever real
+    // instant the suite happens to run at.
+    it('uses the Bogotá calendar date, not raw UTC, for the overdue and upcoming-due query bounds', async () => {
+      jest.setSystemTime(new Date('2026-06-16T04:59:59Z'));
+      installmentsRepository.count.mockResolvedValue(0);
+
+      await service.getSummary();
+
+      expect(installmentsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            dueDate: expect.objectContaining({
+              _type: 'lessThan',
+              _value: '2026-06-15',
+            }) as unknown,
+          }) as unknown,
+        }),
+      );
+      expect(installmentsRepository.count).toHaveBeenCalledWith({
+        where: {
+          status: InstallmentStatus.Pending,
+          dueDate: expect.objectContaining({
+            _type: 'between',
+            _value: ['2026-06-15', '2026-06-20'],
           }) as unknown,
           loan: { status: LoanStatus.Active },
         },

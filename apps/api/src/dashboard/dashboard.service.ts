@@ -4,6 +4,7 @@ import { endOfWeek, startOfWeek } from 'date-fns';
 import { Between, LessThan, Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import { addDaysToDateString, todayDateString } from '../loans/dueDateSchedule';
 import {
   Installment,
   InstallmentStatus,
@@ -219,6 +220,17 @@ export class DashboardService {
   // built from this same fetch — mirrors the grouping query in
   // OverdueReminderService and reuses enrichInstallment's formula instead
   // of reimplementing it, per docs/phases/PHASE_7_DASHBOARD.md.
+  //
+  // Bug fix, 2026-09-06 — `today` used to be raw `new Date().toISOString()
+  // .slice(0, 10)`, the UTC calendar date, which is a day ahead of
+  // Bogotá's for roughly 5 hours every day (UTC 00:00-05:00, i.e.
+  // 7pm-midnight in Bogotá) — the same root cause already fixed in
+  // dueDateSchedule.ts's todayDateString() and reused by the WhatsApp
+  // reminder services, but never propagated here. During that window this
+  // filter's `today` was a day too late, so an installment due "today" in
+  // Bogotá was already being counted as overdue (dueDate < today) a full
+  // day early — inconsistent with enrichInstallment's own overdueDays
+  // calculation just below, which was always correctly Bogotá-aware.
   private async gatherOverdueInstallments(): Promise<
     Array<{
       clientId: string;
@@ -228,7 +240,7 @@ export class DashboardService {
       overdueDays: number;
     }>
   > {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayDateString();
 
     const installments = await this.installmentsRepository.find({
       where: {
@@ -256,18 +268,21 @@ export class DashboardService {
 
   // Continuous [today, today+5] window, not the specific 5/3/1 reminder
   // trigger days — see UPCOMING_DUE_WINDOW_DAYS's own comment.
+  //
+  // Bug fix, 2026-09-06 — same root cause as gatherOverdueInstallments
+  // above: `today`/`windowEnd` used to be built from raw
+  // `new Date().toISOString().slice(0, 10)`, the UTC calendar date, wrong
+  // for ~5 hours a day in Bogotá. Switched to todayDateString() +
+  // addDaysToDateString(), the same Bogotá-aware helpers the WhatsApp
+  // reminder services already use for this exact window calculation.
   private countUpcomingDueInstallments(): Promise<number> {
-    const today = new Date();
-    const windowEnd = new Date(today);
-    windowEnd.setDate(windowEnd.getDate() + UPCOMING_DUE_WINDOW_DAYS);
+    const today = todayDateString();
+    const windowEnd = addDaysToDateString(today, UPCOMING_DUE_WINDOW_DAYS);
 
     return this.installmentsRepository.count({
       where: {
         status: InstallmentStatus.Pending,
-        dueDate: Between(
-          today.toISOString().slice(0, 10),
-          windowEnd.toISOString().slice(0, 10),
-        ),
+        dueDate: Between(today, windowEnd),
         loan: { status: LoanStatus.Active },
       },
     });

@@ -31,9 +31,7 @@ export function LoanRow({ loan, rowNumber }: LoanRowProps) {
         {loan.promissoryNoteNumber}
       </Td>
       <Td>{loan.clientFullName}</Td>
-      <Td className="text-center">
-        {formatCurrency(loan.outstandingBalance)}
-      </Td>
+      <Td className="text-center">{formatCurrency(loan.outstandingBalance)}</Td>
       <Td className="text-center">
         {loan.installmentsPaid}/{loan.totalInstallments}
       </Td>
