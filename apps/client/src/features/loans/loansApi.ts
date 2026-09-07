@@ -172,10 +172,15 @@ export interface CreateLoanInput {
   coDebtorClientId?: string;
   coDebtorRelationship?: string;
   // Added 2026-09-06 — whether this is a genuinely new credit event that
-  // should get the scheduled "new loan" WhatsApp message, as opposed to a
-  // historical/backfilled loan being entered after the fact. Defaults to
-  // false ("es viejo") server-side when omitted — see createLoan.dto.ts
-  // (api) and Loan.isNewLoan.
+  // should get the "new loan" WhatsApp message, sent synchronously right
+  // after the loan is created. LoanForm.tsx always sends `true` (its own
+  // checkbox was removed the same day, confirmed with the human — a
+  // historical/backfilled loan typed in through the form relies on
+  // WHATSAPP_SENDING_PAUSED instead). Left optional here, defaulting to
+  // false ("es viejo") server-side when omitted, purely so bulk Excel
+  // import (LoanImportService) — which never sets this field — keeps its
+  // existing safe-by-default behavior. See createLoan.dto.ts (api) and
+  // Loan.isNewLoan.
   isNewLoan?: boolean;
 }
 
@@ -281,8 +286,11 @@ export interface UpdateLoanInput {
 // business decision, see docs/DATABASE.md "Refinancing") and creates this
 // new loan linked back via refinancedFromLoanId. Its schedule is generated
 // the same way as loan creation, as of Phase 14.
+//
+// Redesign, 2026-09-06 — no promissoryNoteNumber field: the new loan always
+// keeps the same number as the one being refinanced, set server-side. See
+// docs/DATABASE.md "Refinancing".
 export interface RefinanceLoanInput {
-  promissoryNoteNumber: string;
   principalAmount: number;
   interestRate: number;
   disbursedAt: string;
@@ -306,8 +314,11 @@ export interface RefinanceLoanInput {
   // docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
   coDebtorClientId?: string | null;
   coDebtorRelationship?: string | null;
-  // See CreateLoanInput.isNewLoan.
-  isNewLoan?: boolean;
+  // Redesign, 2026-09-06 — no isNewLoan field: a refinance can only ever
+  // apply to a loan already active in the system, so it's always a real,
+  // live event and always gets the "new loan" WhatsApp message, hardcoded
+  // server-side. See CreateLoanInput.isNewLoan for the create()-only
+  // distinction this doesn't apply to.
 }
 
 // Style cleanup (2026-09-03) — mirrors the @Matches regex on

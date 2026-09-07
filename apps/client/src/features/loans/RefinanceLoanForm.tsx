@@ -24,13 +24,9 @@ import {
   subtractDaysFromDateString,
   subtractMonthsFromDateString,
 } from '@/features/loans/dueDateMath';
-import {
-  InstallmentFrequency,
-  PROMISSORY_NOTE_NUMBER_PATTERN,
-} from '@/features/loans/loansApi';
+import { InstallmentFrequency } from '@/features/loans/loansApi';
 import { SystemInterestRateRow } from '@/features/loans/MandatoryConceptRow';
 import {
-  useNextPromissoryNoteNumber,
   usePreviewSchedule,
   useRefinanceQuote,
 } from '@/features/loans/useLoans';
@@ -71,7 +67,6 @@ interface ConceptRow extends LoanConceptAssignment {
 }
 
 type FieldName =
-  | 'promissoryNoteNumber'
   | 'principalAmount'
   | 'firstDueDate'
   | 'totalInstallments'
@@ -88,7 +83,6 @@ type FieldErrors = Partial<Record<FieldName, string>>;
 // once the admin scrolled down to "Refinanciar". Order matches the
 // fields' top-to-bottom visual order in the JSX below.
 const FIELD_ORDER: FieldName[] = [
-  'promissoryNoteNumber',
   'downPaymentAmount',
   'downPaymentDueDate',
   'principalAmount',
@@ -141,17 +135,6 @@ export function RefinanceLoanForm({
   onSubmit,
   onClose,
 }: RefinanceLoanFormProps) {
-  const [promissoryNoteNumber, setPromissoryNoteNumber] = useState('');
-  // Style cleanup (2026-09-03) — same pre-fill as LoanForm.tsx; see that
-  // file's comment for the full reasoning.
-  const { data: suggestedPromissoryNoteNumber } = useNextPromissoryNoteNumber();
-  const hasPrefilledNumber = useRef(false);
-  useEffect(() => {
-    if (suggestedPromissoryNoteNumber && !hasPrefilledNumber.current) {
-      hasPrefilledNumber.current = true;
-      setPromissoryNoteNumber(suggestedPromissoryNoteNumber);
-    }
-  }, [suggestedPromissoryNoteNumber]);
   const [principalAmount, setPrincipalAmount] = useState(0);
   const [additionalPrincipalPayment, setAdditionalPrincipalPayment] =
     useState(0);
@@ -196,9 +179,6 @@ export function RefinanceLoanForm({
     oldLoanCoDebtorRelationship ?? '',
   );
 
-  // See LoanForm.tsx's identical isNewLoan state — same off-by-default
-  // rule for the new loan this refinance creates.
-  const [isNewLoan, setIsNewLoan] = useState(false);
   // QoL — never offer the loan's own client as a codeudor candidate, so
   // there's nothing to pick that would only get rejected at submit time.
   const coDebtorSearchResults = (coDebtorResults?.items ?? []).filter(
@@ -421,14 +401,6 @@ export function RefinanceLoanForm({
 
   const validate = (): FieldErrors => {
     const errors: FieldErrors = {};
-    if (!promissoryNoteNumber.trim()) {
-      errors.promissoryNoteNumber = 'El número de pagaré es obligatorio.';
-    } else if (
-      !PROMISSORY_NOTE_NUMBER_PATTERN.test(promissoryNoteNumber.trim())
-    ) {
-      errors.promissoryNoteNumber =
-        'El número de pagaré debe tener el formato #0000 (ej: #1191).';
-    }
     if (!(principal > 0)) {
       errors.principalAmount = 'El monto debe ser mayor a 0.';
     }
@@ -577,7 +549,6 @@ export function RefinanceLoanForm({
 
     try {
       await onSubmit({
-        promissoryNoteNumber,
         principalAmount: principal,
         // See LoanForm.tsx's identical comment.
         interestRate: 0,
@@ -610,26 +581,17 @@ export function RefinanceLoanForm({
             oldLoanCoDebtorClient
             ? { coDebtorClientId: null, coDebtorRelationship: null }
             : {}),
-        isNewLoan,
       });
       onClose();
     } catch (err) {
+      // Redesign, 2026-09-06 — promissoryNoteNumber is no longer a field on
+      // this form (the new loan always keeps the old loan's own number, set
+      // server-side), so a 409/pagaré-format rejection can no longer be
+      // attributed to a specific field here — surfaced as a generic form
+      // error instead. In practice this should be rare: it would only mean
+      // a genuine race (another refinance of the same loan landed first).
       if (err instanceof ApiError) {
-        if (err.statusCode === 409) {
-          const errors: FieldErrors = {
-            promissoryNoteNumber: 'Ya existe un préstamo con este número.',
-          };
-          setFieldErrors(errors);
-          scrollToFirstError(errors);
-          // Same format check as LoanForm.tsx's catch block — see its
-          // comment. Normally caught client-side first.
-        } else if (err.statusCode === 400 && /pagaré/i.test(err.message)) {
-          const errors: FieldErrors = { promissoryNoteNumber: err.message };
-          setFieldErrors(errors);
-          scrollToFirstError(errors);
-        } else {
-          setFormError(err.message);
-        }
+        setFormError(err.message);
       } else {
         setFormError('No se pudo refinanciar el préstamo. Intenta de nuevo.');
       }
@@ -664,7 +626,8 @@ export function RefinanceLoanForm({
           Este préstamo pasará a "Refinanciado" y sus cuotas pendientes se
           cancelarán. Se crea uno nuevo con los términos de abajo — el monto ya
           viene precargado con la deuda actual del cliente (capital pendiente +
-          interés causado, sin interés futuro), pero puede editarlo.
+          interés causado, sin interés futuro), pero puede editarlo. El préstamo
+          nuevo conserva el mismo número de pagaré que el actual.
         </p>
 
         <div className="mt-3.5">
@@ -676,29 +639,6 @@ export function RefinanceLoanForm({
         <form onSubmit={handleFormSubmit} className="mt-5 flex flex-col gap-6">
           <fieldset className="contents">
             <FormSection title="Datos del crédito">
-              <div className="flex gap-4">
-                <Field
-                  label="N° de pagaré (nuevo)"
-                  error={fieldErrors.promissoryNoteNumber}
-                  id={fieldElementId('promissoryNoteNumber')}
-                >
-                  <input
-                    value={promissoryNoteNumber}
-                    onChange={(event) => {
-                      setPromissoryNoteNumber(event.target.value);
-                      setFieldErrors((prev) => ({
-                        ...prev,
-                        promissoryNoteNumber: undefined,
-                      }));
-                    }}
-                    placeholder="#0000"
-                    className={inputClassName(
-                      Boolean(fieldErrors.promissoryNoteNumber),
-                    )}
-                  />
-                </Field>
-              </div>
-
               {/* See LoanForm.tsx's identical block for the full reasoning
                   — same "cuota inicial" checkbox, placed before the
                   renegotiated capital/cuotas/fecha, confirmed to apply to
@@ -1402,23 +1342,6 @@ export function RefinanceLoanForm({
               </div>
             )}
           </div>
-
-          {/* See LoanForm.tsx's identical checkbox. */}
-          <label className="flex items-center gap-2.5 rounded border border-border bg-input p-3">
-            <input
-              type="checkbox"
-              checked={isNewLoan}
-              onChange={(event) => setIsNewLoan(event.target.checked)}
-              className="size-4 shrink-0 rounded border-border bg-background accent-white"
-            />
-            <span className="text-control text-white">
-              Es un préstamo nuevo
-            </span>
-            <span className="text-meta text-muted">
-              (desmárcalo si estás cargando un préstamo antiguo — no se enviará
-              el mensaje de WhatsApp de nuevo pagaré)
-            </span>
-          </label>
 
           {formError && (
             <p className="text-small text-danger" role="alert">
