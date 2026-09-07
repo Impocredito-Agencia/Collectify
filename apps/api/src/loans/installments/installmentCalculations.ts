@@ -81,6 +81,15 @@ export interface MoratoryConceptAssignment {
 export interface MoratoryChargeItem {
   name: string;
   amount: number;
+  // Added 2026-09-06 (client request — no visual way to tell what rate a
+  // given pagaré was actually made at, since the resulting currency amount
+  // alone doesn't reveal it, and it can legitimately change from one loan
+  // to the next as the usury ceiling moves month to month). Echoes the
+  // concept's own snapshotted rate/amount straight through — see
+  // enrichInstallment.ts's identical addition to ConceptBreakdownItem,
+  // which is what actually surfaces this on GET /loans/:id.
+  calculationType: ConceptCalculationType;
+  value: number;
 }
 
 // Phase 23 — the per-concept generalization of calculateInterest above,
@@ -111,6 +120,8 @@ export function calculateMoratoryCharges(
         : concept.calculationType === ConceptCalculationType.Percentage
           ? ((installmentAmount * (concept.value / 100)) / 30) * overdueDays
           : concept.value,
+    calculationType: concept.calculationType,
+    value: concept.value,
   }));
 }
 

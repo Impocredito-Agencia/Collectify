@@ -48,7 +48,7 @@ export class CreateInterestConceptTypeDto {
 
   @ApiPropertyOptional({
     description:
-      'Suggested starting value (percentage points, or a fixed currency amount, depending on defaultCalculationType). Always overridable per installment when applying this type to a loan.',
+      "Suggested starting value (percentage points, or a fixed currency amount, depending on defaultCalculationType). Always overridable per installment when applying this type to a loan. A percentage value admits up to 4 decimal places; a fixed_amount one, up to 2 — enforced in InterestConceptTypesService.assertValuePrecision, not here, since it depends on the defaultCalculationType field above (see that method's own comment).",
     example: 3,
   })
   @IsOptional()

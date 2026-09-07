@@ -1,4 +1,7 @@
-import { ConceptCategory } from '../../interestConceptTypes/entities/interestConceptType.entity';
+import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '../../interestConceptTypes/entities/interestConceptType.entity';
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entity';
 
@@ -13,6 +16,21 @@ export interface ConceptBreakdownItem {
   name: string;
   amount: number;
   category: ConceptCategory;
+  // Added 2026-09-06 (client request — two pagarés made a day apart could
+  // carry different rates as the usury ceiling moves, with no way to tell
+  // which one a given pagaré actually used just from the currency amount
+  // shown per cuota). The % (Percentage) or flat figure (FixedAmount)
+  // actually applied — echoes LoanInstallmentConcept.value/calculationType
+  // straight through for a corriente item below, and
+  // MoratoryChargeItem.value/calculationType for a moratorio item. Optional
+  // because calculatePayoff.ts's PayoffQuote also builds this same shape
+  // for its corriente line items from a plain { name, amount } projection
+  // that has no rate to attach (see PayoffInstallmentInput.corrienteConcepts)
+  // — that screen is a "what would this cost today" preview, not "what rate
+  // was this pagaré actually made at", so it's out of scope for this
+  // addition.
+  value?: number;
+  calculationType?: ConceptCalculationType;
 }
 
 export interface InstallmentWithCalculated extends Installment {
@@ -57,6 +75,8 @@ export function enrichInstallment(
     name: concept.nameSnapshot,
     amount: concept.computedAmount,
     category: ConceptCategory.Corriente,
+    value: concept.value,
+    calculationType: concept.calculationType,
   }));
 
   if (installment.status !== InstallmentStatus.Pending) {

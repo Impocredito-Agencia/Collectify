@@ -21,7 +21,7 @@ export class LoanConceptAssignmentDto {
 
   @ApiProperty({
     description:
-      'Percentage points (for percentage concepts, applied to the balance outstanding before this installment) or a fixed currency amount (for fixed_amount concepts).',
+      "Percentage points (for percentage concepts, applied to the balance outstanding before this installment) or a fixed currency amount (for fixed_amount concepts). A percentage value admits up to 4 decimal places; a fixed_amount one, up to 2 — enforced in LoansService.assertConceptValuePrecision, not here, since it depends on the calculationType field above (see that method's own comment).",
     example: 2,
   })
   @IsNumber()
