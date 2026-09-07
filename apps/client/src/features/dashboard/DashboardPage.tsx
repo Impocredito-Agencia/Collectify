@@ -10,7 +10,6 @@ import { useAuth } from '@/features/auth/useAuth';
 import { OverdueClientsSortBy } from '@/features/dashboard/dashboardApi';
 import {
   useDashboardSummary,
-  useMonthlyReport,
   useOverdueClients,
 } from '@/features/dashboard/useDashboard';
 import { moraBadgeClasses } from '@/features/loans/loanStatusDisplay';
@@ -23,34 +22,6 @@ const SORT_OPTIONS = [
   { value: OverdueClientsSortBy.TotalOverdueAmount, label: 'Monto total' },
   { value: OverdueClientsSortBy.MaxOverdueDays, label: 'Días de mora' },
 ];
-
-const MONTH_NAMES = [
-  'Enero',
-  'Febrero',
-  'Marzo',
-  'Abril',
-  'Mayo',
-  'Junio',
-  'Julio',
-  'Agosto',
-  'Septiembre',
-  'Octubre',
-  'Noviembre',
-  'Diciembre',
-];
-
-const now = new Date();
-const MONTH_OPTIONS = MONTH_NAMES.map((label, index) => ({
-  value: String(index + 1),
-  label,
-}));
-// Last 3 years plus the current one — this business has no data before its
-// own founding, and a report for a future year would always be empty, so a
-// short fixed range is enough rather than an open-ended input.
-const YEAR_OPTIONS = [0, 1, 2, 3].map((offset) => {
-  const year = now.getFullYear() - offset;
-  return { value: String(year), label: String(year) };
-});
 
 // No new Figma design was reviewed for this screen — client explicitly
 // chose (see AskUserQuestion during Fase 7) to build it from scratch
@@ -76,8 +47,6 @@ export function DashboardPage() {
     OverdueClientsSortBy.TotalOverdueAmount,
   );
   const [page, setPage] = useState(1);
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [year, setYear] = useState(now.getFullYear());
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary();
   const { data: currentUsuryRate } = useCurrentUsuryRate();
@@ -86,10 +55,6 @@ export function DashboardPage() {
     isLoading: overdueLoading,
     isError: overdueError,
   } = useOverdueClients({ sortBy, page });
-  const { data: monthlyReport, isLoading: reportLoading } = useMonthlyReport(
-    month,
-    year,
-  );
 
   const clients = overdueClients?.items ?? [];
   const meta = overdueClients?.meta;
@@ -283,56 +248,12 @@ export function DashboardPage() {
         )}
       </div>
 
-      <div className="flex flex-col gap-2.5">
-        <div className="flex items-center justify-between">
-          <span className="text-section-label font-normal tracking-normal text-subtle">
-            Reporte mensual
-          </span>
-          <div className="flex items-center gap-2">
-            <Select
-              value={String(month)}
-              onChange={(next) => setMonth(Number(next))}
-              options={MONTH_OPTIONS}
-              className="w-[150px]"
-            />
-            <Select
-              value={String(year)}
-              onChange={(next) => setYear(Number(next))}
-              options={YEAR_OPTIONS}
-              className="w-[100px]"
-            />
-          </div>
-        </div>
-
-        <div
-          className={`grid gap-4 ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'}`}
-        >
-          <StatCard
-            label="Préstamos nuevos"
-            value={
-              reportLoading
-                ? '—'
-                : String(monthlyReport?.newLoansDisbursed ?? 0)
-            }
-          />
-          {isAdmin && (
-            <StatCard
-              label="Pagos recibidos"
-              value={
-                reportLoading
-                  ? '—'
-                  : formatCurrency(monthlyReport?.totalPaymentsReceived ?? 0)
-              }
-            />
-          )}
-          <StatCard
-            label="Mensajes enviados"
-            value={
-              reportLoading ? '—' : String(monthlyReport?.messagesSent ?? 0)
-            }
-          />
-        </div>
-      </div>
+      {/* "Reporte mensual" section removed from the UI (2026-09-05, client
+          request) — not needed for day-to-day use right now. The backend
+          endpoint (GET /dashboard/monthly-report), dashboardApi.ts's
+          getMonthlyReport, and useDashboard.ts's useMonthlyReport hook were
+          all deliberately left in place, untouched, in case this is wanted
+          again later — only this page's usage of them was removed. */}
     </div>
   );
 }

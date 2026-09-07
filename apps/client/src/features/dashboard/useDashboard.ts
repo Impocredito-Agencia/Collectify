@@ -18,6 +18,8 @@ export function useOverdueClients(params: OverdueClientsQueryParams) {
   });
 }
 
+// Not currently called anywhere — see dashboardApi.ts's getMonthlyReport
+// comment. Left in place in case the "Reporte mensual" section comes back.
 export function useMonthlyReport(month: number, year: number) {
   return useQuery({
     queryKey: ['dashboard', 'monthly-report', month, year],

@@ -81,6 +81,11 @@ export const dashboardApi = {
     return { items: data, meta: meta as PaginatedOverdueClients['meta'] };
   },
 
+  // Not currently called from DashboardPage.tsx — the "Reporte mensual"
+  // section that used this was removed from the UI (2026-09-05, client
+  // request: not needed for day-to-day use right now). Left in place,
+  // along with the GET /dashboard/monthly-report endpoint itself, in case
+  // this is wanted again later.
   getMonthlyReport: async (
     month: number,
     year: number,
