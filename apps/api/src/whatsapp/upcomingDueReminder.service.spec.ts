@@ -49,7 +49,6 @@ describe('UpcomingDueReminderService', () => {
     alternatePhoneNumber: null,
     homeAddress: null,
     workAddress: null,
-    neighborhood: null,
     city: null,
     occupation: null,
     employerName: null,
