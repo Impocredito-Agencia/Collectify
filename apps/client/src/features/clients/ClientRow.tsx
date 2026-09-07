@@ -1,11 +1,12 @@
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Td } from '@/components/ui/Table';
+import { moraBadgeClasses } from '@/features/loans/loanStatusDisplay';
 import { formatPhoneNumber } from '@/lib/format';
 
-import type { Client } from '@/features/clients/clientsApi';
+import type { ClientListItem } from '@/features/clients/clientsApi';
 
 interface ClientRowProps {
-  client: Client;
+  client: ClientListItem;
   // Row number for the "#" column (F-10). Purely a display sequence
   // computed from the current page/limit — not persisted or backed by any
   // field on the entity.
@@ -35,14 +36,22 @@ export function ClientRow({
   const isActive = client.deletedAt === null;
 
   return (
-    <tr className="border-t border-border">
+    <tr className="divide-x divide-border border-t border-border">
       <Td muted>{rowNumber}</Td>
       <Td>
         {client.firstName} {client.lastName}
       </Td>
-      <Td>{client.documentNumber}</Td>
-      <Td>{formatPhoneNumber(client.phoneNumber)}</Td>
-      <Td>
+      <Td className="text-center">{client.documentNumber}</Td>
+      <Td className="text-center">{formatPhoneNumber(client.phoneNumber)}</Td>
+      <Td className="text-center">{client.activeLoanCount}</Td>
+      <Td className="text-center">
+        <span
+          className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(client.maxOverdueDays)}`}
+        >
+          {client.maxOverdueDays} días
+        </span>
+      </Td>
+      <Td className="text-center">
         <span
           className={
             isActive
@@ -53,9 +62,9 @@ export function ClientRow({
           {isActive ? 'Activo' : 'Inactivo'}
         </span>
       </Td>
-      <Td>
+      <Td className="text-center">
         {isActive ? (
-          <div className="flex gap-2">
+          <div className="flex justify-center gap-2">
             <RowActionButton to={`/clientes/${client.id}`}>
               Ver detalle
             </RowActionButton>

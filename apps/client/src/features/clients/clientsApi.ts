@@ -78,7 +78,6 @@ export interface Client {
   alternatePhoneNumber: string | null;
   homeAddress: string | null;
   workAddress: string | null;
-  neighborhood: string | null;
   city: string | null;
   occupation: string | null;
   employerName: string | null;
@@ -122,6 +121,19 @@ export interface ClientDetail extends Client {
   messageFrequency: ClientMessageFrequency | null;
 }
 
+// What GET /clients (list) returns per row — plain Client fields plus two
+// counts computed in one batched pass over the page (ClientsService.
+// enrichClientListItems), not stored columns. maxOverdueDays uses the same
+// "any overdueDays > 0" definition as ClientDetailPage's "En mora" stat and
+// Dashboard's per-client mora badge — NOT the stricter >30-day threshold
+// used by isMoraBlocked/hasMoraBlock (that one only gates new loan
+// creation). See docs/phases — added 2026-09-06 to fill the unused
+// horizontal space on the Clientes list.
+export interface ClientListItem extends Client {
+  activeLoanCount: number;
+  maxOverdueDays: number;
+}
+
 export interface ClientsQueryParams {
   search?: string;
   // true = active (default), false = soft-deleted, 'all' = both — the
@@ -134,7 +146,7 @@ export interface ClientsQueryParams {
 }
 
 export interface PaginatedClients {
-  items: Client[];
+  items: ClientListItem[];
   meta: {
     page: number;
     limit: number;
@@ -166,7 +178,6 @@ export interface CreateClientInput {
   alternatePhoneNumber?: string;
   homeAddress?: string;
   workAddress?: string;
-  neighborhood?: string;
   city?: string;
   occupation?: string;
   employerName?: string;
@@ -184,7 +195,7 @@ export const clientsApi = {
   getAll: async (
     params: ClientsQueryParams = {},
   ): Promise<PaginatedClients> => {
-    const { data, meta } = await apiClient.get<Client[]>('/clients', {
+    const { data, meta } = await apiClient.get<ClientListItem[]>('/clients', {
       search: params.search,
       isActive: params.isActive,
       page: params.page,
