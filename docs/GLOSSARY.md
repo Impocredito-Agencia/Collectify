@@ -202,6 +202,9 @@ Since Phase 4's original spec ("if accumulated payments cover the installment am
 
 **Confirmed with the human, 2026-09-08:** closing a `pending` installment now requires covering its full live remaining balance — capital **and** accrued mora — not `amount` alone. This is independent of "Imputación del pago" above (which governs the *order* interest and principal are paid off in `Liquidación anticipada`, still unchanged and still not applied to `registerPayment`) — this is instead about the *threshold* for marking an ordinary payment's installment `paid` at all. Practically: a cobrador can no longer close an overdue cuota by collecting only its capital and forgiving the mora; the installment stays `pending` (and keeps accruing fresh daily mora on its own unchanging `amount` — never on mora already accrued, avoiding anatocismo) until the full balance is paid. Applies identically to `registerBulkPayments`, whose "must fully settle" rule now means the same full balance, not `amount` alone. See `DATABASE.md`'s note of this date and `InstallmentsService.registerPayment`'s own doc comment.
 
+### Mora invisible en WhatsApp, Dashboard y cupo (fixed 2026-09-08)
+Found while auditing the `#0920` payment-cap fix, in a separate follow-up branch — a distinct bug, not the same root cause as "Cierre de cuota" above. Every loan created since the Phase 23 redesign (#254) carries its real interest rate as a `LoanInstallmentConcept` row, not the legacy `Loan.interestRate` column (sent as a fixed `0` from the frontend for every new/refinanced loan — that column no longer does anything for a current loan). Four read paths — WhatsApp reminders and self-service menu, the Dashboard's overdue widget, and a client's cupo (`creditUsed`/`creditAvailable`) — never fetched a loan's real moratory concepts before asking for its mora, so they silently fell back to the legacy formula and reported **exactly $0 accrued mora**, no matter how overdue the cuota. The amount actually enforced at payment time (`registerPayment`'s ceiling) was never affected — it already fetched the real concepts correctly. See `DATABASE.md`'s note of this date for the full list of call sites and the fix.
+
 ## Roles
 
 ### Owner (Admin)
@@ -281,6 +284,7 @@ The following were open questions in an earlier version of this glossary, now re
 - ~~Whether a payment can exceed an installment's real remaining balance~~ → Confirmed: no — hard-rejected. See "Cierre de cuota" above and `DATABASE.md`'s note of 2026-09-07.
 - ~~What happens to a genuine physical excess a client hands over~~ → Still open, deliberately deferred (see "Cierre de cuota" above) — no saldo-a-favor ledger or auto-apply-to-next-cuota behavior exists yet.
 - ~~Whether mora is optional/forgivable once an installment's capital is covered~~ → Confirmed: no — closing a `pending` installment now requires covering capital **and** accrued mora in full. See "Cierre de cuota" above.
+- ~~Whether WhatsApp reminders, the self-service menu, the Dashboard's overdue widget, and cupo (`creditUsed`/`creditAvailable`) reflected a loan's real moratory concepts~~ → Confirmed no, for every current-generation loan: they all fell back to the legacy `interestRate` formula (sent as `0` since Phase 23), reporting $0 accrued mora. Fixed via a shared `findConceptsByInstallmentId` helper. See "Mora invisible en WhatsApp, Dashboard y cupo" above and `DATABASE.md`'s note of this date.
 
 ## Related documents
 

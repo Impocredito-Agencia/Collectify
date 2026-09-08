@@ -741,6 +741,25 @@ Found while explaining the closing-rule change above to the human: `saldoPendien
 
 Fixed by widening `InstallmentForSaldoPendiente` with an optional `totalDue` field: when present (every OVERDUE installment carries one already, from `findOverdueInstallmentsForClient()`'s own `enrichInstallment()` call — already net of payments and inclusive of accrued mora), it's used directly as the gap instead of re-deriving `amount - paid`. An UPCOMING (not-yet-due) installment still has no `totalDue` (see `findUpcomingInstallmentsForClient()`'s own out-of-scope note above) and falls back to the old `amount - paid` formula, which is fine there since nothing is overdue and mora is a non-issue. The gate stays "was there a nonzero payment at all" regardless of which formula computes the gap — an untouched overdue installment already owes its full `totalDue` via ordinary mora, and that's not what this note is for.
 
+## Bug fix, 2026-09-08 — mora reported as $0 in WhatsApp, Dashboard and cupo for every current-generation loan
+
+Found during a code review of the `#0920` payment-cap fix above, in a separate branch (`fix/mora-invisible-conceptos-vacios`) from the payment-cap/closing-rule/saldo-pendiente fixes documented above — an independent bug, not part of that same root cause.
+
+`enrichInstallment()` defaults its `concepts` parameter to `[]` and, per its own doc comment, falls back to the legacy single-rate `interestRate` formula whenever `moratoryConcepts.length === 0`. That fallback was designed to be inert for any loan created since the Phase 23 redesign (#254): every such loan (`LoansService.create()`/`refinance()`, via `resolveConceptsWithInterest()`) always assigns at least one `LoanInstallmentConcept` row with `category: Moratorio` ("Intereses moratorios"), and the frontend (`LoanForm.tsx`/`RefinanceLoanForm.tsx`) sends `interestRate: 0` explicitly for every new/refinanced loan, with an explicit comment that this legacy field "never applies to a loan created through this form."
+
+That assumption holds only if the caller actually fetches and passes the loan's real `LoanInstallmentConcept` rows. Four call sites instead hardcoded `concepts` to `[]` — from `enrichInstallment()`'s point of view this is indistinguishable from "this loan genuinely has no moratory concepts," so it took the legacy branch with `interestRate: 0` and computed **exactly $0 accrued mora**, regardless of how overdue the installment was:
+
+- `whatsapp/reminderInstallmentQueries.ts`'s `findOverdueInstallmentsForClient()` — every WhatsApp overdue/upcoming reminder and the "saldo pendiente" note
+- `whatsapp/breakdownQueries.ts`'s `toAccountSummaryInstallment()` — the self-service menu's "Ver mis cuotas" / "Estado de cuenta" / "Más información"
+- `dashboard.service.ts`'s `gatherOverdueInstallments()` — the Dashboard's "cuotas vencidas" widget and each overdue client's `totalOverdueAmount`
+- `clients.service.ts`'s `enrichActiveInstallments()` — `creditUsed`/`creditAvailable` (cupo) on `GET /clients/:id`, and the cupo guard `LoansService.create()` checks before allowing a new loan
+
+The following call sites were already correct — they fetch each installment's real concepts via a batched query before calling `enrichInstallment()`, so this bug never affected them: `loans.service.ts`'s `summarize()`/`findOne()`/`payoff()`/`getPayoffQuote()`/`refinance()` (`GET /loans`, `GET /loans/:id`, and every `calculatePayoff()` call), and `installments.service.ts`'s `findAll()` and — critically — `resolveRemainingBalance()`, the function that actually enforces the payment ceiling on `registerPayment()`/`registerBulkPayments()`. `clients.service.ts`'s separate `enrichClientListItems()` (Clientes list's "Préstamos activos"/"En mora" columns) was checked too and is unaffected — it only reads `overdueDays`, never `totalDue`, so the legacy-formula fallback (which still computes `overdueDays` correctly regardless of interest) doesn't touch it.
+
+**Net effect before this fix:** the amount actually enforced when collecting a payment was correct, but everything the client and admin could *see* about a current-generation loan's mora was not — WhatsApp always showed capital-only totals with zero mora, the Dashboard undercounted "cuotas vencidas," and a client's `creditAvailable` looked more generous than it really was.
+
+**Fix:** extracted a shared `findConceptsByInstallmentId()` helper (`apps/api/src/loans/installments/conceptsByInstallmentId.ts`), mirroring `sumPaymentsByInstallmentId()`'s (`paymentTotals.ts`) existing batched-by-installmentId convention — one query per list of installment ids, not N+1. `loans.service.ts`/`installments.service.ts` keep their own pre-existing private copies of this same query unchanged (they were never the source of the bug); only the four broken call sites above were switched to fetch and pass real concepts through it. Each affected service/module gained a `LoanInstallmentConcept` repository injection (`clients.module.ts`, `dashboard.module.ts`, `whatsapp.module.ts`).
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above
