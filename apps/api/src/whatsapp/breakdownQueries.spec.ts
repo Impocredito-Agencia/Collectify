@@ -5,6 +5,7 @@ import {
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
+import { Payment } from '../loans/entities/payment.entity';
 
 import { findInstallmentsBreakdownByIds } from './breakdownQueries';
 
@@ -36,12 +37,18 @@ function buildInstallment(overrides: Partial<Installment> = {}): Installment {
 describe('findInstallmentsBreakdownByIds', () => {
   let findMock: jest.Mock;
   let installmentsRepository: Repository<Installment>;
+  let paymentsFindMock: jest.Mock;
+  let paymentsRepository: Repository<Payment>;
 
   beforeEach(() => {
     findMock = jest.fn();
     installmentsRepository = {
       find: findMock,
     } as unknown as Repository<Installment>;
+    paymentsFindMock = jest.fn().mockResolvedValue([]);
+    paymentsRepository = {
+      find: paymentsFindMock,
+    } as unknown as Repository<Payment>;
   });
 
   // Bug fix, 2026-09-03 (human report): backs the scoped "Más información"
@@ -50,6 +57,7 @@ describe('findInstallmentsBreakdownByIds', () => {
   it('returns an empty array without querying when no ids are given', async () => {
     const result = await findInstallmentsBreakdownByIds(
       installmentsRepository,
+      paymentsRepository,
       [],
     );
 
@@ -64,6 +72,7 @@ describe('findInstallmentsBreakdownByIds', () => {
 
     const result = await findInstallmentsBreakdownByIds(
       installmentsRepository,
+      paymentsRepository,
       ['installment-1'],
     );
 
@@ -76,5 +85,27 @@ describe('findInstallmentsBreakdownByIds', () => {
     expect(result[0].installmentNumber).toBe(3);
     expect(result[0].promissoryNoteNumber).toBe('#743');
     expect(result[0].overdueDays).toBeGreaterThan(0);
+  });
+
+  // Bug fix, 2026-09-07 — see enrichInstallment.ts's `totalPaid` param.
+  it('nets out an existing partial payment from totalDue', async () => {
+    findMock.mockResolvedValue([
+      buildInstallment({
+        id: 'installment-1',
+        amount: 300000,
+        dueDate: '2099-01-01',
+      }),
+    ]);
+    paymentsFindMock.mockResolvedValue([
+      { installmentId: 'installment-1', amountPaid: 120000 },
+    ]);
+
+    const result = await findInstallmentsBreakdownByIds(
+      installmentsRepository,
+      paymentsRepository,
+      ['installment-1'],
+    );
+
+    expect(result[0].totalDue).toBe(180000);
   });
 });

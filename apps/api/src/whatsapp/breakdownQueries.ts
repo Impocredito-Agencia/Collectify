@@ -8,15 +8,19 @@ import { LoanStatus } from '../loans/entities/loan.entity';
 import { Payment } from '../loans/entities/payment.entity';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
 import { calculateDaysUntilDue } from '../loans/installments/installmentCalculations';
+import { sumPaymentsByInstallmentId } from '../loans/installments/paymentTotals';
 
 import { AccountSummaryInstallmentForMessage } from './messageRenderer';
 
 function toAccountSummaryInstallment(
   installment: Installment,
+  totalPaid: number,
 ): AccountSummaryInstallmentForMessage {
   const enriched = enrichInstallment(
     installment,
     installment.loan.interestRate,
+    [],
+    totalPaid,
   );
   return {
     installmentNumber: installment.installmentNumber,
@@ -36,6 +40,7 @@ function toAccountSummaryInstallment(
 // standalone message type.
 export async function findPendingInstallmentsBreakdown(
   installmentsRepository: Repository<Installment>,
+  paymentsRepository: Repository<Payment>,
   clientId: string,
 ): Promise<AccountSummaryInstallmentForMessage[]> {
   const installments = await installmentsRepository.find({
@@ -46,8 +51,20 @@ export async function findPendingInstallmentsBreakdown(
     relations: { loan: true },
     order: { dueDate: 'ASC' },
   });
+  // Bug fix, 2026-09-07 — see enrichInstallment.ts's `totalPaid` param:
+  // without this, "Ver mis cuotas"/"Estado de cuenta" told the client the
+  // full original amount of a cuota they'd already partially paid.
+  const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+    paymentsRepository,
+    installments.map((installment) => installment.id),
+  );
 
-  return installments.map(toAccountSummaryInstallment);
+  return installments.map((installment) =>
+    toAccountSummaryInstallment(
+      installment,
+      totalPaidByInstallmentId.get(installment.id) ?? 0,
+    ),
+  );
 }
 
 // Bug fix, 2026-09-03 (human report): backs "Más información" on a
@@ -61,6 +78,7 @@ export async function findPendingInstallmentsBreakdown(
 // button days later and a stale overdue-day count would be wrong.
 export async function findInstallmentsBreakdownByIds(
   installmentsRepository: Repository<Installment>,
+  paymentsRepository: Repository<Payment>,
   installmentIds: string[],
 ): Promise<AccountSummaryInstallmentForMessage[]> {
   if (installmentIds.length === 0) {
@@ -72,8 +90,19 @@ export async function findInstallmentsBreakdownByIds(
     relations: { loan: true },
     order: { dueDate: 'ASC' },
   });
+  // Bug fix, 2026-09-07 — see findPendingInstallmentsBreakdown's identical
+  // addition above ("Más información" hits this path, not that one).
+  const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+    paymentsRepository,
+    installments.map((installment) => installment.id),
+  );
 
-  return installments.map(toAccountSummaryInstallment);
+  return installments.map((installment) =>
+    toAccountSummaryInstallment(
+      installment,
+      totalPaidByInstallmentId.get(installment.id) ?? 0,
+    ),
+  );
 }
 
 export interface PaymentHistoryEntry {

@@ -261,6 +261,7 @@ export class SelfServiceMenuService {
   private async sendBreakdown(client: Client): Promise<void> {
     const installments = await findPendingInstallmentsBreakdown(
       this.installmentsRepository,
+      this.paymentsRepository,
       client.id,
     );
     const clientFullName = `${client.firstName} ${client.lastName}`;
@@ -321,6 +322,7 @@ export class SelfServiceMenuService {
 
     return findInstallmentsBreakdownByIds(
       this.installmentsRepository,
+      this.paymentsRepository,
       items.map((item) => item.installmentId),
     );
   }
