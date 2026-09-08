@@ -10,7 +10,9 @@ import {
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
+import { findConceptsByInstallmentId } from '../loans/installments/conceptsByInstallmentId';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
 import { sumPaymentsByInstallmentId } from '../loans/installments/paymentTotals';
 import {
@@ -99,6 +101,9 @@ export class DashboardService {
     private readonly installmentsRepository: Repository<Installment>,
     @InjectRepository(Payment)
     private readonly paymentsRepository: Repository<Payment>,
+    // Bug fix, 2026-09-08 — see gatherOverdueInstallments's own comment.
+    @InjectRepository(LoanInstallmentConcept)
+    private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     @InjectRepository(MessageLog)
     private readonly messageLogsRepository: Repository<MessageLog>,
   ) {}
@@ -260,12 +265,24 @@ export class DashboardService {
       this.paymentsRepository,
       installments.map((installment) => installment.id),
     );
+    // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which made
+    // enrichInstallment fall back to the legacy interestRate formula. Every
+    // loan created since the Phase 23 redesign (#254) sends
+    // `interestRate: 0` (see LoanForm.tsx/RefinanceLoanForm.tsx's own
+    // comment on that field), so this silently reported ZERO accrued mora
+    // here — understating the Dashboard's "cuotas vencidas" total and every
+    // overdue client's totalOverdueAmount for a current-generation loan.
+    // See docs/DATABASE.md's note of this date.
+    const conceptsByInstallmentId = await findConceptsByInstallmentId(
+      this.loanInstallmentConceptsRepository,
+      installments.map((installment) => installment.id),
+    );
 
     return installments.map((installment) => {
       const enriched = enrichInstallment(
         installment,
         installment.loan.interestRate,
-        [],
+        conceptsByInstallmentId.get(installment.id) ?? [],
         totalPaidByInstallmentId.get(installment.id) ?? 0,
       );
       return {
