@@ -10,7 +10,12 @@ import {
   Installment,
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
+import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '../interestConceptTypes/entities/interestConceptType.entity';
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
 import { ClientsService } from './clients.service';
@@ -35,6 +40,7 @@ describe('ClientsService', () => {
   let loansRepository: { count: jest.Mock; find: jest.Mock };
   let installmentsRepository: { find: jest.Mock };
   let paymentsRepository: { find: jest.Mock };
+  let loanInstallmentConceptsRepository: { find: jest.Mock };
   let clientReferencesRepository: {
     create: jest.Mock;
     save: jest.Mock;
@@ -119,6 +125,14 @@ describe('ClientsService', () => {
     // doesn't care about partial-payment scenarios. Tests that DO care
     // override this per-case, same convention as loansRepository above.
     paymentsRepository = { find: jest.fn().mockResolvedValue([]) };
+    // Bug fix, 2026-09-08 — defaults to no concepts assigned, so
+    // enrichActiveInstallments' new findConceptsByInstallmentId call has
+    // something iterable rather than undefined in every existing test that
+    // doesn't care about moratory-concept scenarios. Tests that DO care
+    // override this per-case, same convention as paymentsRepository above.
+    loanInstallmentConceptsRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
     clientReferencesRepository = {
       create: jest.fn((dto: Partial<ClientReference>) => dto),
       save: jest.fn(),
@@ -150,6 +164,10 @@ describe('ClientsService', () => {
         {
           provide: getRepositoryToken(Payment),
           useValue: paymentsRepository,
+        },
+        {
+          provide: getRepositoryToken(LoanInstallmentConcept),
+          useValue: loanInstallmentConceptsRepository,
         },
         {
           provide: getRepositoryToken(ClientReference),
@@ -849,6 +867,51 @@ describe('ClientsService', () => {
         creditUsed: 180,
         creditAvailable: 820,
       });
+    });
+
+    // Bug fix, 2026-09-08 — before this, concepts was hardcoded to `[]`
+    // here, so enrichInstallment always fell back to the legacy
+    // interestRate formula. Every loan created since the Phase 23 redesign
+    // sends interestRate: 0 (see LoanForm.tsx's own comment), so this
+    // silently reported ZERO accrued mora for any modern loan's overdue
+    // installment, understating creditUsed / overstating creditAvailable.
+    it('uses the installment’s real moratory concepts instead of the legacy interestRate, even when interestRate is 0', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        creditLimit: 1000,
+      });
+      loansRepository.find.mockResolvedValue([
+        // interestRate: 0 mirrors every loan created through LoanForm.tsx
+        // since the Phase 23 redesign — the real rate lives in the
+        // moratory concept below instead.
+        { id: 'loan-1', clientId: mockClient.id, interestRate: 0 },
+      ]);
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'inst-1',
+          loanId: 'loan-1',
+          amount: 300,
+          dueDate: daysAgo(10),
+          status: InstallmentStatus.Pending,
+        },
+      ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: 'inst-1',
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 3,
+        },
+      ]);
+
+      const result = await service.getCreditUsage(mockClient.id);
+
+      // With interestRate alone (the bug) this would be exactly 300 (zero
+      // mora). 300 + (300 * 0.03 / 30) * 10 = 303, same shape as the
+      // legacy-formula test above — proving the concept is actually used.
+      expect(result.creditUsed).toBeCloseTo(303);
+      expect(result.creditAvailable).toBeCloseTo(697);
     });
 
     it('returns null creditAvailable when the client has no cupo set', async () => {
