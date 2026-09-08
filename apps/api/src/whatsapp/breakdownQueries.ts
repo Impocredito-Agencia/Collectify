@@ -5,7 +5,9 @@ import {
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
 import { LoanStatus } from '../loans/entities/loan.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
+import { findConceptsByInstallmentId } from '../loans/installments/conceptsByInstallmentId';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
 import { calculateDaysUntilDue } from '../loans/installments/installmentCalculations';
 import { sumPaymentsByInstallmentId } from '../loans/installments/paymentTotals';
@@ -15,11 +17,12 @@ import { AccountSummaryInstallmentForMessage } from './messageRenderer';
 function toAccountSummaryInstallment(
   installment: Installment,
   totalPaid: number,
+  concepts: LoanInstallmentConcept[],
 ): AccountSummaryInstallmentForMessage {
   const enriched = enrichInstallment(
     installment,
     installment.loan.interestRate,
-    [],
+    concepts,
     totalPaid,
   );
   return {
@@ -41,6 +44,9 @@ function toAccountSummaryInstallment(
 export async function findPendingInstallmentsBreakdown(
   installmentsRepository: Repository<Installment>,
   paymentsRepository: Repository<Payment>,
+  // Bug fix, 2026-09-08 — was missing entirely; toAccountSummaryInstallment
+  // used to get `[]` straight through. See that function's own comment.
+  loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
   clientId: string,
 ): Promise<AccountSummaryInstallmentForMessage[]> {
   const installments = await installmentsRepository.find({
@@ -58,11 +64,23 @@ export async function findPendingInstallmentsBreakdown(
     paymentsRepository,
     installments.map((installment) => installment.id),
   );
+  // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which made
+  // enrichInstallment fall back to the legacy interestRate formula. Every
+  // loan created since the Phase 23 redesign (#254) sends
+  // `interestRate: 0` (see LoanForm.tsx/RefinanceLoanForm.tsx's own comment
+  // on that field), so this silently reported ZERO accrued mora in
+  // "Ver mis cuotas"/"Estado de cuenta" for a current-generation loan. See
+  // docs/DATABASE.md's note of this date.
+  const conceptsByInstallmentId = await findConceptsByInstallmentId(
+    loanInstallmentConceptsRepository,
+    installments.map((installment) => installment.id),
+  );
 
   return installments.map((installment) =>
     toAccountSummaryInstallment(
       installment,
       totalPaidByInstallmentId.get(installment.id) ?? 0,
+      conceptsByInstallmentId.get(installment.id) ?? [],
     ),
   );
 }
@@ -79,6 +97,9 @@ export async function findPendingInstallmentsBreakdown(
 export async function findInstallmentsBreakdownByIds(
   installmentsRepository: Repository<Installment>,
   paymentsRepository: Repository<Payment>,
+  // Bug fix, 2026-09-08 — see findPendingInstallmentsBreakdown's identical
+  // addition above.
+  loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
   installmentIds: string[],
 ): Promise<AccountSummaryInstallmentForMessage[]> {
   if (installmentIds.length === 0) {
@@ -96,11 +117,18 @@ export async function findInstallmentsBreakdownByIds(
     paymentsRepository,
     installments.map((installment) => installment.id),
   );
+  // Bug fix, 2026-09-08 — see findPendingInstallmentsBreakdown's identical
+  // addition above.
+  const conceptsByInstallmentId = await findConceptsByInstallmentId(
+    loanInstallmentConceptsRepository,
+    installments.map((installment) => installment.id),
+  );
 
   return installments.map((installment) =>
     toAccountSummaryInstallment(
       installment,
       totalPaidByInstallmentId.get(installment.id) ?? 0,
+      conceptsByInstallmentId.get(installment.id) ?? [],
     ),
   );
 }

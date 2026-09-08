@@ -1,10 +1,15 @@
 import { In, Repository } from 'typeorm';
 
 import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '../interestConceptTypes/entities/interestConceptType.entity';
+import {
   Installment,
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
 import { findInstallmentsBreakdownByIds } from './breakdownQueries';
@@ -39,6 +44,8 @@ describe('findInstallmentsBreakdownByIds', () => {
   let installmentsRepository: Repository<Installment>;
   let paymentsFindMock: jest.Mock;
   let paymentsRepository: Repository<Payment>;
+  let conceptsFindMock: jest.Mock;
+  let loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>;
 
   beforeEach(() => {
     findMock = jest.fn();
@@ -49,6 +56,11 @@ describe('findInstallmentsBreakdownByIds', () => {
     paymentsRepository = {
       find: paymentsFindMock,
     } as unknown as Repository<Payment>;
+    // Bug fix, 2026-09-08 — see breakdownQueries.ts's own comment.
+    conceptsFindMock = jest.fn().mockResolvedValue([]);
+    loanInstallmentConceptsRepository = {
+      find: conceptsFindMock,
+    } as unknown as Repository<LoanInstallmentConcept>;
   });
 
   // Bug fix, 2026-09-03 (human report): backs the scoped "Más información"
@@ -58,6 +70,7 @@ describe('findInstallmentsBreakdownByIds', () => {
     const result = await findInstallmentsBreakdownByIds(
       installmentsRepository,
       paymentsRepository,
+      loanInstallmentConceptsRepository,
       [],
     );
 
@@ -73,6 +86,7 @@ describe('findInstallmentsBreakdownByIds', () => {
     const result = await findInstallmentsBreakdownByIds(
       installmentsRepository,
       paymentsRepository,
+      loanInstallmentConceptsRepository,
       ['installment-1'],
     );
 
@@ -103,9 +117,46 @@ describe('findInstallmentsBreakdownByIds', () => {
     const result = await findInstallmentsBreakdownByIds(
       installmentsRepository,
       paymentsRepository,
+      loanInstallmentConceptsRepository,
       ['installment-1'],
     );
 
     expect(result[0].totalDue).toBe(180000);
+  });
+
+  // Bug fix, 2026-09-08 — before this, concepts was hardcoded to `[]`
+  // here, so enrichInstallment always fell back to the legacy interestRate
+  // formula. Every loan created since the Phase 23 redesign sends
+  // interestRate: 0 (see buildInstallment's own fixture, and LoanForm.tsx's
+  // comment), so this silently reported ZERO accrued mora in "Más
+  // información" for a current-generation loan.
+  it('uses the installment’s real moratory concepts instead of the legacy interestRate, even when interestRate is 0', async () => {
+    findMock.mockResolvedValue([
+      buildInstallment({
+        id: 'installment-1',
+        amount: 300000,
+        dueDate: '2020-01-01',
+      }),
+    ]);
+    conceptsFindMock.mockResolvedValue([
+      {
+        installmentId: 'installment-1',
+        category: ConceptCategory.Moratorio,
+        calculationType: ConceptCalculationType.Percentage,
+        nameSnapshot: 'Intereses moratorios',
+        value: 3,
+      },
+    ]);
+
+    const result = await findInstallmentsBreakdownByIds(
+      installmentsRepository,
+      paymentsRepository,
+      loanInstallmentConceptsRepository,
+      ['installment-1'],
+    );
+
+    // With interestRate alone (the bug) this would be exactly 300000
+    // (zero mora).
+    expect(result[0].totalDue).toBeGreaterThan(300000);
   });
 });

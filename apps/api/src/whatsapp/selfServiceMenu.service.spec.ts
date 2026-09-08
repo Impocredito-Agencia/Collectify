@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { Client } from '../clients/entities/client.entity';
 import { Installment } from '../loans/entities/installment.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
@@ -22,6 +23,7 @@ describe('SelfServiceMenuService', () => {
   let service: SelfServiceMenuService;
   let installmentsRepository: { find: jest.Mock };
   let paymentsRepository: { find: jest.Mock };
+  let loanInstallmentConceptsRepository: { find: jest.Mock };
   let messageLogsRepository: { findOne: jest.Mock };
   let messageLogItemsRepository: { find: jest.Mock };
   let conversationStateService: {
@@ -83,6 +85,10 @@ describe('SelfServiceMenuService', () => {
   beforeEach(async () => {
     installmentsRepository = { find: jest.fn().mockResolvedValue([]) };
     paymentsRepository = { find: jest.fn().mockResolvedValue([]) };
+    // Bug fix, 2026-09-08 — see breakdownQueries.ts's own comment.
+    loanInstallmentConceptsRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
     messageLogsRepository = { findOne: jest.fn().mockResolvedValue(null) };
     messageLogItemsRepository = { find: jest.fn().mockResolvedValue([]) };
     conversationStateService = {
@@ -103,6 +109,10 @@ describe('SelfServiceMenuService', () => {
           useValue: installmentsRepository,
         },
         { provide: getRepositoryToken(Payment), useValue: paymentsRepository },
+        {
+          provide: getRepositoryToken(LoanInstallmentConcept),
+          useValue: loanInstallmentConceptsRepository,
+        },
         {
           provide: getRepositoryToken(MessageLog),
           useValue: messageLogsRepository,
