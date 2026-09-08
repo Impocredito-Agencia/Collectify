@@ -61,6 +61,35 @@ describe('WhatsAppService', () => {
     expect(init.headers).toMatchObject({ Authorization: 'Bearer token' });
   });
 
+  it('sends anyway when sending is globally paused but the recipient is in the test allowlist', async () => {
+    configService.get.mockReturnValue({
+      phoneNumberId: 'phone-id',
+      accessToken: 'token',
+      sendingPaused: true,
+      testRecipients: ['+573001234567'],
+    });
+    fetchMock.mockResolvedValue({ ok: true });
+
+    const result = await service.sendTextMessage('+573001234567', 'hello');
+
+    expect(result).toBe(true);
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it('still skips the send when sending is paused and the recipient is NOT in the test allowlist', async () => {
+    configService.get.mockReturnValue({
+      phoneNumberId: 'phone-id',
+      accessToken: 'token',
+      sendingPaused: true,
+      testRecipients: ['+573009999999'],
+    });
+
+    const result = await service.sendTextMessage('+573001234567', 'hello');
+
+    expect(result).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('returns false when the API responds with a non-ok status', async () => {
     configService.get.mockReturnValue({
       phoneNumberId: 'phone-id',
@@ -213,6 +242,32 @@ describe('WhatsAppService', () => {
       expect(result).toEqual({ sent: false, whatsappMessageId: null });
     });
 
+    it('sends anyway when sending is globally paused but the recipient is in the test allowlist', async () => {
+      configService.get.mockReturnValue({
+        phoneNumberId: 'phone-id',
+        accessToken: 'token',
+        sendingPaused: true,
+        testRecipients: ['+573001234567'],
+      });
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ messages: [{ id: 'wamid.HBgMNTczM' }] }),
+      });
+
+      const result = await service.sendTemplateMessage(
+        '+573001234567',
+        'una_cuota_vencida',
+        'es',
+        ['Señor Juan'],
+      );
+
+      expect(result).toEqual({
+        sent: true,
+        whatsappMessageId: 'wamid.HBgMNTczM',
+      });
+      expect(fetchMock).toHaveBeenCalled();
+    });
+
     it('returns whatsappMessageId: null when the API accepts the send but omits it', async () => {
       configService.get.mockReturnValue({
         phoneNumberId: 'phone-id',
@@ -272,6 +327,25 @@ describe('WhatsAppService', () => {
 
       expect(result).toBe(false);
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('sends anyway when sending is globally paused but the recipient is in the test allowlist', async () => {
+      configService.get.mockReturnValue({
+        phoneNumberId: 'phone-id',
+        accessToken: 'token',
+        sendingPaused: true,
+        testRecipients: ['+573001234567'],
+      });
+      fetchMock.mockResolvedValue({ ok: true });
+
+      const result = await service.sendInteractiveButtonsMessage(
+        '+573001234567',
+        'Selecciona una opción:',
+        buttons,
+      );
+
+      expect(result).toBe(true);
+      expect(fetchMock).toHaveBeenCalled();
     });
 
     it('returns false and skips the send when there are no buttons', async () => {

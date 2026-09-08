@@ -36,6 +36,14 @@ export interface WhatsappConfig {
   // menu replies alike — since all three send methods funnel through
   // WhatsAppService. See WhatsAppService for the actual check.
   sendingPaused: boolean;
+  // Test allowlist — added 2026-09-08 to let a real end-to-end WhatsApp
+  // send be tested against real developer phones while
+  // WHATSAPP_SENDING_PAUSED stays true for every other recipient. A
+  // phoneNumber in this list bypasses sendingPaused entirely (see
+  // WhatsAppService's three send methods); everyone else is still
+  // blocked exactly as before. Empty by default — the allowlist is an
+  // explicit, opt-in exception, never a default-open one.
+  testRecipients: string[];
 }
 
 export interface CronConfig {
@@ -88,6 +96,10 @@ export default (): Configuration => ({
     webhookVerifyToken: process.env.META_WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? '',
     appSecret: process.env.META_WHATSAPP_APP_SECRET ?? '',
     sendingPaused: process.env.WHATSAPP_SENDING_PAUSED === 'true',
+    testRecipients: (process.env.WHATSAPP_TEST_RECIPIENTS ?? '')
+      .split(',')
+      .map((phoneNumber) => phoneNumber.trim())
+      .filter((phoneNumber) => phoneNumber.length > 0),
   },
   cron: {
     overdueReminderExpression: process.env.OVERDUE_REMINDER_CRON ?? '0 9 * * 1',

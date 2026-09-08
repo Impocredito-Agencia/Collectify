@@ -25,7 +25,9 @@
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/dataSource.ts",
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/dataSource.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/dataSource.ts",
-    "seed:admin": "ts-node -r tsconfig-paths/register src/database/seedAdmin.ts"
+    "seed:admin": "ts-node -r tsconfig-paths/register src/database/seedAdmin.ts",
+    "seed:whatsapp-test": "ts-node -r tsconfig-paths/register src/database/seedWhatsappTestData.ts",
+    "cleanup:whatsapp-test": "ts-node -r tsconfig-paths/register src/database/cleanupWhatsappTestData.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
