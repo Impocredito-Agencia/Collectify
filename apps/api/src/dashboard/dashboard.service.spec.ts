@@ -451,8 +451,8 @@ describe('DashboardService', () => {
       const result = await service.getOverdueClients({});
 
       // With interestRate alone (the bug) this would be exactly 100000
-      // (zero mora). 100000 + (100000 * 0.03 / 30) * 10 = 100100.
-      expect(result.items[0].totalOverdueAmount).toBeCloseTo(100100);
+      // (zero mora). 100000 + (100000 * (0.03) / 30) * 10 = 101000.
+      expect(result.items[0].totalOverdueAmount).toBeCloseTo(101000);
     });
 
     it('sorts by totalOverdueAmount descending by default', async () => {
