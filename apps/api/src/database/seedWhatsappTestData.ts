@@ -318,6 +318,21 @@ async function wipeReminderTestLoans(
   if (staleLoans.length === 0) {
     return;
   }
+  const staleLoanIds = staleLoans.map((loan) => loan.id);
+
+  // message_log_items.installment_id has no ON DELETE CASCADE (it's meant
+  // to survive an installment being soft-deleted elsewhere) — if you
+  // already triggered a manual send-reminder against a previous scenario
+  // for this client, its message_log_items row still points at that
+  // scenario's installments and blocks the loan/installment delete below
+  // with a foreign key violation. Safe to remove here: these items only
+  // ever described this script's own disposable reminder-test
+  // installments, never anything a real client saw.
+  await dataSource.query(
+    `DELETE FROM message_log_items WHERE installment_id IN (SELECT id FROM installments WHERE loan_id = ANY($1))`,
+    [staleLoanIds],
+  );
+
   // Hard delete — this is disposable test-only data (see file header), and
   // installments/loan_installment_concepts/payments cascade at the DB
   // level from loans.id (ON DELETE CASCADE, matching the entity
