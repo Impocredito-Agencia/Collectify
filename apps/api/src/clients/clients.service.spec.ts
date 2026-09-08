@@ -11,6 +11,7 @@ import {
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
+import { Payment } from '../loans/entities/payment.entity';
 
 import { ClientsService } from './clients.service';
 import { Client, DocumentType } from './entities/client.entity';
@@ -33,6 +34,7 @@ describe('ClientsService', () => {
   };
   let loansRepository: { count: jest.Mock; find: jest.Mock };
   let installmentsRepository: { find: jest.Mock };
+  let paymentsRepository: { find: jest.Mock };
   let clientReferencesRepository: {
     create: jest.Mock;
     save: jest.Mock;
@@ -111,6 +113,12 @@ describe('ClientsService', () => {
       find: jest.fn().mockResolvedValue([]),
     };
     installmentsRepository = { find: jest.fn() };
+    // Bug fix, 2026-09-07 — defaults to no payments found, so
+    // enrichActiveInstallments' new sumPaymentsByInstallmentId call has
+    // something iterable rather than undefined in every existing test that
+    // doesn't care about partial-payment scenarios. Tests that DO care
+    // override this per-case, same convention as loansRepository above.
+    paymentsRepository = { find: jest.fn().mockResolvedValue([]) };
     clientReferencesRepository = {
       create: jest.fn((dto: Partial<ClientReference>) => dto),
       save: jest.fn(),
@@ -138,6 +146,10 @@ describe('ClientsService', () => {
         {
           provide: getRepositoryToken(Installment),
           useValue: installmentsRepository,
+        },
+        {
+          provide: getRepositoryToken(Payment),
+          useValue: paymentsRepository,
         },
         {
           provide: getRepositoryToken(ClientReference),
@@ -804,6 +816,39 @@ describe('ClientsService', () => {
       const result = await service.getCreditUsage(mockClient.id);
 
       expect(result.creditUsed).toBe(0);
+    });
+
+    // Bug fix, 2026-09-07 — before this, creditUsed never netted out a
+    // partial payment already made on a Pending installment, so a client's
+    // cupo stayed fully "used" even after money had genuinely come in.
+    it('subtracts an existing partial payment from creditUsed', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        creditLimit: 1000,
+      });
+      loansRepository.find.mockResolvedValue([
+        { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+      ]);
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'inst-1',
+          loanId: 'loan-1',
+          amount: 300,
+          dueDate: daysAgo(-10), // not overdue — deterministic totalDue
+          status: InstallmentStatus.Pending,
+        },
+      ]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 120 },
+      ]);
+
+      const result = await service.getCreditUsage(mockClient.id);
+
+      expect(result).toEqual({
+        creditLimit: 1000,
+        creditUsed: 180,
+        creditAvailable: 820,
+      });
     });
 
     it('returns null creditAvailable when the client has no cupo set', async () => {

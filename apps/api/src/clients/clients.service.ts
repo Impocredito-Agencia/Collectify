@@ -13,7 +13,9 @@ import {
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
+import { Payment } from '../loans/entities/payment.entity';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
+import { sumPaymentsByInstallmentId } from '../loans/installments/paymentTotals';
 
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
@@ -101,6 +103,9 @@ export class ClientsService {
     private readonly loansRepository: Repository<Loan>,
     @InjectRepository(Installment)
     private readonly installmentsRepository: Repository<Installment>,
+    // Bug fix, 2026-09-07 — see enrichActiveInstallments's own comment.
+    @InjectRepository(Payment)
+    private readonly paymentsRepository: Repository<Payment>,
     @InjectRepository(ClientReference)
     private readonly clientReferencesRepository: Repository<ClientReference>,
     @InjectRepository(ClientMessageFrequency)
@@ -360,6 +365,11 @@ export class ClientsService {
   // LoanStatus.Refinanced/Paid, not Active, so they're excluded here without
   // needing a separate rule — their balance no longer counts toward cupo or
   // mora, which is what refinancing/paying off a loan is supposed to mean.
+  //
+  // Bug fix, 2026-09-07 — totalPaid added (see enrichInstallment.ts's own
+  // comment): without it, creditUsed/creditAvailable never reflected a
+  // partial payment already made on a still-Pending installment, so a
+  // client's cupo stayed as "used" as if that money had never come in.
   private async enrichActiveInstallments(
     clientId: string,
   ): Promise<EnrichedInstallment[]> {
@@ -376,11 +386,17 @@ export class ClientsService {
     const interestRateByLoanId = new Map(
       loans.map((loan) => [loan.id, loan.interestRate]),
     );
+    const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+      this.paymentsRepository,
+      installments.map((installment) => installment.id),
+    );
 
     return installments.map((installment) =>
       enrichInstallment(
         installment,
         interestRateByLoanId.get(installment.loanId) ?? 0,
+        [],
+        totalPaidByInstallmentId.get(installment.id) ?? 0,
       ),
     );
   }
