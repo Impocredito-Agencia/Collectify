@@ -269,12 +269,14 @@ overdueDays = todayInBogota > installment.dueDate
   ? wholeCalendarDaysBetween(todayInBogota, installment.dueDate)
   : 0;
 
-interest = installment.amount * (loan.interestRate / 100) / 30 * overdueDays;
+interest = overdueDays <= 8
+  ? 0
+  : installment.amount * (loan.interestRate / 100) / 30 * overdueDays;
 
 totalDueForInstallment = installment.amount + interest;
 ```
 
-This matches the manual calculations found across both source spreadsheets — verified against multiple real examples.
+This matches the manual calculations found across both source spreadsheets — verified against multiple real examples. The `overdueDays <= 8` gate was added 2026-09-08 — see that date's note near the end of this document.
 
 **Bug fix, 2026-09-07 — `totalDueForInstallment` above is incomplete: it must also subtract any payments already registered against that pending installment.** See "Bug fix, 2026-09-07 — payment could exceed an installment's real remaining balance" near the end of this document for the full story; `enrichInstallment()`'s real formula is `max(0, installment.amount + interest - totalPaid)`.
 
@@ -769,6 +771,16 @@ Root cause: `paymentConfirmation.service.ts`'s `overpaymentFor()`/`overpaymentAc
 Docs note this should have been caught by the `#0920` fix's own "Side effect — the 'saldo a favor' WhatsApp note is now dormant, correctly" claim (this document, above) — that reasoning assumed `overpaymentFor` compared against the installment's real `totalDue` (capital + mora), which was only true for `notaAdicional.ts`'s `saldoPendiente.ts` consumer, not for this one. `paymentConfirmation.service.ts` was never migrated onto that comparison; this is the gap that claim missed.
 
 **Fix:** `overpaymentFor`/`overpaymentAcrossInstallments` now compare `totalPaid` against the installment's real total owed (capital + accrued mora), computed with the same `calculateOverdueDays`/`calculateInterest`/`calculateMoratoryCharges`/`calculateTotalDue` formulas `installments.service.ts`'s `resolveRemainingBalance` uses. Deliberately does NOT call `enrichInstallment()` directly: by the time `PaymentConfirmationService` runs, the installment has already been flipped to `Paid` (`installments.service.ts`), and `enrichInstallment()` short-circuits a non-Pending installment's `interest`/`totalDue` to `0` (see that function's own doc comment) — so the raw calculation functions are called directly instead, which only need `dueDate` and don't care about the installment's current status. `PaymentConfirmationService` gained a `LoanInstallmentConcept` repository injection, reusing the existing `findConceptsByInstallmentId()` helper from the fix above for the batched `sendPaidInFull` path. Verified with a unit test reproducing the exact reported numbers ($205.000 capital + $119.584 mora, paid $324.584 → no "saldo a favor").
+
+## Bug fix, 2026-09-08 — mora was charged starting overdue day 1, not day 9 as the business actually requires
+
+Human report: the self-service "Más información" breakdown showed a cuota due 7 days ago (`8️⃣ Cuota No. 9 por $208.348 venció hace 7 días`) already carrying $3.348 of mora on top of its real $205.000 amount, and a loan's detail-view Total column summed the same premature mora into its grand total.
+
+Root cause: `docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`'s Template 6 note already stated the confirmed rule — "the business doesn't charge mora until day 9" — split into two Meta templates (`una_cuota_vencida` for días 1-8, `una_cuota_vencida_en_mora` from día 9) for exactly this reason. But that rule was only ever wired into `reminderTemplateSelection.ts`'s template-choice branch (`item.overdueDays > 8`), which decides *which message to send*, not into `installmentCalculations.ts`'s `calculateInterest`/`calculateMoratoryCharges`, which decide *how much mora is actually owed*. Those two functions had no grace-period gate at all — they charged mora proportional to `overdueDays` starting from day 1. The single-cuota "días 1-8" template happened to look correct only because that one call site (`reminderTemplateSelection.ts`) shows `item.amount` (capital only) instead of `item.totalDue` for that branch — but `totalDue`/`interest` themselves, read by every other consumer of `enrichInstallment()`/`calculatePayoff()` (the self-service breakdown for 2+ installments, a loan's Total column, the Dashboard's "cuotas vencidas" widget, cupo, and the payment ceiling/closing-rule check), already had the (wrong) day-1 mora baked in.
+
+**Confirmed with the human:** once past the 8-day grace period, mora is calculated over the installment's FULL overdue days — day 9 is charged as 9 days of mora, not 1 (i.e. the grace period is a binary on/off gate, not a shifted starting point for the day count).
+
+**Fix:** added `MORA_GRACE_PERIOD_DAYS = 8` to `installmentCalculations.ts`; `calculateInterest()` and `calculateMoratoryCharges()` now return `0` outright whenever `overdueDays <= MORA_GRACE_PERIOD_DAYS`, and apply the existing (unchanged) formula over the full `overdueDays` otherwise. Every consumer of these two functions — `enrichInstallment()` (and everything built on it: WhatsApp reminders/self-service menu, Dashboard, cupo, the payment ceiling) and `calculatePayoff()` — inherits the fix automatically, since none of them re-derive the formula themselves. `reminderTemplateSelection.ts`'s own `overdueDays > 8` check was switched to import and use the same `MORA_GRACE_PERIOD_DAYS` constant instead of a second hardcoded `8`, so the two can't drift apart again. `installments.due_date`/`overdueDays` itself (the "venció hace N días" figure quoted to clients) is unaffected — only the resulting mora *amount* changes.
 
 ## Related documents
 
