@@ -6,6 +6,7 @@ import { Client } from '../clients/entities/client.entity';
 import { ClientMessageFrequency } from '../clients/entities/clientMessageFrequency.entity';
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 import { UsersModule } from '../users/users.module';
 
@@ -55,6 +56,12 @@ import { WhatsAppService } from './whatsapp.service';
       Installment,
       Loan,
       Payment,
+      // Bug fix, 2026-09-08 — OverdueReminderService, UpcomingDueReminderService
+      // and SelfServiceMenuService now need this to compute an installment's
+      // real accrued mora instead of silently falling back to the legacy
+      // interestRate formula. See reminderInstallmentQueries.ts's/
+      // breakdownQueries.ts's own comments.
+      LoanInstallmentConcept,
     ]),
     // AuthModule (for JwtModule) and UsersModule — WhatsappInboundGateway
     // verifies a socket connection's access token by hand, see its doc

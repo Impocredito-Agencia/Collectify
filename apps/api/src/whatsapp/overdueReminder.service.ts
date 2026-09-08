@@ -11,6 +11,7 @@ import { In, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { Configuration } from '../config/configuration';
 import { Installment } from '../loans/entities/installment.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
@@ -56,6 +57,10 @@ export class OverdueReminderService {
     private readonly installmentsRepository: Repository<Installment>,
     @InjectRepository(Payment)
     private readonly paymentsRepository: Repository<Payment>,
+    // Bug fix, 2026-09-08 — see findOverdueInstallmentsForClient's own
+    // comment in reminderInstallmentQueries.ts.
+    @InjectRepository(LoanInstallmentConcept)
+    private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     @InjectRepository(MessageLog)
     private readonly messageLogsRepository: Repository<MessageLog>,
     @InjectRepository(MessageLogItem)
@@ -104,6 +109,7 @@ export class OverdueReminderService {
     const overdue = await findOverdueInstallmentsForClient(
       this.installmentsRepository,
       this.paymentsRepository,
+      this.loanInstallmentConceptsRepository,
       clientId,
     );
     if (overdue.length === 0 && !options?.allowEmpty) {

@@ -13,6 +13,7 @@ import {
   Loan,
   LoanStatus,
 } from '../loans/entities/loan.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
@@ -29,6 +30,7 @@ describe('UpcomingDueReminderService', () => {
   let clientsRepository: { findOneBy: jest.Mock };
   let installmentsRepository: { find: jest.Mock };
   let paymentsRepository: { find: jest.Mock };
+  let loanInstallmentConceptsRepository: { find: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
@@ -122,6 +124,11 @@ describe('UpcomingDueReminderService', () => {
     clientsRepository = { findOneBy: jest.fn() };
     installmentsRepository = { find: jest.fn() };
     paymentsRepository = { find: jest.fn().mockResolvedValue([]) };
+    // Bug fix, 2026-09-08 — see OverdueReminderService's identical mock
+    // and its own comment.
+    loanInstallmentConceptsRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
     messageLogsRepository = {
       create: jest.fn((dto: Partial<MessageLog>) => dto),
       save: jest.fn((log: Partial<MessageLog>) =>
@@ -158,6 +165,10 @@ describe('UpcomingDueReminderService', () => {
           useValue: installmentsRepository,
         },
         { provide: getRepositoryToken(Payment), useValue: paymentsRepository },
+        {
+          provide: getRepositoryToken(LoanInstallmentConcept),
+          useValue: loanInstallmentConceptsRepository,
+        },
         {
           provide: getRepositoryToken(MessageLog),
           useValue: messageLogsRepository,
