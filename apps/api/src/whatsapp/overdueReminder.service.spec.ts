@@ -14,9 +14,11 @@ import {
   LoanStatus,
 } from '../loans/entities/loan.entity';
 import { Payment } from '../loans/entities/payment.entity';
+import { enrichInstallment } from '../loans/installments/enrichInstallment';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { formatCurrency } from './messageRenderer';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
@@ -254,17 +256,38 @@ describe('OverdueReminderService', () => {
       ]);
     });
 
-    it('includes the saldo pendiente note when a partial payment exists on an overdue installment', async () => {
-      mockGathered([overdueInstallment({ amount: 300000 })]);
+    // Bug fix, 2026-09-08 — this note used to report only the unpaid slice
+    // of capital (amount - paid), silently ignoring accrued mora on an
+    // overdue installment. It now reports the real remaining balance —
+    // computed here via the same enrichInstallment() the service itself
+    // uses, rather than a hand-derived figure, so the assertion doesn't
+    // drift as "today" (and this fixture's accrued mora) advances.
+    it('includes the saldo pendiente note, factoring in accrued mora, when a partial payment exists on an overdue installment', async () => {
+      const installment = overdueInstallment({ amount: 300000 });
+      mockGathered([installment]);
       paymentsRepository.find.mockResolvedValue([
         { installmentId: 'inst-1', amountPaid: 100000 },
       ]);
 
       await service.sendReminderForClient(mockClient.id);
 
+      const expectedRemaining = enrichInstallment(
+        installment,
+        mockLoan.interestRate,
+        [],
+        100000,
+      ).totalDue;
+      // Sanity check the fix actually matters for this fixture — it's been
+      // overdue since 2024-01-01, so real accrued mora should push the
+      // balance well past the old, mora-blind figure of 200000
+      // (300000 - 100000).
+      expect(expectedRemaining).toBeGreaterThan(200000);
+
       const [, , , params] = whatsAppService.sendTemplateMessage.mock
         .calls[0] as [string, string, string, string[]];
-      expect(params.at(-1)).toContain('saldo pendiente de $200.000');
+      expect(params.at(-1)).toContain(
+        `saldo pendiente de $${formatCurrency(expectedRemaining)}`,
+      );
     });
 
     it('logs the message as failed when WhatsAppService could not send it', async () => {

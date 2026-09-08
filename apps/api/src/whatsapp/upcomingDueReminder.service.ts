@@ -117,6 +117,7 @@ export class UpcomingDueReminderService {
     }
     const overdue = await findOverdueInstallmentsForClient(
       this.installmentsRepository,
+      this.paymentsRepository,
       clientId,
     );
     // See OverdueReminderService's identical guard for why this can't be
@@ -164,7 +165,10 @@ export class UpcomingDueReminderService {
           messageLogId: savedLog.id,
           installmentId: installment.id,
           overdueDaysSnapshot: installment.overdueDays,
-          interestSnapshot: installment.totalDue - installment.amount,
+          // Bug fix, 2026-09-07 — see OverdueReminderService's identical fix
+          // and reminderInstallmentQueries.ts's OverdueInstallmentResult.
+          // interest doc comment.
+          interestSnapshot: installment.interest,
         }),
       ),
       ...upcoming.map((installment) =>
@@ -181,8 +185,14 @@ export class UpcomingDueReminderService {
     return savedLog;
   }
 
+  // Bug fix, 2026-09-08 — `overdue` widened to admit its already-computed
+  // `totalDue` (every OverdueInstallmentResult has one — see
+  // reminderInstallmentQueries.ts). computeSaldoPendiente uses it directly
+  // when present instead of re-deriving `amount - paid`, which silently
+  // ignored accrued mora — see saldoPendiente.ts's own doc comment on this
+  // date.
   private async resolveNotaAdicional(
-    overdue: { id: string; amount: number }[],
+    overdue: { id: string; amount: number; totalDue?: number }[],
     upcoming: { id: string; amount: number }[],
   ): Promise<NotaAdicionalInput> {
     const installmentIds = [...overdue, ...upcoming].map((i) => i.id);

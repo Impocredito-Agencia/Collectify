@@ -103,6 +103,7 @@ export class OverdueReminderService {
 
     const overdue = await findOverdueInstallmentsForClient(
       this.installmentsRepository,
+      this.paymentsRepository,
       clientId,
     );
     if (overdue.length === 0 && !options?.allowEmpty) {
@@ -163,7 +164,12 @@ export class OverdueReminderService {
           messageLogId: savedLog.id,
           installmentId: installment.id,
           overdueDaysSnapshot: installment.overdueDays,
-          interestSnapshot: installment.totalDue - installment.amount,
+          // Bug fix, 2026-09-07 — was `totalDue - amount`, which broke once
+          // totalDue started netting out payments already made (see
+          // reminderInstallmentQueries.ts's OverdueInstallmentResult.interest
+          // doc comment): a partially paid overdue installment would
+          // otherwise snapshot an understated, even negative, "interest".
+          interestSnapshot: installment.interest,
         }),
       ),
       ...upcoming.map((installment) =>
@@ -183,8 +189,14 @@ export class OverdueReminderService {
   // See saldoPendiente.ts — derived from existing Payment rows, never
   // guessed. Saldo a favor isn't detected here yet, see that module's doc
   // comment.
+  //
+  // Bug fix, 2026-09-08 — `overdue` widened to admit its already-computed
+  // `totalDue` (every OverdueInstallmentResult has one — see
+  // reminderInstallmentQueries.ts). computeSaldoPendiente uses it directly
+  // when present instead of re-deriving `amount - paid`, which silently
+  // ignored accrued mora — see that module's own doc comment on this date.
   private async resolveNotaAdicional(
-    overdue: { id: string; amount: number }[],
+    overdue: { id: string; amount: number; totalDue?: number }[],
     upcoming: { id: string; amount: number }[],
   ): Promise<NotaAdicionalInput> {
     const installmentIds = [...overdue, ...upcoming].map((i) => i.id);
