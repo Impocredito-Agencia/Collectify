@@ -27,6 +27,12 @@ export const envValidationSchema = Joi.object({
   // change. See WhatsAppService / WhatsappConfig.sendingPaused.
   WHATSAPP_SENDING_PAUSED: Joi.boolean().default(false),
 
+  // Test allowlist (2026-09-08) — comma-separated E.164 phone numbers that
+  // bypass WHATSAPP_SENDING_PAUSED. See WhatsappConfig.testRecipients.
+  // Never commit real phone numbers — set only in Railway/.env, never in
+  // .env.example or any file checked into git.
+  WHATSAPP_TEST_RECIPIENTS: Joi.string().allow('').default(''),
+
   OVERDUE_REMINDER_CRON: Joi.string().default('0 9 * * 1'),
 
   CLIENT_URL: Joi.string().uri().required(),

@@ -33,10 +33,14 @@ export class WhatsAppService {
     phoneNumber: string,
     message: string,
   ): Promise<boolean> {
-    const { phoneNumberId, accessToken, sendingPaused } =
-      this.configService.get('whatsapp', { infer: true });
+    const {
+      phoneNumberId,
+      accessToken,
+      sendingPaused,
+      testRecipients = [],
+    } = this.configService.get('whatsapp', { infer: true });
 
-    if (sendingPaused) {
+    if (sendingPaused && !testRecipients.includes(phoneNumber)) {
       this.logger.warn(
         `WhatsApp sending is paused (WHATSAPP_SENDING_PAUSED) — skipping send to ${phoneNumber}.`,
       );
@@ -104,10 +108,14 @@ export class WhatsAppService {
     languageCode: string,
     bodyParameters: string[],
   ): Promise<SendTemplateMessageResult> {
-    const { phoneNumberId, accessToken, sendingPaused } =
-      this.configService.get('whatsapp', { infer: true });
+    const {
+      phoneNumberId,
+      accessToken,
+      sendingPaused,
+      testRecipients = [],
+    } = this.configService.get('whatsapp', { infer: true });
 
-    if (sendingPaused) {
+    if (sendingPaused && !testRecipients.includes(phoneNumber)) {
       this.logger.warn(
         `WhatsApp sending is paused (WHATSAPP_SENDING_PAUSED) — skipping template send to ${phoneNumber} (template ${templateName}).`,
       );
@@ -191,10 +199,14 @@ export class WhatsAppService {
     bodyText: string,
     buttons: WhatsAppInteractiveButton[],
   ): Promise<boolean> {
-    const { phoneNumberId, accessToken, sendingPaused } =
-      this.configService.get('whatsapp', { infer: true });
+    const {
+      phoneNumberId,
+      accessToken,
+      sendingPaused,
+      testRecipients = [],
+    } = this.configService.get('whatsapp', { infer: true });
 
-    if (sendingPaused) {
+    if (sendingPaused && !testRecipients.includes(phoneNumber)) {
       this.logger.warn(
         `WhatsApp sending is paused (WHATSAPP_SENDING_PAUSED) — skipping interactive send to ${phoneNumber}.`,
       );
