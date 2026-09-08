@@ -12,6 +12,7 @@ import {
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
 import { Payment } from '../loans/entities/payment.entity';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
+import { sumPaymentsByInstallmentId } from '../loans/installments/paymentTotals';
 import {
   MessageLog,
   MessageLogStatus,
@@ -250,11 +251,22 @@ export class DashboardService {
       },
       relations: { loan: { client: true } },
     });
+    // Bug fix, 2026-09-07 — see enrichInstallment.ts's `totalPaid` param and
+    // docs/DATABASE.md's note of this date: without this, an overdue
+    // installment that already had a partial payment registered on it still
+    // counted its full original totalDue here, overstating the Dashboard's
+    // "cuotas vencidas" total and every overdue client's totalOverdueAmount.
+    const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+      this.paymentsRepository,
+      installments.map((installment) => installment.id),
+    );
 
     return installments.map((installment) => {
       const enriched = enrichInstallment(
         installment,
         installment.loan.interestRate,
+        [],
+        totalPaidByInstallmentId.get(installment.id) ?? 0,
       );
       return {
         clientId: installment.loan.clientId,

@@ -234,6 +234,32 @@ describe('DashboardService', () => {
       expect(result.messagesFailedThisWeek).toBe(2);
     });
 
+    // Bug fix, 2026-09-07 — before this, totalAmountOverdue never netted
+    // out a partial payment already made on an overdue installment, so the
+    // Dashboard's "cuotas vencidas" total stayed as high as if that money
+    // had never come in.
+    it('nets out an existing partial payment from totalAmountOverdue', async () => {
+      const client = makeClient();
+      const loan = makeLoan(client, { interestRate: 6 });
+      const installmentA = makeInstallment(loan, {
+        id: 'inst-a',
+        amount: 100000,
+        dueDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10),
+      });
+      installmentsRepository.find.mockResolvedValue([installmentA]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-a', amountPaid: 40000 },
+      ]);
+
+      const result = await service.getSummary();
+
+      // totalDue would be 106000 (see the test above) without the payment;
+      // netting out the 40000 already paid leaves 66000.
+      expect(result.totalAmountOverdue).toBeCloseTo(66000, 5);
+    });
+
     it('returns zeroes when there are no overdue installments', async () => {
       const result = await service.getSummary();
 
