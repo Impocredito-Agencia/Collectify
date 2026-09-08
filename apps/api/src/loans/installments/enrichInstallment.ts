@@ -60,10 +60,28 @@ export interface InstallmentWithCalculated extends Installment {
 // remains the fallback for any loan with no moratory concepts assigned —
 // this is what keeps every loan created before Phase 23 producing identical
 // numbers with zero migration required.
+//
+// Bug fix, 2026-09-07 (human report, préstamo #0920) — `totalPaid` is new:
+// before this, totalDue was always the installment's full nominal cost
+// (amount + accrued interest) as if nothing had been paid on it yet, even
+// when a prior PARTIAL payment already existed on this same Pending
+// installment. That silently overstated what was actually still owed
+// everywhere totalDue is read for money — the register-payment dialog's
+// displayed/pre-filled balance (which is what let a second payment exceed
+// what was truly left), WhatsApp reminders and the self-service menu,
+// Dashboard's overdue totals, the loans list's outstanding/overdue columns,
+// and a client's cupo (creditUsed). Defaults to 0 so every caller that
+// doesn't have a payments figure on hand (or knows this installment can't
+// have one — a brand-new schedule, an upcoming-not-yet-due one, etc.) is
+// completely unaffected. See sumPaymentsByInstallmentId (paymentTotals.ts)
+// for the shared batched query callers use to obtain it, and
+// docs/DATABASE.md's note of this date for the full list of call sites
+// updated to actually pass it through.
 export function enrichInstallment(
   installment: Installment,
   interestRate: number,
   concepts: LoanInstallmentConcept[] = [],
+  totalPaid = 0,
 ): InstallmentWithCalculated {
   const corrienteConcepts = concepts.filter(
     (concept) => concept.category === ConceptCategory.Corriente,
@@ -101,7 +119,10 @@ export function enrichInstallment(
       ...installment,
       overdueDays,
       interest,
-      totalDue: calculateTotalDue(installment.amount, interest),
+      totalDue: Math.max(
+        0,
+        calculateTotalDue(installment.amount, interest) - totalPaid,
+      ),
       conceptBreakdown: corrienteBreakdown,
     };
   }
@@ -121,7 +142,10 @@ export function enrichInstallment(
     ...installment,
     overdueDays,
     interest,
-    totalDue: calculateTotalDue(installment.amount, interest),
+    totalDue: Math.max(
+      0,
+      calculateTotalDue(installment.amount, interest) - totalPaid,
+    ),
     conceptBreakdown: [
       ...corrienteBreakdown,
       ...moratoryCharges.map((item) => ({

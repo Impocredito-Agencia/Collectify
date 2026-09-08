@@ -15,12 +15,13 @@ import { PaymentImage } from '../entities/paymentImage.entity';
 
 import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
 
+import { enrichInstallment } from './enrichInstallment';
 import { InstallmentsService } from './installments.service';
 
 describe('InstallmentsService', () => {
   let service: InstallmentsService;
   let installmentsRepository: {
-    findOneBy: jest.Mock;
+    findOne: jest.Mock;
     update: jest.Mock;
     find: jest.Mock;
     findAndCount: jest.Mock;
@@ -39,14 +40,30 @@ describe('InstallmentsService', () => {
     sendPaidInFull: jest.Mock;
   };
 
+  // Bug fix, 2026-09-07 — loan is no longer undefined by default: both
+  // registerPayment and registerBulkPayments now fetch it (relations.loan)
+  // to compute the balance ceiling (resolveRemainingBalance needs
+  // loan.interestRate), so every test exercising either method needs it
+  // populated, not just findAll's own installmentWithLoan fixture below.
+  //
+  // Bug fix, 2026-09-08 — dueDate moved from a past date (2026-01-01, which
+  // aged into "overdue, accruing real mora" as the calendar caught up to it)
+  // to a fixed far-future one: since closing a cuota now requires covering
+  // its real remaining balance (capital + accrued mora, not just `amount`
+  // — see registerPayment's own doc comment on this date), most tests below
+  // that pay exactly `amount` need a deterministic, mora-free installment to
+  // keep meaning what they say. The handful of tests that specifically
+  // exercise mora-aware closing build their own overdue fixture locally
+  // instead (see the "does NOT mark ... paid" / "marks ... once ... mora"
+  // tests below).
   const mockInstallment: Installment = {
     id: 'inst-1',
     loanId: 'loan-1',
-    loan: undefined as never,
+    loan: { interestRate: 6 } as never,
     installmentNumber: 1,
     amount: 200000,
     principalPortion: null,
-    dueDate: '2026-01-01',
+    dueDate: '2099-01-01',
     status: InstallmentStatus.Pending,
     isDownPayment: false,
     createdAt: new Date(),
@@ -58,7 +75,7 @@ describe('InstallmentsService', () => {
 
   beforeEach(async () => {
     installmentsRepository = {
-      findOneBy: jest.fn(),
+      findOne: jest.fn(),
       update: jest.fn(),
       find: jest.fn(),
       findAndCount: jest.fn(),
@@ -66,7 +83,13 @@ describe('InstallmentsService', () => {
     paymentsRepository = {
       create: jest.fn((dto: Partial<Payment>) => dto),
       save: jest.fn((payment: Partial<Payment>) => Promise.resolve(payment)),
-      find: jest.fn(),
+      // Bug fix, 2026-09-07 — defaults to no payments found, so findAll's
+      // new sumPaymentsByInstallmentId call (and any other caller that
+      // doesn't set its own resolution) has something iterable rather than
+      // undefined. Every registerPayment/registerBulkPayments test below
+      // sets its own resolution before calling the service, which takes
+      // precedence over this default.
+      find: jest.fn().mockResolvedValue([]),
     };
     loansRepository = {
       update: jest.fn().mockResolvedValue({ affected: 1 }),
@@ -93,6 +116,12 @@ describe('InstallmentsService', () => {
                 if (entity === Payment) return paymentsRepository;
                 if (entity === Loan) return loansRepository;
                 if (entity === PaymentImage) return paymentImagesRepository;
+                // Bug fix, 2026-09-07 — registerBulkPayments now fetches
+                // concepts per entry too (resolveRemainingBalance), same as
+                // registerPayment already did outside the transaction.
+                if (entity === LoanInstallmentConcept) {
+                  return loanInstallmentConceptsRepository;
+                }
                 throw new Error(
                   `No mock repository registered for entity ${String(entity)}`,
                 );
@@ -218,7 +247,10 @@ describe('InstallmentsService', () => {
     }
 
     it('records a partial payment without marking the installment paid', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      // Static mock: both the new pre-save ceiling check and the existing
+      // post-save status check see the same "100000 already paid" figure —
+      // fine here since 100000 stays under the 200000 ceiling either way.
       paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
       mockInstallmentsFind();
 
@@ -232,9 +264,25 @@ describe('InstallmentsService', () => {
       expect(loansRepository.update).not.toHaveBeenCalled();
     });
 
-    it('marks the installment paid when accumulated payments cover the amount exactly', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
-      paymentsRepository.find.mockResolvedValue([{ amountPaid: 200000 }]);
+    // Bug fix, 2026-09-08 (human decision) — closing a cuota now requires
+    // covering the REAL remaining balance (capital + accrued mora), not
+    // installment.amount alone (see registerPayment's own doc comment on
+    // this date). mockInstallment's dueDate is fixed far in the future (see
+    // its own comment above), so `amount` and the real remaining balance
+    // are the same number here — deterministic, and mora-aware closing
+    // itself isn't what these three tests are about (that's covered by the
+    // dedicated mora-closing tests further below).
+    it('marks the installment paid when accumulated payments cover the real remaining balance exactly', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      // Sequenced, unlike the partial-payment test above: this payment
+      // exactly matches the installment's amount, so a single static mock
+      // would make the pre-save ceiling check see it as already paid
+      // (remaining balance 0) and wrongly reject it. First call (ceiling
+      // check, before save) sees nothing paid yet; second call (post-save
+      // status check) sees the payment that was just recorded.
+      paymentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ amountPaid: 200000 }]);
       mockInstallmentsFind([
         { ...mockInstallment, status: InstallmentStatus.Paid },
       ]);
@@ -250,27 +298,11 @@ describe('InstallmentsService', () => {
       );
     });
 
-    it('marks the installment paid on overpayment (accumulated exceeds the amount)', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
-      paymentsRepository.find.mockResolvedValue([{ amountPaid: 250000 }]);
-      mockInstallmentsFind([
-        { ...mockInstallment, status: InstallmentStatus.Paid },
-      ]);
-
-      await service.registerPayment(mockInstallment.id, {
-        amountPaid: 250000,
-        paidAt: '2026-01-05',
-      });
-
-      expect(installmentsRepository.update).toHaveBeenCalledWith(
-        { id: mockInstallment.id },
-        { status: InstallmentStatus.Paid },
-      );
-    });
-
     it('cascades the loan to paid when every installment of it is paid', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
-      paymentsRepository.find.mockResolvedValue([{ amountPaid: 200000 }]);
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ amountPaid: 200000 }]);
       mockInstallmentsFind([
         { ...mockInstallment, status: InstallmentStatus.Paid },
       ]);
@@ -287,8 +319,10 @@ describe('InstallmentsService', () => {
     });
 
     it('does not cascade the loan to paid when other installments are still pending', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
-      paymentsRepository.find.mockResolvedValue([{ amountPaid: 200000 }]);
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ amountPaid: 200000 }]);
       mockInstallmentsFind([
         { ...mockInstallment, status: InstallmentStatus.Paid },
         { ...mockInstallment, id: 'inst-2', status: InstallmentStatus.Pending },
@@ -302,6 +336,66 @@ describe('InstallmentsService', () => {
       expect(loansRepository.update).not.toHaveBeenCalled();
     });
 
+    // Bug fix, 2026-09-08 (human decision) — the actual new behavior: a
+    // payment that covers installment.amount exactly but leaves accrued
+    // mora unpaid no longer closes the cuota. Builds its own overdue
+    // fixture (mockInstallment itself is fixed far in the future — see its
+    // own comment above — specifically so it accrues no mora by default).
+    it('does NOT mark an overdue installment paid when only its principal is covered, leaving mora outstanding', async () => {
+      const overdueInstallment: Installment = {
+        ...mockInstallment,
+        dueDate: '2026-01-01',
+      };
+      installmentsRepository.findOne.mockResolvedValue(overdueInstallment);
+      // The payment covers installment.amount (200000) exactly, but this
+      // installment has been overdue since 2026-01-01, so real totalDue is
+      // 200000 + accrued mora > 200000 — remainingBalanceAfter is still > 0.
+      paymentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ amountPaid: 200000 }]);
+      mockInstallmentsFind();
+
+      await service.registerPayment(overdueInstallment.id, {
+        amountPaid: 200000,
+        paidAt: '2026-01-05',
+      });
+
+      expect(installmentsRepository.update).not.toHaveBeenCalled();
+      expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+
+    // Bug fix, 2026-09-08 (human decision) — the mirror-image confirmation:
+    // paying capital AND the full accrued mora together does close it.
+    it('marks an overdue installment paid once both principal and accrued mora are fully covered', async () => {
+      const overdueInstallment: Installment = {
+        ...mockInstallment,
+        dueDate: '2025-01-01',
+      };
+      installmentsRepository.findOne.mockResolvedValue(overdueInstallment);
+      // Pay the installment's full live totalDue (from enrichInstallment,
+      // computed with today's real overdueDays) — read it back from the
+      // service's own math rather than hand-computing the mora fixture,
+      // so this test doesn't drift from the interest formula over time.
+      const fullTotalDue = enrichInstallment(overdueInstallment, 6).totalDue;
+
+      paymentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ amountPaid: fullTotalDue }]);
+      mockInstallmentsFind([
+        { ...overdueInstallment, status: InstallmentStatus.Paid },
+      ]);
+
+      await service.registerPayment(overdueInstallment.id, {
+        amountPaid: fullTotalDue,
+        paidAt: '2026-01-05',
+      });
+
+      expect(installmentsRepository.update).toHaveBeenCalledWith(
+        { id: overdueInstallment.id },
+        { status: InstallmentStatus.Paid },
+      );
+    });
+
     // Phase 32 — defense in depth: rejecting this server-side, not just
     // disabling the "pagar" button, is the whole point of the rule (see
     // docs/phases/PHASE_32_UI_FIXES.md).
@@ -311,7 +405,7 @@ describe('InstallmentsService', () => {
         id: 'inst-3',
         installmentNumber: 3,
       };
-      installmentsRepository.findOneBy.mockResolvedValue(installment3);
+      installmentsRepository.findOne.mockResolvedValue(installment3);
       installmentsRepository.find.mockImplementation(
         ({ where }: { where?: Record<string, unknown> } = {}) => {
           if (where?.installmentNumber) {
@@ -330,35 +424,80 @@ describe('InstallmentsService', () => {
       expect(paymentsRepository.save).not.toHaveBeenCalled();
     });
 
-    // The rule only gates installments still Pending — an installment
-    // that's already resolved (Paid/Cancelled) isn't "skipping ahead" of
-    // anything, so an extra payment record against one goes through as
-    // before, with no earlier-pending lookup at all.
-    it('does not run the sequential-payment check against an already-paid installment', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue({
+    // Bug fix, 2026-09-07 (human report, préstamo #0920) — the actual
+    // scenario that broke: a first partial payment ($150.000 of $200.000)
+    // left a real $50.000 balance, and a second payment for MORE than that
+    // ($100.000) used to go through unchecked, marking the loan paid with
+    // money that was never actually owed. A future dueDate keeps mora at
+    // exactly 0 here, so the ceiling is deterministic ($50.000) regardless
+    // of when this test runs.
+    it("rejects a payment that exceeds the installment's real remaining balance after a prior partial payment", async () => {
+      const notOverdueInstallment: Installment = {
         ...mockInstallment,
-        status: InstallmentStatus.Paid,
-      });
+        dueDate: '2099-01-01',
+      };
+      installmentsRepository.findOne.mockResolvedValue(notOverdueInstallment);
+      paymentsRepository.find.mockResolvedValueOnce([{ amountPaid: 150000 }]);
+      mockInstallmentsFind();
 
-      await service.registerPayment(mockInstallment.id, paymentDto);
-
-      expect(installmentsRepository.find).not.toHaveBeenCalled();
+      await expect(
+        service.registerPayment(notOverdueInstallment.id, {
+          amountPaid: 100000,
+          paidAt: '2026-01-05',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(paymentsRepository.create).not.toHaveBeenCalled();
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
     });
 
-    it('does not re-evaluate an already-paid installment', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue({
+    it('accepts a payment that exactly matches the real remaining balance', async () => {
+      const notOverdueInstallment: Installment = {
+        ...mockInstallment,
+        dueDate: '2099-01-01',
+      };
+      installmentsRepository.findOne.mockResolvedValue(notOverdueInstallment);
+      paymentsRepository.find
+        .mockResolvedValueOnce([{ amountPaid: 150000 }])
+        .mockResolvedValueOnce([{ amountPaid: 150000 }, { amountPaid: 50000 }]);
+      mockInstallmentsFind([
+        { ...notOverdueInstallment, status: InstallmentStatus.Paid },
+      ]);
+
+      const result = await service.registerPayment(notOverdueInstallment.id, {
+        amountPaid: 50000,
+        paidAt: '2026-01-05',
+      });
+
+      expect(result).toMatchObject({ amountPaid: 50000 });
+      expect(installmentsRepository.update).toHaveBeenCalledWith(
+        { id: notOverdueInstallment.id },
+        { status: InstallmentStatus.Paid },
+      );
+    });
+
+    // Deliberate tightening of the old Phase 32 behavior (see this
+    // service's doc comment on the balance-ceiling check): an installment
+    // that's already Paid or Cancelled has a remaining balance of 0 (see
+    // enrichInstallment's non-Pending short-circuit), so it can no longer
+    // silently accept an extra payment record either — it's rejected by the
+    // same ceiling check, before ever reaching the sequential-payment rule
+    // (which only applies to Pending installments in the first place).
+    it('rejects any new payment against an already-paid installment, without running the sequential-payment check', async () => {
+      installmentsRepository.findOne.mockResolvedValue({
         ...mockInstallment,
         status: InstallmentStatus.Paid,
       });
 
-      await service.registerPayment(mockInstallment.id, paymentDto);
-
-      expect(paymentsRepository.find).not.toHaveBeenCalled();
+      await expect(
+        service.registerPayment(mockInstallment.id, paymentDto),
+      ).rejects.toThrow(BadRequestException);
+      expect(installmentsRepository.find).not.toHaveBeenCalled();
+      expect(paymentsRepository.create).not.toHaveBeenCalled();
       expect(installmentsRepository.update).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when the installment does not exist', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue(null);
+      installmentsRepository.findOne.mockResolvedValue(null);
 
       await expect(
         service.registerPayment('missing-id', paymentDto),
@@ -369,7 +508,7 @@ describe('InstallmentsService', () => {
     // payments, see payment.entity.ts); photos persist as PaymentImage rows
     // instead, one per URL in imageUrls.
     it('persists one PaymentImage row per URL in imageUrls', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
       paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
       mockInstallmentsFind();
       paymentsRepository.save.mockResolvedValue({
@@ -403,7 +542,7 @@ describe('InstallmentsService', () => {
     });
 
     it('stores a null imageUrl and no PaymentImage rows when imageUrls is omitted', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
       paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
       mockInstallmentsFind();
 
@@ -425,12 +564,16 @@ describe('InstallmentsService', () => {
     };
 
     beforeEach(() => {
-      // Fresh installment per findOneBy call, matched by id — mirrors how
-      // the loop looks up each entry's own installment.
-      installmentsRepository.findOneBy.mockImplementation(
-        ({ id }: { id: string }) =>
+      // Fresh installment per findOne call, matched by id — mirrors how the
+      // loop looks up each entry's own installment. relations.loan isn't
+      // modeled here (this mock ignores it entirely) — every fixture
+      // installment already carries its own `loan` field directly (see
+      // mockInstallment), same as registerPayment's tests above.
+      installmentsRepository.findOne.mockImplementation(
+        ({ where }: { where?: { id?: string } } = {}) =>
           Promise.resolve(
-            [mockInstallment, installment2].find((i) => i.id === id) ?? null,
+            [mockInstallment, installment2].find((i) => i.id === where?.id) ??
+              null,
           ),
       );
       paymentsRepository.find.mockResolvedValue([]);
@@ -525,7 +668,7 @@ describe('InstallmentsService', () => {
     });
 
     it('rejects the whole batch when an installment is not pending', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue({
+      installmentsRepository.findOne.mockResolvedValue({
         ...mockInstallment,
         status: InstallmentStatus.Paid,
       });
@@ -542,7 +685,7 @@ describe('InstallmentsService', () => {
     });
 
     it('rejects with NotFoundException when an installment does not exist', async () => {
-      installmentsRepository.findOneBy.mockResolvedValue(null);
+      installmentsRepository.findOne.mockResolvedValue(null);
 
       await expect(
         service.registerBulkPayments([
@@ -622,11 +765,12 @@ describe('InstallmentsService', () => {
         ...installment2,
         loanId: mockInstallment.loanId,
       };
-      installmentsRepository.findOneBy.mockImplementation(
-        ({ id }: { id: string }) =>
+      installmentsRepository.findOne.mockImplementation(
+        ({ where }: { where?: { id?: string } } = {}) =>
           Promise.resolve(
-            [mockInstallment, sameLoanInstallment2].find((i) => i.id === id) ??
-              null,
+            [mockInstallment, sameLoanInstallment2].find(
+              (i) => i.id === where?.id,
+            ) ?? null,
           ),
       );
       installmentsRepository.find.mockImplementation(
@@ -671,11 +815,12 @@ describe('InstallmentsService', () => {
         ...installment2,
         loanId: mockInstallment.loanId,
       };
-      installmentsRepository.findOneBy.mockImplementation(
-        ({ id }: { id: string }) =>
+      installmentsRepository.findOne.mockImplementation(
+        ({ where }: { where?: { id?: string } } = {}) =>
           Promise.resolve(
-            [mockInstallment, sameLoanInstallment2].find((i) => i.id === id) ??
-              null,
+            [mockInstallment, sameLoanInstallment2].find(
+              (i) => i.id === where?.id,
+            ) ?? null,
           ),
       );
       installmentsRepository.find.mockImplementation(
@@ -711,6 +856,54 @@ describe('InstallmentsService', () => {
         { id: mockInstallment.loanId, status: LoanStatus.Active },
         { status: LoanStatus.Paid },
       );
+    });
+
+    // Bug fix, 2026-09-07 — the bulk endpoint had the exact same gap as
+    // registerPayment: a floor check (must cover installment.amount) but no
+    // ceiling at all. An absurdly large amount guarantees it exceeds the
+    // real remaining balance (installment.amount, mockInstallment accruing
+    // no mora by construction — see its own comment above) regardless of
+    // when this test runs.
+    it("rejects a bulk entry whose amount exceeds the installment's real remaining balance", async () => {
+      await expect(
+        service.registerBulkPayments([
+          {
+            installmentId: mockInstallment.id,
+            amountPaid: 999999999,
+            paidAt: '2026-01-05',
+          },
+        ]),
+      ).rejects.toThrow(BadRequestException);
+      expect(installmentsRepository.update).not.toHaveBeenCalled();
+    });
+
+    // Bug fix, 2026-09-08 (human decision) — mirrors registerPayment's own
+    // mora-closing tests: a bulk entry that covers installment.amount
+    // exactly but not the accrued mora on an overdue cuota no longer counts
+    // as "fully settled" — it used to (the floor check only ever looked at
+    // installment.amount).
+    it('rejects a bulk entry that covers the principal but not the accrued mora on an overdue installment', async () => {
+      const overdueInstallment: Installment = {
+        ...mockInstallment,
+        dueDate: '2026-01-01',
+      };
+      installmentsRepository.findOne.mockImplementation(
+        ({ where }: { where?: { id?: string } } = {}) =>
+          Promise.resolve(
+            where?.id === overdueInstallment.id ? overdueInstallment : null,
+          ),
+      );
+
+      await expect(
+        service.registerBulkPayments([
+          {
+            installmentId: overdueInstallment.id,
+            amountPaid: overdueInstallment.amount,
+            paidAt: '2026-01-05',
+          },
+        ]),
+      ).rejects.toThrow(BadRequestException);
+      expect(installmentsRepository.update).not.toHaveBeenCalled();
     });
   });
 });

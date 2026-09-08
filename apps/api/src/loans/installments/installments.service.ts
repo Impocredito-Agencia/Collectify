@@ -31,6 +31,7 @@ import {
   enrichInstallment,
   InstallmentWithCalculated,
 } from './enrichInstallment';
+import { sumPaymentsByInstallmentId } from './paymentTotals';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -88,6 +89,14 @@ export class InstallmentsService {
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
       items.map((installment) => installment.id),
     );
+    // Bug fix, 2026-09-07 — see enrichInstallment.ts's `totalPaid` param and
+    // docs/DATABASE.md's note of this date: without this, a partially paid
+    // Pending installment reported its full original totalDue here, as if
+    // nothing had been paid on it yet.
+    const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+      this.paymentsRepository,
+      items.map((installment) => installment.id),
+    );
 
     return {
       items: items.map((installment) =>
@@ -95,6 +104,7 @@ export class InstallmentsService {
           installment,
           installment.loan.interestRate,
           conceptsByInstallmentId.get(installment.id) ?? [],
+          totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
       ),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -127,8 +137,13 @@ export class InstallmentsService {
     installmentId: string,
     dto: CreatePaymentDto,
   ): Promise<Payment> {
-    const installment = await this.installmentsRepository.findOneBy({
-      id: installmentId,
+    // Bug fix, 2026-09-07 — relations.loan added so the balance-ceiling
+    // check below can read the loan's interestRate (needed to compute this
+    // installment's live totalDue, see resolveRemainingBalance). Previously
+    // findOneBy, which doesn't eager-load relations.
+    const installment = await this.installmentsRepository.findOne({
+      where: { id: installmentId },
+      relations: { loan: true },
     });
     if (!installment) {
       throw new NotFoundException(
@@ -140,12 +155,48 @@ export class InstallmentsService {
     // installment can't be paid while an earlier-numbered installment on
     // the same loan is still pending, even via a direct API call. Only
     // meaningful when this installment itself is still Pending — an
-    // already-Paid/Cancelled installment accepting an extra payment record
-    // (see the no-op branch below) isn't "skipping ahead" of anything.
+    // already-Paid/Cancelled installment never reaches this branch, but see
+    // the balance-ceiling check right below for why it still can't accept a
+    // new payment either.
     if (installment.status === InstallmentStatus.Pending) {
       await this.assertNoEarlierPendingInstallment(
         installment,
         this.installmentsRepository,
+      );
+    }
+
+    // Bug fix, 2026-09-07 (human report, préstamo #0920) — nothing used to
+    // stop a payment from exceeding what was actually still owed on this
+    // installment: a first partial payment left a real balance of $50.000,
+    // but the dialog re-offered the cuota's full original amount as the
+    // default (enrichInstallment.totalDue didn't net out prior payments —
+    // now fixed, see that function's `totalPaid` param), and neither this
+    // service nor CreatePaymentDto capped the amount at all. A second
+    // payment for the full $850.000 went through on top of the first,
+    // marking the loan "Pagado" with $800.000 paid that was never actually
+    // owed. Confirmed with the human: reject the excess outright rather
+    // than silently accepting it — how the cobrador should record a
+    // genuine excess handed over in person (apply it to the next
+    // installment, hand back change, etc.) is a separate, not-yet-decided
+    // question, deliberately not guessed at here. This also means an
+    // installment that's already Paid or Cancelled (remainingBalance
+    // resolves to 0 for both, see enrichInstallment's non-Pending
+    // short-circuit) can no longer silently accept an extra payment record
+    // either — a deliberate tightening of the old Phase 32 behavior, not an
+    // oversight.
+    const totalPaidBefore = await this.sumPayments(
+      installmentId,
+      this.paymentsRepository,
+    );
+    const remainingBalance = await this.resolveRemainingBalance(
+      installment,
+      totalPaidBefore,
+      this.loanInstallmentConceptsRepository,
+    );
+    const maxPayable = Math.ceil(remainingBalance);
+    if (dto.amountPaid > maxPayable) {
+      throw new BadRequestException(
+        `El monto del pago ($${dto.amountPaid}) supera el saldo pendiente de esta cuota ($${maxPayable}). Registra como máximo ese valor.`,
       );
     }
 
@@ -167,11 +218,34 @@ export class InstallmentsService {
     );
 
     if (installment.status === InstallmentStatus.Pending) {
-      const totalPaid = await this.sumPayments(
+      // Bug fix, 2026-09-08 (human decision, following the #0920 payment-cap
+      // fix above) — used to compare totalPaid against installment.amount
+      // alone, so a cobrador could close a cuota (and stop it from ever
+      // accruing further mora, since a non-Pending installment always
+      // reports totalDue/interest/overdueDays as 0 — see
+      // enrichInstallment.ts) while forgiving whatever moratory interest was
+      // already accrued, without any explicit decision to waive it. That
+      // rule traces back to the very first Phase 4 spec ("if accumulated
+      // payments cover the installment amount, mark it paid") — written
+      // before moratory interest was even a live, separately-tracked
+      // concept, and never revisited. Now requires the installment's real
+      // remaining balance (capital + accrued mora, same formula the
+      // register-payment dialog shows) to reach 0 before closing it — mora
+      // is never optional/negotiable via a partial payment anymore. Reuses
+      // resolveRemainingBalance (already clamped at 0 by
+      // enrichInstallment's totalDue) rather than re-deriving the threshold
+      // separately, so this can never disagree with what totalPaidBefore
+      // above's max-payable ceiling already enforced.
+      const totalPaidAfter = await this.sumPayments(
         installmentId,
         this.paymentsRepository,
       );
-      if (totalPaid >= installment.amount) {
+      const remainingBalanceAfter = await this.resolveRemainingBalance(
+        installment,
+        totalPaidAfter,
+        this.loanInstallmentConceptsRepository,
+      );
+      if (remainingBalanceAfter <= 0) {
         await this.installmentsRepository.update(
           { id: installmentId },
           { status: InstallmentStatus.Paid },
@@ -239,9 +313,16 @@ export class InstallmentsService {
             (installmentNumberById.get(b.installmentId) ?? 0),
         );
 
+        const loanInstallmentConceptsRepository = manager.getRepository(
+          LoanInstallmentConcept,
+        );
+
         for (const entry of sortedEntries) {
-          const installment = await installmentsRepository.findOneBy({
-            id: entry.installmentId,
+          // relations.loan added for the same reason as registerPayment's —
+          // resolveRemainingBalance needs loan.interestRate.
+          const installment = await installmentsRepository.findOne({
+            where: { id: entry.installmentId },
+            relations: { loan: true },
           });
           if (!installment) {
             throw new NotFoundException(
@@ -262,10 +343,32 @@ export class InstallmentsService {
             entry.installmentId,
             paymentsRepository,
           );
-          const totalPaidAfter = totalPaidBefore + entry.amountPaid;
-          if (totalPaidAfter < installment.amount) {
+          // Bug fix, 2026-09-07/08 — floor and ceiling are now the SAME
+          // figure: the installment's real remaining balance (capital +
+          // accrued mora, via resolveRemainingBalance, same formula the
+          // register-payment dialog shows). Previously the floor only
+          // required covering installment.amount (capital alone) — see
+          // registerPayment's identical 2026-09-08 fix for why that let a
+          // bulk payment close a cuota while forgiving its mora with no
+          // explicit decision to do so. A bulk entry must now match
+          // maxPayable exactly: less than that doesn't fully settle the
+          // cuota (bulk payments require full settlement, per Phase 28 —
+          // use the single-installment flow for a partial payment), more
+          // than that exceeds what's actually owed (the #0920 bug).
+          const remainingBalance = await this.resolveRemainingBalance(
+            installment,
+            totalPaidBefore,
+            loanInstallmentConceptsRepository,
+          );
+          const maxPayable = Math.ceil(remainingBalance);
+          if (entry.amountPaid < maxPayable) {
             throw new BadRequestException(
-              `The amount for installment ${installment.installmentNumber} (id ${installment.id}) does not cover its remaining balance — a bulk payment must fully settle every selected installment. Use the single-installment flow for a partial payment.`,
+              `El monto para la cuota ${installment.installmentNumber} (id ${installment.id}) no cubre su saldo pendiente total, capital más mora ($${maxPayable}) — un pago por lotes debe saldar cada cuota por completo. Usa el flujo de pago individual para un abono parcial.`,
+            );
+          }
+          if (entry.amountPaid > maxPayable) {
+            throw new BadRequestException(
+              `El monto para la cuota ${installment.installmentNumber} (id ${installment.id}) supera su saldo pendiente ($${maxPayable}).`,
             );
           }
 
@@ -344,6 +447,30 @@ export class InstallmentsService {
         `Installment ${installment.installmentNumber} cannot be paid — installment ${earlierPending[0].installmentNumber} on the same loan is still pending.`,
       );
     }
+  }
+
+  // Bug fix, 2026-09-07 — shared by registerPayment and registerBulkPayments
+  // (same parameter-injection reasoning as assertNoEarlierPendingInstallment
+  // above): the actual amount still owed on `installment` right now — its
+  // live totalDue (nominal amount + accrued moratory interest, same formula
+  // GET /loans/:id uses) minus whatever has already been paid on it — which
+  // is the hard ceiling a new payment against it can never exceed. Requires
+  // `installment.loan` to already be loaded (relations: { loan: true }) —
+  // both callers fetch it that way now.
+  private async resolveRemainingBalance(
+    installment: Installment,
+    totalPaid: number,
+    loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
+  ): Promise<number> {
+    const concepts = await loanInstallmentConceptsRepository.find({
+      where: { installmentId: installment.id },
+    });
+    return enrichInstallment(
+      installment,
+      installment.loan.interestRate,
+      concepts,
+      totalPaid,
+    ).totalDue;
   }
 
   private async savePaymentImages(
