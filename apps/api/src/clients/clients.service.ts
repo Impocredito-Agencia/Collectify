@@ -13,7 +13,11 @@ import {
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
+import { Payment } from '../loans/entities/payment.entity';
+import { findConceptsByInstallmentId } from '../loans/installments/conceptsByInstallmentId';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
+import { sumPaymentsByInstallmentId } from '../loans/installments/paymentTotals';
 
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
@@ -101,6 +105,12 @@ export class ClientsService {
     private readonly loansRepository: Repository<Loan>,
     @InjectRepository(Installment)
     private readonly installmentsRepository: Repository<Installment>,
+    // Bug fix, 2026-09-07 — see enrichActiveInstallments's own comment.
+    @InjectRepository(Payment)
+    private readonly paymentsRepository: Repository<Payment>,
+    // Bug fix, 2026-09-08 — see enrichActiveInstallments's own comment.
+    @InjectRepository(LoanInstallmentConcept)
+    private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     @InjectRepository(ClientReference)
     private readonly clientReferencesRepository: Repository<ClientReference>,
     @InjectRepository(ClientMessageFrequency)
@@ -360,6 +370,22 @@ export class ClientsService {
   // LoanStatus.Refinanced/Paid, not Active, so they're excluded here without
   // needing a separate rule — their balance no longer counts toward cupo or
   // mora, which is what refinancing/paying off a loan is supposed to mean.
+  //
+  // Bug fix, 2026-09-07 — totalPaid added (see enrichInstallment.ts's own
+  // comment): without it, creditUsed/creditAvailable never reflected a
+  // partial payment already made on a still-Pending installment, so a
+  // client's cupo stayed as "used" as if that money had never come in.
+  //
+  // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which made
+  // enrichInstallment fall back to the legacy interestRate formula. Every
+  // loan created since the Phase 23 redesign (#254) sends `interestRate: 0`
+  // (see LoanForm.tsx/RefinanceLoanForm.tsx's own comment on that field) —
+  // so this silently reported ZERO accrued mora, inflating
+  // creditAvailable for any client with an overdue installment on a
+  // current-generation loan. Now fetches each installment's real
+  // LoanInstallmentConcept rows, same as loans.service.ts/
+  // installments.service.ts already do. See docs/DATABASE.md's note of
+  // this date.
   private async enrichActiveInstallments(
     clientId: string,
   ): Promise<EnrichedInstallment[]> {
@@ -376,11 +402,21 @@ export class ClientsService {
     const interestRateByLoanId = new Map(
       loans.map((loan) => [loan.id, loan.interestRate]),
     );
+    const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+      this.paymentsRepository,
+      installments.map((installment) => installment.id),
+    );
+    const conceptsByInstallmentId = await findConceptsByInstallmentId(
+      this.loanInstallmentConceptsRepository,
+      installments.map((installment) => installment.id),
+    );
 
     return installments.map((installment) =>
       enrichInstallment(
         installment,
         interestRateByLoanId.get(installment.loanId) ?? 0,
+        conceptsByInstallmentId.get(installment.id) ?? [],
+        totalPaidByInstallmentId.get(installment.id) ?? 0,
       ),
     );
   }

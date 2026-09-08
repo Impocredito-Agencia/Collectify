@@ -157,4 +157,45 @@ describe('enrichInstallment', () => {
       },
     ]);
   });
+
+  // Bug fix, 2026-09-07 (préstamo #0920) — totalDue must net out payments
+  // already registered against this same installment, not just report its
+  // full nominal cost every time.
+  describe('totalPaid', () => {
+    it('subtracts a partial payment from totalDue, leaving the real remaining balance', () => {
+      const noPayment = enrichInstallment(baseInstallment, 6);
+      const withPartialPayment = enrichInstallment(
+        baseInstallment,
+        6,
+        [],
+        150000,
+      );
+
+      expect(withPartialPayment.totalDue).toBe(noPayment.totalDue - 150000);
+    });
+
+    it('never goes below 0, even if totalPaid exceeds totalDue', () => {
+      const result = enrichInstallment(baseInstallment, 6, [], 999999999);
+
+      expect(result.totalDue).toBe(0);
+    });
+
+    it('defaults to 0 (no behavior change) when totalPaid is omitted', () => {
+      const withDefault = enrichInstallment(baseInstallment, 6);
+      const withExplicitZero = enrichInstallment(baseInstallment, 6, [], 0);
+
+      expect(withDefault.totalDue).toBe(withExplicitZero.totalDue);
+    });
+
+    it('still reports totalDue 0 for a paid installment regardless of totalPaid', () => {
+      const result = enrichInstallment(
+        { ...baseInstallment, status: InstallmentStatus.Paid },
+        6,
+        [],
+        150000,
+      );
+
+      expect(result.totalDue).toBe(0);
+    });
+  });
 });

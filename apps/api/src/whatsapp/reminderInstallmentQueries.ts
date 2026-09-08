@@ -6,8 +6,12 @@ import {
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
 import { LoanStatus } from '../loans/entities/loan.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
+import { Payment } from '../loans/entities/payment.entity';
+import { findConceptsByInstallmentId } from '../loans/installments/conceptsByInstallmentId';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
 import { calculateDaysUntilDue } from '../loans/installments/installmentCalculations';
+import { sumPaymentsByInstallmentId } from '../loans/installments/paymentTotals';
 
 // Shared between OverdueReminderService and UpcomingDueReminderService —
 // both now need BOTH an overdue and an upcoming picture for a client to
@@ -22,10 +26,23 @@ export interface OverdueInstallmentResult {
   amount: number;
   totalDue: number;
   overdueDays: number;
+  // Bug fix, 2026-09-07 — the accrued moratory interest alone, straight
+  // from enrichInstallment (never adjusted for totalPaid below). Added so
+  // callers that need "just the interest portion" (overdueReminder.service.ts
+  // and upcomingDueReminder.service.ts's MessageLogItem.interestSnapshot)
+  // have it directly, instead of deriving it as `totalDue - amount` — which
+  // broke once totalDue started netting out payments already made (a
+  // partially paid overdue installment would otherwise report an
+  // understated, even negative, "interest").
+  interest: number;
 }
 
 export async function findOverdueInstallmentsForClient(
   installmentsRepository: Repository<Installment>,
+  paymentsRepository: Repository<Payment>,
+  // Bug fix, 2026-09-08 — was missing entirely; every caller passed `[]`
+  // straight to enrichInstallment below. See that call's own comment.
+  loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
   clientId: string,
 ): Promise<OverdueInstallmentResult[]> {
   // Bug fix, 2026-09-04 — was `new Date().toISOString().slice(0, 10)` (the
@@ -43,11 +60,32 @@ export async function findOverdueInstallmentsForClient(
     relations: { loan: true },
     order: { dueDate: 'ASC' },
   });
+  // Bug fix, 2026-09-07 — see enrichInstallment.ts's `totalPaid` param and
+  // docs/DATABASE.md's note of this date: without this, a client who'd
+  // already made a partial payment on an overdue installment kept being
+  // reminded of the FULL original amount, not what's actually still owed.
+  const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+    paymentsRepository,
+    installments.map((installment) => installment.id),
+  );
+  // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which made
+  // enrichInstallment fall back to the legacy interestRate formula. Every
+  // loan created since the Phase 23 redesign (#254) sends
+  // `interestRate: 0` (see LoanForm.tsx/RefinanceLoanForm.tsx's own comment
+  // on that field), so this silently reported ZERO accrued mora in every
+  // WhatsApp reminder and the self-service "saldo pendiente" note for a
+  // current-generation loan. See docs/DATABASE.md's note of this date.
+  const conceptsByInstallmentId = await findConceptsByInstallmentId(
+    loanInstallmentConceptsRepository,
+    installments.map((installment) => installment.id),
+  );
 
   return installments.map((installment) => {
     const enriched = enrichInstallment(
       installment,
       installment.loan.interestRate,
+      conceptsByInstallmentId.get(installment.id) ?? [],
+      totalPaidByInstallmentId.get(installment.id) ?? 0,
     );
     return {
       id: installment.id,
@@ -56,6 +94,7 @@ export async function findOverdueInstallmentsForClient(
       amount: installment.amount,
       totalDue: enriched.totalDue,
       overdueDays: enriched.overdueDays,
+      interest: enriched.interest,
     };
   });
 }

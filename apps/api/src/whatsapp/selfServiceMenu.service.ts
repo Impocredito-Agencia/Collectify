@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import { Client } from '../clients/entities/client.entity';
 import { Installment } from '../loans/entities/installment.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
 import {
@@ -53,6 +54,9 @@ export class SelfServiceMenuService {
     private readonly installmentsRepository: Repository<Installment>,
     @InjectRepository(Payment)
     private readonly paymentsRepository: Repository<Payment>,
+    // Bug fix, 2026-09-08 — see breakdownQueries.ts's own comment.
+    @InjectRepository(LoanInstallmentConcept)
+    private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     @InjectRepository(MessageLog)
     private readonly messageLogsRepository: Repository<MessageLog>,
     @InjectRepository(MessageLogItem)
@@ -261,6 +265,8 @@ export class SelfServiceMenuService {
   private async sendBreakdown(client: Client): Promise<void> {
     const installments = await findPendingInstallmentsBreakdown(
       this.installmentsRepository,
+      this.paymentsRepository,
+      this.loanInstallmentConceptsRepository,
       client.id,
     );
     const clientFullName = `${client.firstName} ${client.lastName}`;
@@ -321,6 +327,8 @@ export class SelfServiceMenuService {
 
     return findInstallmentsBreakdownByIds(
       this.installmentsRepository,
+      this.paymentsRepository,
+      this.loanInstallmentConceptsRepository,
       items.map((item) => item.installmentId),
     );
   }

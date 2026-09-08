@@ -48,6 +48,7 @@ import {
   enrichInstallment,
   InstallmentWithCalculated,
 } from './installments/enrichInstallment';
+import { sumPaymentsByInstallmentId } from './installments/paymentTotals';
 import {
   calculatePayoff,
   PayoffInstallmentInput,
@@ -596,6 +597,15 @@ export class LoansService {
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
       installments.map((installment) => installment.id),
     );
+    // Bug fix, 2026-09-07 — see enrichInstallment.ts's `totalPaid` param and
+    // docs/DATABASE.md's note of this date: without this, outstandingBalance/
+    // overdueBalance here counted a partially paid Pending installment's
+    // FULL original totalDue, overstating what's actually still outstanding
+    // on the loans list and (via summarize()'s other caller) the Dashboard.
+    const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+      this.paymentsRepository,
+      installments.map((installment) => installment.id),
+    );
 
     return loans.map((loan) => {
       const { client, ...loanFields } = loan;
@@ -606,6 +616,7 @@ export class LoansService {
             installment,
             loan.interestRate,
             conceptsByInstallmentId.get(installment.id) ?? [],
+            totalPaidByInstallmentId.get(installment.id) ?? 0,
           ),
         );
 
@@ -656,6 +667,16 @@ export class LoansService {
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
       installments.map((installment) => installment.id),
     );
+    // Bug fix, 2026-09-07 — see summarize()'s identical addition above and
+    // enrichInstallment.ts's `totalPaid` param: this is what the
+    // register-payment dialog's displayed/pre-filled "Saldo" reads (via
+    // installments[].totalDue below) — without it, a second payment could
+    // exceed what was truly left on an already-partially-paid installment
+    // (préstamo #0920's bug).
+    const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+      this.paymentsRepository,
+      installments.map((installment) => installment.id),
+    );
 
     const refinancedTo = await this.loansRepository.findOne({
       where: { refinancedFromLoanId: id },
@@ -702,6 +723,7 @@ export class LoansService {
           installment,
           loan.interestRate,
           conceptsByInstallmentId.get(installment.id) ?? [],
+          totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
       ),
       refinancedToLoanId: refinancedTo?.id ?? null,

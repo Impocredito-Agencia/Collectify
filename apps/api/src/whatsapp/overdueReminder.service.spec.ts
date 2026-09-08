@@ -5,6 +5,10 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { Client } from '../clients/entities/client.entity';
 import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '../interestConceptTypes/entities/interestConceptType.entity';
+import {
   Installment,
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
@@ -13,10 +17,13 @@ import {
   Loan,
   LoanStatus,
 } from '../loans/entities/loan.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
+import { enrichInstallment } from '../loans/installments/enrichInstallment';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { formatCurrency } from './messageRenderer';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
@@ -29,6 +36,7 @@ describe('OverdueReminderService', () => {
   let clientsRepository: { findOneBy: jest.Mock };
   let installmentsRepository: { find: jest.Mock };
   let paymentsRepository: { find: jest.Mock };
+  let loanInstallmentConceptsRepository: { find: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
@@ -122,6 +130,15 @@ describe('OverdueReminderService', () => {
     clientsRepository = { findOneBy: jest.fn() };
     installmentsRepository = { find: jest.fn() };
     paymentsRepository = { find: jest.fn().mockResolvedValue([]) };
+    // Bug fix, 2026-09-08 — defaults to no concepts assigned, so
+    // findOverdueInstallmentsForClient's new findConceptsByInstallmentId
+    // call has something iterable rather than undefined in every existing
+    // test that doesn't care about moratory-concept scenarios. Tests that
+    // DO care override this per-case, same convention as
+    // paymentsRepository above.
+    loanInstallmentConceptsRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
     messageLogsRepository = {
       create: jest.fn((dto: Partial<MessageLog>) => dto),
       save: jest.fn((log: Partial<MessageLog>) =>
@@ -160,6 +177,10 @@ describe('OverdueReminderService', () => {
           useValue: installmentsRepository,
         },
         { provide: getRepositoryToken(Payment), useValue: paymentsRepository },
+        {
+          provide: getRepositoryToken(LoanInstallmentConcept),
+          useValue: loanInstallmentConceptsRepository,
+        },
         {
           provide: getRepositoryToken(MessageLog),
           useValue: messageLogsRepository,
@@ -254,17 +275,88 @@ describe('OverdueReminderService', () => {
       ]);
     });
 
-    it('includes the saldo pendiente note when a partial payment exists on an overdue installment', async () => {
-      mockGathered([overdueInstallment({ amount: 300000 })]);
+    // Bug fix, 2026-09-08 — this note used to report only the unpaid slice
+    // of capital (amount - paid), silently ignoring accrued mora on an
+    // overdue installment. It now reports the real remaining balance —
+    // computed here via the same enrichInstallment() the service itself
+    // uses, rather than a hand-derived figure, so the assertion doesn't
+    // drift as "today" (and this fixture's accrued mora) advances.
+    it('includes the saldo pendiente note, factoring in accrued mora, when a partial payment exists on an overdue installment', async () => {
+      const installment = overdueInstallment({ amount: 300000 });
+      mockGathered([installment]);
       paymentsRepository.find.mockResolvedValue([
         { installmentId: 'inst-1', amountPaid: 100000 },
       ]);
 
       await service.sendReminderForClient(mockClient.id);
 
+      const expectedRemaining = enrichInstallment(
+        installment,
+        mockLoan.interestRate,
+        [],
+        100000,
+      ).totalDue;
+      // Sanity check the fix actually matters for this fixture — it's been
+      // overdue since 2024-01-01, so real accrued mora should push the
+      // balance well past the old, mora-blind figure of 200000
+      // (300000 - 100000).
+      expect(expectedRemaining).toBeGreaterThan(200000);
+
       const [, , , params] = whatsAppService.sendTemplateMessage.mock
         .calls[0] as [string, string, string, string[]];
-      expect(params.at(-1)).toContain('saldo pendiente de $200.000');
+      expect(params.at(-1)).toContain(
+        `saldo pendiente de $${formatCurrency(expectedRemaining)}`,
+      );
+    });
+
+    // Bug fix, 2026-09-08 — findOverdueInstallmentsForClient used to pass
+    // `[]` straight to enrichInstallment, which falls back to the legacy
+    // interestRate formula. Every loan created since the Phase 23 redesign
+    // sends interestRate: 0 (see LoanForm.tsx's own comment), so this
+    // silently reported ZERO accrued mora for a modern loan's overdue
+    // installment — this reminder's own interestSnapshot would have been 0
+    // regardless of how overdue the cuota was.
+    it('uses the installment’s real moratory concepts instead of the legacy interestRate, even when interestRate is 0', async () => {
+      // interestRate: 0 mirrors every loan created through LoanForm.tsx
+      // since the Phase 23 redesign — the real rate lives in the moratory
+      // concept below instead.
+      const zeroRateLoan: Loan = { ...mockLoan, interestRate: 0 };
+      const installment = overdueInstallment({
+        amount: 300000,
+        loan: zeroRateLoan,
+      });
+      mockGathered([installment]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: installment.id,
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 3,
+        },
+      ]);
+
+      await service.sendReminderForClient(mockClient.id);
+
+      const expectedInterest = enrichInstallment(
+        installment,
+        zeroRateLoan.interestRate,
+        [
+          {
+            installmentId: installment.id,
+            category: ConceptCategory.Moratorio,
+            calculationType: ConceptCalculationType.Percentage,
+            nameSnapshot: 'Intereses moratorios',
+            value: 3,
+          } as never,
+        ],
+        0,
+      ).interest;
+      // With interestRate alone (the bug) this would be exactly 0.
+      expect(expectedInterest).toBeGreaterThan(0);
+      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ interestSnapshot: expectedInterest }),
+      ]);
     });
 
     it('logs the message as failed when WhatsAppService could not send it', async () => {

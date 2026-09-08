@@ -162,7 +162,12 @@ describe('LoansService', () => {
       softDelete: jest.fn(),
     };
     paymentsRepository = {
-      find: jest.fn(),
+      // Bug fix, 2026-09-07 — defaults to no payments found, so
+      // summarize()/findOne()'s new sumPaymentsByInstallmentId call has
+      // something iterable rather than undefined in every test that
+      // doesn't care about partial-payment scenarios and so never sets
+      // this itself.
+      find: jest.fn().mockResolvedValue([]),
       create: jest.fn((dto: Partial<Payment>) => dto),
       save: jest.fn((payments: unknown[]) => Promise.resolve(payments)),
       count: jest.fn(),
@@ -1354,6 +1359,38 @@ describe('LoansService', () => {
         interest: 0,
         totalDue: 0,
       });
+    });
+
+    // Bug fix, 2026-09-07 (human report, préstamo #0920) — this is what the
+    // register-payment dialog reads for its "Saldo" header and pre-filled
+    // amount. Before this fix, a partially paid Pending installment's
+    // totalDue never netted out what was already paid, so the dialog kept
+    // re-offering the cuota's full original amount as if nothing had been
+    // paid — which is what let a second payment exceed the real balance.
+    it("nets out an existing partial payment from a pending installment's totalDue", async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      loansRepository.findOne.mockResolvedValue(null);
+      const partiallyPaidInstallment: Installment = {
+        id: 'inst-1',
+        loanId: mockLoan.id,
+        loan: undefined as never,
+        installmentNumber: 1,
+        amount: 850000,
+        principalPortion: null,
+        dueDate: '2099-01-01', // not overdue — deterministic totalDue
+        status: InstallmentStatus.Pending,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      };
+      installmentsRepository.find.mockResolvedValue([partiallyPaidInstallment]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 800000 },
+      ]);
+
+      const result = await service.findOne(mockLoan.id);
+
+      expect(result.installments[0].totalDue).toBe(50000);
     });
 
     // Phase 31 — "saldo capital a la fecha" must be pure principal, no
