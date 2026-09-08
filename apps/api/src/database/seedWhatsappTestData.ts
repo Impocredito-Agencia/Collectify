@@ -100,9 +100,16 @@ function documentNumberFor(phoneNumber: string): string {
   return `TEST-${phoneNumber.replace(/\D/g, '')}`;
 }
 
+// Timestamp (ms, last 7 digits) + 2 random digits — comfortably unique
+// even across several loans created in the same script run, without
+// needing to query the table first. promissoryNoteNumber is globally
+// unique across every loan, not just this client's.
 function randomPromissoryNoteNumber(prefixDigit: string): string {
-  const suffix = Math.floor(1000 + Math.random() * 8999);
-  return `#${prefixDigit}${suffix}`;
+  const timestampPart = Date.now().toString().slice(-7);
+  const randomPart = Math.floor(Math.random() * 100)
+    .toString()
+    .padStart(2, '0');
+  return `#${prefixDigit}${timestampPart}${randomPart}`;
 }
 
 async function findOrCreateTestClient(
@@ -155,7 +162,11 @@ async function runNewLoanFamilySequence(
   }
 
   const today = todayDateString();
-  const futureDueDate = addDaysToDateString(today, 30);
+  // Must be before the first tracked (post-down-payment) installment's due
+  // date — with biweekly frequency and disbursedAt = today, that's
+  // today + 14 (see loans.service.ts's addWeeksToDateString(disbursedAt,
+  // installmentNumber * 2)). 7 days comfortably clears that.
+  const downPaymentDueDate = addDaysToDateString(today, 7);
 
   const loan1 = await loansService.create({
     clientId,
@@ -173,7 +184,7 @@ async function runNewLoanFamilySequence(
     ...(firstLoanHasDownPayment
       ? {
           downPaymentAmount: DOWN_PAYMENT_AMOUNT,
-          downPaymentDueDate: futureDueDate,
+          downPaymentDueDate,
         }
       : {}),
   });
@@ -229,20 +240,24 @@ async function runNewLoanFamilySequence(
     description: 'Prueba de plantilla WhatsApp — préstamo con cuota inicial',
     isNewLoan: true,
     downPaymentAmount: DOWN_PAYMENT_AMOUNT,
-    downPaymentDueDate: futureDueDate,
+    downPaymentDueDate,
   });
   Logger.log(
     `Loan3 creado (${loan3.promissoryNoteNumber}) — dispara NewLoanExistingClientInitialInstallment.`,
     'seedWhatsappTestData',
   );
 
-  // Pay off loan1's two tracked (non-down-payment) installments in order —
-  // fires PaymentConfirmation on the first, PaidInFull on the second.
+  // Pay off EVERY one of loan1's installments in order (including the down
+  // payment, if any) — cascadeLoanStatusIfFullyPaid only closes the loan
+  // once ALL of its installments are Paid, down payment included, so
+  // skipping it here would mean PaidInFull never fires. Each full payment
+  // fires PaymentConfirmation; the one that finally closes the loan also
+  // fires PaidInFull right after.
   const loan1Detail = await loansService.findOne(loan1.id);
-  const trackedInstallments = loan1Detail.installments
-    .filter((installment) => !installment.isDownPayment)
-    .sort((a, b) => a.installmentNumber - b.installmentNumber);
-  for (const installment of trackedInstallments) {
+  const allInstallments = [...loan1Detail.installments].sort(
+    (a, b) => a.installmentNumber - b.installmentNumber,
+  );
+  for (const installment of allInstallments) {
     await installmentsService.registerPayment(installment.id, {
       amountPaid: installment.amount,
       paidAt: today,
