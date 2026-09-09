@@ -164,6 +164,7 @@ Unique on (`user_id`, `module`). **Row presence is the grant — there's no bool
 | `credit_limit` | DECIMAL(12,2), nullable | maximum credit exposure ("cupo") enforced at loan creation. Nullable — unset means no cupo is enforced for this client, same "absence of a value means the rule doesn't apply" convention as `loans.description`. Added Phase 10, see "Changed after Phase 10" below. |
 | `document_type` | ENUM (`cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`), nullable | Added Phase 21. As of Phase 26, `loans.co_debtor_document_type` (which shared this enum) is gone — a co-debtor is now a `Client` reference, so their `document_type` is read from this same column. |
 | `date_of_birth` | DATE, nullable | Added Phase 21. |
+| `gender` | ENUM (`masculino`, `femenino`, `otro`), nullable | Added 2026-09-08 (client request). Nullable and never enforced as required, for either interactive `ClientForm` creation or the Excel import — a fillable field, not mandatory. "Edad" (age), requested alongside this, is deliberately NOT a stored column — it's computed on the frontend from `date_of_birth` instead (`apps/client/src/lib/format.ts`'s `calculateAge`), avoiding a duplicated value that would silently go stale. |
 | `document_issue_place` | VARCHAR, nullable | Added Phase 21. |
 | `document_issue_date` | DATE, nullable | Added Phase 21 (client feedback after reviewing the built form — `document_issue_place` already existed, the date didn't). |
 | `email` | VARCHAR, nullable | Added Phase 21. |
@@ -781,6 +782,37 @@ Root cause: `docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`'s Template 6 note alr
 **Confirmed with the human:** once past the 8-day grace period, mora is calculated over the installment's FULL overdue days — day 9 is charged as 9 days of mora, not 1 (i.e. the grace period is a binary on/off gate, not a shifted starting point for the day count).
 
 **Fix:** added `MORA_GRACE_PERIOD_DAYS = 8` to `installmentCalculations.ts`; `calculateInterest()` and `calculateMoratoryCharges()` now return `0` outright whenever `overdueDays <= MORA_GRACE_PERIOD_DAYS`, and apply the existing (unchanged) formula over the full `overdueDays` otherwise. Every consumer of these two functions — `enrichInstallment()` (and everything built on it: WhatsApp reminders/self-service menu, Dashboard, cupo, the payment ceiling) and `calculatePayoff()` — inherits the fix automatically, since none of them re-derive the formula themselves. `reminderTemplateSelection.ts`'s own `overdueDays > 8` check was switched to import and use the same `MORA_GRACE_PERIOD_DAYS` constant instead of a second hardcoded `8`, so the two can't drift apart again. `installments.due_date`/`overdueDays` itself (the "venció hace N días" figure quoted to clients) is unaffected — only the resulting mora *amount* changes.
+
+## Operational toggle, 2026-09-08 — mora/cupo guard can be bypassed for the historical loan import
+
+The business is backfilling historical pagarés into production. Phase 10's mora-block/cupo guard (`LoansService.assertClientCanTakeNewLoan`, checked by `create()` before persisting) was rejecting a client already carrying a >30-day-overdue installment from an earlier historical loan already imported in the same backfill — even though that "new" loan already happened in the real world and adds no actual new risk.
+
+`LoansService.create()` already had a `skipCreditCheck` option scoped exactly for this ("modo histórico" — see that method's own doc comment), but it turned out to be aspirational: `LoanImportService.processRow()` never actually passed it, so every Excel-imported loan was still enforcing the guard. Fixed two things at once:
+
+1. **The gap itself:** `LoanImportService` now passes `skipCreditCheck` through to `LoansService.create()` for every row.
+2. **Made it a toggle, not a permanent bypass:** the value comes from a new `LOAN_IMPORT_SKIP_CREDIT_CHECK` env var (default `false`, see `docs/ENVIRONMENT_VARIABLES.md`) via a new `LoanImportConfig` group in `config/configuration.ts` — set it to `true` in Railway while the backfill is in progress, then back to `false` (or remove it) once done. No code change needed either way. Scoped to `LoanImportService` only: the interactive "Crear préstamo" form and its own guard are completely unaffected, so a collector still can't manually create a new real loan for a mora-blocked client during the backfill window. Logged once per import run (not per row) when enabled, so it's visible in Railway without being noisy.
+
+## Bug fix, 2026-09-08 — a bulk payment's audit log entry didn't say which pagaré/cuotas it touched
+
+Human report: `POST /installments/payments/bulk`'s audit log entry showed action "Registró un pago sobre varias cuotas" but no `entityLabel` at all — no way to tell which loan or installments a given bulk action actually paid.
+
+Root cause: `AuditLogInterceptor.resolveEntityLabel`'s `'payment'` case only ever handled a single `Payment` response (`payment.register`'s shape) — it read `entity.amountPaid` directly, which is `undefined` on `payment.registerBulk`'s actual response (a `Payment[]` array), so the case fell straight through to `null`.
+
+**Fix:** the `'payment'` case now checks `Array.isArray(entity)` first and, for a bulk response, builds a label summing the total amount across every payment in the batch plus a "cuota N del pagaré #X" fragment for each one (batched lookup — one query for every installment in the request, not N+1, same convention as `findConceptsByInstallmentId`/`sumPaymentsByInstallmentId`), e.g. *"Pago de $470.000 en 3 cuotas — cuota 4 del pagaré #0743, cuota 1 del pagaré #0810, cuota 2 del pagaré #0810"*. `payment.register`'s existing single-payment label is unchanged. No frontend change needed — `AuditLogsPage.tsx` already renders `entityLabel` verbatim.
+
+## Added, 2026-09-08 — `clients.gender`
+
+Client request: add "edad" and "sexo/género" to the client profile, in the interactive `ClientForm` and the Excel import alike, neither one mandatory. See `clients.gender` in the table above for the column itself.
+
+"Edad" turned out not to need a column at all — `clients.date_of_birth` already existed since Phase 21, so age is computed from it on the frontend (`calculateAge` in `apps/client/src/lib/format.ts`) rather than stored redundantly. Shown next to "Fecha de nacimiento" on both `ClientForm.tsx` (live, as the date is picked) and `ClientDetailPage.tsx`.
+
+`gender` itself: nullable `clients_gender_enum` (`masculino`/`femenino`/`otro`), added via `AddGenderToClients1789000000000`. Wired into `CreateClientDto` (optional, `@IsEnum`), `ClientForm.tsx` (an optional Select next to "Tipo de documento"), `ClientDetailPage.tsx`, and the clients-only Excel import (`clientsImportColumns.ts`'s `gender` column, aliases `sexo`/`genero`/`gender`, accepting `M`/`F`/`Otro` and a few English/Spanish variants — same `enumValues`-mapping pattern `documentType` already uses).
+
+## Changed, 2026-09-08 — "cuota con interés" rounds to the nearest $100, not $1,000
+
+Client request: `$1,000` rounded too aggressively on the smoothed installment total generated at loan creation/refinance (see `GLOSSARY.md`'s "Amortization method / Capital fijo" → "Cuota con interés" smoothing) — e.g. a true $345,400 cuota rounded down to $345,000, or $245,700 rounded up to $246,000. Narrowed to the nearest $100 instead (e.g. $135,456 → $135,500; $247,830 → $247,800), keeping the "round number" convenience of a flat identical cuota every installment while landing much closer to the real, unrounded figure.
+
+Only one function implements this business rule server-side: `generateAmortizationSchedule()`'s `roundToNearestHundred()` (renamed from `roundToNearestThousand()`) in `apps/api/src/loans/amortization/generateSchedule.ts` — reused unchanged by loan creation, refinancing, and the preview-schedule/"Proyector rápido" quote endpoint, so all three picked up the change automatically. The only other place implementing this exact rounding was client-side only: `RefinanceLoanForm.tsx`'s own `roundToNearestHundred` (a display/pre-fill convenience for "Capital sugerido"/"Capital renegociado" when refinancing, never sent to the backend as-is — the admin can still hand-edit the field) — updated to match, so the two stay in sync. No other call site anywhere in either app implements a nearest-$1,000/$100 rounding rule.
 
 ## Related documents
 

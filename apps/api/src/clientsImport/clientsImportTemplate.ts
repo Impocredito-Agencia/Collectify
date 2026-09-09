@@ -19,6 +19,7 @@ const DISPLAY_HEADERS: Record<string, string> = {
   creditLimit: 'Cupo',
   documentType: 'Tipo de documento',
   dateOfBirth: 'Fecha de nacimiento',
+  gender: 'Sexo / Género',
   documentIssuePlace: 'Lugar de expedición',
   documentIssueDate: 'Fecha de expedición',
   email: 'Correo',

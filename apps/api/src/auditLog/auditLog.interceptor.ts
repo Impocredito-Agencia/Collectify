@@ -9,7 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
 import { Client } from '../clients/entities/client.entity';
@@ -223,6 +223,16 @@ export class AuditLogInterceptor implements NestInterceptor {
         return null;
       }
       case 'payment': {
+        // Bug fix, 2026-09-08 (human report) — payment.registerBulk's
+        // response is a Payment[] array, not a single Payment, so the
+        // single-payment branch below (which reads entity.amountPaid)
+        // always fell through to `null`: "Registró un pago sobre varias
+        // cuotas" had no entityLabel at all, giving no way to tell which
+        // pagaré/cuotas a bulk action actually touched.
+        if (Array.isArray(entity)) {
+          return this.formatBulkPaymentLabel(entity);
+        }
+
         if (!entity || typeof entity.amountPaid !== 'number') {
           return null;
         }
@@ -232,11 +242,7 @@ export class AuditLogInterceptor implements NestInterceptor {
             ? `Pago de ${amount} el ${entity.paidAt}`
             : `Pago de ${amount}`;
         // Added 2026-09-04 — see the installmentsRepository comment in the
-        // constructor. Only payment.register's single-Payment response has
-        // an installmentId to look up; payment.registerBulk's response is
-        // an array (entity.amountPaid above is already false for it, so
-        // this line is unreached there — bulk payments keep the plain
-        // amount/date label, same as before this change).
+        // constructor.
         const installmentId =
           typeof entity.installmentId === 'string'
             ? entity.installmentId
@@ -293,6 +299,60 @@ export class AuditLogInterceptor implements NestInterceptor {
         // feature existed. Not a bug; just not extended yet.
         return null;
     }
+  }
+
+  // Bug fix, 2026-09-08 (human report) — see the 'payment' case above.
+  // Batched (one query for every installment in the bulk request, not
+  // N+1), same convention as findConceptsByInstallmentId/
+  // sumPaymentsByInstallmentId elsewhere in the codebase.
+  private async formatBulkPaymentLabel(
+    payments: unknown[],
+  ): Promise<string | null> {
+    const validPayments = payments.filter(
+      (payment): payment is Record<string, unknown> =>
+        typeof payment === 'object' &&
+        payment !== null &&
+        typeof (payment as Record<string, unknown>).amountPaid === 'number',
+    );
+    if (validPayments.length === 0) {
+      return null;
+    }
+
+    const totalAmount = validPayments.reduce(
+      (sum, payment) => sum + (payment.amountPaid as number),
+      0,
+    );
+    const base = `Pago de ${this.formatCurrencyCop(totalAmount)} en ${validPayments.length} cuotas`;
+
+    const installmentIds = validPayments
+      .map((payment) =>
+        typeof payment.installmentId === 'string'
+          ? payment.installmentId
+          : null,
+      )
+      .filter((id): id is string => id !== null);
+    if (installmentIds.length === 0) {
+      return base;
+    }
+
+    const installments = await this.installmentsRepository.find({
+      where: { id: In(installmentIds) },
+      withDeleted: true,
+      relations: { loan: true },
+    });
+    const installmentById = new Map(
+      installments.map((installment) => [installment.id, installment]),
+    );
+
+    const parts = installmentIds
+      .map((id) => installmentById.get(id))
+      .filter((installment): installment is Installment => !!installment)
+      .map(
+        (installment) =>
+          `cuota ${installment.installmentNumber} del pagaré ${formatPromissoryNoteLabel(installment.loan.promissoryNoteNumber)}`,
+      );
+
+    return parts.length > 0 ? `${base} — ${parts.join(', ')}` : base;
   }
 
   private formatClientLabel(client: Record<string, unknown>): string {

@@ -53,16 +53,21 @@ export interface GeneratedInstallment {
 // share is constant while the balance it's charged interest on keeps
 // shrinking. The client doesn't actually charge that declining number —
 // they sum every period's true (declining) total, divide by
-// totalInstallments, and round to the nearest $1,000, then charge that
+// totalInstallments, and round to the nearest $100, then charge that
 // *identical* amount every single installment, including the last.
-// People want to pay a round number like $124,000 every month, not
+// People want to pay a round number like $124,200 every month, not
 // $124,245 one month and $119,830 the next. The averaging step by itself
 // preserves total interest exactly — capital fijo's true (lower, vs.
 // level-payment/French) total interest is simply spread out evenly
-// instead of front-loaded. The $1,000 rounding on top of that is a small,
-// bounded nudge (at most ~$500 × totalInstallments over the life of the
+// instead of front-loaded. The $100 rounding on top of that is a small,
+// bounded nudge (at most ~$50 × totalInstallments over the life of the
 // loan, in either direction) — not a new interest charge, just the same
 // cosmetic rounding the client already applies by hand.
+//
+// Narrowed from the nearest $1,000 to the nearest $100, 2026-09-08
+// (client request) — $1,000 rounded too aggressively for the client's
+// taste; $100 keeps the "round number" convenience while landing much
+// closer to the true, unrounded figure.
 //
 // Every individual concept is smoothed this way too (confirmed with the
 // human), not just the aggregate total — a loan with two percentage
@@ -79,7 +84,7 @@ export interface GeneratedInstallment {
 // LoansService.buildInterestConceptAssignment; always present and always
 // first, see resolveConceptsWithInterest) is the designated "cuota con
 // interés" bucket: besides its own averaging, it also absorbs whatever
-// delta the final $1,000 rounding introduces, so that
+// delta the final $100 rounding introduces, so that
 // principalPortion + every concept's computedAmount always sums to
 // exactly the same rounded total on every installment — not just
 // approximately. Every other concept (catalog picks) is independently
@@ -132,7 +137,7 @@ export function generateAmortizationSchedule(
     truePeriods.reduce((sum, period) => sum + period.conceptAmounts[ci], 0),
   );
 
-  const cuotaFinal = roundToNearestThousand(
+  const cuotaFinal = roundToNearestHundred(
     (principalAmount + conceptTotals.reduce((s, t) => s + t, 0)) /
       totalInstallments,
   );
@@ -249,7 +254,7 @@ function buildTruePerPeriodSchedule(
 }
 
 // See this file's top comment for why this concept is the one that
-// absorbs the $1,000 rounding residual.
+// absorbs the $100 rounding residual.
 function resolveAnchorConceptIndex(concepts: ConceptAssignment[]): number {
   const systemConceptIndex = concepts.findIndex(
     (concept) => concept.conceptTypeId === null,
@@ -262,8 +267,8 @@ function resolveAnchorConceptIndex(concepts: ConceptAssignment[]): number {
   );
 }
 
-function roundToNearestThousand(value: number): number {
-  return Math.round(value / 1000) * 1000;
+function roundToNearestHundred(value: number): number {
+  return Math.round(value / 100) * 100;
 }
 
 function roundCurrency(value: number): number {
