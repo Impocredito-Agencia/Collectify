@@ -2337,7 +2337,7 @@ describe('LoansService', () => {
         pendingInstallment({
           amount: 300000,
           principalPortion: 270000,
-          // 10 days — past the 8-day mora grace period (see
+          // 10 days — past the mora grace period (see
           // installmentCalculations.ts's MORA_GRACE_PERIOD_DAYS), so this
           // keeps testing genuine moratory interest, not the grace period.
           dueDate: bogotaTodayPlusDays(-10),

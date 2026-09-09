@@ -55,7 +55,7 @@ describe('renderBreakdownMessage', () => {
     expect(message).toContain('Hola Señor/a Juana Pérez');
     expect(message).toContain('este es el desglose de tus cuotas');
     expect(message).toContain('Pagaré #743:\n\n1️⃣ Cuota No. 3');
-    // 45 days overdue — past the 8-day mora grace period.
+    // 45 days overdue — past the mora grace period.
     expect(message).toContain(
       '1️⃣ Cuota No. 3 por $520.800 (recargos incluidos) venció hace 45 días.',
     );

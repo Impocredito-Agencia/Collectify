@@ -151,10 +151,17 @@ describe('installmentCalculations', () => {
 
   // Bug fix, 2026-09-08 (human report) — see MORA_GRACE_PERIOD_DAYS's own
   // doc comment: the business doesn't charge mora during an installment's
-  // first 8 overdue days. Confirmed with the human: once past the grace
+  // first N overdue days. Confirmed with the human: once past the grace
   // period, mora is charged over the FULL overdue days, not just the days
-  // beyond the 8th.
-  describe('Bug fix, 2026-09-08 — 8-day mora grace period', () => {
+  // beyond the threshold.
+  //
+  // Narrowed from 8 to 6 days, 2026-09-09 (client correction) — day 6
+  // still has no mora, day 7 already does. These tests read
+  // MORA_GRACE_PERIOD_DAYS dynamically (not hardcoded), so they keep
+  // testing "the day right at the edge" / "the day right past it"
+  // regardless of the constant's exact value — only the hand-computed
+  // expected amounts below needed updating for the new threshold.
+  describe('Bug fix, 2026-09-08 — mora grace period', () => {
     it('charges no interest for any overdue day within the grace period', () => {
       for (
         let overdueDays = 1;
@@ -166,11 +173,11 @@ describe('installmentCalculations', () => {
     });
 
     it('charges interest over the FULL overdue days once the grace period ends, not just the days past it', () => {
-      // 205000 * 0.06 / 30 * 9 = 3690 — using the full 9 days, not
-      // (9 - 8) = 1.
+      // 205000 * 0.06 / 30 * 7 = 2870 — using the full 7 days, not
+      // (7 - 6) = 1.
       expect(
         calculateInterest(205000, 6, MORA_GRACE_PERIOD_DAYS + 1),
-      ).toBeCloseTo(3690, 6);
+      ).toBeCloseTo(2870, 6);
     });
 
     it('applies the same grace period to moratory concepts, both percentage and fixed_amount', () => {
@@ -208,7 +215,7 @@ describe('installmentCalculations', () => {
           },
         ],
       );
-      expect(pastGrace[0].amount).toBeCloseTo(3690, 6);
+      expect(pastGrace[0].amount).toBeCloseTo(2870, 6);
       expect(pastGrace[1].amount).toBe(15000);
     });
   });

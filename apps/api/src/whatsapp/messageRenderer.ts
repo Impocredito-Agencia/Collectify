@@ -240,8 +240,8 @@ function renderAccountSummaryInstallmentLine(
         ? `vence en ${item.daysUntilDue} días`
         : 'vence hoy';
 
-  // Bug fix, 2026-09-08 (human report) — a cuota still inside the 8-day
-  // mora grace period (see MORA_GRACE_PERIOD_DAYS) has the same totalDue
+  // Bug fix, 2026-09-08 (human report) — a cuota still inside the mora
+  // grace period (see MORA_GRACE_PERIOD_DAYS) has the same totalDue
   // as its bare amount, but that wasn't visible from the line itself, so
   // an overdue-but-not-yet-in-mora cuota looked identical to one that
   // already carries recargos. Flag only the ones that actually do.
