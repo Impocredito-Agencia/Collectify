@@ -93,10 +93,10 @@ export function messageTypeLabel(type: string): string {
 // UPCOMING_FAMILY_TYPES. Used to explain each template's trigger on the
 // grid, and to narrow a client's message-log history down to "the new-loan
 // message for this loan" without a server-side multi-type filter (the API
-// only accepts one `type` at a time) — see LoanDetailPage.tsx. New-loan
-// messages are sent synchronously (LoansService), not on any cron
-// schedule — unlike its name, this is just a MessageType grouping, no
-// longer a ReminderFamily on the backend (reverted 2026-09-06).
+// only accepts one `type` at a time) — see LoanDetailPage.tsx. Restored
+// 2026-09-09 as a real ReminderFamily on the backend too (see
+// ReminderFamily.NewLoan in whatsappApi.ts and reminderFamily.ts, api) —
+// this array matches NEW_LOAN_FAMILY_TYPES there exactly.
 export const NEW_LOAN_FAMILY_TYPES: MessageType[] = [
   MessageType.NewLoanNewClient,
   MessageType.NewLoanNewClientInitialInstallment,

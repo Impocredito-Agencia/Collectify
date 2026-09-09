@@ -62,6 +62,7 @@ OVERDUE_REMINDER_CRON=0 9 * * 1,3,5
 UPCOMING_DUE_REMINDER_CRON=0 8 * * *
 UPCOMING_DUE_REMINDER_DAYS=5
 ACCOUNT_SUMMARY_REMINDER_CRON=0 8 1 * *
+NEW_LOAN_REMINDER_CRON=0 10 * * 1
 
 # ── CORS ────────────────────────────────────────────────
 CLIENT_URL=http://localhost:5173
@@ -93,8 +94,7 @@ CLIENT_URL=http://localhost:5173
 | `UPCOMING_DUE_REMINDER_CRON` | ✅ | Cron expression controlling when the daily upcoming-due ("Aviso") reminder job runs. Default `0 8 * * *` = every day at 8:00 AM. Added in Phase 9 — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. |
 | `UPCOMING_DUE_REMINDER_DAYS` | ✅ | Single number, default `5` — size in days of the "due soon" reminder window (remind while an installment is due within the next N days). Added in Phase 9 as a comma-separated list of three exact day-before-due checkpoints (`5,3,1`); **reworked 2026-09-07 (human)** to a cumulative window instead, since an exact-day match silently drops a reminder whenever the admin's cron day-of-week picker skips the one day that check needed — see `reminderInstallmentQueries.ts`'s doc comment. Simplified from a list to a single number the same day, once only the max of the three values was ever used. |
 | `ACCOUNT_SUMMARY_REMINDER_CRON` | ✅ | Cron expression for the account-summary cron (Phase 18) — sends to every client with at least one active loan (corrected after client QA, 2026-08-18; originally audience-only). Default `0 8 1 * *` = 8:00 AM on the 1st of each month. Admin-editable via `MessageTemplate.cronExpression`, which takes precedence over this code default when set — see `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
-
-`NEW_LOAN_REMINDER_CRON` briefly existed here (added 2026-09-06, a scheduled sweep for the "new loan"/refinance family) and was removed the same day (confirmed with the human) — the sweep let a historical/backfilled loan slip through and message the client whenever it next ran, possibly after `WHATSAPP_SENDING_PAUSED` had already been lifted for legitimate traffic. New-loan and refinance messages are sent synchronously again, from `LoansService.create()`/`refinance()`, gated by `Loan.isNewLoan` — same as payment confirmation and "pagado en su totalidad" below, unaffected either way.
+| `NEW_LOAN_REMINDER_CRON` | ✅ | Restored 2026-09-09 (confirmed with the human). Cron expression for the "new loan"/refinance family (`ReminderFamily.NewLoan`) — sweeps loans where `is_new_loan` is true and `new_loan_message_sent_at` is still null, per the schedule below. Default `0 10 * * 1` = every Monday at 10:00 AM. Admin-editable via `MessageTemplate.cronExpression`, same precedence as the other cron vars above. `Loan.isNewLoan` now defaults to `false` on both the create DTO and the `LoanForm` checkbox (unchecked by default) — most loans entered right now are historical backfills, so an admin has to actively opt a loan into the sweep. Payment confirmation and "pagado en su totalidad" are NOT part of this — they stay synchronous, unaffected by this variable. See `Loan.isNewLoan` and `NewLoanReminderService.runPendingLoanNotifications`. |
 | `CLIENT_URL` | ✅ | The client's URL, used to configure CORS. `http://localhost:5173` locally; the Cloudflare Workers URL in production. |
 
 ### On the pending Meta Cloud API credentials
@@ -163,6 +163,7 @@ OVERDUE_REMINDER_CRON=0 9 * * 1,3,5
 UPCOMING_DUE_REMINDER_CRON=0 8 * * *
 UPCOMING_DUE_REMINDER_DAYS=5
 ACCOUNT_SUMMARY_REMINDER_CRON=0 8 1 * *
+NEW_LOAN_REMINDER_CRON=0 10 * * 1
 CLIENT_URL=<the Cloudflare Workers production URL for this project, e.g. https://collectify.<subdomain>.workers.dev>
 # META_WHATSAPP_* — see "On the pending Meta Cloud API credentials" above.
 ```

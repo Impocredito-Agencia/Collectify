@@ -41,6 +41,17 @@ export interface Loan {
   // loan's relationship, not a property of the co-debtor themselves). ---
   coDebtorClientId: string | null;
   coDebtorRelationship: string | null;
+  // Restored 2026-09-09 — whether this loan was marked as a genuinely new
+  // credit event at creation (vs. a historical/backfilled one). Drives
+  // whether the "new loan" WhatsApp cron sweep will ever message this
+  // loan's client — see CreateLoanInput.isNewLoan and
+  // NewLoanReminderService.runPendingLoanNotifications (api).
+  isNewLoan: boolean;
+  // Set once the scheduled "new loan" message actually sends for this
+  // loan — still null for an isNewLoan loan the sweep hasn't reached yet,
+  // and always null for one marked "es viejo" (isNewLoan: false), which
+  // the sweep never picks up at all.
+  newLoanMessageSentAt: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -173,13 +184,11 @@ export interface CreateLoanInput {
   coDebtorClientId?: string;
   coDebtorRelationship?: string;
   // Added 2026-09-06 — whether this is a genuinely new credit event that
-  // should get the "new loan" WhatsApp message, sent synchronously right
-  // after the loan is created. LoanForm.tsx always sends `true` (its own
-  // checkbox was removed the same day, confirmed with the human — a
-  // historical/backfilled loan typed in through the form relies on
-  // WHATSAPP_SENDING_PAUSED instead). Left optional here, defaulting to
-  // false ("es viejo") server-side when omitted, purely so bulk Excel
-  // import (LoanImportService) — which never sets this field — keeps its
+  // should get the scheduled "new loan" WhatsApp message (sent by the
+  // NewLoan cron sweep, not immediately). LoanForm.tsx has a checkbox for
+  // this, unchecked by default. Left optional here, defaulting to false
+  // ("es viejo") server-side when omitted, so bulk Excel import
+  // (LoanImportService) — which never sets this field — keeps its
   // existing safe-by-default behavior. See createLoan.dto.ts (api) and
   // Loan.isNewLoan.
   isNewLoan?: boolean;
@@ -317,9 +326,10 @@ export interface RefinanceLoanInput {
   coDebtorRelationship?: string | null;
   // Redesign, 2026-09-06 — no isNewLoan field: a refinance can only ever
   // apply to a loan already active in the system, so it's always a real,
-  // live event and always gets the "new loan" WhatsApp message, hardcoded
-  // server-side. See CreateLoanInput.isNewLoan for the create()-only
-  // distinction this doesn't apply to.
+  // live event and always gets the "new loan" WhatsApp message (via the
+  // NewLoan cron sweep, same as create()), hardcoded server-side. See
+  // CreateLoanInput.isNewLoan for the create()-only distinction this
+  // doesn't apply to.
 }
 
 // Style cleanup (2026-09-03) — mirrors the @Matches regex on

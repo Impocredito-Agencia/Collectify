@@ -15,7 +15,6 @@ import {
 } from '../interestConceptTypes/entities/interestConceptType.entity';
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
 import { UsuryRateService } from '../usuryRates/usuryRates.service';
-import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 import { addDaysToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
@@ -87,7 +86,6 @@ describe('LoansService', () => {
     findOne: jest.Mock;
     findByIdIncludingDeleted: jest.Mock;
   };
-  let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
   let dataSource: { transaction: jest.Mock };
 
   // Optional catalog fees (Phase 14) — no longer anything to do with the
@@ -227,13 +225,6 @@ describe('LoansService', () => {
       findOne: jest.fn().mockResolvedValue({ id: 'co-debtor-1' }),
       findByIdIncludingDeleted: jest.fn().mockResolvedValue(null),
     };
-    // Reverted, 2026-09-06 — create()/refinance() call this synchronously
-    // again (see loans.service.ts's own comment on the revert). Resolves
-    // by default so tests that don't care about messaging aren't affected;
-    // tests below assert on whether/how it's called.
-    newLoanReminderService = {
-      sendNewLoanMessage: jest.fn().mockResolvedValue(undefined),
-    };
     // Mock manager.getRepository() routes to the same mock repositories
     // above by entity class, so persistLoanWithInstallments (now run
     // inside dataSource.transaction()) exercises the exact mocks every
@@ -290,10 +281,6 @@ describe('LoansService', () => {
           useValue: usuryRateService,
         },
         { provide: ClientsService, useValue: clientsService },
-        {
-          provide: NewLoanReminderService,
-          useValue: newLoanReminderService,
-        },
         { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
@@ -752,6 +739,12 @@ describe('LoansService', () => {
       });
     });
 
+    // Restored, 2026-09-09 — the "new loan" WhatsApp message is no longer
+    // sent synchronously from create(); it's picked up later by
+    // NewLoanReminderService.runPendingLoanNotifications() on a schedule
+    // (see whatsappCron.service.spec.ts / newLoanReminder.service.spec.ts
+    // for that behavior). create() itself is only responsible for
+    // persisting isNewLoan on the loan row.
     it('defaults isNewLoan to false when the dto omits it', async () => {
       await service.create(createDto);
 
@@ -766,44 +759,6 @@ describe('LoansService', () => {
       expect(loansRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ isNewLoan: true }),
       );
-    });
-
-    // Reverted, 2026-09-06 (confirmed with the human) — back to sending
-    // synchronously right from create(), same as before the short-lived
-    // cron-sweep redesign. See loans.service.ts's own comment on why.
-    it('does not send a new-loan WhatsApp message when isNewLoan is false (the default)', async () => {
-      await service.create(createDto);
-
-      expect(newLoanReminderService.sendNewLoanMessage).not.toHaveBeenCalled();
-    });
-
-    it('sends the new-loan WhatsApp message synchronously when isNewLoan is true', async () => {
-      loansRepository.save.mockResolvedValue({
-        ...mockLoan,
-        id: 'loan-2',
-        isNewLoan: true,
-      });
-
-      await service.create({ ...createDto, isNewLoan: true });
-
-      expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
-        'loan-2',
-      );
-    });
-
-    it('does not let a failed new-loan message send block loan creation', async () => {
-      loansRepository.save.mockResolvedValue({
-        ...mockLoan,
-        id: 'loan-2',
-        isNewLoan: true,
-      });
-      newLoanReminderService.sendNewLoanMessage.mockRejectedValue(
-        new Error('WhatsApp API down'),
-      );
-
-      await expect(
-        service.create({ ...createDto, isNewLoan: true }),
-      ).resolves.toBeDefined();
     });
 
     // Phase 10 — docs/phases/PHASE_10_CLIENT_CAPACITY.md's cupo/mora-block
@@ -1120,27 +1075,6 @@ describe('LoansService', () => {
       expect(loansRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ isNewLoan: true }),
       );
-    });
-
-    // Reverted, 2026-09-06 (confirmed with the human) — sent synchronously
-    // again right after the transaction commits, same as create(). Always
-    // fires for a refinance since isNewLoan is hardcoded true above.
-    it('sends the new-loan WhatsApp message synchronously for the new loan', async () => {
-      await service.refinance(mockLoan.id, refinanceDto);
-
-      expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
-        newLoanRecord.id,
-      );
-    });
-
-    it('does not let a failed new-loan message send block the refinance', async () => {
-      newLoanReminderService.sendNewLoanMessage.mockRejectedValue(
-        new Error('WhatsApp API down'),
-      );
-
-      await expect(
-        service.refinance(mockLoan.id, refinanceDto),
-      ).resolves.toBeDefined();
     });
 
     // Phase 26 — the new loan carries over the old loan's co-debtor by

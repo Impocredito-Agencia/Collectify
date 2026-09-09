@@ -417,6 +417,22 @@ export function LoanDetailPage() {
         )}
       </div>
 
+      {/* Restored 2026-09-09 — surfaces Loan.isNewLoan/newLoanMessageSentAt
+          (see loansApi.ts's Loan interface) so an admin can tell, without
+          checking the message log, whether this loan is even eligible for
+          the scheduled "new loan" WhatsApp message and whether it already
+          went out — a loan marked "es viejo" at creation never gets one. */}
+      <p className="text-small">
+        <span className="text-muted">Notificación de nuevo pagaré: </span>
+        <span className="text-white">
+          {!loan.isNewLoan
+            ? 'No se envía (marcado como préstamo antiguo)'
+            : loan.newLoanMessageSentAt
+              ? `Enviada el ${new Date(loan.newLoanMessageSentAt).toLocaleDateString('es-CO')}`
+              : 'Pendiente de envío (próxima ejecución del recordatorio)'}
+        </span>
+      </p>
+
       {/* Phase 26 — optional per loan, not per client (a client can have
           one loan with a codeudor and another without). The codeudor is
           now an existing Client, resolved server-side and linked to their
