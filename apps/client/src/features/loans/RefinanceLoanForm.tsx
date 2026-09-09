@@ -106,12 +106,16 @@ function makeRowId(): string {
 // that raw number produced an oddly precise default like
 // "$8.242.222,707" (CurrencyInput assumes whole pesos and doesn't round,
 // see its own doc comment). Loans in this business are otherwise always
-// quoted/paid in round thousands (same convention as the smoothed cuota
+// quoted/paid in round numbers (same convention as the smoothed cuota
 // amortization — see generateSchedule.ts), so the default shown here
 // rounds to the nearest one instead — client feedback, 2026-09-04. Still
 // fully editable either way.
-function roundToNearestThousand(amount: number): number {
-  return Math.round(amount / 1000) * 1000;
+//
+// Narrowed from the nearest thousand to the nearest hundred, 2026-09-08
+// (client request, same change as generateSchedule.ts's own
+// roundToNearestHundred) — kept in sync with that same convention.
+function roundToNearestHundred(amount: number): number {
+  return Math.round(amount / 100) * 100;
 }
 
 // Mirrors LoanForm.tsx's Phase 14 rewrite exactly (schedule generated from
@@ -258,7 +262,7 @@ export function RefinanceLoanForm({
       .then((quote) => {
         setRefinanceQuote(quote);
         setPrincipalAmount(
-          roundToNearestThousand(quote.suggestedPrincipalAmount),
+          roundToNearestHundred(quote.suggestedPrincipalAmount),
         );
         setConcepts(
           quote.concepts.map((concept) => ({
@@ -301,7 +305,7 @@ export function RefinanceLoanForm({
       setPrincipalAmount(
         Math.max(
           0,
-          roundToNearestThousand(refinanceQuote.suggestedPrincipalAmount) -
+          roundToNearestHundred(refinanceQuote.suggestedPrincipalAmount) -
             value,
         ),
       );
@@ -789,8 +793,9 @@ export function RefinanceLoanForm({
                   + interés, rounded only to the peso — "Capital a
                   refinanciar") next to the one that actually pre-fills
                   "Capital renegociado" below, rounded to the nearest
-                  thousand ("Capital sugerido" — see roundToNearestThousand
-                  above). Before this, "Capital renegociado" silently
+                  hundred ("Capital sugerido" — see roundToNearestHundred
+                  above, narrowed from the nearest thousand 2026-09-08).
+                  Before this, "Capital renegociado" silently
                   pre-filled with the raw, oddly-precise payoff figure
                   (e.g. "$8.242.222,707") while this card showed it
                   rounded — the two numbers looked inconsistent for no
@@ -856,7 +861,7 @@ export function RefinanceLoanForm({
                       </p>
                       <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
                         {formatCurrency(
-                          roundToNearestThousand(
+                          roundToNearestHundred(
                             refinanceQuote.suggestedPrincipalAmount,
                           ),
                         )}
@@ -865,9 +870,9 @@ export function RefinanceLoanForm({
                   </div>
 
                   <p className="text-meta text-mid">
-                    "Capital sugerido" redondea el capital a refinanciar a la
-                    unidad de mil más cercana — es el valor con el que se
-                    precarga "Capital renegociado" más abajo.
+                    "Capital sugerido" redondea el capital a refinanciar al
+                    centenar más cercano — es el valor con el que se precarga
+                    "Capital renegociado" más abajo.
                   </p>
                 </div>
               )}

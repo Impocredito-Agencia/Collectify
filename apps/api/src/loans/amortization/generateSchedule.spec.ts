@@ -13,7 +13,7 @@ describe('generateAmortizationSchedule', () => {
     // The system-generated corriente-interest concept always has
     // conceptTypeId: null in production (see
     // LoansService.buildInterestConceptAssignment) — that's what marks it
-    // as the one that absorbs the $1,000-rounding residual below.
+    // as the one that absorbs the $100-rounding residual below.
     const concept: ConceptAssignment = {
       conceptTypeId: null,
       name: 'Intereses corrientes',
@@ -39,13 +39,13 @@ describe('generateAmortizationSchedule', () => {
     // So every installment's total is identical — including the last —
     // unlike plain capital fijo (which would decline) or level-payment
     // French (which would front-load interest with a higher total cost).
-    // 110000 already lands exactly on a multiple of $1,000, so this
+    // 110000 already lands exactly on a multiple of $100, so this
     // example doesn't show the rounding nudge itself — see the next test
     // for that.
     expect(schedule.map((i) => i.amount)).toEqual([110000, 110000, 110000]);
   });
 
-  it('rounds the smoothed cuota to the nearest $1,000 when the raw average does not already land on one', () => {
+  it('rounds the smoothed cuota to the nearest $100 when the raw average does not already land on one', () => {
     const concept: ConceptAssignment = {
       conceptTypeId: null,
       name: 'Intereses corrientes',
@@ -55,21 +55,22 @@ describe('generateAmortizationSchedule', () => {
 
     // True capital-fijo totals here are 115575, 110550, 105525 (interest
     // 15075, 10050, 5025 on balances 301500/201000/100500) — summing to
-    // 331650, averaging to 110550/installment. 110550 is closer to
-    // 111000 than to 110000, so it rounds up.
+    // 331650, averaging to 110550/installment. 110550 sits exactly halfway
+    // between 110500 and 110600; Math.round breaks the tie up, per
+    // roundToNearestHundred's own convention.
     const schedule = generateAmortizationSchedule(301500, 3, [concept]);
 
-    expect(schedule.map((i) => i.amount)).toEqual([111000, 111000, 111000]);
+    expect(schedule.map((i) => i.amount)).toEqual([110600, 110600, 110600]);
     // The interest concept absorbs the rounding nudge on top of its own
-    // averaging: true average interest was 10050 (30150/3); the $450/mo
-    // nudge (rounding 110550 up to 111000) lands entirely on it, since
+    // averaging: true average interest was 10050 (30150/3); the $50/mo
+    // nudge (rounding 110550 up to 110600) lands entirely on it, since
     // capital (100500/installment here — 301500 divides evenly by 3) is
     // never touched by this smoothing.
     expect(schedule.map((i) => i.principalPortion)).toEqual([
       100500, 100500, 100500,
     ]);
     expect(schedule.map((i) => i.concepts[0].computedAmount)).toEqual([
-      10500, 10500, 10500,
+      10100, 10100, 10100,
     ]);
   });
 
@@ -103,7 +104,7 @@ describe('generateAmortizationSchedule', () => {
     // catalogFee (non-anchor): true total is 10000 (5000+3333.33+1666.67
     // rounded per period), split evenly with the remainder on the last
     // installment — same convention as a FixedAmount split_across
-    // concept, independent of the $1,000 cuota rounding.
+    // concept, independent of the $100 cuota rounding.
     expect(schedule.map((i) => i.concepts[1].computedAmount)).toEqual([
       3333.33, 3333.33, 3333.34,
     ]);
@@ -205,7 +206,7 @@ describe('generateAmortizationSchedule', () => {
     ]);
 
     // Single installment: principal 300000 + 2% of 300000 (6000) + 5000
-    // flat = 311000 — already a multiple of $1,000, so unaffected by
+    // flat = 311000 — already a multiple of $100, so unaffected by
     // rounding either way.
     expect(schedule[0].amount).toBe(311000);
   });
@@ -229,7 +230,7 @@ describe('generateAmortizationSchedule', () => {
   });
 
   it('handles a loan with no concepts at all', () => {
-    // No Percentage concept exists to anchor the $1,000-rounding smoothing
+    // No Percentage concept exists to anchor the $100-rounding smoothing
     // into (see resolveAnchorConceptIndex), so this falls back to plain
     // capital fijo untouched — which is already flat here anyway, since
     // there's no interest to make it decline in the first place.
@@ -242,4 +243,30 @@ describe('generateAmortizationSchedule', () => {
   it('throws when totalInstallments is less than 1', () => {
     expect(() => generateAmortizationSchedule(1000, 0, [])).toThrow();
   });
+
+  // Narrowed from the nearest $1,000 to the nearest $100, 2026-09-08
+  // (client request) — reproduces the exact two examples the client gave
+  // by hand: 135456 -> 135500, 247830 -> 247800. A 0%-value anchor concept
+  // isolates the smoothing/rounding step from any interest math, so the
+  // pre-rounding cuota is exactly the principal itself.
+  it.each([
+    [135456, 135500],
+    [247830, 247800],
+  ])(
+    'rounds a %d cuota to the nearest hundred (%d), not the nearest thousand',
+    (principalAmount, expectedAmount) => {
+      const concept: ConceptAssignment = {
+        conceptTypeId: null,
+        name: 'Intereses corrientes',
+        calculationType: ConceptCalculationType.Percentage,
+        value: 0,
+      };
+
+      const schedule = generateAmortizationSchedule(principalAmount, 1, [
+        concept,
+      ]);
+
+      expect(schedule[0].amount).toBe(expectedAmount);
+    },
+  );
 });

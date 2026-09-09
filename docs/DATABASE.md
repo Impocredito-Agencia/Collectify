@@ -808,6 +808,12 @@ Client request: add "edad" and "sexo/género" to the client profile, in the inte
 
 `gender` itself: nullable `clients_gender_enum` (`masculino`/`femenino`/`otro`), added via `AddGenderToClients1789000000000`. Wired into `CreateClientDto` (optional, `@IsEnum`), `ClientForm.tsx` (an optional Select next to "Tipo de documento"), `ClientDetailPage.tsx`, and the clients-only Excel import (`clientsImportColumns.ts`'s `gender` column, aliases `sexo`/`genero`/`gender`, accepting `M`/`F`/`Otro` and a few English/Spanish variants — same `enumValues`-mapping pattern `documentType` already uses).
 
+## Changed, 2026-09-08 — "cuota con interés" rounds to the nearest $100, not $1,000
+
+Client request: `$1,000` rounded too aggressively on the smoothed installment total generated at loan creation/refinance (see `GLOSSARY.md`'s "Amortization method / Capital fijo" → "Cuota con interés" smoothing) — e.g. a true $345,400 cuota rounded down to $345,000, or $245,700 rounded up to $246,000. Narrowed to the nearest $100 instead (e.g. $135,456 → $135,500; $247,830 → $247,800), keeping the "round number" convenience of a flat identical cuota every installment while landing much closer to the real, unrounded figure.
+
+Only one function implements this business rule server-side: `generateAmortizationSchedule()`'s `roundToNearestHundred()` (renamed from `roundToNearestThousand()`) in `apps/api/src/loans/amortization/generateSchedule.ts` — reused unchanged by loan creation, refinancing, and the preview-schedule/"Proyector rápido" quote endpoint, so all three picked up the change automatically. The only other place implementing this exact rounding was client-side only: `RefinanceLoanForm.tsx`'s own `roundToNearestHundred` (a display/pre-fill convenience for "Capital sugerido"/"Capital renegociado" when refinancing, never sent to the backend as-is — the admin can still hand-edit the field) — updated to match, so the two stay in sync. No other call site anywhere in either app implements a nearest-$1,000/$100 rounding rule.
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above
