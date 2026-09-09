@@ -782,6 +782,15 @@ Root cause: `docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`'s Template 6 note alr
 
 **Fix:** added `MORA_GRACE_PERIOD_DAYS = 8` to `installmentCalculations.ts`; `calculateInterest()` and `calculateMoratoryCharges()` now return `0` outright whenever `overdueDays <= MORA_GRACE_PERIOD_DAYS`, and apply the existing (unchanged) formula over the full `overdueDays` otherwise. Every consumer of these two functions — `enrichInstallment()` (and everything built on it: WhatsApp reminders/self-service menu, Dashboard, cupo, the payment ceiling) and `calculatePayoff()` — inherits the fix automatically, since none of them re-derive the formula themselves. `reminderTemplateSelection.ts`'s own `overdueDays > 8` check was switched to import and use the same `MORA_GRACE_PERIOD_DAYS` constant instead of a second hardcoded `8`, so the two can't drift apart again. `installments.due_date`/`overdueDays` itself (the "venció hace N días" figure quoted to clients) is unaffected — only the resulting mora *amount* changes.
 
+## Operational toggle, 2026-09-08 — mora/cupo guard can be bypassed for the historical loan import
+
+The business is backfilling historical pagarés into production. Phase 10's mora-block/cupo guard (`LoansService.assertClientCanTakeNewLoan`, checked by `create()` before persisting) was rejecting a client already carrying a >30-day-overdue installment from an earlier historical loan already imported in the same backfill — even though that "new" loan already happened in the real world and adds no actual new risk.
+
+`LoansService.create()` already had a `skipCreditCheck` option scoped exactly for this ("modo histórico" — see that method's own doc comment), but it turned out to be aspirational: `LoanImportService.processRow()` never actually passed it, so every Excel-imported loan was still enforcing the guard. Fixed two things at once:
+
+1. **The gap itself:** `LoanImportService` now passes `skipCreditCheck` through to `LoansService.create()` for every row.
+2. **Made it a toggle, not a permanent bypass:** the value comes from a new `LOAN_IMPORT_SKIP_CREDIT_CHECK` env var (default `false`, see `docs/ENVIRONMENT_VARIABLES.md`) via a new `LoanImportConfig` group in `config/configuration.ts` — set it to `true` in Railway while the backfill is in progress, then back to `false` (or remove it) once done. No code change needed either way. Scoped to `LoanImportService` only: the interactive "Crear préstamo" form and its own guard are completely unaffected, so a collector still can't manually create a new real loan for a mora-blocked client during the backfill window. Logged once per import run (not per row) when enabled, so it's visible in Railway without being noisy.
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above

@@ -240,16 +240,20 @@ export class LoansService {
   ) {}
 
   // skipCreditCheck: false by default (the interactive "Crear préstamo"
-  // flow, via LoansController). ClientLoanImportService is the one caller
-  // that sets it true, for its "modo histórico" — bulk-loading a past
-  // loan book shouldn't be blocked by a mora/cupo state that no longer
-  // reflects reality (the loan already happened). "Modo normal" import
-  // leaves this false, so it's rejected exactly like a manually-created
-  // loan would be. Mirrors ClientsService.create's CreateClientOptions
-  // pattern. Note this only ever touches the mora/cupo guard below — the
-  // promissory-note-uniqueness and usury-rate checks always run regardless
-  // of mode: both are hard blocks, per Phase 24
-  // (docs/phases/PHASE_24_USURY_MANDATORY.md).
+  // flow, via LoansController). LoanImportService is the one caller that
+  // can set it true — gated behind the temporary LOAN_IMPORT_SKIP_CREDIT_
+  // CHECK env var (see LoanImportConfig in config/configuration.ts), on
+  // while the business backfills historical pagarés into production:
+  // bulk-loading a past loan book shouldn't be blocked by a mora/cupo
+  // state that no longer reflects reality (the loan already happened).
+  // Bug fix, 2026-09-08 — this comment used to describe that wiring as
+  // already done ("ClientLoanImportService is the one caller that sets it
+  // true"), but LoanImportService never actually passed the option; every
+  // historical import was silently still enforcing the guard. Mirrors
+  // ClientsService.create's CreateClientOptions pattern. Note this only
+  // ever touches the mora/cupo guard below — the promissory-note-
+  // uniqueness and usury-rate checks always run regardless of mode: both
+  // are hard blocks, per Phase 24 (docs/phases/PHASE_24_USURY_MANDATORY.md).
   async create(
     dto: CreateLoanDto,
     options: { skipCreditCheck?: boolean } = {},

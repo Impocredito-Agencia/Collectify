@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { Repository } from 'typeorm';
 
 import { ClientsService } from '../clients/clients.service';
+import { Configuration } from '../config/configuration';
 import { InterestConceptType } from '../interestConceptTypes/entities/interestConceptType.entity';
 import { LoanConceptAssignmentDto } from '../loans/dto/loanConceptAssignment.dto';
 import { CreateLoanDto } from '../loans/dto/createLoan.dto';
@@ -33,11 +35,14 @@ export interface LoanImportResult {
 // clients can share a name; a cédula is unique — see Client entity).
 @Injectable()
 export class LoanImportService {
+  private readonly logger = new Logger(LoanImportService.name);
+
   constructor(
     private readonly clientsService: ClientsService,
     private readonly loansService: LoansService,
     @InjectRepository(InterestConceptType)
     private readonly interestConceptTypesRepository: Repository<InterestConceptType>,
+    private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
   generateTemplate(): Promise<Buffer> {
@@ -59,11 +64,23 @@ export class LoanImportService {
         : new Error('Could not parse the uploaded file');
     });
 
+    // Temporary operational toggle (2026-09-08) — see LoanImportConfig's
+    // own comment in configuration.ts. Logged once per import (not per
+    // row) so it's visible in Railway without being noisy.
+    const skipCreditCheck = this.configService.get('loanImport', {
+      infer: true,
+    }).skipCreditCheck;
+    if (skipCreditCheck) {
+      this.logger.warn(
+        'LOAN_IMPORT_SKIP_CREDIT_CHECK is enabled — this import will not enforce the mora-block/cupo guard. Disable it once the historical backfill is complete.',
+      );
+    }
+
     const skipped: RowError[] = [...parsed.errors];
     let created = 0;
 
     for (const row of parsed.rows) {
-      const rowError = await this.processRow(row);
+      const rowError = await this.processRow(row, skipCreditCheck);
       if (rowError) {
         skipped.push(rowError);
       } else {
@@ -78,7 +95,10 @@ export class LoanImportService {
     };
   }
 
-  private async processRow(row: ParsedLoanRow): Promise<RowError | null> {
+  private async processRow(
+    row: ParsedLoanRow,
+    skipCreditCheck: boolean,
+  ): Promise<RowError | null> {
     const fail = (reason: string): RowError => ({
       row: row.row,
       reason,
@@ -131,9 +151,12 @@ export class LoanImportService {
 
     // Reuses LoansService.create() exactly as the manual "Crear préstamo"
     // flow does — same amortization engine, same promissory-note-
-    // uniqueness, usury-warning, and mora/cupo checks.
+    // uniqueness and usury-warning checks. The mora/cupo guard is the one
+    // exception: skipCreditCheck (temporary, see LoanImportConfig) lets a
+    // historical backfill go through for a client whose mora/cupo state
+    // no longer reflects reality now that the loan already happened.
     try {
-      await this.loansService.create(loanDto);
+      await this.loansService.create(loanDto, { skipCreditCheck });
     } catch (error) {
       return fail(
         error instanceof Error ? error.message : 'No se pudo crear el crédito',
