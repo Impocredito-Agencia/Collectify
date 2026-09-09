@@ -2,8 +2,13 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '../interestConceptTypes/entities/interestConceptType.entity';
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
+import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
@@ -24,6 +29,7 @@ describe('PaymentConfirmationService', () => {
   let paymentsRepository: { find: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
+  let loanInstallmentConceptsRepository: { find: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
   let whatsAppService: { sendTemplateMessage: jest.Mock };
 
@@ -38,7 +44,12 @@ describe('PaymentConfirmationService', () => {
     clientId: 'client-1',
     client,
     promissoryNoteNumber: '778',
+    interestRate: 0,
   };
+  // Far enough in the future that calculateOverdueDays always resolves to 0
+  // regardless of when the test suite runs — the "no mora accrued" baseline
+  // most of these tests assume.
+  const notYetDueDate = '2099-01-01';
 
   beforeEach(async () => {
     installmentsRepository = {
@@ -57,6 +68,9 @@ describe('PaymentConfirmationService', () => {
     messageLogItemsRepository = {
       create: jest.fn((dto: Partial<MessageLogItem>) => dto),
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
+    };
+    loanInstallmentConceptsRepository = {
+      find: jest.fn().mockResolvedValue([]),
     };
     messageTemplatesService = { findByTypeOrThrow: jest.fn() };
     whatsAppService = { sendTemplateMessage: jest.fn() };
@@ -77,6 +91,10 @@ describe('PaymentConfirmationService', () => {
         {
           provide: getRepositoryToken(MessageLogItem),
           useValue: messageLogItemsRepository,
+        },
+        {
+          provide: getRepositoryToken(LoanInstallmentConcept),
+          useValue: loanInstallmentConceptsRepository,
         },
         { provide: MessageTemplatesService, useValue: messageTemplatesService },
         { provide: WhatsAppService, useValue: whatsAppService },
@@ -103,6 +121,7 @@ describe('PaymentConfirmationService', () => {
         loan,
         installmentNumber: 14,
         amount: 300000,
+        dueDate: notYetDueDate,
       });
       installmentsRepository.count.mockResolvedValue(4);
       paymentsRepository.find.mockResolvedValue([
@@ -124,6 +143,7 @@ describe('PaymentConfirmationService', () => {
         loan,
         installmentNumber: 14,
         amount: 300000,
+        dueDate: notYetDueDate,
       });
       installmentsRepository.count.mockResolvedValue(0);
       paymentsRepository.find.mockResolvedValue([
@@ -135,6 +155,43 @@ describe('PaymentConfirmationService', () => {
       const [, , , params] = whatsAppService.sendTemplateMessage.mock
         .calls[0] as [string, string, string, string[]];
       expect(params.at(-1)).toContain('saldo a favor de $20.000');
+    });
+
+    // Bug fix, 2026-09-08 (human report) — a cuota that was overdue and
+    // required paying capital + accrued mora to close (per the same-day
+    // closing-rule fix) had that mora misreported as "saldo a favor" once
+    // the payment cleared, since overpayment used to be derived from
+    // `amountPaid - installment.amount` alone. Real numbers from the report:
+    // a $205.000 cuota with $119.584 of accrued mora, paid in full for
+    // $324.584 — must NOT be reported as an overpayment.
+    it('does not report accrued mora paid off as saldo a favor', async () => {
+      installmentsRepository.findOne.mockResolvedValue({
+        id: 'inst-1',
+        loanId: 'loan-1',
+        loan,
+        installmentNumber: 1,
+        amount: 205000,
+        dueDate: '2020-01-01',
+      });
+      installmentsRepository.count.mockResolvedValue(11);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 324584 },
+      ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: 'inst-1',
+          nameSnapshot: 'Intereses moratorios',
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.FixedAmount,
+          value: 119584,
+        },
+      ]);
+
+      await service.sendPaymentConfirmation('inst-1');
+
+      const [, , , params] = whatsAppService.sendTemplateMessage.mock
+        .calls[0] as [string, string, string, string[]];
+      expect(params.at(-1)).not.toContain('saldo a favor');
     });
 
     it('throws NotFoundException when the installment does not exist', async () => {
@@ -150,8 +207,8 @@ describe('PaymentConfirmationService', () => {
     it('sends PaidInFull for the loan', async () => {
       loansRepository.findOne.mockResolvedValue(loan);
       installmentsRepository.find.mockResolvedValue([
-        { id: 'inst-1', amount: 300000 },
-        { id: 'inst-2', amount: 300000 },
+        { id: 'inst-1', amount: 300000, dueDate: notYetDueDate },
+        { id: 'inst-2', amount: 300000, dueDate: notYetDueDate },
       ]);
       paymentsRepository.find.mockResolvedValue([
         { installmentId: 'inst-1', amountPaid: 300000 },
