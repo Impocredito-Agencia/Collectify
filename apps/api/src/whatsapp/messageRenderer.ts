@@ -1,4 +1,5 @@
 import { formatPromissoryNoteLabel } from '../common/promissoryNoteLabel';
+import { MORA_GRACE_PERIOD_DAYS } from '../loans/installments/installmentCalculations';
 
 // Renders the overdue reminder message — confirmed real format from
 // docs/GLOSSARY.md → "Overdue reminder":
@@ -239,12 +240,20 @@ function renderAccountSummaryInstallmentLine(
         ? `vence en ${item.daysUntilDue} días`
         : 'vence hoy';
 
+  // Bug fix, 2026-09-08 (human report) — a cuota still inside the 8-day
+  // mora grace period (see MORA_GRACE_PERIOD_DAYS) has the same totalDue
+  // as its bare amount, but that wasn't visible from the line itself, so
+  // an overdue-but-not-yet-in-mora cuota looked identical to one that
+  // already carries recargos. Flag only the ones that actually do.
+  const surchargeNote =
+    item.overdueDays > MORA_GRACE_PERIOD_DAYS ? ' (recargos incluidos)' : '';
+
   // No longer repeats "del pagaré #X" per line — the pagaré is now the
   // group header (see groupByPromissoryNote below), so it would just be
   // noise on every single line.
   return (
     `${bulletForIndex(index)} Cuota No. ${item.installmentNumber} ` +
-    `por $${formatCurrency(item.totalDue)} ${statusPhrase}.`
+    `por $${formatCurrency(item.totalDue)}${surchargeNote} ${statusPhrase}.`
   );
 }
 
@@ -287,7 +296,10 @@ export function renderAccountSummaryMessage(
       const lines = groupInstallments
         .map(renderAccountSummaryInstallmentLine)
         .join('\n');
-      return `Pagaré ${formatPromissoryNoteLabel(promissoryNoteNumber)}:\n${lines}`;
+      // Bug fix, 2026-09-08 (human report) — blank line between the
+      // "Pagaré #X:" header and its own installment lines, matching the
+      // spacing the human asked for across the whole message.
+      return `Pagaré ${formatPromissoryNoteLabel(promissoryNoteNumber)}:\n\n${lines}`;
     })
     .join('\n\n');
   const grandTotal = formatCurrency(calculateAccountSummaryTotal(installments));

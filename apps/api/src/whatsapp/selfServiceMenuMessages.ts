@@ -5,6 +5,7 @@ import {
   AccountSummaryInstallmentForMessage,
   formatCurrency,
   formatDateEs,
+  formatTratamiento,
   renderAccountSummaryMessage,
 } from './messageRenderer';
 import { SelfServiceMenuButtonId } from './selfServiceMenuPayloads';
@@ -77,19 +78,34 @@ export const CONVERSATION_CLOSED_MESSAGE =
 // phrasing and closing line as the confirmed real overdue-reminder message
 // (see messageRenderer.ts's doc comment / docs/GLOSSARY.md → "Overdue
 // reminder") instead of the more generic "Total pendiente:".
+//
+// Bug fix, 2026-09-08 (human report): blank line between every section
+// (greeting / each pagaré group / grand total / closing line) instead of a
+// single newline, and "El valor a pagar hoy" -> "El valor total a pagar
+// hoy" for clarity that it's the sum across every listed cuota. This is a
+// plain session message (not a Meta-approved Template), so it's free to
+// change here without needing Meta re-approval — unlike the 13 real
+// WhatsApp templates in message_templates, whose wording is a migration,
+// not a code change (see docs/DATABASE.md's message_templates note).
 const BREAKDOWN_TEMPLATE = [
   'Hola {{clientFullName}}, este es el desglose de tus cuotas:',
   '{{installmentsList}}',
-  'El valor a pagar hoy es {{grandTotal}} 🚨',
+  'El valor total a pagar hoy es {{grandTotal}} 🚨',
   'Quedamos atentos a cualquier consulta.',
-].join('\n');
+].join('\n\n');
 
 export function renderBreakdownMessage(
   clientFullName: string,
   installments: AccountSummaryInstallmentForMessage[],
 ): string {
+  // Bug fix, 2026-09-08 (human report): "Señor/a" before the client's name,
+  // matching how every Meta-approved reminder template already greets a
+  // client (see messageRenderer.ts's formatTratamiento) — this self-service
+  // message was the one place still using the bare name.
+  const tratamiento = formatTratamiento(clientFullName);
+
   if (installments.length === 0) {
-    return `Hola ${clientFullName}, no tienes cuotas pendientes en este momento. 🎉`;
+    return `Hola ${tratamiento}, no tienes cuotas pendientes en este momento. 🎉`;
   }
 
   // Bug fix, 2026-09-03 (human report): findPendingInstallmentsBreakdown
@@ -101,12 +117,12 @@ export function renderBreakdownMessage(
     (installment) => installment.overdueDays > 0,
   );
   if (!hasOverdueInstallment) {
-    return `Hola ${clientFullName}, estás al día con tus pagos. 🎉`;
+    return `Hola ${tratamiento}, estás al día con tus pagos. 🎉`;
   }
 
   return renderAccountSummaryMessage(
     BREAKDOWN_TEMPLATE,
-    clientFullName,
+    tratamiento,
     installments,
   );
 }
