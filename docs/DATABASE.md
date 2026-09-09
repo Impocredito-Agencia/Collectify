@@ -791,6 +791,14 @@ The business is backfilling historical pagarés into production. Phase 10's mora
 1. **The gap itself:** `LoanImportService` now passes `skipCreditCheck` through to `LoansService.create()` for every row.
 2. **Made it a toggle, not a permanent bypass:** the value comes from a new `LOAN_IMPORT_SKIP_CREDIT_CHECK` env var (default `false`, see `docs/ENVIRONMENT_VARIABLES.md`) via a new `LoanImportConfig` group in `config/configuration.ts` — set it to `true` in Railway while the backfill is in progress, then back to `false` (or remove it) once done. No code change needed either way. Scoped to `LoanImportService` only: the interactive "Crear préstamo" form and its own guard are completely unaffected, so a collector still can't manually create a new real loan for a mora-blocked client during the backfill window. Logged once per import run (not per row) when enabled, so it's visible in Railway without being noisy.
 
+## Bug fix, 2026-09-08 — a bulk payment's audit log entry didn't say which pagaré/cuotas it touched
+
+Human report: `POST /installments/payments/bulk`'s audit log entry showed action "Registró un pago sobre varias cuotas" but no `entityLabel` at all — no way to tell which loan or installments a given bulk action actually paid.
+
+Root cause: `AuditLogInterceptor.resolveEntityLabel`'s `'payment'` case only ever handled a single `Payment` response (`payment.register`'s shape) — it read `entity.amountPaid` directly, which is `undefined` on `payment.registerBulk`'s actual response (a `Payment[]` array), so the case fell straight through to `null`.
+
+**Fix:** the `'payment'` case now checks `Array.isArray(entity)` first and, for a bulk response, builds a label summing the total amount across every payment in the batch plus a "cuota N del pagaré #X" fragment for each one (batched lookup — one query for every installment in the request, not N+1, same convention as `findConceptsByInstallmentId`/`sumPaymentsByInstallmentId`), e.g. *"Pago de $470.000 en 3 cuotas — cuota 4 del pagaré #0743, cuota 1 del pagaré #0810, cuota 2 del pagaré #0810"*. `payment.register`'s existing single-payment label is unchanged. No frontend change needed — `AuditLogsPage.tsx` already renders `entityLabel` verbatim.
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above

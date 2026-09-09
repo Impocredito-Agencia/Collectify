@@ -1,7 +1,7 @@
 import { CallHandler, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { firstValueFrom, Observable, of, throwError } from 'rxjs';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { Client } from '../clients/entities/client.entity';
 import { InterestConceptType } from '../interestConceptTypes/entities/interestConceptType.entity';
@@ -31,7 +31,7 @@ describe('AuditLogInterceptor', () => {
   let loansRepository: { findOne: jest.Mock };
   let usersRepository: { findOneBy: jest.Mock };
   let interestConceptTypesRepository: { findOneBy: jest.Mock };
-  let installmentsRepository: { findOne: jest.Mock };
+  let installmentsRepository: { findOne: jest.Mock; find: jest.Mock };
 
   const buildContext = (overrides: {
     user?: { id: string };
@@ -86,7 +86,13 @@ describe('AuditLogInterceptor', () => {
     // usersRepository/interestConceptTypesRepository above, this is a
     // post-response fallback like clientsRepository/loansRepository, not a
     // pre-fetch — payments are never hard-deleted.
-    installmentsRepository = { findOne: jest.fn().mockResolvedValue(null) };
+    installmentsRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      // Bug fix, 2026-09-08 — payment.registerBulk's entityLabel batches
+      // one .find() call for every installment in the request, unlike
+      // payment.register's single .findOne() above.
+      find: jest.fn().mockResolvedValue([]),
+    };
     interceptor = new AuditLogInterceptor(
       reflector as unknown as Reflector,
       auditLogService as unknown as AuditLogService,
@@ -546,6 +552,109 @@ describe('AuditLogInterceptor', () => {
       expect(auditLogService.record).toHaveBeenCalledWith(
         expect.objectContaining({
           entityLabel: expect.not.stringContaining('cuota') as unknown,
+        }),
+      );
+    });
+
+    // Bug fix, 2026-09-08 (human report): "Registró un pago sobre varias
+    // cuotas" had no entityLabel at all — payment.registerBulk's response
+    // is a Payment[] array, which the single-payment branch above never
+    // matched (entity.amountPaid is undefined on an array).
+    it('labels a bulk payment with the total amount and every cuota/pagaré it touched', async () => {
+      reflector.get.mockReturnValue({
+        action: 'payment.registerBulk',
+        entityType: 'payment',
+      });
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'installment-1',
+          installmentNumber: 4,
+          loan: { id: 'loan-1', promissoryNoteNumber: '#0743' },
+        },
+        {
+          id: 'installment-2',
+          installmentNumber: 1,
+          loan: { id: 'loan-2', promissoryNoteNumber: '#0810' },
+        },
+      ]);
+      const context = buildContext({ user: { id: 'user-1' }, params: {} });
+      const handler = buildCallHandler(
+        of([
+          {
+            id: 'payment-1',
+            installmentId: 'installment-1',
+            amountPaid: 300000,
+            paidAt: '2026-09-08',
+          },
+          {
+            id: 'payment-2',
+            installmentId: 'installment-2',
+            amountPaid: 170000,
+            paidAt: '2026-09-08',
+          },
+        ]),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(installmentsRepository.find).toHaveBeenCalledWith({
+        where: { id: In(['installment-1', 'installment-2']) },
+        withDeleted: true,
+        relations: { loan: true },
+      });
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringMatching(/^Pago de/) as unknown,
+        }),
+      );
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining('en 2 cuotas') as unknown,
+        }),
+      );
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining(
+            'cuota 4 del pagaré #0743',
+          ) as unknown,
+        }),
+      );
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining(
+            'cuota 1 del pagaré #0810',
+          ) as unknown,
+        }),
+      );
+    });
+
+    it('falls back to just the total when a bulk payment’s installments can’t be found', async () => {
+      reflector.get.mockReturnValue({
+        action: 'payment.registerBulk',
+        entityType: 'payment',
+      });
+      installmentsRepository.find.mockResolvedValue([]);
+      const context = buildContext({ user: { id: 'user-1' }, params: {} });
+      const handler = buildCallHandler(
+        of([
+          {
+            id: 'payment-1',
+            installmentId: 'installment-1',
+            amountPaid: 300000,
+            paidAt: '2026-09-08',
+          },
+        ]),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringMatching(
+            /^Pago de .+ en 1 cuotas$/,
+          ) as unknown,
         }),
       );
     });
