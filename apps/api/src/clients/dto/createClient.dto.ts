@@ -13,7 +13,7 @@ import {
   IsUrl,
 } from 'class-validator';
 
-import { DocumentType } from '../entities/client.entity';
+import { DocumentType, Gender } from '../entities/client.entity';
 import { normalizePhoneNumber } from '../normalizePhoneNumber';
 
 export class CreateClientDto {
@@ -63,6 +63,11 @@ export class CreateClientDto {
   @IsOptional()
   @IsDateString()
   dateOfBirth?: string;
+
+  @ApiPropertyOptional({ enum: Gender })
+  @IsOptional()
+  @IsEnum(Gender)
+  gender?: Gender;
 
   @ApiPropertyOptional({ example: 'Bogotá D.C.' })
   @IsOptional()

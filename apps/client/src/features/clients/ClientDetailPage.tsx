@@ -13,6 +13,7 @@ import { ClientForm } from '@/features/clients/ClientForm';
 import {
   CLIENT_REFERENCE_TYPE_LABELS,
   DOCUMENT_TYPE_LABELS,
+  GENDER_LABELS,
 } from '@/features/clients/clientsApi';
 import { DeactivateClientDialog } from '@/features/clients/DeactivateClientDialog';
 import {
@@ -36,6 +37,7 @@ import {
 } from '@/features/whatsapp/useWhatsapp';
 import { ApiError } from '@/lib/apiClient';
 import {
+  calculateAge,
   formatCurrency,
   formatDateOnly,
   formatPhoneNumber,
@@ -489,7 +491,9 @@ export function ClientDetailPage() {
           <DetailField
             label="Fecha de nacimiento"
             value={
-              client.dateOfBirth ? formatDateOnly(client.dateOfBirth) : null
+              client.dateOfBirth
+                ? `${formatDateOnly(client.dateOfBirth)} (${calculateAge(client.dateOfBirth)} años)`
+                : null
             }
           />
           <DetailField
@@ -499,6 +503,10 @@ export function ClientDetailPage() {
                 ? DOCUMENT_TYPE_LABELS[client.documentType]
                 : null
             }
+          />
+          <DetailField
+            label="Sexo / Género"
+            value={client.gender ? GENDER_LABELS[client.gender] : null}
           />
           <DetailField
             label="Fecha de expedición"

@@ -82,6 +82,27 @@ export function formatMemberSince(isoDateTime: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+// Client request, 2026-09-08 — age isn't its own stored column (see
+// AddGenderToClients1789000000000's own comment): it's computed here from
+// the existing dateOfBirth ('YYYY-MM-DD', a Postgres 'date' column) instead
+// of duplicating a value that would silently go stale. Display-only, not a
+// financial calculation, so this doesn't need the Bogotá-specific
+// whole-calendar-day precision the API's mora calculations do — but still
+// parses the string by hand (not `new Date(dateOfBirth)`) to sidestep the
+// same UTC-midnight-parsing pitfall formatDateOnly's own comment describes.
+export function calculateAge(dateOfBirth: string): number {
+  const [year, month, day] = dateOfBirth.split('-').map(Number);
+  const today = new Date();
+  let age = today.getFullYear() - year;
+  const hasHadBirthdayThisYear =
+    today.getMonth() + 1 > month ||
+    (today.getMonth() + 1 === month && today.getDate() >= day);
+  if (!hasHadBirthdayThisYear) {
+    age -= 1;
+  }
+  return age;
+}
+
 // Phase 21 — the client document-upload fields (idDocumentFrontUrl,
 // consentDocumentUrl, ...) accept either an image or a PDF
 // (lib/imageUpload.ts#uploadDocument).

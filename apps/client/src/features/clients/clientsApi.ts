@@ -16,6 +16,20 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   [DocumentType.Pasaporte]: 'Pasaporte',
 };
 
+// Matches apps/api/src/clients/entities/client.entity.ts's Gender exactly.
+// Client request, 2026-09-08 — nullable, never required.
+export enum Gender {
+  Male = 'masculino',
+  Female = 'femenino',
+  Other = 'otro',
+}
+
+export const GENDER_LABELS: Record<Gender, string> = {
+  [Gender.Male]: 'Masculino',
+  [Gender.Female]: 'Femenino',
+  [Gender.Other]: 'Otro',
+};
+
 // Matches apps/api/src/clients/entities/clientReference.entity.ts exactly.
 // A dynamic add-many list per client, no fixed min/max — see
 // docs/phases/PHASE_21_CLIENT_PROFILE.md decision 2.
@@ -72,6 +86,7 @@ export interface Client {
   // docs/phases/PHASE_21_CLIENT_PROFILE.md for the confirmed field list. ---
   documentType: DocumentType | null;
   dateOfBirth: string | null;
+  gender: Gender | null;
   documentIssuePlace: string | null;
   documentIssueDate: string | null;
   email: string | null;
@@ -172,6 +187,7 @@ export interface CreateClientInput {
   creditLimit?: number;
   documentType?: DocumentType;
   dateOfBirth?: string;
+  gender?: Gender;
   documentIssuePlace?: string;
   documentIssueDate?: string;
   email?: string;

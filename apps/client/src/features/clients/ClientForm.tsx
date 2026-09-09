@@ -15,6 +15,8 @@ import {
   CLIENT_REFERENCE_TYPE_LABELS,
   DOCUMENT_TYPE_LABELS,
   DocumentType,
+  GENDER_LABELS,
+  Gender,
 } from '@/features/clients/clientsApi';
 import {
   useAddClientReference,
@@ -23,6 +25,7 @@ import {
   useUpdateClientReference,
 } from '@/features/clients/useClients';
 import { ApiError } from '@/lib/apiClient';
+import { calculateAge } from '@/lib/format';
 import { inputClassName } from '@/lib/formStyles';
 import { ImageUploadError, uploadDocument } from '@/lib/imageUpload';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -94,6 +97,16 @@ const DOCUMENT_TYPE_OPTIONS = [
   })),
 ];
 
+// Unlike documentType above, gender is optional (client request,
+// 2026-09-08) — an unselected Select just shows the placeholder text
+// below, same as any other optional field in this form.
+const GENDER_OPTIONS = [
+  ...Object.values(Gender).map((value) => ({
+    value,
+    label: GENDER_LABELS[value],
+  })),
+];
+
 // One row of the "Referencias" repeater. `id` is present only for a
 // reference that already exists on the server (editing an existing
 // client) — its absence is exactly what tells syncReferences below
@@ -154,6 +167,7 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
   );
   const [documentType, setDocumentType] = useState(client?.documentType ?? '');
   const [dateOfBirth, setDateOfBirth] = useState(client?.dateOfBirth ?? '');
+  const [gender, setGender] = useState(client?.gender ?? '');
   const [documentIssuePlace, setDocumentIssuePlace] = useState(
     client?.documentIssuePlace ?? '',
   );
@@ -487,6 +501,7 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
         ...(creditLimit > 0 ? { creditLimit } : {}),
         ...(documentType ? { documentType: documentType as DocumentType } : {}),
         ...(dateOfBirth ? { dateOfBirth } : {}),
+        ...(gender ? { gender: gender as Gender } : {}),
         ...(documentIssuePlace.trim()
           ? { documentIssuePlace: documentIssuePlace.trim() }
           : {}),
@@ -671,10 +686,25 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                 className="w-full"
               />
             </Field>
+            <Field label="Sexo / Género (opcional)">
+              <Select
+                value={gender}
+                onChange={setGender}
+                options={GENDER_OPTIONS}
+                placeholder="Sin especificar"
+                className="w-full"
+              />
+            </Field>
           </div>
 
           <div className="flex gap-4">
-            <Field label="Fecha de nacimiento (opcional)">
+            <Field
+              label={
+                dateOfBirth
+                  ? `Fecha de nacimiento (opcional) — ${calculateAge(dateOfBirth)} años`
+                  : 'Fecha de nacimiento (opcional)'
+              }
+            >
               <DatePicker
                 value={dateOfBirth}
                 onChange={setDateOfBirth}

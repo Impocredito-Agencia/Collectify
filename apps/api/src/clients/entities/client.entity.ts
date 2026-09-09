@@ -16,6 +16,14 @@ export enum DocumentType {
   Pasaporte = 'pasaporte',
 }
 
+// Client request, 2026-09-08 — see AddGenderToClients1789000000000's own
+// comment. Nullable, never required — a fillable field, not mandatory.
+export enum Gender {
+  Male = 'masculino',
+  Female = 'femenino',
+  Other = 'otro',
+}
+
 @Entity('clients')
 export class Client {
   @PrimaryGeneratedColumn('uuid')
@@ -57,6 +65,9 @@ export class Client {
 
   @Column({ type: 'date', nullable: true })
   dateOfBirth!: string | null;
+
+  @Column({ type: 'enum', enum: Gender, nullable: true })
+  gender!: Gender | null;
 
   @Column({ type: 'varchar', nullable: true })
   documentIssuePlace!: string | null;
