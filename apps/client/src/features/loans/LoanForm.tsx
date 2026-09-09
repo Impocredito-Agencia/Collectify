@@ -1404,8 +1404,9 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               Es un préstamo nuevo
             </span>
             <span className="text-meta text-muted">
-              (desmárcalo si estás cargando un préstamo antiguo — no se enviará
-              el mensaje de WhatsApp de nuevo pagaré)
+              (márcalo solo si es un pagaré realmente nuevo — si es un préstamo
+              antiguo que estás cargando, déjalo desmarcado y no se enviará el
+              mensaje de WhatsApp de nuevo pagaré)
             </span>
           </label>
 
