@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -27,7 +26,6 @@ import {
   CurrentUsuryRate,
   UsuryRateService,
 } from '../usuryRates/usuryRates.service';
-import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 import {
   ConceptAssignment,
   generateAmortizationSchedule,
@@ -219,8 +217,6 @@ interface PersistLoanParams {
 
 @Injectable()
 export class LoansService {
-  private readonly logger = new Logger(LoansService.name);
-
   constructor(
     @InjectRepository(Loan)
     private readonly loansRepository: Repository<Loan>,
@@ -235,7 +231,6 @@ export class LoansService {
     private readonly interestConceptTypesService: InterestConceptTypesService,
     private readonly usuryRateService: UsuryRateService,
     private readonly clientsService: ClientsService,
-    private readonly newLoanReminderService: NewLoanReminderService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -292,40 +287,16 @@ export class LoansService {
       ),
     );
 
-    // Reverted, 2026-09-06 (confirmed with the human) — back to sending
-    // synchronously right here, same as before the short-lived
-    // 2026-09-05/06 cron-sweep redesign (see NewLoanReminderService's own
-    // comment). The sweep introduced a real gap: a historical loan that
-    // slipped through with isNewLoan left true would only get caught (and
-    // wrongly message the client) whenever the next scheduled run
-    // happened, possibly well after WHATSAPP_SENDING_PAUSED had already
-    // been lifted for legitimate traffic. Sending immediately means
-    // whatever pause is active AT CREATION TIME is what governs it, which
-    // is exactly the window the human already manages by hand during a
-    // historical backfill. isNewLoan still gates whether this is even
-    // attempted — untouched by this revert.
-    if (savedLoan.isNewLoan) {
-      await this.sendNewLoanMessageSafely(savedLoan.id);
-    }
+    // Restored, 2026-09-09 (confirmed with the human) — no longer sent
+    // synchronously here. A loan created with isNewLoan: true is picked up
+    // by the scheduled "new loan" cron sweep
+    // (NewLoanReminderService.runPendingLoanNotifications) instead, so it
+    // fires at the admin-configured schedule rather than immediately — see
+    // WhatsappCronService's NewLoan family. isNewLoan defaults to false on
+    // both the DTO and the LoanForm checkbox, so a historical/backfilled
+    // loan never gets swept unless explicitly marked otherwise.
 
     return this.findOne(savedLoan.id);
-  }
-
-  // Shared by create() and refinance() — mirrors
-  // InstallmentsService.sendPaymentConfirmationSafely's "callers catch and
-  // log their own failures, a failed send never blocks the operation"
-  // principle. A failed/skipped send is a business outcome (see
-  // WhatsAppService's WHATSAPP_SENDING_PAUSED handling), not a reason to
-  // fail the loan creation/refinance itself.
-  private async sendNewLoanMessageSafely(loanId: string): Promise<void> {
-    try {
-      await this.newLoanReminderService.sendNewLoanMessage(loanId);
-    } catch (error) {
-      this.logger.error(
-        `Failed to send new-loan WhatsApp message for loan ${loanId}`,
-        error,
-      );
-    }
   }
 
   // Runs the same schedule generation as create()/refinance() without
@@ -480,10 +451,9 @@ export class LoansService {
       );
     });
 
-    // See the identical comment in create() — sent synchronously right
-    // here again, per the 2026-09-06 revert. A refinance's isNewLoan is
-    // hardcoded true above, so this always fires.
-    await this.sendNewLoanMessageSafely(newLoan.id);
+    // See the identical comment in create() — no longer sent
+    // synchronously. A refinance's isNewLoan is hardcoded true above, so
+    // it's always picked up by the next "new loan" cron sweep run.
 
     return this.findOne(newLoan.id);
   }

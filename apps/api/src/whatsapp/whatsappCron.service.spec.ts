@@ -5,6 +5,7 @@ import { CronJob } from 'cron';
 
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
+import { NewLoanReminderService } from './newLoanReminder.service';
 import { OverdueReminderService } from './overdueReminder.service';
 import { OVERDUE_FAMILY_TYPES, ReminderFamily } from './reminderFamily';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
@@ -34,6 +35,7 @@ describe('WhatsappCronService', () => {
   let service: WhatsappCronService;
   let overdueReminderService: { runWeeklyReminder: jest.Mock };
   let upcomingDueReminderService: { runDailyReminder: jest.Mock };
+  let newLoanReminderService: { runPendingLoanNotifications: jest.Mock };
   let messageTemplatesService: {
     findByTypeOrThrow: jest.Mock;
     updateCronExpression: jest.Mock;
@@ -49,6 +51,7 @@ describe('WhatsappCronService', () => {
   beforeEach(async () => {
     overdueReminderService = { runWeeklyReminder: jest.fn() };
     upcomingDueReminderService = { runDailyReminder: jest.fn() };
+    newLoanReminderService = { runPendingLoanNotifications: jest.fn() };
     messageTemplatesService = {
       findByTypeOrThrow: jest.fn().mockResolvedValue({ cronExpression: null }),
       updateCronExpression: jest.fn(),
@@ -76,6 +79,10 @@ describe('WhatsappCronService', () => {
           useValue: upcomingDueReminderService,
         },
         {
+          provide: NewLoanReminderService,
+          useValue: newLoanReminderService,
+        },
+        {
           provide: MessageTemplatesService,
           useValue: messageTemplatesService,
         },
@@ -85,6 +92,7 @@ describe('WhatsappCronService', () => {
             get: jest.fn().mockReturnValue({
               overdueReminderExpression: '0 9 * * 1,3,5',
               upcomingDueReminderExpression: '0 8 * * *',
+              newLoanReminderExpression: '0 10 * * 1',
             }),
           },
         },
@@ -99,10 +107,11 @@ describe('WhatsappCronService', () => {
     it('registers and starts one job per family', async () => {
       await service.onModuleInit();
 
-      expect(schedulerRegistry.addCronJob).toHaveBeenCalledTimes(2);
+      expect(schedulerRegistry.addCronJob).toHaveBeenCalledTimes(3);
       for (const family of [
         ReminderFamily.Overdue,
         ReminderFamily.UpcomingDue,
+        ReminderFamily.NewLoan,
       ]) {
         const job = jobs.get(WhatsappCronService.jobName(family));
         expect(job?.isActive).toBe(true);
@@ -232,6 +241,20 @@ describe('WhatsappCronService', () => {
       job?.onTick();
 
       expect(upcomingDueReminderService.runDailyReminder).toHaveBeenCalled();
+    });
+
+    it('invokes runPendingLoanNotifications when the new_loan job ticks', async () => {
+      await service.onModuleInit();
+      const job = jobs.get(WhatsappCronService.jobName(ReminderFamily.NewLoan));
+      newLoanReminderService.runPendingLoanNotifications.mockResolvedValue(
+        undefined,
+      );
+
+      job?.onTick();
+
+      expect(
+        newLoanReminderService.runPendingLoanNotifications,
+      ).toHaveBeenCalled();
     });
   });
 });

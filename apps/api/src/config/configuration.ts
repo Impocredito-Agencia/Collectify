@@ -76,6 +76,10 @@ export interface CronConfig {
   // Phase 18. MessageTemplate.cronExpression (DB, admin-editable) takes
   // precedence when set — see WhatsappCronService.
   accountSummaryReminderExpression: string;
+  // Restored 2026-09-09 — code-level default for the NewLoan family (see
+  // reminderFamily.ts), same admin-editable-via-DB precedence as the
+  // other two above.
+  newLoanReminderExpression: string;
 }
 
 export interface Configuration {
@@ -132,5 +136,9 @@ export default (): Configuration => ({
     // month, 8am.
     accountSummaryReminderExpression:
       process.env.ACCOUNT_SUMMARY_REMINDER_CRON ?? '0 8 1 * *',
+    // Default: every Monday at 10am — matches the example the business
+    // gave when this was designed (2026-09-06).
+    newLoanReminderExpression:
+      process.env.NEW_LOAN_REMINDER_CRON ?? '0 10 * * 1',
   },
 });
