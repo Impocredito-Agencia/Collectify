@@ -64,11 +64,30 @@ export function calculateDaysUntilDue(
   return daysUntilDue > 0 ? daysUntilDue : 0;
 }
 
+// Bug fix, 2026-09-08 (human report) — the business doesn't charge mora
+// during an installment's first 8 overdue days (see
+// docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md's Template 6 note: "the
+// business doesn't charge mora until day 9"). That rule was only ever
+// applied to which WhatsApp template/wording to send
+// (reminderTemplateSelection.ts's `overdueDays > 8` check) — it never
+// gated the actual money calculation here, so every consumer of
+// calculateInterest/calculateMoratoryCharges (the self-service breakdown,
+// a loan's Total column, the Dashboard, cupo, and the payment ceiling)
+// silently charged mora starting day 1. Confirmed with the human: once
+// past the grace period, mora is charged over the FULL overdue days (no
+// day-8 offset) — this constant only gates whether it's charged at all,
+// it doesn't shift the formula. Keep in sync with
+// reminderTemplateSelection.ts's own `> 8` check.
+export const MORA_GRACE_PERIOD_DAYS = 8;
+
 export function calculateInterest(
   installmentAmount: number,
   interestRate: number,
   overdueDays: number,
 ): number {
+  if (overdueDays <= MORA_GRACE_PERIOD_DAYS) {
+    return 0;
+  }
   return ((installmentAmount * (interestRate / 100)) / 30) * overdueDays;
 }
 
@@ -115,7 +134,10 @@ export function calculateMoratoryCharges(
   return concepts.map((concept) => ({
     name: concept.name,
     amount:
-      overdueDays <= 0
+      // Bug fix, 2026-09-08 — see calculateInterest's own comment above:
+      // the 8-day grace period applies to every moratory concept, not
+      // just the legacy single-rate fallback.
+      overdueDays <= MORA_GRACE_PERIOD_DAYS
         ? 0
         : concept.calculationType === ConceptCalculationType.Percentage
           ? ((installmentAmount * (concept.value / 100)) / 30) * overdueDays

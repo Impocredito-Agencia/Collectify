@@ -58,7 +58,10 @@ describe('calculatePayoff', () => {
 
   it('sums interest and principal across multiple overdue installments', () => {
     const today = new Date('2026-02-01T12:00:00Z');
-    const overdueDate = subDays(today, 5).toISOString().slice(0, 10);
+    // 15 days — comfortably past the 8-day mora grace period (see
+    // installmentCalculations.ts's MORA_GRACE_PERIOD_DAYS) so this keeps
+    // testing genuine multi-installment mora summation.
+    const overdueDate = subDays(today, 15).toISOString().slice(0, 10);
 
     const quote = calculatePayoff(
       [
@@ -83,9 +86,39 @@ describe('calculatePayoff', () => {
 
     expect(quote.installments).toHaveLength(2);
     expect(quote.totalPrincipalOwed).toBe(540000);
-    // Each installment: conceptsInterest 30000 + moratory (300000*0.06/30*5=3000) = 33000
-    expect(quote.totalInterestOwed).toBeCloseTo(66000, 6);
-    expect(quote.totalDue).toBeCloseTo(606000, 6);
+    // Each installment: conceptsInterest 30000 + moratory (300000*0.06/30*15=9000) = 39000
+    expect(quote.totalInterestOwed).toBeCloseTo(78000, 6);
+    expect(quote.totalDue).toBeCloseTo(618000, 6);
+  });
+
+  // Bug fix, 2026-09-08 (human report) — the business doesn't charge mora
+  // during an installment's first 8 overdue days (see
+  // installmentCalculations.ts's MORA_GRACE_PERIOD_DAYS). This used to be
+  // enforced only in which WhatsApp template got picked, never in the
+  // actual money calculation, so a payoff quote for a cuota inside its
+  // grace period silently included mora it shouldn't have.
+  it('charges no moratory interest for an installment still inside its 8-day grace period', () => {
+    const today = new Date('2026-02-01T12:00:00Z');
+    const overdueDate = subDays(today, 7).toISOString().slice(0, 10);
+
+    const quote = calculatePayoff(
+      [
+        installment({
+          dueDate: overdueDate,
+          amount: 300000,
+          principalPortion: 270000,
+        }),
+      ],
+      6,
+      today,
+    );
+
+    // conceptsInterest 30000 + moratory (0, still within the grace period) = 30000
+    expect(quote.installments[0]).toMatchObject({
+      interestApplied: 30000,
+      principalApplied: 270000,
+      totalDue: 300000,
+    });
   });
 
   it('charges a not-yet-due installment only its principal, at face value, with zero interest', () => {

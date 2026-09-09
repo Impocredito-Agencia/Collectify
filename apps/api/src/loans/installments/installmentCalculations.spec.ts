@@ -3,6 +3,7 @@ import { addDays, subDays } from 'date-fns';
 import { ConceptCalculationType } from '../../interestConceptTypes/entities/interestConceptType.entity';
 
 import {
+  MORA_GRACE_PERIOD_DAYS,
   calculateDaysUntilDue,
   calculateInterest,
   calculateMoratoryCharges,
@@ -145,6 +146,70 @@ describe('installmentCalculations', () => {
 
     it('returns 0 when there are no overdue days', () => {
       expect(calculateInterest(210000, 6, 0)).toBe(0);
+    });
+  });
+
+  // Bug fix, 2026-09-08 (human report) — see MORA_GRACE_PERIOD_DAYS's own
+  // doc comment: the business doesn't charge mora during an installment's
+  // first 8 overdue days. Confirmed with the human: once past the grace
+  // period, mora is charged over the FULL overdue days, not just the days
+  // beyond the 8th.
+  describe('Bug fix, 2026-09-08 — 8-day mora grace period', () => {
+    it('charges no interest for any overdue day within the grace period', () => {
+      for (
+        let overdueDays = 1;
+        overdueDays <= MORA_GRACE_PERIOD_DAYS;
+        overdueDays++
+      ) {
+        expect(calculateInterest(205000, 6, overdueDays)).toBe(0);
+      }
+    });
+
+    it('charges interest over the FULL overdue days once the grace period ends, not just the days past it', () => {
+      // 205000 * 0.06 / 30 * 9 = 3690 — using the full 9 days, not
+      // (9 - 8) = 1.
+      expect(
+        calculateInterest(205000, 6, MORA_GRACE_PERIOD_DAYS + 1),
+      ).toBeCloseTo(3690, 6);
+    });
+
+    it('applies the same grace period to moratory concepts, both percentage and fixed_amount', () => {
+      const withinGrace = calculateMoratoryCharges(
+        205000,
+        MORA_GRACE_PERIOD_DAYS,
+        [
+          {
+            name: 'Interés moratorio',
+            calculationType: ConceptCalculationType.Percentage,
+            value: 6,
+          },
+          {
+            name: 'Gastos de cobranza',
+            calculationType: ConceptCalculationType.FixedAmount,
+            value: 15000,
+          },
+        ],
+      );
+      expect(withinGrace.map((item) => item.amount)).toEqual([0, 0]);
+
+      const pastGrace = calculateMoratoryCharges(
+        205000,
+        MORA_GRACE_PERIOD_DAYS + 1,
+        [
+          {
+            name: 'Interés moratorio',
+            calculationType: ConceptCalculationType.Percentage,
+            value: 6,
+          },
+          {
+            name: 'Gastos de cobranza',
+            calculationType: ConceptCalculationType.FixedAmount,
+            value: 15000,
+          },
+        ],
+      );
+      expect(pastGrace[0].amount).toBeCloseTo(3690, 6);
+      expect(pastGrace[1].amount).toBe(15000);
     });
   });
 

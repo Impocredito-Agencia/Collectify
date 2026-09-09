@@ -1,3 +1,5 @@
+import { MORA_GRACE_PERIOD_DAYS } from '../loans/installments/installmentCalculations';
+
 import { formatCurrency, formatTratamiento } from './messageRenderer';
 import { MessageType } from './messageType.enum';
 import { NotaAdicionalInput } from './notaAdicional';
@@ -93,7 +95,7 @@ export function selectReminderTemplate(
 
   if (overdue.length === 1) {
     const [item] = overdue;
-    if (item.overdueDays > 8) {
+    if (item.overdueDays > MORA_GRACE_PERIOD_DAYS) {
       return {
         type: MessageType.SingleOverdueInstallmentWithSurcharge,
         bodyParameters: [

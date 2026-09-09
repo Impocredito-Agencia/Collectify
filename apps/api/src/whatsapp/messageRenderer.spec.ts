@@ -260,8 +260,10 @@ describe('messageRenderer', () => {
       );
 
       expect(message).toContain('Pagaré #743:');
+      // 45 days overdue — past the 8-day mora grace period, so this line
+      // must flag that its $520.800 already includes recargos.
       expect(message).toContain(
-        '1️⃣ Cuota No. 3 por $520.800 venció hace 45 días.',
+        '1️⃣ Cuota No. 3 por $520.800 (recargos incluidos) venció hace 45 días.',
       );
       expect(message).toContain(
         '2️⃣ Cuota No. 4 por $300.000 vence en 10 días.',
@@ -322,6 +324,63 @@ describe('messageRenderer', () => {
       expect(cuota4Index).toBeGreaterThan(cuota3Index);
       expect(cuota4Index).toBeLessThan(pagare959Index);
       expect(cuota1Index).toBeGreaterThan(pagare959Index);
+    });
+
+    // Bug fix, 2026-09-08 (human report): a blank line between the "Pagaré
+    // #X:" header and its own installment lines, for readability.
+    it('separates a pagaré header from its installment lines with a blank line', () => {
+      const installments: AccountSummaryInstallmentForMessage[] = [
+        {
+          installmentNumber: 3,
+          promissoryNoteNumber: '743',
+          totalDue: 300000,
+          overdueDays: 0,
+          daysUntilDue: 5,
+        },
+      ];
+
+      const message = renderAccountSummaryMessage(
+        SUMMARY_TEMPLATE,
+        'Juana Pérez',
+        installments,
+      );
+
+      expect(message).toContain('Pagaré #743:\n\n1️⃣ Cuota No. 3');
+    });
+
+    // Bug fix, 2026-09-08 (human report): a cuota inside the 8-day mora
+    // grace period looked identical to one that's actually accruing
+    // recargos — flag only the ones past the grace period.
+    it('flags "(recargos incluidos)" only for a cuota past the 8-day mora grace period', () => {
+      const installments: AccountSummaryInstallmentForMessage[] = [
+        {
+          installmentNumber: 9,
+          promissoryNoteNumber: '10001',
+          totalDue: 205000,
+          overdueDays: 7,
+          daysUntilDue: 0,
+        },
+        {
+          installmentNumber: 8,
+          promissoryNoteNumber: '10001',
+          totalDue: 223177,
+          overdueDays: 38,
+          daysUntilDue: 0,
+        },
+      ];
+
+      const message = renderAccountSummaryMessage(
+        SUMMARY_TEMPLATE,
+        'David Ortega',
+        installments,
+      );
+
+      expect(message).toContain(
+        '1️⃣ Cuota No. 9 por $205.000 venció hace 7 días.',
+      );
+      expect(message).toContain(
+        '2️⃣ Cuota No. 8 por $223.177 (recargos incluidos) venció hace 38 días.',
+      );
     });
 
     // Bug fix, 2026-09-03 (human report): past the 10th item, bullets fell

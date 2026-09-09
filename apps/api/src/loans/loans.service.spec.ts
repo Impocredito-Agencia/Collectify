@@ -2403,7 +2403,10 @@ describe('LoansService', () => {
         pendingInstallment({
           amount: 300000,
           principalPortion: 270000,
-          dueDate: bogotaTodayPlusDays(-3),
+          // 10 days — past the 8-day mora grace period (see
+          // installmentCalculations.ts's MORA_GRACE_PERIOD_DAYS), so this
+          // keeps testing genuine moratory interest, not the grace period.
+          dueDate: bogotaTodayPlusDays(-10),
         }),
       ]);
       installmentsRepository.findOne.mockResolvedValue(
@@ -2414,8 +2417,8 @@ describe('LoansService', () => {
 
       // Hand-calculated: principalPortion 270000 + corriente (300000 -
       // 270000 = 30000) + legacy moratory formula ((300000 * 6/100) / 30)
-      // * 3 days = 1800 → 270000 + 30000 + 1800 = 301800.
-      expect(quote.suggestedPrincipalAmount).toBe(301800);
+      // * 10 days = 6000 → 270000 + 30000 + 6000 = 306000.
+      expect(quote.suggestedPrincipalAmount).toBe(306000);
     });
 
     it('folds an installment due in exactly 5 days into the new principal (inclusive boundary)', async () => {

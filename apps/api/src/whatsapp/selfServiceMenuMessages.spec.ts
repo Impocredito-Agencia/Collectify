@@ -6,7 +6,7 @@ describe('renderBreakdownMessage', () => {
     const message = renderBreakdownMessage('Juana Pérez', []);
 
     expect(message).toBe(
-      'Hola Juana Pérez, no tienes cuotas pendientes en este momento. 🎉',
+      'Hola Señor/a Juana Pérez, no tienes cuotas pendientes en este momento. 🎉',
     );
   });
 
@@ -27,7 +27,9 @@ describe('renderBreakdownMessage', () => {
 
     const message = renderBreakdownMessage('Juana Pérez', installments);
 
-    expect(message).toBe('Hola Juana Pérez, estás al día con tus pagos. 🎉');
+    expect(message).toBe(
+      'Hola Señor/a Juana Pérez, estás al día con tus pagos. 🎉',
+    );
   });
 
   it('renders the full desglose when at least one installment is overdue', () => {
@@ -50,16 +52,44 @@ describe('renderBreakdownMessage', () => {
 
     const message = renderBreakdownMessage('Juana Pérez', installments);
 
+    expect(message).toContain('Hola Señor/a Juana Pérez');
     expect(message).toContain('este es el desglose de tus cuotas');
-    expect(message).toContain('Pagaré #743:');
+    expect(message).toContain('Pagaré #743:\n\n1️⃣ Cuota No. 3');
+    // 45 days overdue — past the 8-day mora grace period.
     expect(message).toContain(
-      '1️⃣ Cuota No. 3 por $520.800 venció hace 45 días.',
+      '1️⃣ Cuota No. 3 por $520.800 (recargos incluidos) venció hace 45 días.',
     );
     expect(message).toContain('2️⃣ Cuota No. 4 por $300.000 vence en 10 días.');
-    // 520800 + 300000 = 820800. Bug fix, 2026-09-03 (human report): matches
-    // the confirmed real overdue-reminder phrasing/closing line.
-    expect(message).toContain('El valor a pagar hoy es $820.800 🚨');
+    // 520800 + 300000 = 820800. Bug fix, 2026-09-08 (human report): "El
+    // valor total a pagar hoy" instead of "El valor a pagar hoy", for
+    // clarity that it's the sum across every listed cuota.
+    expect(message).toContain('El valor total a pagar hoy es $820.800 🚨');
     expect(message).toContain('Quedamos atentos a cualquier consulta.');
+  });
+
+  // Bug fix, 2026-09-08 (human report): a blank line between every section
+  // (greeting, installments list, grand total, closing line) instead of a
+  // single newline, for readability.
+  it('separates every section with a blank line', () => {
+    const installments: AccountSummaryInstallmentForMessage[] = [
+      {
+        installmentNumber: 3,
+        promissoryNoteNumber: '743',
+        totalDue: 520800,
+        overdueDays: 45,
+        daysUntilDue: 0,
+      },
+    ];
+
+    const message = renderBreakdownMessage('Juana Pérez', installments);
+
+    expect(message).toBe(
+      'Hola Señor/a Juana Pérez, este es el desglose de tus cuotas:\n\n' +
+        'Pagaré #743:\n\n' +
+        '1️⃣ Cuota No. 3 por $520.800 (recargos incluidos) venció hace 45 días.\n\n' +
+        'El valor total a pagar hoy es $520.800 🚨\n\n' +
+        'Quedamos atentos a cualquier consulta.',
+    );
   });
 
   // Bug fix, 2026-09-03 (human report): installments from different
