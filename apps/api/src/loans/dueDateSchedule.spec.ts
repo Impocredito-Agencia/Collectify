@@ -21,6 +21,26 @@ describe('dueDateSchedule', () => {
       expect(addMonthsToDateString('2026-01-31', 1)).toBe('2026-02-28');
     });
 
+    // Regression test, 2026-09-09 — guards against a blanket "always clamp
+    // to 28" bug: a source day of 29-31 must be preserved whenever the
+    // target month actually has that many days, not just when the target
+    // happens to be a short February. Found in production as
+    // LoansService.calculateDueDate silently locking every installment to
+    // day 28 once disbursedAt itself got clamped by the frontend's lossy
+    // subtractMonthsFromDateString — see this file's own top comment and
+    // LoansService.calculateDueDate's firstInstallmentDueDate parameter.
+    it('preserves day 31 when the target month also has 31 days', () => {
+      expect(addMonthsToDateString('2026-01-31', 6)).toBe('2026-07-31');
+    });
+
+    it('preserves day 30 when the target month has 30 or more days', () => {
+      expect(addMonthsToDateString('2026-04-30', 1)).toBe('2026-05-30');
+    });
+
+    it('clamps to Feb 29 in a leap year instead of Feb 28', () => {
+      expect(addMonthsToDateString('2028-01-31', 1)).toBe('2028-02-29');
+    });
+
     it('is not shifted by the server timezone (UTC-midnight date string in, UTC-midnight date string out)', () => {
       // Regression test: date-fns' addMonths + format shift this by a day
       // on any machine running behind UTC (e.g. America/Bogota) because

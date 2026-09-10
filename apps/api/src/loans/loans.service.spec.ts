@@ -376,6 +376,66 @@ describe('LoansService', () => {
       ]);
     });
 
+    // Bug fix, 2026-09-09 — production bug: LoanForm asks the admin for
+    // "fecha de la primera cuota" (not disbursedAt directly) and
+    // back-computes disbursedAt by subtracting one month, which is lossy
+    // whenever the source day is 29-31 and the previous month is shorter
+    // (Feb here). Without firstInstallmentDueDate, disbursedAt arrives
+    // already clamped to '2026-02-28', and since 28 <= every month's day
+    // count, EVERY installment silently locked onto day 28 instead of
+    // correctly landing on day 31 for 31-day months and the true last day
+    // for shorter ones. Passing firstInstallmentDueDate lets the schedule
+    // anchor on the admin's real input instead.
+    it('anchors every due date on firstInstallmentDueDate, not the frontend-clamped disbursedAt', async () => {
+      await service.create({
+        ...createDto,
+        // What LoanForm's computeDisbursedAt() actually sends when the
+        // admin enters "31 de marzo de 2026" as the first cuota's date
+        // (subtracting one month from March 31 clamps to Feb 28).
+        disbursedAt: '2026-02-28',
+        firstInstallmentDueDate: '2026-03-31',
+        totalInstallments: 4,
+      });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({
+          installmentNumber: 1,
+          dueDate: '2026-03-31',
+        }),
+        expect.objectContaining({
+          installmentNumber: 2,
+          dueDate: '2026-04-30',
+        }),
+        expect.objectContaining({
+          installmentNumber: 3,
+          dueDate: '2026-05-31',
+        }),
+        expect.objectContaining({
+          installmentNumber: 4,
+          dueDate: '2026-06-30',
+        }),
+      ]);
+    });
+
+    it('falls back to disbursedAt-based generation when firstInstallmentDueDate is omitted (e.g. Excel import)', async () => {
+      await service.create(createDto);
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({
+          installmentNumber: 1,
+          dueDate: '2026-02-01',
+        }),
+        expect.objectContaining({
+          installmentNumber: 2,
+          dueDate: '2026-03-01',
+        }),
+        expect.objectContaining({
+          installmentNumber: 3,
+          dueDate: '2026-04-01',
+        }),
+      ]);
+    });
+
     it('persists totalInstallments from the request', async () => {
       await service.create(createDto);
 
@@ -1809,6 +1869,36 @@ describe('LoansService', () => {
       expect(loansRepository.save).not.toHaveBeenCalled();
       expect(installmentsRepository.save).not.toHaveBeenCalled();
       expect(loanInstallmentConceptsRepository.save).not.toHaveBeenCalled();
+    });
+
+    // Bug fix, 2026-09-09 — see the identical regression test in the
+    // `create` block above for the full production scenario.
+    it('anchors every previewed due date on firstInstallmentDueDate when given', async () => {
+      usuryRateService.getCurrentRate.mockResolvedValue({
+        id: 'rate-1',
+        effectiveMonth: '2026-08-01',
+        ratePercentage: 2,
+        createdBy: null,
+        createdByUser: null,
+        createdAt: new Date(),
+        isStale: false,
+      });
+
+      const result = await service.previewSchedule({
+        principalAmount: 900000,
+        disbursedAt: '2026-02-28',
+        firstInstallmentDueDate: '2026-03-31',
+        installmentFrequency: InstallmentFrequency.Monthly,
+        totalInstallments: 3,
+        concepts: [],
+        moratoryConcepts: [],
+      });
+
+      expect(result.installments.map((i) => i.dueDate)).toEqual([
+        '2026-03-31',
+        '2026-04-30',
+        '2026-05-31',
+      ]);
     });
 
     // Phase 24 — preview must apply the same hard block and auto-fill
