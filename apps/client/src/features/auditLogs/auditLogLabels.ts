@@ -63,6 +63,13 @@ export const ACTION_LABELS: Record<string, string> = {
   // this map, so Auditoría showed raw "clientsImport.execute" instead of a
   // translated label — caught by the client from a live screenshot.
   'clientsImport.execute': 'Importó clientes desde Excel',
+  // Removed, 2026-09-09 — the loan-only Excel importer (apps/api/src/
+  // loanImport) was deleted outright: it never had a way to trigger it
+  // from this app (no button/dialog ever existed for it, unlike
+  // ImportClientsDialog.tsx above), and the client confirmed it was never
+  // going to be used. Label kept, same precedent as clientLoanImport.
+  // execute above, purely so any historical row logged before the removal
+  // still translates instead of showing the raw action string.
   'loanImport.execute': 'Importó préstamos desde Excel',
   // Style cleanup, 2026-09-04 — same sync gap yet again: the
   // interestConceptType @Audit() calls were only added 2026-09-03 (see
@@ -92,6 +99,8 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   // 2026-09-06 — same sync gap as ACTION_LABELS above, for the same
   // clients/loans importer split.
   clientsImport: 'Importación de clientes',
+  // Removed, 2026-09-09 — see 'loanImport.execute' above; kept for the
+  // same historical-row reason.
   loanImport: 'Importación de préstamos',
   // Style cleanup, 2026-09-04 — same sync gap as ACTION_LABELS above.
   interestConceptType: 'Tipo de cargo',
