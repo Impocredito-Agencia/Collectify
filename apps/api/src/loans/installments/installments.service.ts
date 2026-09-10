@@ -445,7 +445,7 @@ export class InstallmentsService {
       const payment = await paymentsRepository.findOne({
         where: { id: paymentId },
         withDeleted: true,
-        relations: { installment: { loan: true } },
+        relations: { installment: true },
       });
       if (!payment) {
         throw new NotFoundException(`Payment with id ${paymentId} not found`);
@@ -456,10 +456,10 @@ export class InstallmentsService {
 
       // Set together, in one save — not via the repository's own
       // .softDelete() shorthand, which would touch only deletedAt and
-      // require a second write for voidReason. Loading the full entity
-      // first (rather than a bare update-by-id) is what lets the response
-      // — and the audit log entry built from it — carry the installment
-      // relation resolveEntityLabel already knows how to read.
+      // require a second write for voidReason. The installment relation is
+      // loaded because the reopen check below reads its status/id; the
+      // audit log entry does its own installment lookup from the response
+      // installmentId, so it doesn't need the relation carried here.
       payment.deletedAt = new Date();
       payment.voidReason = dto.reason;
       const savedPayment = await paymentsRepository.save(payment);

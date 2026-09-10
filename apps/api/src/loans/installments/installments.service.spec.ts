@@ -962,7 +962,7 @@ describe('InstallmentsService', () => {
         'Se registró el monto completo por error; el cliente solo pagó una parte.',
     };
 
-    it('looks up the payment including already-voided rows, with its installment/loan relations', async () => {
+    it('looks up the payment including already-voided rows, with its installment relation', async () => {
       const mockPayment = makeMockPayment();
       paymentsRepository.findOne.mockResolvedValue(mockPayment);
       paymentsRepository.find.mockResolvedValue([]);
@@ -973,7 +973,7 @@ describe('InstallmentsService', () => {
       expect(paymentsRepository.findOne).toHaveBeenCalledWith({
         where: { id: mockPayment.id },
         withDeleted: true,
-        relations: { installment: { loan: true } },
+        relations: { installment: true },
       });
     });
 
