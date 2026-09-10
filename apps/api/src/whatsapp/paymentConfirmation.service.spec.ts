@@ -44,7 +44,6 @@ describe('PaymentConfirmationService', () => {
     clientId: 'client-1',
     client,
     promissoryNoteNumber: '778',
-    interestRate: 0,
   };
   // Far enough in the future that calculateOverdueDays always resolves to 0
   // regardless of when the test suite runs — the "no mora accrued" baseline

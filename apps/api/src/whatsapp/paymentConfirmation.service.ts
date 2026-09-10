@@ -12,7 +12,6 @@ import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept
 import { Payment } from '../loans/entities/payment.entity';
 import { findConceptsByInstallmentId } from '../loans/installments/conceptsByInstallmentId';
 import {
-  calculateInterest,
   calculateMoratoryCharges,
   calculateOverdueDays,
   calculateTotalDue,
@@ -110,10 +109,8 @@ export class PaymentConfirmationService {
     const installments = await this.installmentsRepository.find({
       where: { loanId },
     });
-    const overpaymentAmount = await this.overpaymentAcrossInstallments(
-      installments,
-      loan.interestRate,
-    );
+    const overpaymentAmount =
+      await this.overpaymentAcrossInstallments(installments);
 
     const selection = selectPaidInFullTemplate({
       clientFullName: `${loan.client.firstName} ${loan.client.lastName}`,
@@ -190,22 +187,18 @@ export class PaymentConfirmationService {
   // don't care about the installment's current status.
   private computeTotalOwed(
     installment: Installment,
-    interestRate: number,
     moratoryConcepts: LoanInstallmentConcept[],
   ): number {
     const overdueDays = calculateOverdueDays(new Date(installment.dueDate));
-    const interest =
-      moratoryConcepts.length === 0
-        ? calculateInterest(installment.amount, interestRate, overdueDays)
-        : calculateMoratoryCharges(
-            installment.amount,
-            overdueDays,
-            moratoryConcepts.map((concept) => ({
-              name: concept.nameSnapshot,
-              calculationType: concept.calculationType,
-              value: concept.value,
-            })),
-          ).reduce((sum, item) => sum + item.amount, 0);
+    const interest = calculateMoratoryCharges(
+      installment.amount,
+      overdueDays,
+      moratoryConcepts.map((concept) => ({
+        name: concept.nameSnapshot,
+        calculationType: concept.calculationType,
+        value: concept.value,
+      })),
+    ).reduce((sum, item) => sum + item.amount, 0);
     return calculateTotalDue(installment.amount, interest);
   }
 
@@ -225,17 +218,12 @@ export class PaymentConfirmationService {
     const moratoryConcepts = concepts.filter(
       (concept) => concept.category === ConceptCategory.Moratorio,
     );
-    const totalOwed = this.computeTotalOwed(
-      installment,
-      installment.loan.interestRate,
-      moratoryConcepts,
-    );
+    const totalOwed = this.computeTotalOwed(installment, moratoryConcepts);
     return Math.max(0, totalPaid - totalOwed);
   }
 
   private async overpaymentAcrossInstallments(
     installments: Installment[],
-    interestRate: number,
   ): Promise<number> {
     if (installments.length === 0) {
       return 0;
@@ -261,11 +249,7 @@ export class PaymentConfirmationService {
       const moratoryConcepts = (
         conceptsByInstallmentId.get(installment.id) ?? []
       ).filter((concept) => concept.category === ConceptCategory.Moratorio);
-      const totalOwed = this.computeTotalOwed(
-        installment,
-        interestRate,
-        moratoryConcepts,
-      );
+      const totalOwed = this.computeTotalOwed(installment, moratoryConcepts);
       return sum + Math.max(0, paid - totalOwed);
     }, 0);
   }

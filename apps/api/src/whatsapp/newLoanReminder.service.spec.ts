@@ -74,7 +74,6 @@ describe('NewLoanReminderService', () => {
       client: mockClient,
       promissoryNoteNumber: '1093',
       principalAmount: 4308000,
-      interestRate: 6,
       disbursedAt: '2026-05-20',
       installmentFrequency: InstallmentFrequency.Monthly,
       totalInstallments: 12,

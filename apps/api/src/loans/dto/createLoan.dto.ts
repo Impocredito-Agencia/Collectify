@@ -50,16 +50,6 @@ export class CreateLoanDto {
   @IsPositive()
   principalAmount!: number;
 
-  @ApiProperty({
-    example: 6,
-    description:
-      'Percentage used only for moratory interest on overdue installments (docs/GLOSSARY.md). Ordinary financing cost is expressed through concepts, not this field, as of Phase 14.',
-  })
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  interestRate!: number;
-
   @ApiProperty({ example: '2026-07-09' })
   @IsDateString()
   disbursedAt!: string;
@@ -101,7 +91,7 @@ export class CreateLoanDto {
   @ApiPropertyOptional({
     type: [LoanConceptAssignmentDto],
     description:
-      'Moratory concepts assigned to this loan (Phase 23) — each referenced concept type must have category "moratorio". Unlike concepts above, these are never baked into the installment amount or computed at generation time: they only take effect once an installment is actually overdue, computed live on read. Omit or leave empty for a loan with no moratory concepts, which keeps using the legacy interestRate formula.',
+      'Moratory concepts assigned to this loan (Phase 23) — each referenced concept type must have category "moratorio". Unlike concepts above, these are never baked into the installment amount or computed at generation time: they only take effect once an installment is actually overdue, computed live on read. This field only adds catalog concepts ON TOP of the system-generated "Intereses moratorios" concept every loan always gets (see LoansService.resolveConceptsWithInterest) — omit or leave empty for a loan with no additional moratory catalog concepts.',
   })
   @IsOptional()
   @IsArray()
@@ -216,8 +206,8 @@ export class CreateLoanDto {
   // synchronously (see LoansService.create()'s own comment on the
   // 2026-09-06 revert), a historical loan typed in through that form
   // relies on WHATSAPP_SENDING_PAUSED instead. This field stays optional
-  // purely so bulk Excel import (LoanImportService), which never sets it,
-  // keeps defaulting to false unaffected.
+  // so any other caller of create() that never sets it explicitly keeps
+  // defaulting to false unaffected.
   @ApiPropertyOptional({
     default: false,
     description:

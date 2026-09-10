@@ -322,7 +322,7 @@ describe('SelfServiceMenuService', () => {
             amount: 300000,
             dueDate: '2020-01-01',
             status: 'pending',
-            loan: { interestRate: 0, promissoryNoteNumber: '743' },
+            loan: { promissoryNoteNumber: '743' },
           },
         ]);
 

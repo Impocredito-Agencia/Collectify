@@ -74,7 +74,6 @@ describe('DashboardService', () => {
       client,
       promissoryNoteNumber: '#743',
       principalAmount: 900000,
-      interestRate: 6,
       disbursedAt: '2026-01-01',
       installmentFrequency: InstallmentFrequency.Monthly,
       totalInstallments: 3,
@@ -191,7 +190,7 @@ describe('DashboardService', () => {
   describe('getSummary', () => {
     it('returns the exact overdue count and total amount for a known set of installments', async () => {
       const client = makeClient();
-      const loan = makeLoan(client, { interestRate: 6 });
+      const loan = makeLoan(client);
       // amount 100000, rate 6%, 30 days overdue -> interest = 100000 * 0.06 / 30 * 30 = 6000
       const installmentA = makeInstallment(loan, {
         id: 'inst-a',
@@ -210,6 +209,22 @@ describe('DashboardService', () => {
       installmentsRepository.find.mockResolvedValue([
         installmentA,
         installmentB,
+      ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: 'inst-a',
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        },
+        {
+          installmentId: 'inst-b',
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        },
       ]);
       loansRepository.find.mockResolvedValue([
         { clientId: 'client-1' },
@@ -260,7 +275,7 @@ describe('DashboardService', () => {
     // had never come in.
     it('nets out an existing partial payment from totalAmountOverdue', async () => {
       const client = makeClient();
-      const loan = makeLoan(client, { interestRate: 6 });
+      const loan = makeLoan(client);
       const installmentA = makeInstallment(loan, {
         id: 'inst-a',
         amount: 100000,
@@ -271,6 +286,15 @@ describe('DashboardService', () => {
       installmentsRepository.find.mockResolvedValue([installmentA]);
       paymentsRepository.find.mockResolvedValue([
         { installmentId: 'inst-a', amountPaid: 40000 },
+      ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: 'inst-a',
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        },
       ]);
 
       const result = await service.getSummary();
@@ -421,17 +445,12 @@ describe('DashboardService', () => {
     });
 
     // Bug fix, 2026-09-08 — before this, concepts was hardcoded to `[]` in
-    // gatherOverdueInstallments, so enrichInstallment always fell back to
-    // the legacy interestRate formula. Every loan created since the Phase
-    // 23 redesign sends interestRate: 0 (see LoanForm.tsx's own comment),
-    // so this silently reported ZERO accrued mora for a modern loan's
-    // overdue installment, understating totalOverdueAmount here.
-    it('uses the installment’s real moratory concepts instead of the legacy interestRate, even when interestRate is 0', async () => {
+    // gatherOverdueInstallments, so enrichInstallment always reported ZERO
+    // accrued mora for an overdue installment with real moratory concepts
+    // assigned, understating totalOverdueAmount here.
+    it("uses the installment's real moratory concept rate", async () => {
       const client = makeClient({ id: 'client-1' });
-      // interestRate: 0 mirrors every loan created through LoanForm.tsx
-      // since the Phase 23 redesign — the real rate lives in the moratory
-      // concept below instead.
-      const loan = makeLoan(client, { interestRate: 0 });
+      const loan = makeLoan(client);
       const installment = makeInstallment(loan, {
         id: 'inst-1',
         amount: 100000,
@@ -452,8 +471,8 @@ describe('DashboardService', () => {
 
       const result = await service.getOverdueClients({});
 
-      // With interestRate alone (the bug) this would be exactly 100000
-      // (zero mora). 100000 + (100000 * (0.03) / 30) * 10 = 101000.
+      // Without concepts (the bug) this would be exactly 100000 (zero
+      // mora). 100000 + (100000 * (0.03) / 30) * 10 = 101000.
       expect(result.items[0].totalOverdueAmount).toBeCloseTo(101000);
     });
 

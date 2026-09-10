@@ -40,16 +40,6 @@ export class RefinanceLoanDto {
   @IsPositive()
   principalAmount!: number;
 
-  @ApiProperty({
-    example: 5,
-    description:
-      "The new loan's own rate, used only for moratory interest on overdue installments — see CreateLoanDto.",
-  })
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  interestRate!: number;
-
   @ApiProperty({ example: '2026-07-10' })
   @IsDateString()
   disbursedAt!: string;

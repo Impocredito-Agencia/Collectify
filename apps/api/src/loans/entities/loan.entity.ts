@@ -48,14 +48,6 @@ export class Loan {
   })
   principalAmount!: number;
 
-  @Column({
-    type: 'decimal',
-    precision: 5,
-    scale: 2,
-    transformer: decimalTransformer,
-  })
-  interestRate!: number;
-
   @Column({ type: 'date' })
   disbursedAt!: string;
 
@@ -95,8 +87,7 @@ export class Loan {
   // refinance is never a historical/backfilled event — see refinance()'s
   // own comment). Default false ("es viejo") — most loans entered right
   // now are historical backfills, so nothing needs it set to behave
-  // safely, including bulk Excel import (LoanImportService), which never
-  // sets this field either. See the migration comment
+  // safely. See the migration comment
   // (AddIsNewLoanToLoans) for why the default matters.
   @Column({ default: false })
   isNewLoan!: boolean;

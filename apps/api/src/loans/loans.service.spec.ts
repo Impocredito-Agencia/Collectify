@@ -123,7 +123,6 @@ describe('LoansService', () => {
     client: { firstName: 'Juana', lastName: 'Pérez' } as never,
     promissoryNoteNumber: '#743',
     principalAmount: 900000,
-    interestRate: 6,
     disbursedAt: '2025-01-01',
     installmentFrequency: InstallmentFrequency.Monthly,
     totalInstallments: 3,
@@ -297,7 +296,6 @@ describe('LoansService', () => {
       clientId: 'client-1',
       promissoryNoteNumber: '#900',
       principalAmount: 900000,
-      interestRate: 6,
       disbursedAt: '2026-01-01',
       installmentFrequency: InstallmentFrequency.Monthly,
       totalInstallments: 3,
@@ -934,7 +932,6 @@ describe('LoansService', () => {
     // assigned one of its own.
     const refinanceDto = {
       principalAmount: 600000,
-      interestRate: 5,
       disbursedAt: '2026-07-10',
       installmentFrequency: InstallmentFrequency.Monthly,
       totalInstallments: 2,
@@ -948,7 +945,6 @@ describe('LoansService', () => {
       id: 'loan-2',
       promissoryNoteNumber: mockLoan.promissoryNoteNumber,
       principalAmount: 600000,
-      interestRate: 5,
       totalInstallments: 2,
       refinancedFromLoanId: mockLoan.id,
     };
@@ -1325,6 +1321,15 @@ describe('LoansService', () => {
         overdueInstallment,
         paidInstallment,
       ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: overdueInstallment.id,
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        },
+      ]);
 
       const result = await service.findOne(mockLoan.id);
 
@@ -1399,6 +1404,15 @@ describe('LoansService', () => {
       installmentsRepository.find.mockResolvedValue([
         overduePending,
         paidInstallment,
+      ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: overduePending.id,
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        },
       ]);
 
       const result = await service.findOne(mockLoan.id);
@@ -1645,6 +1659,15 @@ describe('LoansService', () => {
           status: InstallmentStatus.Paid,
         },
       ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: 'installment-1',
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        },
+      ]);
 
       const [summary] = (await service.findAll({})).items;
 
@@ -1729,6 +1752,15 @@ describe('LoansService', () => {
           amount: 300000,
           dueDate: bogotaTodayPlusDays(20),
           status: InstallmentStatus.Pending,
+        },
+      ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: 'installment-1',
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
         },
       ]);
 
@@ -2418,12 +2450,21 @@ describe('LoansService', () => {
       installmentsRepository.findOne.mockResolvedValue(
         pendingInstallment({ id: 'inst-1' }),
       );
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: 'inst-1',
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        },
+      ]);
 
       const quote = await service.getRefinanceQuote(mockLoan.id);
 
       // Hand-calculated: principalPortion 270000 + corriente (300000 -
-      // 270000 = 30000) + legacy moratory formula ((300000 * 6/100) / 30)
-      // * 10 days = 6000 → 270000 + 30000 + 6000 = 306000.
+      // 270000 = 30000) + moratory (300000 * 6/100 / 30) * 10 days = 6000
+      // → 270000 + 30000 + 6000 = 306000.
       expect(quote.suggestedPrincipalAmount).toBe(306000);
     });
 

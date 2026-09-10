@@ -80,7 +80,6 @@ describe('OverdueReminderService', () => {
     client: undefined as never,
     promissoryNoteNumber: '#743',
     principalAmount: 900000,
-    interestRate: 6,
     disbursedAt: '2024-01-01',
     installmentFrequency: InstallmentFrequency.Monthly,
     totalInstallments: 3,
@@ -289,13 +288,22 @@ describe('OverdueReminderService', () => {
       paymentsRepository.find.mockResolvedValue([
         { installmentId: 'inst-1', amountPaid: 100000 },
       ]);
+      const concepts = [
+        {
+          installmentId: installment.id,
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        } as never,
+      ];
+      loanInstallmentConceptsRepository.find.mockResolvedValue(concepts);
 
       await service.sendReminderForClient(mockClient.id);
 
       const expectedRemaining = enrichInstallment(
         installment,
-        mockLoan.interestRate,
-        [],
+        concepts,
         100000,
       ).totalDue;
       // Sanity check the fix actually matters for this fixture — it's been
@@ -312,49 +320,32 @@ describe('OverdueReminderService', () => {
     });
 
     // Bug fix, 2026-09-08 — findOverdueInstallmentsForClient used to pass
-    // `[]` straight to enrichInstallment, which falls back to the legacy
-    // interestRate formula. Every loan created since the Phase 23 redesign
-    // sends interestRate: 0 (see LoanForm.tsx's own comment), so this
-    // silently reported ZERO accrued mora for a modern loan's overdue
-    // installment — this reminder's own interestSnapshot would have been 0
-    // regardless of how overdue the cuota was.
-    it('uses the installment’s real moratory concepts instead of the legacy interestRate, even when interestRate is 0', async () => {
-      // interestRate: 0 mirrors every loan created through LoanForm.tsx
-      // since the Phase 23 redesign — the real rate lives in the moratory
-      // concept below instead.
-      const zeroRateLoan: Loan = { ...mockLoan, interestRate: 0 };
-      const installment = overdueInstallment({
-        amount: 300000,
-        loan: zeroRateLoan,
-      });
+    // `[]` straight to enrichInstallment, silently reporting ZERO accrued
+    // mora for an overdue installment with real moratory concepts assigned
+    // — this reminder's own interestSnapshot would have been 0 regardless
+    // of how overdue the cuota was.
+    it("uses the installment's real moratory concepts", async () => {
+      const installment = overdueInstallment({ amount: 300000 });
       mockGathered([installment]);
-      loanInstallmentConceptsRepository.find.mockResolvedValue([
+      const concepts = [
         {
           installmentId: installment.id,
           category: ConceptCategory.Moratorio,
           calculationType: ConceptCalculationType.Percentage,
           nameSnapshot: 'Intereses moratorios',
           value: 3,
-        },
-      ]);
+        } as never,
+      ];
+      loanInstallmentConceptsRepository.find.mockResolvedValue(concepts);
 
       await service.sendReminderForClient(mockClient.id);
 
       const expectedInterest = enrichInstallment(
         installment,
-        zeroRateLoan.interestRate,
-        [
-          {
-            installmentId: installment.id,
-            category: ConceptCategory.Moratorio,
-            calculationType: ConceptCalculationType.Percentage,
-            nameSnapshot: 'Intereses moratorios',
-            value: 3,
-          } as never,
-        ],
+        concepts,
         0,
       ).interest;
-      // With interestRate alone (the bug) this would be exactly 0.
+      // Without concepts (the bug) this would be exactly 0.
       expect(expectedInterest).toBeGreaterThan(0);
       expect(messageLogItemsRepository.save).toHaveBeenCalledWith([
         expect.objectContaining({ interestSnapshot: expectedInterest }),
