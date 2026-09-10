@@ -237,10 +237,16 @@ export class AuditLogInterceptor implements NestInterceptor {
           return null;
         }
         const amount = this.formatCurrencyCop(entity.amountPaid);
-        const base =
-          typeof entity.paidAt === 'string'
-            ? `Pago de ${amount} el ${entity.paidAt}`
-            : `Pago de ${amount}`;
+        const dateSuffix =
+          typeof entity.paidAt === 'string' ? ` el ${entity.paidAt}` : '';
+        // Human report, 2026-09-09 — payment.void's response is the same
+        // Payment shape as payment.register, now with deletedAt/voidReason
+        // set (see InstallmentsService.voidPayment()). Distinguishing the
+        // label here means the mandatory reason is visible straight from
+        // Auditoría, not just buried in metadata.body.
+        const base = entity.deletedAt
+          ? `Pago de ${amount}${dateSuffix} ANULADO — motivo: ${typeof entity.voidReason === 'string' ? entity.voidReason : 'sin especificar'}`
+          : `Pago de ${amount}${dateSuffix}`;
         // Added 2026-09-04 — see the installmentsRepository comment in the
         // constructor.
         const installmentId =

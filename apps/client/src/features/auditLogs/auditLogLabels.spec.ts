@@ -32,6 +32,8 @@ describe('formatAuditAction', () => {
       'Importó clientes y préstamos desde Excel',
     );
     expect(formatAuditAction('user.delete')).toBe('Eliminó un usuario');
+    // Human report, 2026-09-09 — payment correction feature.
+    expect(formatAuditAction('payment.void')).toBe('Anuló un pago');
   });
 
   // 2026-09-06 — the combined clients+loans Excel importer was split into
