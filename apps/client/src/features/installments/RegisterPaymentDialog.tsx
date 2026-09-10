@@ -404,7 +404,7 @@ function ConfirmRegisterPaymentDialog({
       <p className="mt-2 text-small text-muted">
         Con este pago, la cuota quedará{' '}
         {willCloseCuota ? (
-          <strong className="text-white">PAGADA COMPLETA</strong>
+          <strong className="text-white">PAGADA POR COMPLETA</strong>
         ) : (
           <>
             con un saldo pendiente de{' '}
