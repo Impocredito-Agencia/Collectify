@@ -792,6 +792,8 @@ The business is backfilling historical pagarés into production. Phase 10's mora
 1. **The gap itself:** `LoanImportService` now passes `skipCreditCheck` through to `LoansService.create()` for every row.
 2. **Made it a toggle, not a permanent bypass:** the value comes from a new `LOAN_IMPORT_SKIP_CREDIT_CHECK` env var (default `false`, see `docs/ENVIRONMENT_VARIABLES.md`) via a new `LoanImportConfig` group in `config/configuration.ts` — set it to `true` in Railway while the backfill is in progress, then back to `false` (or remove it) once done. No code change needed either way. Scoped to `LoanImportService` only: the interactive "Crear préstamo" form and its own guard are completely unaffected, so a collector still can't manually create a new real loan for a mora-blocked client during the backfill window. Logged once per import run (not per row) when enabled, so it's visible in Railway without being noisy.
 
+**Superseded, 2026-09-09:** the whole toggle is gone — see "Changed, 2026-09-09" below. Mora no longer blocks loan creation anywhere, so there was nothing left to bypass.
+
 ## Bug fix, 2026-09-08 — a bulk payment's audit log entry didn't say which pagaré/cuotas it touched
 
 Human report: `POST /installments/payments/bulk`'s audit log entry showed action "Registró un pago sobre varias cuotas" but no `entityLabel` at all — no way to tell which loan or installments a given bulk action actually paid.
@@ -821,6 +823,12 @@ Follow-up to "Bug fix, 2026-09-08 — mora was charged starting overdue day 1, n
 **Fix:** `installmentCalculations.ts`'s `MORA_GRACE_PERIOD_DAYS` changed from `8` to `6` — a one-line value change, since every consumer (`calculateInterest`, `calculateMoratoryCharges`, and everything built on them: `enrichInstallment()`, `calculatePayoff()`, WhatsApp reminders/self-service menu, the Dashboard, cupo, the payment ceiling, and `reminderTemplateSelection.ts`'s template-choice branch) already reads the constant rather than a hardcoded number. `docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`'s Template 6 doc updated to match (días 1-6 sin recargos / día 7+ con recargos) — no Meta resubmission needed, since neither approved template's body text hardcodes a day number.
 
 Two test fixtures had hardcoded day-7 scenarios that assumed the OLD threshold (day 7 = still no mora) and would have silently passed the wrong behavior under the new one: `messageRenderer.spec.ts`'s recargos-flagging test (moved its "still in grace" fixture from day 7 to day 6) and `installmentCalculations.spec.ts`'s "full overdue days" test (recomputed its hand-checked expected amount for day 7 instead of the old day 9). Every other test referencing the grace period reads `MORA_GRACE_PERIOD_DAYS` dynamically and needed no numeric changes, only comment updates.
+
+## Changed, 2026-09-09 — mora no longer blocks new-loan creation, only warns
+
+Client decision — the most practical fix given that historical pagarés keep hitting this, and it would likely keep happening on new loans too: by the time a pagaré is actually being created, the negotiation, acceptance, and paperwork already happened, so a hard block at that exact step was the wrong place to catch it.
+
+`LoansService.assertClientCanTakeNewLoan()` no longer checks mora at all — only cupo still rejects. `GET /clients/:id`'s `isMoraBlocked` is unchanged and still drives a red warning banner on `LoanForm.tsx`, it just no longer disables the form or the submit button. This also made the `LOAN_IMPORT_SKIP_CREDIT_CHECK` toggle (2026-09-08, see above) pointless — removed entirely, along with `LoansService.create()`'s `skipCreditCheck` option.
 
 ## Related documents
 

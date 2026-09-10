@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
@@ -55,7 +54,6 @@ describe('LoanImportService', () => {
   let clientsService: { findByDocumentNumber: jest.Mock };
   let loansService: { create: jest.Mock };
   let interestConceptTypesRepository: { find: jest.Mock };
-  let configService: { get: jest.Mock };
 
   const mockClient = { id: '11111111-1111-4111-8111-111111111111' } as Client;
   const mockActiveConcept: InterestConceptType = {
@@ -79,12 +77,6 @@ describe('LoanImportService', () => {
     interestConceptTypesRepository = {
       find: jest.fn().mockResolvedValue([mockActiveConcept]),
     };
-    // Temporary operational toggle (2026-09-08) — defaults to disabled
-    // (matches LOAN_IMPORT_SKIP_CREDIT_CHECK's own default). Tests that
-    // care about the enabled case override this per-test.
-    configService = {
-      get: jest.fn().mockReturnValue({ skipCreditCheck: false }),
-    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -95,7 +87,6 @@ describe('LoanImportService', () => {
           provide: getRepositoryToken(InterestConceptType),
           useValue: interestConceptTypesRepository,
         },
-        { provide: ConfigService, useValue: configService },
       ],
     }).compile();
 
@@ -103,7 +94,6 @@ describe('LoanImportService', () => {
     jest.clearAllMocks();
     clientsService.findByDocumentNumber.mockResolvedValue(mockClient);
     interestConceptTypesRepository.find.mockResolvedValue([mockActiveConcept]);
-    configService.get.mockReturnValue({ skipCreditCheck: false });
   });
 
   it('creates a loan for an existing client found by cédula', async () => {
@@ -118,25 +108,6 @@ describe('LoanImportService', () => {
     );
     expect(loansService.create).toHaveBeenCalledWith(
       expect.objectContaining({ clientId: mockClient.id }),
-      { skipCreditCheck: false },
-    );
-  });
-
-  // Bug fix, 2026-09-08 (human report) — the mora/cupo guard was blocking
-  // the historical-pagarés backfill currently in progress.
-  // LOAN_IMPORT_SKIP_CREDIT_CHECK is the operational toggle to bypass it
-  // temporarily; this was documented as already wired up before this fix,
-  // but LoansService.create() was never actually called with the option.
-  it('passes skipCreditCheck through to LoansService.create when the operational toggle is enabled', async () => {
-    configService.get.mockReturnValue({ skipCreditCheck: true });
-    mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
-    loansService.create.mockResolvedValue({});
-
-    await service.importFromExcel(Buffer.from(''));
-
-    expect(loansService.create).toHaveBeenCalledWith(
-      expect.objectContaining({ clientId: mockClient.id }),
-      { skipCreditCheck: true },
     );
   });
 

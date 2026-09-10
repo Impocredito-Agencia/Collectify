@@ -33,11 +33,6 @@ export const envValidationSchema = Joi.object({
   // .env.example or any file checked into git.
   WHATSAPP_TEST_RECIPIENTS: Joi.string().allow('').default(''),
 
-  // Temporary operational toggle (2026-09-08) — see LoanImportConfig's own
-  // comment in configuration.ts. Default false: the mora/cupo guard stays
-  // enforced for loan imports unless explicitly disabled.
-  LOAN_IMPORT_SKIP_CREDIT_CHECK: Joi.boolean().default(false),
-
   OVERDUE_REMINDER_CRON: Joi.string().default('0 9 * * 1'),
   NEW_LOAN_REMINDER_CRON: Joi.string().default('0 10 * * 1'),
 

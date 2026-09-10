@@ -46,21 +46,6 @@ export interface WhatsappConfig {
   testRecipients: string[];
 }
 
-export interface LoanImportConfig {
-  // Temporary operational toggle (2026-09-08) — the business is
-  // backfilling historical pagarés into production, and Phase 10's
-  // mora-block/cupo guard (LoansService.assertClientCanTakeNewLoan)
-  // rejects a client already carrying a >30-day-overdue installment from
-  // an earlier historical loan, even though that "new" loan already
-  // happened in the real world and isn't adding new risk. Set
-  // LOAN_IMPORT_SKIP_CREDIT_CHECK=true in Railway while the backfill is
-  // in progress, then back to false (or unset) once it's done — no code
-  // change needed either way. Scoped to LoanImportService only; the
-  // interactive "Crear préstamo" form and its guard are unaffected. See
-  // docs/DATABASE.md's note of this date.
-  skipCreditCheck: boolean;
-}
-
 export interface CronConfig {
   overdueReminderExpression: string;
   upcomingDueReminderExpression: string;
@@ -87,7 +72,6 @@ export interface Configuration {
   database: DatabaseConfig;
   jwt: JwtConfig;
   whatsapp: WhatsappConfig;
-  loanImport: LoanImportConfig;
   cron: CronConfig;
 }
 
@@ -120,9 +104,6 @@ export default (): Configuration => ({
       .split(',')
       .map((phoneNumber) => phoneNumber.trim())
       .filter((phoneNumber) => phoneNumber.length > 0),
-  },
-  loanImport: {
-    skipCreditCheck: process.env.LOAN_IMPORT_SKIP_CREDIT_CHECK === 'true',
   },
   cron: {
     overdueReminderExpression: process.env.OVERDUE_REMINDER_CRON ?? '0 9 * * 1',

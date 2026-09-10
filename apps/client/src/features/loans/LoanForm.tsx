@@ -142,15 +142,21 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   // GET /clients (search results) doesn't include creditUsed/creditAvailable/
   // isMoraBlocked — only GET /clients/:id does (computed on read, see
   // ClientsService.findOneDetail). Fetched once a client is picked, to
-  // surface cupo/mora-block inline before the admin fills out the rest of
-  // the form. See docs/phases/PHASE_10_CLIENT_CAPACITY.md.
+  // surface cupo/mora inline before the admin fills out the rest of the
+  // form (ClientCapacityNotice below reads clientDetail.isMoraBlocked
+  // directly off this). See docs/phases/PHASE_10_CLIENT_CAPACITY.md.
+  //
+  // Changed, 2026-09-09 (client decision) — mora used to also disable the
+  // rest of the form here (a local isMoraBlocked flag gated a wrapping
+  // fieldset and the submit button). By the time a loan is actually being
+  // created, the negotiation/paperwork already happened, so a hard stop
+  // at this step was mostly just getting in the way — mora is now purely
+  // a red warning (see ClientCapacityNotice), no longer a block. Cupo is
+  // unaffected — still a real block, just never had a client-side
+  // pre-check of its own: it's only ever caught from the backend's 400
+  // response after submit (see the "cupo" branch in performSubmit's
+  // catch block below).
   const { data: selectedClientDetail } = useClient(selectedClient?.id ?? '');
-  // Drives disabling the rest of the form below — the client caught that
-  // leaving everything fillable when we already know upfront it'll be
-  // rejected just produces a confusing duplicate error (the inline notice
-  // plus the same message again from the failed submit). See
-  // docs/phases/PHASE_10_CLIENT_CAPACITY.md.
-  const isMoraBlocked = Boolean(selectedClientDetail?.isMoraBlocked);
 
   const [promissoryNoteNumber, setPromissoryNoteNumber] = useState('');
   // Style cleanup (2026-09-03) — pre-fills with the suggested next #0000
@@ -379,12 +385,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     const errors: FieldErrors = {};
     if (!selectedClient) {
       errors.clientId = 'Selecciona un cliente.';
-    } else if (isMoraBlocked) {
-      // Defensive fallback only — the fieldset/submit button below are
-      // disabled whenever this is true, so this normally can't be reached
-      // through the UI.
-      errors.clientId =
-        'Este cliente no puede recibir un nuevo préstamo mientras esté bloqueado por mora.';
     }
     if (!promissoryNoteNumber.trim()) {
       errors.promissoryNoteNumber = 'El número de pagaré es obligatorio.';
@@ -731,13 +731,14 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             )}
           </FormSection>
 
-          {/* Disabled (not hidden) once the selected client is
-              mora-blocked — the client asked for this after seeing the
-              alternative: fill out the whole form, hit "Crear préstamo",
-              and get the same rejection message a second time at the
-              bottom. Nothing here is fillable until a non-blocked client
-              is picked instead. */}
-          <fieldset disabled={isMoraBlocked} className="contents">
+          {/* Changed, 2026-09-09 (client decision) — this fieldset used to
+              disable everything below once the selected client was
+              mora-blocked. Mora no longer blocks loan creation at all
+              (see isMoraBlocked's own comment above), so this stays
+              purely structural (display: contents) now — kept rather
+              than unwrapped, to avoid reflowing the JSX below for no
+              behavioral gain. */}
+          <fieldset className="contents">
             <FormSection title="Datos del crédito">
               <div className="flex gap-4">
                 <Field
@@ -1424,7 +1425,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting || isMoraBlocked || !hasUsableUsuryRate}
+              disabled={isSubmitting || !hasUsableUsuryRate}
             >
               {isSubmitting ? 'Creando…' : 'Crear préstamo'}
             </Button>
@@ -1518,11 +1519,19 @@ function ConfirmCreateLoanDialog({
   );
 }
 
-// Inline surfacing of the client's cupo/mora-block status once picked —
-// mirrors the same rejection reasons the backend would otherwise only
-// reveal after submit (see the 400-handling in performSubmit above). Purely
-// informational: the backend is still the source of truth and re-checks
-// both at submit time regardless of what this shows.
+// Inline surfacing of the client's cupo/mora status once picked — mirrors
+// the same rejection reason the backend would otherwise only reveal after
+// submit for cupo (see the 400-handling in performSubmit above). Cupo is
+// still a real, backend-enforced block; the backend is the source of
+// truth and re-checks it at submit time regardless of what this shows.
+//
+// Changed, 2026-09-09 (client decision) — mora is no longer a block at
+// all here (see isMoraBlocked's own comment above LoanForm): by the time
+// a loan is actually being created, the negotiation/paperwork already
+// happened, so a hard stop at this step was mostly just getting in the
+// way. Kept as a red warning (same styling as before) rather than
+// softened to a neutral tone, since it's still worth an admin's
+// attention — just no longer worded as a rejection.
 function ClientCapacityNotice({
   clientDetail,
 }: {
@@ -1534,8 +1543,8 @@ function ClientCapacityNotice({
         role="alert"
         className="rounded border border-danger bg-danger-bg px-3.5 py-2.5 text-small text-danger"
       >
-        Este cliente tiene una cuota con más de 30 días de mora y no puede
-        recibir un nuevo préstamo.
+        Este cliente tiene una cuota con más de 30 días de mora. Verifica su
+        situación antes de continuar.
       </p>
     );
   }
