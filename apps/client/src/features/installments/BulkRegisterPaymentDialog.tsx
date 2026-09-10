@@ -74,6 +74,16 @@ export function BulkRegisterPaymentDialog({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
+  // Redesign, 2026-09-09 (human decision) — same two-step pattern as
+  // RegisterPaymentDialog.tsx's ConfirmRegisterPaymentDialog: "Registrar N
+  // pagos" below only validates/uploads photos and opens a summary
+  // confirming the total and how many cuotas it settles; onConfirm (which
+  // triggers a WhatsApp confirmation message per settled cuota, plus a
+  // "pagado en su totalidad" one for any loan that fully closes) only
+  // fires from that dialog's own confirm button — see performConfirm.
+  const [pendingEntries, setPendingEntries] = useState<
+    BulkPaymentEntryInput[] | null
+  >(null);
   // One row per installment, each with its own file input — keyed by row
   // index rather than a single ref since useRef can't hold a dynamic list of
   // DOM nodes directly.
@@ -180,7 +190,15 @@ export function BulkRegisterPaymentDialog({
       return;
     }
     setIsUploadingImages(false);
+    setPendingEntries(entries);
+  };
 
+  // Takes `entries` as a parameter rather than reading pendingEntries from
+  // state — same reasoning as RegisterPaymentDialog.tsx's identical
+  // performConfirm: the confirm dialog's own onConfirm below clears
+  // pendingEntries immediately on click, so this would otherwise read a
+  // stale null on the very call it's meant to act on.
+  const performConfirm = async (entries: BulkPaymentEntryInput[]) => {
     setIsSubmitting(true);
     try {
       await onConfirm(entries);
@@ -319,12 +337,80 @@ export function BulkRegisterPaymentDialog({
           </Button>
         </div>
       </form>
+
+      {pendingEntries && (
+        <ConfirmBulkRegisterPaymentDialog
+          entryCount={pendingEntries.length}
+          total={pendingEntries.reduce(
+            (sum, entry) => sum + entry.amountPaid,
+            0,
+          )}
+          isSubmitting={isSubmitting}
+          onCancel={() => setPendingEntries(null)}
+          onConfirm={() => {
+            const entries = pendingEntries;
+            setPendingEntries(null);
+            void performConfirm(entries);
+          }}
+        />
+      )}
     </Modal>
   );
 }
 
 const inputClassName =
   'h-[42px] w-full rounded border border-border bg-input px-3.5 text-control text-white placeholder-mid focus:border-subtle focus:outline-none';
+
+// Redesign, 2026-09-09 (human decision) — mirrors RegisterPaymentDialog.tsx's
+// ConfirmRegisterPaymentDialog. Every entry in a batch always fully
+// settles its installment (enforced above and server-side), so unlike the
+// single-payment dialog there's no "saldo pendiente" case to distinguish
+// — this is always a full close per cuota, which is why it's worth
+// spelling out how many and for how much before the WhatsApp confirmation
+// messages go out.
+function ConfirmBulkRegisterPaymentDialog({
+  entryCount,
+  total,
+  isSubmitting,
+  onCancel,
+  onConfirm,
+}: {
+  entryCount: number;
+  total: number;
+  isSubmitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEscapeKey(onCancel);
+
+  return (
+    <Modal maxWidth="max-w-[420px]">
+      <h2 className="text-[16px] font-medium text-white">
+        Confirmar registro de pagos
+      </h2>
+      <p className="mt-2.5 text-small text-muted">
+        Vas a registrar {entryCount} pagos por un total de{' '}
+        <strong className="text-white">{formatCurrency(total)}</strong>,
+        saldando por completo cada una de esas cuotas.
+      </p>
+      <p className="mt-2.5 text-small text-muted">
+        Al confirmar, se envía de inmediato el mensaje de WhatsApp de
+        confirmación de pago al cliente por cada cuota saldada.
+      </p>
+
+      <div className="mt-6 border-t border-border" />
+
+      <div className="mt-5 flex items-center justify-end gap-3">
+        <Button variant="secondary" onClick={onCancel} disabled={isSubmitting}>
+          Cancelar
+        </Button>
+        <Button onClick={onConfirm} disabled={isSubmitting}>
+          {isSubmitting ? 'Registrando…' : 'Sí, registrar pagos'}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
 
 // Field now lives in @/components/ui/Field — see DESIGN_TOKENS.md's
 // "Component-based centralization" section.

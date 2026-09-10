@@ -60,21 +60,35 @@ export function RegisterPaymentDialog({
   onClose,
   onConfirm,
 }: RegisterPaymentDialogProps) {
-  // totalDue is amount + accrued moratory interest (each percentage
-  // concept's rate / 30 × overdueDays, see calculateMoratoryCharges) —
-  // that division routinely produces long repeating decimals (e.g.
-  // 108333.3333333333). The business only ever deals in whole pesos
-  // (formatCurrency's convention everywhere else in the app), so the
-  // default shown here is rounded the same way rather than dumping the raw
-  // float into the field. Still fully editable — this only affects the
-  // pre-filled default. Math.ceil, not Math.round: rounding to nearest can
-  // round DOWN (e.g. 108333.33 → 108333), pre-filling an amount a fraction
-  // of a peso short of the real balance — rounding up never does.
-  const [amountPaid, setAmountPaid] = useState(Math.ceil(installment.totalDue));
+  // Human report, 2026-09-09 — this used to pre-fill with the cuota's full
+  // remaining balance (Math.ceil(installment.totalDue), see git history),
+  // so a worker who received a PARTIAL payment but didn't think to edit
+  // the field before hitting "Guardar" silently registered a full payment
+  // instead, closing a cuota that should have stayed pending with a real
+  // balance owed. Starting empty (CurrencyInput treats 0 as empty, see its
+  // own comment) forces typing the actual amount received every time — the
+  // cuota's real balance is still shown just below the field instead, for
+  // quick reference without it being the thing that gets silently
+  // submitted unedited.
+  const [amountPaid, setAmountPaid] = useState(0);
   const [paidAt, setPaidAt] = useState(todayDateString());
   const [observation, setObservation] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Redesign, 2026-09-09 (human decision, same pattern as LoanForm.tsx's
+  // ConfirmCreateLoanDialog) — "Guardar" below no longer registers the
+  // payment directly; it only validates/uploads photos and opens
+  // ConfirmRegisterPaymentDialog with a summary of exactly what the cuota
+  // will look like afterward. onConfirm (the actual mutation, which is
+  // what triggers the WhatsApp confirmation message server-side once it
+  // closes the cuota) only ever fires from that dialog's own confirm
+  // button — see performConfirm below.
+  const [pendingInput, setPendingInput] = useState<{
+    amountPaid: number;
+    paidAt: string;
+    observation?: string;
+    imageUrls?: string[];
+  } | null>(null);
 
   // Kept separate from the files themselves: each file is uploaded to
   // Cloudinary BEFORE the payment is submitted (per
@@ -169,14 +183,25 @@ export function RegisterPaymentDialog({
       imageUrls = uploaded;
     }
 
+    setPendingInput({
+      amountPaid: amount,
+      paidAt,
+      observation: observation.trim() || undefined,
+      imageUrls,
+    });
+  };
+
+  // Takes `input` as a parameter rather than reading pendingInput from
+  // state — the confirm dialog's own onConfirm below clears pendingInput
+  // immediately on click (same pattern as LoanForm.tsx's
+  // ConfirmCreateLoanDialog: the confirm dialog closes right away either
+  // way, any failure surfaces back on this form via `error`), so this
+  // would otherwise read a stale null on the very call it's meant to act
+  // on.
+  const performConfirm = async (input: NonNullable<typeof pendingInput>) => {
     setIsSubmitting(true);
     try {
-      await onConfirm({
-        amountPaid: amount,
-        paidAt,
-        observation: observation.trim() || undefined,
-        imageUrls,
-      });
+      await onConfirm(input);
       onClose();
     } catch (err) {
       setError(
@@ -207,6 +232,13 @@ export function RegisterPaymentDialog({
               onChange={setAmountPaid}
               className={inputClassName}
             />
+            {/* Human report, 2026-09-09 — the field used to pre-fill this
+                exact figure; now it's shown here for reference only, so
+                the collector still has it at a glance without it being
+                the thing that gets submitted unedited. */}
+            <span className="mt-1 text-meta text-muted">
+              Saldo de la cuota: {formatCurrency(installment.totalDue)}
+            </span>
           </Field>
           <Field label="Fecha de pago">
             <DatePicker
@@ -306,12 +338,99 @@ export function RegisterPaymentDialog({
           </Button>
         </div>
       </form>
+
+      {pendingInput && (
+        <ConfirmRegisterPaymentDialog
+          installment={installment}
+          amountPaid={pendingInput.amountPaid}
+          isSubmitting={isSubmitting}
+          onCancel={() => setPendingInput(null)}
+          onConfirm={() => {
+            const input = pendingInput;
+            setPendingInput(null);
+            void performConfirm(input);
+          }}
+        />
+      )}
     </Modal>
   );
 }
 
 const inputClassName =
   'h-[42px] w-full rounded border border-border bg-input px-3.5 text-control text-white placeholder-mid focus:border-subtle focus:outline-none';
+
+// Redesign, 2026-09-09 (human decision) — mirrors LoanForm.tsx's
+// ConfirmCreateLoanDialog: a payment that fully closes its cuota sends
+// the WhatsApp confirmation message immediately (InstallmentsService.
+// registerPayment's sendPaymentConfirmationSafely), so this is where that
+// send is now visibly triggered from, not the form's own "Registrar
+// pago" button above. A payment that leaves a saldo pendiente never
+// sends anything — the summary reflects that distinction directly rather
+// than showing a WhatsApp disclaimer that wouldn't apply.
+function ConfirmRegisterPaymentDialog({
+  installment,
+  amountPaid,
+  isSubmitting,
+  onCancel,
+  onConfirm,
+}: {
+  installment: Installment;
+  amountPaid: number;
+  isSubmitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEscapeKey(onCancel);
+
+  // Math.ceil to match the exact figure this dialog's own field used to
+  // pre-fill as "the amount that fully closes this cuota" — see
+  // amountPaid's own comment above.
+  const remainingAfter = Math.max(
+    0,
+    Math.ceil(installment.totalDue) - amountPaid,
+  );
+  const willCloseCuota = remainingAfter === 0;
+
+  return (
+    <Modal maxWidth="max-w-[420px]">
+      <h2 className="text-[16px] font-medium text-white">
+        Confirmar registro de pago
+      </h2>
+      <p className="mt-2.5 text-small text-muted">
+        Vas a registrar un pago de {formatCurrency(amountPaid)} para la cuota{' '}
+        {installment.installmentNumber}. Esta cuota quedará{' '}
+        {willCloseCuota ? (
+          <strong className="text-white">PAGADA COMPLETA</strong>
+        ) : (
+          <>
+            con un saldo pendiente de{' '}
+            <strong className="text-white">
+              {formatCurrency(remainingAfter)}
+            </strong>
+          </>
+        )}
+        .
+      </p>
+      {willCloseCuota && (
+        <p className="mt-2.5 text-small text-muted">
+          Al confirmar, se envía de inmediato el mensaje de WhatsApp de
+          confirmación de pago al cliente.
+        </p>
+      )}
+
+      <div className="mt-6 border-t border-border" />
+
+      <div className="mt-5 flex items-center justify-end gap-3">
+        <Button variant="secondary" onClick={onCancel} disabled={isSubmitting}>
+          Cancelar
+        </Button>
+        <Button onClick={onConfirm} disabled={isSubmitting}>
+          {isSubmitting ? 'Registrando…' : 'Sí, registrar pago'}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
 
 // Field now lives in @/components/ui/Field — see DESIGN_TOKENS.md's
 // "Component-based centralization" section.
