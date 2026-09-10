@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -8,12 +16,15 @@ import {
 
 import { Audit } from '../../auditLog/decorators/audit.decorator';
 import { CurrentUser } from '../../auth/decorators/currentUser.decorator';
+import { Roles } from '../../auth/decorators/roles.decorator';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
+import { UserRole } from '../../users/entities/user.entity';
 import { Payment } from '../entities/payment.entity';
 
 import { CreatePaymentDto } from './dto/createPayment.dto';
 import { QueryInstallmentsDto } from './dto/queryInstallments.dto';
 import { RegisterBulkPaymentsDto } from './dto/registerBulkPayments.dto';
+import { VoidPaymentDto } from './dto/voidPayment.dto';
 import { InstallmentWithCalculated } from './enrichInstallment';
 import { InstallmentsService } from './installments.service';
 
@@ -100,5 +111,33 @@ export class InstallmentsController {
     @Body() dto: CreatePaymentDto,
   ): Promise<Payment> {
     return this.installmentsService.registerPayment(id, dto);
+  }
+
+  // Human report, 2026-09-09 — admin-only correction for a payment
+  // registered by mistake. @Roles(UserRole.Admin), not @RequireModule: the
+  // human was explicit this is stricter than the general "loans" module
+  // grant collectors can otherwise have — see docs/GLOSSARY.md "Module
+  // permission"'s Usuarios precedent for the same "always admin-only,
+  // regardless of module grants" pattern.
+  @Patch('payments/:id/void')
+  @Roles(UserRole.Admin)
+  @Audit('payment.void', 'payment')
+  @ApiOperation({
+    summary: 'Void (annul) a previously registered payment — admin only',
+    description:
+      'Soft-deletes the payment. If it had closed its installment, the installment (and the loan, if it had cascaded to Paid) reopens so the real remaining balance shows again everywhere. Requires a reason, recorded on the payment and captured in the audit log.',
+  })
+  @ApiResponse({ status: 200, description: 'The payment was voided.' })
+  @ApiResponse({
+    status: 400,
+    description: 'The payment was already voided.',
+  })
+  @ApiResponse({ status: 404, description: 'Payment not found.' })
+  voidPayment(
+    @Param('id') id: string,
+    @CurrentUser() _currentUser: AuthenticatedUser,
+    @Body() dto: VoidPaymentDto,
+  ): Promise<Payment> {
+    return this.installmentsService.voidPayment(id, dto);
   }
 }

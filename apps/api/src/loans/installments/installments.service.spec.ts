@@ -30,6 +30,7 @@ describe('InstallmentsService', () => {
     create: jest.Mock;
     save: jest.Mock;
     find: jest.Mock;
+    findOne: jest.Mock;
   };
   let loansRepository: { update: jest.Mock };
   let loanInstallmentConceptsRepository: { find: jest.Mock };
@@ -90,6 +91,7 @@ describe('InstallmentsService', () => {
       // sets its own resolution before calling the service, which takes
       // precedence over this default.
       find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn(),
     };
     loansRepository = {
       update: jest.fn().mockResolvedValue({ affected: 1 }),
@@ -923,6 +925,147 @@ describe('InstallmentsService', () => {
         ]),
       ).rejects.toThrow(BadRequestException);
       expect(installmentsRepository.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // Human report, 2026-09-09 — admin-only correction for a payment
+  // registered by mistake. See voidPayment's own doc comment on the
+  // service for the full design rationale.
+  describe('voidPayment', () => {
+    const paidInstallment: Installment = {
+      ...mockInstallment,
+      status: InstallmentStatus.Paid,
+    };
+
+    // A factory, not a shared const — voidPayment mutates the object it's
+    // given (payment.deletedAt = ..., see the service's own comment on
+    // saving both fields together), so reusing one instance across tests
+    // would leak a previous test's void into the next one.
+    function makeMockPayment(): Payment {
+      return {
+        id: 'payment-1',
+        installmentId: paidInstallment.id,
+        amountPaid: paidInstallment.amount,
+        paidAt: '2026-01-05',
+        observation: null,
+        imageUrl: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+        voidReason: null,
+        installment: paidInstallment,
+      };
+    }
+
+    const voidDto = {
+      reason:
+        'Se registró el monto completo por error; el cliente solo pagó una parte.',
+    };
+
+    it('looks up the payment including already-voided rows, with its installment/loan relations', async () => {
+      const mockPayment = makeMockPayment();
+      paymentsRepository.findOne.mockResolvedValue(mockPayment);
+      paymentsRepository.find.mockResolvedValue([]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+      await service.voidPayment(mockPayment.id, voidDto);
+
+      expect(paymentsRepository.findOne).toHaveBeenCalledWith({
+        where: { id: mockPayment.id },
+        withDeleted: true,
+        relations: { installment: { loan: true } },
+      });
+    });
+
+    it('throws NotFoundException when the payment does not exist', async () => {
+      paymentsRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.voidPayment('missing-id', voidDto)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when the payment was already voided', async () => {
+      const mockPayment = makeMockPayment();
+      paymentsRepository.findOne.mockResolvedValue({
+        ...mockPayment,
+        deletedAt: new Date(),
+      });
+
+      await expect(
+        service.voidPayment(mockPayment.id, voidDto),
+      ).rejects.toThrow(BadRequestException);
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('soft-deletes the payment with the given reason', async () => {
+      const mockPayment = makeMockPayment();
+      paymentsRepository.findOne.mockResolvedValue(mockPayment);
+      paymentsRepository.find.mockResolvedValue([]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+      const result = await service.voidPayment(mockPayment.id, voidDto);
+
+      expect(paymentsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deletedAt: expect.any(Date) as unknown,
+          voidReason: voidDto.reason,
+        }),
+      );
+      expect(result.voidReason).toBe(voidDto.reason);
+    });
+
+    // sumPayments/resolveRemainingBalance are exercised here with the mock
+    // simply returning no other payments for the installment (as if the
+    // voided row had already been excluded, which is exactly what a real
+    // `.find()` does for a soft-deleted row with no `withDeleted` override
+    // — see this test file's own top-level comment on that convention).
+    it('reopens the installment and the loan when the voided payment is what had closed both', async () => {
+      const mockPayment = makeMockPayment();
+      paymentsRepository.findOne.mockResolvedValue(mockPayment);
+      paymentsRepository.find.mockResolvedValue([]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+      await service.voidPayment(mockPayment.id, voidDto);
+
+      expect(installmentsRepository.update).toHaveBeenCalledWith(
+        { id: paidInstallment.id },
+        { status: InstallmentStatus.Pending },
+      );
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: paidInstallment.loanId, status: LoanStatus.Paid },
+        { status: LoanStatus.Active },
+      );
+    });
+
+    it('does not reopen anything when another payment still covers the installment in full', async () => {
+      const mockPayment = makeMockPayment();
+      paymentsRepository.findOne.mockResolvedValue(mockPayment);
+      // The remaining payment alone still covers the installment's full
+      // amount — resolveRemainingBalance should land back at 0.
+      paymentsRepository.find.mockResolvedValue([
+        { amountPaid: paidInstallment.amount },
+      ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+      await service.voidPayment(mockPayment.id, voidDto);
+
+      expect(installmentsRepository.update).not.toHaveBeenCalled();
+      expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('does not touch installment/loan status when the installment was never marked Paid', async () => {
+      const mockPayment = makeMockPayment();
+      paymentsRepository.findOne.mockResolvedValue({
+        ...mockPayment,
+        installment: mockInstallment, // status: Pending
+      });
+
+      await service.voidPayment(mockPayment.id, voidDto);
+
+      expect(installmentsRepository.update).not.toHaveBeenCalled();
+      expect(loansRepository.update).not.toHaveBeenCalled();
     });
   });
 });

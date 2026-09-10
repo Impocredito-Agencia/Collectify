@@ -27,6 +27,7 @@ import { PaymentImage } from '../entities/paymentImage.entity';
 import { CreatePaymentDto } from './dto/createPayment.dto';
 import { QueryInstallmentsDto } from './dto/queryInstallments.dto';
 import { BulkPaymentEntryDto } from './dto/registerBulkPayments.dto';
+import { VoidPaymentDto } from './dto/voidPayment.dto';
 import {
   enrichInstallment,
   InstallmentWithCalculated,
@@ -415,6 +416,93 @@ export class InstallmentsService {
     }
 
     return savedPayments;
+  }
+
+  // Human report, 2026-09-09 — admin-only correction for a payment
+  // registered by mistake (e.g. the full balance entered when the client
+  // had only paid part of it, silently closing a cuota that should have
+  // stayed pending). Soft-deletes the payment (see Payment.voidReason's
+  // own comment for why this reuses deletedAt rather than a separate
+  // voidedAt column) and, if that payment is what had closed its
+  // installment, reopens it — recomputed via resolveRemainingBalance with
+  // the voided row already excluded (every payment query does that by
+  // default) AND the installment's status temporarily treated as Pending
+  // for that one call, since enrichInstallment otherwise short-circuits
+  // totalDue to 0 for any installment that's still marked Paid at the
+  // moment this runs (see resolveRemainingBalance's call site below).
+  // Reopening a loan that had cascaded to Paid mirrors
+  // cascadeLoanStatusIfFullyPaid in reverse. Wrapped in a transaction —
+  // same precedent as registerBulkPayments — so a failure partway never
+  // leaves the payment voided but the installment/loan status stale.
+  async voidPayment(paymentId: string, dto: VoidPaymentDto): Promise<Payment> {
+    return this.dataSource.transaction(async (manager: EntityManager) => {
+      const paymentsRepository = manager.getRepository(Payment);
+      const installmentsRepository = manager.getRepository(Installment);
+      const loanInstallmentConceptsRepository = manager.getRepository(
+        LoanInstallmentConcept,
+      );
+
+      const payment = await paymentsRepository.findOne({
+        where: { id: paymentId },
+        withDeleted: true,
+        relations: { installment: { loan: true } },
+      });
+      if (!payment) {
+        throw new NotFoundException(`Payment with id ${paymentId} not found`);
+      }
+      if (payment.deletedAt) {
+        throw new BadRequestException('This payment was already voided.');
+      }
+
+      // Set together, in one save — not via the repository's own
+      // .softDelete() shorthand, which would touch only deletedAt and
+      // require a second write for voidReason. Loading the full entity
+      // first (rather than a bare update-by-id) is what lets the response
+      // — and the audit log entry built from it — carry the installment
+      // relation resolveEntityLabel already knows how to read.
+      payment.deletedAt = new Date();
+      payment.voidReason = dto.reason;
+      const savedPayment = await paymentsRepository.save(payment);
+
+      const installment = payment.installment;
+      // A Pending installment has nothing to reopen (this just stops
+      // counting toward its balance, same as any other query). A
+      // Cancelled one (superseded by a refinance) stays Cancelled — its
+      // debt moved to the new loan, reopening it here would be wrong.
+      if (installment.status === InstallmentStatus.Paid) {
+        const totalPaidAfterVoid = await this.sumPayments(
+          installment.id,
+          paymentsRepository,
+        );
+        // enrichInstallment short-circuits totalDue to 0 for any
+        // non-Pending installment (see its own comment — "a paid
+        // installment owes nothing further"), which is exactly what we
+        // must NOT get here: the question is what this installment WOULD
+        // owe if it were still open, now that the voided payment no longer
+        // counts toward it. Passing a Pending copy is what makes
+        // resolveRemainingBalance actually run the real overdueDays/mora
+        // calculation instead of trivially returning 0 every time.
+        const remainingBalance = await this.resolveRemainingBalance(
+          { ...installment, status: InstallmentStatus.Pending },
+          totalPaidAfterVoid,
+          loanInstallmentConceptsRepository,
+        );
+        if (remainingBalance > 0) {
+          await installmentsRepository.update(
+            { id: installment.id },
+            { status: InstallmentStatus.Pending },
+          );
+          await manager
+            .getRepository(Loan)
+            .update(
+              { id: installment.loanId, status: LoanStatus.Paid },
+              { status: LoanStatus.Active },
+            );
+        }
+      }
+
+      return savedPayment;
+    });
   }
 
   // Phase 32 — shared by registerPayment and registerBulkPayments. Takes

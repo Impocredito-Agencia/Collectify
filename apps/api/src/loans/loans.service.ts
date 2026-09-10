@@ -952,9 +952,15 @@ export class LoansService {
       return [];
     }
 
+    // Human report, 2026-09-09 — withDeleted here is deliberate, unlike
+    // every other Payment query in the codebase: a voided payment (see
+    // InstallmentsService.voidPayment()) should stay visible in this
+    // history, flagged via deletedAt/voidReason, not silently vanish —
+    // this is the one place an admin needs to see that it happened.
     const payments = await this.paymentsRepository.find({
       where: { installmentId: In(installmentIds) },
       order: { paidAt: 'ASC' },
+      withDeleted: true,
     });
     const imageUrlsByPaymentId = await this.findImageUrlsByPaymentId(
       payments.map((payment) => payment.id),
