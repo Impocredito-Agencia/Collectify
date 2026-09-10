@@ -716,6 +716,68 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
+    // Human report, 2026-09-09 — one "cuota N del pagaré #X" segment per
+    // installment made a same-loan batch of 3+ cuotas unreadably long
+    // ("cuota 4 del pagaré #2, cuota 5 del pagaré #2, cuota 6 del pagaré
+    // #2"), forcing every other column in the audit table to shrink.
+    it('groups a bulk payment’s cuotas by pagaré into one compact segment each', async () => {
+      reflector.get.mockReturnValue({
+        action: 'payment.registerBulk',
+        entityType: 'payment',
+      });
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'installment-4',
+          installmentNumber: 4,
+          loan: { id: 'loan-1', promissoryNoteNumber: '#2' },
+        },
+        {
+          id: 'installment-5',
+          installmentNumber: 5,
+          loan: { id: 'loan-1', promissoryNoteNumber: '#2' },
+        },
+        {
+          id: 'installment-6',
+          installmentNumber: 6,
+          loan: { id: 'loan-1', promissoryNoteNumber: '#2' },
+        },
+      ]);
+      const context = buildContext({ user: { id: 'user-1' }, params: {} });
+      const handler = buildCallHandler(
+        of([
+          {
+            id: 'payment-1',
+            installmentId: 'installment-4',
+            amountPaid: 100000,
+            paidAt: '2026-09-09',
+          },
+          {
+            id: 'payment-2',
+            installmentId: 'installment-5',
+            amountPaid: 100000,
+            paidAt: '2026-09-09',
+          },
+          {
+            id: 'payment-3',
+            installmentId: 'installment-6',
+            amountPaid: 101334,
+            paidAt: '2026-09-09',
+          },
+        ]),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining(
+            'cuotas 4, 5 y 6 del pagaré #2',
+          ) as unknown,
+        }),
+      );
+    });
+
     it('falls back to just the total when a bulk payment’s installments can’t be found', async () => {
       reflector.get.mockReturnValue({
         action: 'payment.registerBulk',

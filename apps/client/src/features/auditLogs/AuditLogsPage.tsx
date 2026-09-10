@@ -139,13 +139,24 @@ export function AuditLogsPage() {
       </div>
 
       <div className="overflow-hidden rounded-lg bg-surface">
-        <table className="w-full">
+        {/* Human report, 2026-09-09 — a bulk payment's entityLabel (already
+            shortened once, see auditLogLabels/the interceptor's
+            formatCuotaGroupsLabel) can still run long, and with the
+            default table-layout: auto the browser hands most of the
+            table's width to whichever column has the longest content,
+            squeezing Actor/Acción/Fecha down to near-unreadable widths.
+            table-fixed + explicit widths on the other three columns makes
+            their width immune to Entidad's content — Entidad (the one
+            column left without an explicit width) absorbs whatever's left
+            and wraps to as many lines as it needs, instead of stealing
+            space from the rest. */}
+        <table className="w-full table-fixed">
           <thead className="bg-input">
             <tr>
-              <Th>Actor</Th>
-              <Th>Acción</Th>
+              <Th className="w-[210px]">Actor</Th>
+              <Th className="w-[270px]">Acción</Th>
               <Th>Entidad</Th>
-              <Th>Fecha</Th>
+              <Th className="w-[160px]">Fecha</Th>
             </tr>
           </thead>
           <tbody>
