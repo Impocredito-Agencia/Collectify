@@ -63,12 +63,11 @@ users                     clients                       loans
 │ full_name       │       │ first_name       │          │ client_id (FK)            │──┐
 │ email           │       │ last_name        │◄─────────│ promissory_note_number    │  │
 │ password_hash   │       │ document_number  │   1:N     │ principal_amount          │  │
-│ role            │       │ phone_number     │          │ interest_rate             │  │
-│ created_at      │       │ created_at       │          │ disbursed_at              │  │
-│ updated_at      │       │ updated_at       │          │ installment_frequency     │  │
-│ deleted_at      │       │ deleted_at       │          │ total_installments        │  │
-└─────────────────┘       └──────────────────┘          │ status                    │  │
-                                                          │ refinanced_from_loan_id   │  │
+│ role            │       │ phone_number     │          │ disbursed_at              │  │
+│ created_at      │       │ created_at       │          │ installment_frequency     │  │
+│ updated_at      │       │ updated_at       │          │ total_installments        │  │
+│ deleted_at      │       │ deleted_at       │          │ status                    │  │
+└─────────────────┘       └──────────────────┘          │ refinanced_from_loan_id   │  │
                                                           │ created_at                │  │
                                                           │ updated_at                │  │
                                                           │ deleted_at                │  │
@@ -211,7 +210,6 @@ Represents a *pagaré* — see `GLOSSARY.md`.
 | `client_id` | UUID | FK → `clients.id` |
 | `promissory_note_number` | VARCHAR | **the business-facing identifier** — this is the `#743`, `#959` etc. seen in client messages and spreadsheets. Not the same as `id`. Must be unique and searchable. As of 2026-09-03, new loans must match `#0000` (`#` + at least 4 digits, see `GLOSSARY.md` "Loan / Pagaré") — pre-existing rows are exempt and were not reformatted. |
 | `principal_amount` | DECIMAL(12,2) | total amount financed (`TOTAL` / `SALDO TOTAL` in the source sheets) |
-| `interest_rate` | DECIMAL(5,2) | percentage, **moratory-only as of Phase 14** — see note below |
 | `disbursed_at` | DATE | when the loan was given (`FECHA INICIAL`) |
 | `installment_frequency` | ENUM (`monthly`, `biweekly`) | source data shows `MENSUAL` consistently; enum leaves room for other frequencies if they come up |
 | `total_installments` | INT | total number of installments the loan is divided into (`CUOTAS`) |
@@ -238,6 +236,8 @@ Represents a *pagaré* — see `GLOSSARY.md`.
 **Resolved, 2026-09-04 — is `interest_rate` dead code?** Client asked directly, since it's already superseded-for-moratory-purposes on any loan with concepts assigned (see above). Answer: not removable. It's the *only* moratory formula for any loan created before Phase 23 (or any loan an admin somehow creates today with zero moratory concepts attached), so dropping the column or its fallback branch would silently zero out mora on every one of those loans still active in the DB. Don't remove `interest_rate` without first auditing the whole loan book for any active loan still on the fallback path.
 
 **Reverted the same day — `interest_rate` is NOT editable post-creation:** the answer above briefly shipped with `interest_rate` staying editable via `PATCH /loans/:id` for a loan with no `moratoryConcepts` (and moratory concept values editable for every other loan — see the next note and `loan_installment_concepts` below). The client tried the moratory-concepts version in `EditLoanDialog` and decided the same day there wasn't enough real use for editing a loan's numbers after creation to justify keeping either path — see `loan_installment_concepts`'s "NOT editable" note below for the final rule. `interest_rate` is now immutable once a loan is created, same as every other numeric field; only `description` survives as editable via `PATCH /loans/:id`.
+
+**Superseded, 2026-09-09 — the "not removable" answer above no longer holds; `interest_rate` was removed entirely.** The audit this same date actually did (auditing every path that could ever create a loan with zero moratory concepts, not just historical data) found there wasn't one: every live path always assigns at least one. See "Removed, 2026-09-09" near the end of this document for the full story.
 
 **Added after Phase 31 — `currentPrincipalBalance` (not a stored column):** `GET /loans/:id` ("saldo capital a la fecha") now also returns the loan's pure remaining principal across still-pending installments, computed on read via `calculatePayoff()`'s `totalPrincipalOwed` (same Phase 16 engine `payoff-quote`/`refinance-quote` already use) — deliberately excludes accrued interest, unlike `outstandingBalance` shown elsewhere in the client app. See `docs/phases/PHASE_31_LOAN_TERMINOLOGY.md`.
 
@@ -544,7 +544,7 @@ npm run migration:revert
 
 ## Open questions — confirm with client before finalizing
 
-- [ ] Exact rule (if any) for how `interest_rate` is determined or changes over time
+None currently open. (The only entry here — how `interest_rate` was determined/changed over time — was mooted 2026-09-09 when the column itself was removed; see "Removed, 2026-09-09" below.)
 
 ## Resolved from Phase 4
 
@@ -831,6 +831,20 @@ Two test fixtures had hardcoded day-7 scenarios that assumed the OLD threshold (
 Client decision — the most practical fix given that historical pagarés keep hitting this, and it would likely keep happening on new loans too: by the time a pagaré is actually being created, the negotiation, acceptance, and paperwork already happened, so a hard block at that exact step was the wrong place to catch it.
 
 `LoansService.assertClientCanTakeNewLoan()` no longer checks mora at all — only cupo still rejects. `GET /clients/:id`'s `isMoraBlocked` is unchanged and still drives a red warning banner on `LoanForm.tsx`, it just no longer disables the form or the submit button. This also made the `LOAN_IMPORT_SKIP_CREDIT_CHECK` toggle (2026-09-08, see above) pointless — removed entirely, along with `LoansService.create()`'s `skipCreditCheck` option.
+
+## Removed, 2026-09-09 — `loans.interest_rate` and the loan-only Excel import
+
+Client decision, prompted by a display bug: the loan detail page's "Incremento en mora" card always showed 0% for any loan with real moratory concepts assigned (every current-generation loan), since it read `interest_rate` — the pre-Phase-23 legacy field — while the actual accrued mora came entirely from that loan's own `loan_installment_concepts` instead. Investigating whether it was safe to just delete the display bug's root field turned up two things:
+
+1. **`interest_rate` was already structurally dead for every loan's real mora math, not just empirically unused.** `LoansService.resolveConceptsWithInterest()` — called unconditionally by both `create()` and `refinance()` — always builds a system-generated "Intereses moratorios" moratory concept (defaulting to the current usury ceiling if no rate is requested), so `enrichInstallment()`'s `moratoryConcepts.length === 0` fallback branch (the only place `interest_rate` was ever read) could never actually be reached through either loan-creation path. This was true before this change too — not something introduced by it.
+2. **The one caller that *could* still reach that dead branch — the loan-only Excel import (`apps/api/src/loanImport`) — was itself confirmed unused.** It required a "Tasa moratoria (%)" column mapped straight to `interest_rate`, with no way to attach a real moratory concept, so an imported historical loan with no "cargo adicional" columns filled in would have hit the fallback. But the client confirmed the whole loan-only importer has no button or UI path to trigger it in `apps/client` at all (the original combined clients+loans importer was split in two on 2026-09-06 specifically because the client wanted to type loans in by hand after bulk-importing clients — see that date's note above) and was never going to be used. Removed outright rather than reworked: `apps/api/src/loanImport/` (controller, service, parser, columns, template, module, and their tests), its `AppModule` registration, and the `LOAN_COLUMNS`/template entry for `interestRate`. `apps/api/src/clientsImport` (the clients-only importer, actively used) is untouched. The audit log labels for `loanImport.execute`/`loanImport` (`apps/client/src/features/auditLogs/auditLogLabels.ts`) are kept, same precedent as `clientLoanImport.execute` from the 2026-09-06 split — purely so any historical audit row logged before this removal still translates instead of showing the raw action string.
+
+With both of those confirmed, `interest_rate` was dropped entirely rather than just hidden:
+
+- **Column dropped**: `1789200000000-DropInterestRateFromLoans.ts` (`ALTER TABLE "loans" DROP COLUMN "interest_rate"`). `Loan` entity, `CreateLoanDto`/`RefinanceLoanDto` no longer have the field; `LoanForm.tsx`/`RefinanceLoanForm.tsx` no longer send the `interestRate: 0` placeholder they used to.
+- **The legacy fallback formula itself is gone**, not just its trigger condition: `enrichInstallment()` and `calculatePayoff()`/`calculateInstallmentPayoff()` no longer take an `interestRate` parameter at all — both always price moratory interest via `calculateMoratoryCharges()` against the installment's real `LoanInstallmentConcept` rows now, with zero concepts simply meaning zero mora (no separate branch needed, since `calculateMoratoryCharges([])` already returns `[]`). `installmentCalculations.ts`'s `calculateInterest()` (the single-rate formula) was deleted along with it — nothing else called it.
+- Every call site that used to thread a loan's `interestRate` through to one of the two functions above (`LoansService`'s `summarize()`/`findOne()`/`getPayoffQuote()`/`payoff()`/`getRefinanceQuote()`, `InstallmentsService`'s `findAll()`/`resolveRemainingBalance()`, `ClientsService`'s `enrichActiveInstallments()`, `DashboardService`'s overdue-clients query, and the WhatsApp `breakdownQueries.ts`/`reminderInstallmentQueries.ts`/`paymentConfirmation.service.ts`) had that argument removed — none of them needed any other change, since the real moratory-concepts fetch these call sites already had (from the 2026-09-08 "concepts hardcoded to `[]`" fixes referenced throughout this document) was already the correct, complete input.
+- The loan detail page's "Incremento en mora" `StatCard` (`LoanDetailPage.tsx`) was removed outright rather than reworked to show something else — the real per-concept rate is already shown as a tooltip on each moratory ("M"-tagged) column header in the cuotas table (`chargeHeaderTitle`), which is the right place for it since a loan can have more than one moratory concept and no single number can represent that.
 
 ## Related documents
 

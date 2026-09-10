@@ -218,10 +218,10 @@ export class ClientsService {
   // Batched across just this page's clients (at most `limit`, not every
   // match findAll() sorted through) — two queries total regardless of how
   // many clients are on the page, instead of an N+1 loop calling something
-  // like enrichActiveInstallments per client. Mirrors that method's own
-  // logic (active loans only; legacy interestRate fallback, no per-concept
-  // moratory charges — same limitation that method already has) but
-  // aggregated across many clients' loans/installments in one pass.
+  // like enrichActiveInstallments per client. Only reads enrichInstallment's
+  // `overdueDays` — a pure date calculation, unaffected by moratory
+  // concepts/rate — so, unlike enrichActiveInstallments below, this never
+  // needed a per-loan interest rate or concepts fetch to begin with.
   private async enrichClientListItems(
     clients: Client[],
   ): Promise<ClientListItem[]> {
@@ -236,14 +236,12 @@ export class ClientsService {
 
     const activeLoanCountByClientId = new Map<string, number>();
     const clientIdByLoanId = new Map<string, string>();
-    const interestRateByLoanId = new Map<string, number>();
     for (const loan of loans) {
       activeLoanCountByClientId.set(
         loan.clientId,
         (activeLoanCountByClientId.get(loan.clientId) ?? 0) + 1,
       );
       clientIdByLoanId.set(loan.id, loan.clientId);
-      interestRateByLoanId.set(loan.id, loan.interestRate);
     }
 
     const maxOverdueDaysByClientId = new Map<string, number>();
@@ -252,10 +250,7 @@ export class ClientsService {
         where: { loanId: In(loans.map((loan) => loan.id)) },
       });
       for (const installment of installments) {
-        const { overdueDays } = enrichInstallment(
-          installment,
-          interestRateByLoanId.get(installment.loanId) ?? 0,
-        );
+        const { overdueDays } = enrichInstallment(installment);
         if (overdueDays <= 0) {
           continue;
         }
@@ -376,13 +371,10 @@ export class ClientsService {
   // partial payment already made on a still-Pending installment, so a
   // client's cupo stayed as "used" as if that money had never come in.
   //
-  // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which made
-  // enrichInstallment fall back to the legacy interestRate formula. Every
-  // loan created since the Phase 23 redesign (#254) sends `interestRate: 0`
-  // (see LoanForm.tsx/RefinanceLoanForm.tsx's own comment on that field) —
-  // so this silently reported ZERO accrued mora, inflating
-  // creditAvailable for any client with an overdue installment on a
-  // current-generation loan. Now fetches each installment's real
+  // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which
+  // silently reported ZERO accrued mora, inflating creditAvailable for
+  // any client with an overdue installment on a loan with real moratory
+  // concepts assigned. Now fetches each installment's real
   // LoanInstallmentConcept rows, same as loans.service.ts/
   // installments.service.ts already do. See docs/DATABASE.md's note of
   // this date.
@@ -399,9 +391,6 @@ export class ClientsService {
     const installments = await this.installmentsRepository.find({
       where: { loanId: In(loans.map((loan) => loan.id)) },
     });
-    const interestRateByLoanId = new Map(
-      loans.map((loan) => [loan.id, loan.interestRate]),
-    );
     const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
       this.paymentsRepository,
       installments.map((installment) => installment.id),
@@ -414,7 +403,6 @@ export class ClientsService {
     return installments.map((installment) =>
       enrichInstallment(
         installment,
-        interestRateByLoanId.get(installment.loanId) ?? 0,
         conceptsByInstallmentId.get(installment.id) ?? [],
         totalPaidByInstallmentId.get(installment.id) ?? 0,
       ),

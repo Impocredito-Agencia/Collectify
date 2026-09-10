@@ -40,11 +40,11 @@ describe('InstallmentsService', () => {
     sendPaidInFull: jest.Mock;
   };
 
-  // Bug fix, 2026-09-07 — loan is no longer undefined by default: both
-  // registerPayment and registerBulkPayments now fetch it (relations.loan)
-  // to compute the balance ceiling (resolveRemainingBalance needs
-  // loan.interestRate), so every test exercising either method needs it
-  // populated, not just findAll's own installmentWithLoan fixture below.
+  // loan is typed `as never` (Installment.loan is a required relation, but
+  // neither registerPayment/registerBulkPayments nor resolveRemainingBalance
+  // read anything off it since Loan.interestRate was removed 2026-09-09 —
+  // see enrichInstallment.ts's own note) — this fixture just needs to
+  // satisfy the type, not carry real data.
   //
   // Bug fix, 2026-09-08 — dueDate moved from a past date (2026-01-01, which
   // aged into "overdue, accruing real mora" as the calendar caught up to it)
@@ -59,7 +59,7 @@ describe('InstallmentsService', () => {
   const mockInstallment: Installment = {
     id: 'inst-1',
     loanId: 'loan-1',
-    loan: { interestRate: 6 } as never,
+    loan: {} as never,
     installmentNumber: 1,
     amount: 200000,
     principalPortion: null,
@@ -167,7 +167,7 @@ describe('InstallmentsService', () => {
   describe('findAll', () => {
     const installmentWithLoan: Installment = {
       ...mockInstallment,
-      loan: { interestRate: 6 } as never,
+      loan: {} as never,
     };
 
     it('attaches each installment its concept breakdown from LoanInstallmentConcept', async () => {
@@ -348,11 +348,21 @@ describe('InstallmentsService', () => {
       };
       installmentsRepository.findOne.mockResolvedValue(overdueInstallment);
       // The payment covers installment.amount (200000) exactly, but this
-      // installment has been overdue since 2026-01-01, so real totalDue is
+      // installment has been overdue since 2026-01-01 and has a real
+      // moratory concept assigned, so real totalDue is
       // 200000 + accrued mora > 200000 — remainingBalanceAfter is still > 0.
       paymentsRepository.find
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ amountPaid: 200000 }]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: overdueInstallment.id,
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        },
+      ]);
       mockInstallmentsFind();
 
       await service.registerPayment(overdueInstallment.id, {
@@ -376,7 +386,7 @@ describe('InstallmentsService', () => {
       // computed with today's real overdueDays) — read it back from the
       // service's own math rather than hand-computing the mora fixture,
       // so this test doesn't drift from the interest formula over time.
-      const fullTotalDue = enrichInstallment(overdueInstallment, 6).totalDue;
+      const fullTotalDue = enrichInstallment(overdueInstallment).totalDue;
 
       paymentsRepository.find
         .mockResolvedValueOnce([])
@@ -893,6 +903,15 @@ describe('InstallmentsService', () => {
             where?.id === overdueInstallment.id ? overdueInstallment : null,
           ),
       );
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: overdueInstallment.id,
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        },
+      ]);
 
       await expect(
         service.registerBulkPayments([

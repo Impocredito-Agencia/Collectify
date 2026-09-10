@@ -5,7 +5,6 @@ import { ConceptCalculationType } from '../../interestConceptTypes/entities/inte
 import {
   MORA_GRACE_PERIOD_DAYS,
   calculateDaysUntilDue,
-  calculateInterest,
   calculateMoratoryCharges,
   calculateOverdueDays,
   calculateTotalDue,
@@ -130,25 +129,6 @@ describe('installmentCalculations', () => {
     });
   });
 
-  describe('calculateInterest — verified fixtures from real spreadsheet data', () => {
-    it.each([
-      [210000, 6, 740, 310800],
-      [520000, 6, 484, 503360],
-      [547000, 6, 409, 447446],
-    ])(
-      'amount=%d rate=%d%% overdueDays=%d -> interest=%d',
-      (installmentAmount, interestRate, overdueDays, expectedInterest) => {
-        expect(
-          calculateInterest(installmentAmount, interestRate, overdueDays),
-        ).toBeCloseTo(expectedInterest, 6);
-      },
-    );
-
-    it('returns 0 when there are no overdue days', () => {
-      expect(calculateInterest(210000, 6, 0)).toBe(0);
-    });
-  });
-
   // Bug fix, 2026-09-08 (human report) — see MORA_GRACE_PERIOD_DAYS's own
   // doc comment: the business doesn't charge mora during an installment's
   // first N overdue days. Confirmed with the human: once past the grace
@@ -168,16 +148,32 @@ describe('installmentCalculations', () => {
         overdueDays <= MORA_GRACE_PERIOD_DAYS;
         overdueDays++
       ) {
-        expect(calculateInterest(205000, 6, overdueDays)).toBe(0);
+        const [charge] = calculateMoratoryCharges(205000, overdueDays, [
+          {
+            name: 'Interés moratorio',
+            calculationType: ConceptCalculationType.Percentage,
+            value: 6,
+          },
+        ]);
+        expect(charge.amount).toBe(0);
       }
     });
 
     it('charges interest over the FULL overdue days once the grace period ends, not just the days past it', () => {
       // 205000 * 0.06 / 30 * 7 = 2870 — using the full 7 days, not
       // (7 - 6) = 1.
-      expect(
-        calculateInterest(205000, 6, MORA_GRACE_PERIOD_DAYS + 1),
-      ).toBeCloseTo(2870, 6);
+      const [charge] = calculateMoratoryCharges(
+        205000,
+        MORA_GRACE_PERIOD_DAYS + 1,
+        [
+          {
+            name: 'Interés moratorio',
+            calculationType: ConceptCalculationType.Percentage,
+            value: 6,
+          },
+        ],
+      );
+      expect(charge.amount).toBeCloseTo(2870, 6);
     });
 
     it('applies the same grace period to moratory concepts, both percentage and fixed_amount', () => {
@@ -221,7 +217,7 @@ describe('installmentCalculations', () => {
   });
 
   describe('calculateMoratoryCharges', () => {
-    it('matches calculateInterest exactly for a single percentage concept at the same rate — no regression when a loan migrates onto the new engine', () => {
+    it('computes a percentage concept exactly like the pre-Phase-23 single-rate formula did — verified fixture from real spreadsheet data', () => {
       const [installmentAmount, rate, overdueDays, expected] = [
         210000, 6, 740, 310800,
       ];

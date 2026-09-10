@@ -19,6 +19,17 @@ import type { PayoffInstallmentInput } from './calculatePayoff';
 // midnight `today` is 7pm the evening before in Bogotá — every test here
 // would be off by exactly one day without this anchor.
 
+// A single percentage moratory concept at 6% — used throughout to exercise
+// the moratory-interest math (Loan.interestRate, the pre-Phase-23
+// single-rate fallback this used to also cover, was removed 2026-09-09
+// once every loan creation path was confirmed to always assign at least
+// one real moratory concept — see calculatePayoff.ts's own note).
+const moratoryConceptAt6Percent = {
+  name: 'Interés moratorio',
+  calculationType: ConceptCalculationType.Percentage,
+  value: 6,
+};
+
 function installment(
   overrides: Partial<PayoffInstallmentInput> = {},
 ): PayoffInstallmentInput {
@@ -39,8 +50,14 @@ describe('calculatePayoff', () => {
     const dueDate = subDays(today, 10).toISOString().slice(0, 10);
 
     const quote = calculatePayoff(
-      [installment({ dueDate, amount: 300000, principalPortion: 270000 })],
-      6,
+      [
+        installment({
+          dueDate,
+          amount: 300000,
+          principalPortion: 270000,
+          moratoryConcepts: [moratoryConceptAt6Percent],
+        }),
+      ],
       today,
     );
 
@@ -71,6 +88,7 @@ describe('calculatePayoff', () => {
           dueDate: overdueDate,
           amount: 300000,
           principalPortion: 270000,
+          moratoryConcepts: [moratoryConceptAt6Percent],
         }),
         installment({
           installmentId: 'inst-2',
@@ -78,9 +96,9 @@ describe('calculatePayoff', () => {
           dueDate: overdueDate,
           amount: 300000,
           principalPortion: 270000,
+          moratoryConcepts: [moratoryConceptAt6Percent],
         }),
       ],
-      6,
       today,
     );
 
@@ -110,9 +128,9 @@ describe('calculatePayoff', () => {
           dueDate: overdueDate,
           amount: 300000,
           principalPortion: 270000,
+          moratoryConcepts: [moratoryConceptAt6Percent],
         }),
       ],
-      6,
       today,
     );
 
@@ -134,9 +152,9 @@ describe('calculatePayoff', () => {
           dueDate: overdueDate,
           amount: 300000,
           principalPortion: 270000,
+          moratoryConcepts: [moratoryConceptAt6Percent],
         }),
       ],
-      6,
       today,
     );
 
@@ -161,7 +179,6 @@ describe('calculatePayoff', () => {
           principalPortion: 270000,
         }),
       ],
-      6,
       today,
     );
 
@@ -197,7 +214,6 @@ describe('calculatePayoff', () => {
           principalPortion: 270000,
         }),
       ],
-      6,
       today,
     );
 
@@ -223,9 +239,9 @@ describe('calculatePayoff', () => {
           dueDate: '2026-01-01',
           amount: 300000,
           principalPortion: 270000,
+          moratoryConcepts: [moratoryConceptAt6Percent],
         }),
       ],
-      6,
       today,
     );
 
@@ -244,9 +260,9 @@ describe('calculatePayoff', () => {
           dueDate: overdueDate,
           amount: 300000,
           principalPortion: null,
+          moratoryConcepts: [moratoryConceptAt6Percent],
         }),
       ],
-      6,
       today,
     );
 
@@ -256,7 +272,7 @@ describe('calculatePayoff', () => {
     expect(quote.installments[0].principalApplied).toBe(300000);
   });
 
-  it('uses the installment-assigned moratory concepts instead of the legacy interestRate formula once at least one is present', () => {
+  it('computes moratory interest correctly with more than one moratory concept, mixing percentage and fixed_amount', () => {
     const today = new Date('2026-01-11T12:00:00Z');
     const dueDate = subDays(today, 10).toISOString().slice(0, 10);
 
@@ -267,11 +283,7 @@ describe('calculatePayoff', () => {
           amount: 300000,
           principalPortion: 270000,
           moratoryConcepts: [
-            {
-              name: 'Interés moratorio',
-              calculationType: ConceptCalculationType.Percentage,
-              value: 6,
-            },
+            moratoryConceptAt6Percent,
             {
               name: 'Gastos de cobranza',
               calculationType: ConceptCalculationType.FixedAmount,
@@ -280,8 +292,6 @@ describe('calculatePayoff', () => {
           ],
         }),
       ],
-      // A different legacy rate, to prove it's ignored once concepts exist.
-      99,
       today,
     );
 
@@ -291,7 +301,7 @@ describe('calculatePayoff', () => {
   });
 
   it('returns zeros for an empty installment list', () => {
-    const quote = calculatePayoff([], 6, new Date('2026-01-01T12:00:00Z'));
+    const quote = calculatePayoff([], new Date('2026-01-01T12:00:00Z'));
 
     expect(quote).toEqual({
       installments: [],
@@ -320,7 +330,6 @@ describe('calculatePayoff', () => {
             principalPortion: 270000,
           }),
         ],
-        6,
         today,
         // no options passed — must match Phase 16's real payoff behavior
       );
@@ -341,13 +350,12 @@ describe('calculatePayoff', () => {
             principalPortion: 270000,
           }),
         ],
-        6,
         today,
         { earlyMaturityWindowDays: 5 },
       );
 
       // conceptsInterest (30000) only — overdueDays is still 0 four days
-      // out, so the legacy moratory formula naturally computes to 0.
+      // out, so moratory interest naturally computes to 0.
       expect(quote.installments[0].interestApplied).toBeCloseTo(30000, 6);
       expect(quote.installments[0].totalDue).toBeCloseTo(300000, 6);
     });
@@ -364,7 +372,6 @@ describe('calculatePayoff', () => {
             principalPortion: 270000,
           }),
         ],
-        6,
         today,
         { earlyMaturityWindowDays: 5 },
       );
@@ -384,7 +391,6 @@ describe('calculatePayoff', () => {
             principalPortion: 270000,
           }),
         ],
-        6,
         today,
         { earlyMaturityWindowDays: 5 },
       );
@@ -398,8 +404,14 @@ describe('calculatePayoff', () => {
       const dueDate = subDays(today, 10).toISOString().slice(0, 10);
 
       const quote = calculatePayoff(
-        [installment({ dueDate, amount: 300000, principalPortion: 270000 })],
-        6,
+        [
+          installment({
+            dueDate,
+            amount: 300000,
+            principalPortion: 270000,
+            moratoryConcepts: [moratoryConceptAt6Percent],
+          }),
+        ],
         today,
         { earlyMaturityWindowDays: 5 },
       );
@@ -427,7 +439,6 @@ describe('calculatePayoff', () => {
             corrienteConcepts: [{ name: 'Interés corriente', amount: 30000 }],
           }),
         ],
-        6,
         today,
       );
 
@@ -450,7 +461,6 @@ describe('calculatePayoff', () => {
             ],
           }),
         ],
-        6,
         today,
       );
 
@@ -476,11 +486,7 @@ describe('calculatePayoff', () => {
             principalPortion: 270000,
             corrienteConcepts: [{ name: 'Interés corriente', amount: 30000 }],
             moratoryConcepts: [
-              {
-                name: 'Interés moratorio',
-                calculationType: ConceptCalculationType.Percentage,
-                value: 6,
-              },
+              moratoryConceptAt6Percent,
               {
                 name: 'Gastos de cobranza',
                 calculationType: ConceptCalculationType.FixedAmount,
@@ -489,7 +495,6 @@ describe('calculatePayoff', () => {
             ],
           }),
         ],
-        99,
         today,
       );
 
@@ -516,7 +521,13 @@ describe('calculatePayoff', () => {
       ]);
     });
 
-    it('does not itemize the legacy single-rate moratory formula — no per-concept identity to itemize, same precedent as enrichInstallment.ts', () => {
+    // Removed, 2026-09-09 — this used to prove a zero-moratory-concepts
+    // installment still accrued mora via the legacy single-rate formula
+    // (Loan.interestRate). That formula and the column were both dropped
+    // once verified dead — see calculatePayoff.ts's own note. Replaced with
+    // the current, simpler behavior: zero moratory concepts means zero
+    // moratory interest, full stop.
+    it('accrues zero moratory interest for a matured installment with zero moratory concepts assigned', () => {
       const today = new Date('2026-01-11T12:00:00Z');
       const dueDate = subDays(today, 10).toISOString().slice(0, 10);
 
@@ -530,14 +541,10 @@ describe('calculatePayoff', () => {
             moratoryConcepts: [],
           }),
         ],
-        6,
         today,
       );
 
-      // interestApplied still includes the legacy moratory interest (36000
-      // total, per the very first test in this file) even though it has no
-      // line item of its own below.
-      expect(quote.installments[0].interestApplied).toBeCloseTo(36000, 6);
+      expect(quote.installments[0].interestApplied).toBeCloseTo(30000, 6);
       expect(quote.installments[0].conceptBreakdown).toEqual([
         {
           name: 'Interés corriente',

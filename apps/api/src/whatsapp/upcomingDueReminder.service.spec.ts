@@ -74,7 +74,6 @@ describe('UpcomingDueReminderService', () => {
     client: undefined as never,
     promissoryNoteNumber: '#1039',
     principalAmount: 900000,
-    interestRate: 6,
     disbursedAt: '2024-01-01',
     installmentFrequency: InstallmentFrequency.Monthly,
     totalInstallments: 3,

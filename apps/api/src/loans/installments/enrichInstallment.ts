@@ -6,7 +6,6 @@ import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entity';
 
 import {
-  calculateInterest,
   calculateMoratoryCharges,
   calculateOverdueDays,
   calculateTotalDue,
@@ -56,10 +55,18 @@ export interface InstallmentWithCalculated extends Installment {
 // caller that doesn't need the breakdown (e.g. WhatsApp message rendering)
 // is unaffected.
 //
-// interestRate/calculateInterest (the pre-Phase-23 single-rate formula)
-// remains the fallback for any loan with no moratory concepts assigned —
-// this is what keeps every loan created before Phase 23 producing identical
-// numbers with zero migration required.
+// Removed, 2026-09-09 — this used to take a loan-level `interestRate` and
+// fall back to a single legacy formula (calculateInterest) for any loan
+// with zero moratory concepts assigned. That branch was verified dead:
+// LoansService.resolveConceptsWithInterest always builds a
+// system-generated "Intereses moratorios" moratory concept for every loan
+// created through create()/refinance(), unconditionally — there was no
+// live path left that could ever reach it. Loan.interestRate itself was
+// dropped in the same change (see docs/DATABASE.md's "Removed,
+// 2026-09-09"). A loan with genuinely zero moratory concepts (which
+// shouldn't happen today, but isn't asserted against here) now simply
+// accrues zero mora — calculateMoratoryCharges already returns `[]` for
+// an empty concepts array, no separate branch needed.
 //
 // Bug fix, 2026-09-07 (human report, préstamo #0920) — `totalPaid` is new:
 // before this, totalDue was always the installment's full nominal cost
@@ -79,7 +86,6 @@ export interface InstallmentWithCalculated extends Installment {
 // updated to actually pass it through.
 export function enrichInstallment(
   installment: Installment,
-  interestRate: number,
   concepts: LoanInstallmentConcept[] = [],
   totalPaid = 0,
 ): InstallmentWithCalculated {
@@ -108,24 +114,6 @@ export function enrichInstallment(
   }
 
   const overdueDays = calculateOverdueDays(new Date(installment.dueDate));
-
-  if (moratoryConcepts.length === 0) {
-    const interest = calculateInterest(
-      installment.amount,
-      interestRate,
-      overdueDays,
-    );
-    return {
-      ...installment,
-      overdueDays,
-      interest,
-      totalDue: Math.max(
-        0,
-        calculateTotalDue(installment.amount, interest) - totalPaid,
-      ),
-      conceptBreakdown: corrienteBreakdown,
-    };
-  }
 
   const moratoryCharges = calculateMoratoryCharges(
     installment.amount,

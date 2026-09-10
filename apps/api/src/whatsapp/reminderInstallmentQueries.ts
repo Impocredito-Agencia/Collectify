@@ -68,13 +68,11 @@ export async function findOverdueInstallmentsForClient(
     paymentsRepository,
     installments.map((installment) => installment.id),
   );
-  // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which made
-  // enrichInstallment fall back to the legacy interestRate formula. Every
-  // loan created since the Phase 23 redesign (#254) sends
-  // `interestRate: 0` (see LoanForm.tsx/RefinanceLoanForm.tsx's own comment
-  // on that field), so this silently reported ZERO accrued mora in every
-  // WhatsApp reminder and the self-service "saldo pendiente" note for a
-  // current-generation loan. See docs/DATABASE.md's note of this date.
+  // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which
+  // silently reported ZERO accrued mora in every WhatsApp reminder and
+  // the self-service "saldo pendiente" note for any loan with real
+  // moratory concepts assigned (every current-generation loan). See
+  // docs/DATABASE.md's note of this date.
   const conceptsByInstallmentId = await findConceptsByInstallmentId(
     loanInstallmentConceptsRepository,
     installments.map((installment) => installment.id),
@@ -83,7 +81,6 @@ export async function findOverdueInstallmentsForClient(
   return installments.map((installment) => {
     const enriched = enrichInstallment(
       installment,
-      installment.loan.interestRate,
       conceptsByInstallmentId.get(installment.id) ?? [],
       totalPaidByInstallmentId.get(installment.id) ?? 0,
     );

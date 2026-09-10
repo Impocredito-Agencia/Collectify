@@ -565,8 +565,6 @@ export function RefinanceLoanForm({
     try {
       await onSubmit({
         principalAmount: principal,
-        // See LoanForm.tsx's identical comment.
-        interestRate: 0,
         disbursedAt: computeDisbursedAt(),
         firstInstallmentDueDate: firstDueDate,
         installmentFrequency,

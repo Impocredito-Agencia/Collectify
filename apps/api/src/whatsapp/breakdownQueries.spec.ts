@@ -19,9 +19,8 @@ function buildInstallment(overrides: Partial<Installment> = {}): Installment {
     id: 'loan-1',
     clientId: 'client-1',
     promissoryNoteNumber: '#743',
-    interestRate: 0,
     status: LoanStatus.Active,
-  } as Loan;
+  } as unknown as Loan;
 
   return {
     id: 'installment-1',
@@ -125,12 +124,9 @@ describe('findInstallmentsBreakdownByIds', () => {
   });
 
   // Bug fix, 2026-09-08 — before this, concepts was hardcoded to `[]`
-  // here, so enrichInstallment always fell back to the legacy interestRate
-  // formula. Every loan created since the Phase 23 redesign sends
-  // interestRate: 0 (see buildInstallment's own fixture, and LoanForm.tsx's
-  // comment), so this silently reported ZERO accrued mora in "Más
-  // información" for a current-generation loan.
-  it('uses the installment’s real moratory concepts instead of the legacy interestRate, even when interestRate is 0', async () => {
+  // here, so enrichInstallment always reported ZERO accrued mora in "Más
+  // información" for any loan with real moratory concepts assigned.
+  it("uses the installment's real moratory concepts", async () => {
     findMock.mockResolvedValue([
       buildInstallment({
         id: 'installment-1',

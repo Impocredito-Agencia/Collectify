@@ -360,7 +360,7 @@ export function LoanDetailPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-6 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <StatCard
           label="Capital original sin incremento"
           value={formatCurrency(loan.principalAmount)}
@@ -384,7 +384,15 @@ export function LoanDetailPage() {
           label="Próx. pago"
           value={oldestPending ? formatDateOnly(oldestPending.dueDate) : '—'}
         />
-        <StatCard label="Incremento en mora" value={`${loan.interestRate}%`} />
+        {/* Removed, 2026-09-09 — this used to show loan.interestRate, a
+            legacy pre-Phase-23 field that was always 0% for every loan
+            with real moratory concepts assigned (every current-generation
+            loan) — contradicting the real mora visibly accruing in the
+            cuotas table below. Loan.interestRate was removed outright
+            (see docs/DATABASE.md); each moratory concept's real rate is
+            shown as a tooltip on its own "M"-tagged column header in the
+            cuotas table (chargeHeaderTitle), which is where it actually
+            belongs since a loan can have more than one. */}
       </div>
 
       {/* Redesign, 2026-09-06 (client feedback) — moved here, right after

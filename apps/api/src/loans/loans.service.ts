@@ -167,7 +167,6 @@ interface PersistLoanParams {
   clientId: string;
   promissoryNoteNumber: string;
   principalAmount: number;
-  interestRate: number;
   disbursedAt: string;
   // Bug fix, 2026-09-09 — the exact due date of the schedule's own
   // (unshifted) installment 1, as entered by the admin on LoanForm/
@@ -273,7 +272,6 @@ export class LoansService {
           clientId: dto.clientId,
           promissoryNoteNumber: dto.promissoryNoteNumber,
           principalAmount: dto.principalAmount,
-          interestRate: dto.interestRate,
           disbursedAt: dto.disbursedAt,
           firstInstallmentDueDate: dto.firstInstallmentDueDate,
           installmentFrequency: dto.installmentFrequency,
@@ -415,7 +413,6 @@ export class LoansService {
           promissoryNoteNumber: oldLoan.promissoryNoteNumber,
           skipPromissoryNoteNumberUniquenessCheck: true,
           principalAmount: dto.principalAmount,
-          interestRate: dto.interestRate,
           disbursedAt: dto.disbursedAt,
           firstInstallmentDueDate: dto.firstInstallmentDueDate,
           installmentFrequency: dto.installmentFrequency,
@@ -572,10 +569,8 @@ export class LoansService {
           where: { loanId: In(loanIds) },
         })
       : [];
-    // Needed so a loan with moratory concepts assigned (Phase 23) reports
-    // the same outstandingBalance/overdueBalance here as its detail view —
-    // omitting this would silently fall back to the legacy interestRate
-    // formula for the list screen only, disagreeing with GET /loans/:id.
+    // Needed so this reports the exact same outstandingBalance/
+    // overdueBalance as the loan's own detail view (GET /loans/:id).
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
       installments.map((installment) => installment.id),
     );
@@ -596,7 +591,6 @@ export class LoansService {
         .map((installment) =>
           enrichInstallment(
             installment,
-            loan.interestRate,
             conceptsByInstallmentId.get(installment.id) ?? [],
             totalPaidByInstallmentId.get(installment.id) ?? 0,
           ),
@@ -694,7 +688,6 @@ export class LoansService {
           conceptsByInstallmentId.get(installment.id) ?? [],
         ),
       ),
-      loan.interestRate,
     ).totalPrincipalOwed;
 
     return {
@@ -703,7 +696,6 @@ export class LoansService {
       installments: installments.map((installment) =>
         enrichInstallment(
           installment,
-          loan.interestRate,
           conceptsByInstallmentId.get(installment.id) ?? [],
           totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
@@ -789,7 +781,7 @@ export class LoansService {
   // loan regardless of status (an already-paid/refinanced loan simply has
   // no pending installments, so the quote comes back empty).
   async getPayoffQuote(id: string): Promise<PayoffQuote> {
-    const loan = await this.findLoanOrThrow(id);
+    await this.findLoanOrThrow(id);
     const pending = await this.findPendingInstallments(id);
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
       pending.map((installment) => installment.id),
@@ -801,7 +793,6 @@ export class LoansService {
           conceptsByInstallmentId.get(installment.id) ?? [],
         ),
       ),
-      loan.interestRate,
     );
   }
 
@@ -829,7 +820,6 @@ export class LoansService {
           conceptsByInstallmentId.get(installment.id) ?? [],
         ),
       ),
-      loan.interestRate,
     );
 
     const paidAt = new Date().toISOString().slice(0, 10);
@@ -891,7 +881,7 @@ export class LoansService {
   // "what do I owe if I pay off today" is never shown a not-yet-due cuota's
   // interest.
   async getRefinanceQuote(id: string): Promise<RefinanceQuote> {
-    const loan = await this.findLoanOrThrow(id);
+    await this.findLoanOrThrow(id);
     const pending = await this.findPendingInstallments(id);
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
       pending.map((installment) => installment.id),
@@ -903,7 +893,6 @@ export class LoansService {
           conceptsByInstallmentId.get(installment.id) ?? [],
         ),
       ),
-      loan.interestRate,
       new Date(),
       { earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS },
     );
@@ -1132,7 +1121,6 @@ export class LoansService {
       clientId: params.clientId,
       promissoryNoteNumber: params.promissoryNoteNumber,
       principalAmount: params.principalAmount,
-      interestRate: params.interestRate,
       disbursedAt: params.disbursedAt,
       installmentFrequency: params.installmentFrequency,
       // +1 to count the down payment installment alongside the

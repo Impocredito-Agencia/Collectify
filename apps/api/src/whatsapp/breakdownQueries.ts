@@ -19,12 +19,7 @@ function toAccountSummaryInstallment(
   totalPaid: number,
   concepts: LoanInstallmentConcept[],
 ): AccountSummaryInstallmentForMessage {
-  const enriched = enrichInstallment(
-    installment,
-    installment.loan.interestRate,
-    concepts,
-    totalPaid,
-  );
+  const enriched = enrichInstallment(installment, concepts, totalPaid);
   return {
     installmentNumber: installment.installmentNumber,
     promissoryNoteNumber: installment.loan.promissoryNoteNumber,
@@ -64,13 +59,10 @@ export async function findPendingInstallmentsBreakdown(
     paymentsRepository,
     installments.map((installment) => installment.id),
   );
-  // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which made
-  // enrichInstallment fall back to the legacy interestRate formula. Every
-  // loan created since the Phase 23 redesign (#254) sends
-  // `interestRate: 0` (see LoanForm.tsx/RefinanceLoanForm.tsx's own comment
-  // on that field), so this silently reported ZERO accrued mora in
-  // "Ver mis cuotas"/"Estado de cuenta" for a current-generation loan. See
-  // docs/DATABASE.md's note of this date.
+  // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which
+  // silently reported ZERO accrued mora in "Ver mis cuotas"/"Estado de
+  // cuenta" for any loan with real moratory concepts assigned (every
+  // current-generation loan). See docs/DATABASE.md's note of this date.
   const conceptsByInstallmentId = await findConceptsByInstallmentId(
     loanInstallmentConceptsRepository,
     installments.map((installment) => installment.id),

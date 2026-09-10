@@ -23,7 +23,6 @@ describe('CreateLoanDto promissoryNoteNumber format', () => {
     // clientLoanImport.service.spec.ts.
     clientId: '11111111-1111-4111-8111-111111111111',
     principalAmount: 900000,
-    interestRate: 6,
     disbursedAt: '2026-07-09',
     installmentFrequency: InstallmentFrequency.Monthly,
     totalInstallments: 12,
@@ -68,7 +67,6 @@ describe('CreateLoanDto description requiredness', () => {
     clientId: '11111111-1111-4111-8111-111111111111',
     promissoryNoteNumber: '#0001',
     principalAmount: 900000,
-    interestRate: 6,
     disbursedAt: '2026-07-09',
     installmentFrequency: InstallmentFrequency.Monthly,
     totalInstallments: 12,

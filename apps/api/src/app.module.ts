@@ -13,7 +13,6 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { buildDataSourceOptions } from './database/typeOrmConfig';
 import { HealthModule } from './health/health.module';
 import { InterestConceptTypesModule } from './interestConceptTypes/interestConceptTypes.module';
-import { LoanImportModule } from './loanImport/loanImport.module';
 import { LoansModule } from './loans/loans.module';
 import { UsersModule } from './users/users.module';
 import { UsuryRatesModule } from './usuryRates/usuryRates.module';
@@ -39,7 +38,6 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     ClientsModule,
     LoansModule,
     ClientsImportModule,
-    LoanImportModule,
     InterestConceptTypesModule,
     UsuryRatesModule,
     WhatsappModule,

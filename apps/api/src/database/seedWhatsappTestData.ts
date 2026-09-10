@@ -63,7 +63,6 @@ import { LoansService } from '../loans/loans.service';
 //                multiple-overdue | single-upcoming | multiple-upcoming |
 //                mixed
 
-const TEST_LOAN_INTEREST_RATE = 5;
 const NEW_LOAN_PRINCIPAL = 600000;
 const NEW_LOAN_WITH_DOWN_PAYMENT_PRINCIPAL = 900000;
 const DOWN_PAYMENT_AMOUNT = 200000;
@@ -174,7 +173,6 @@ async function runNewLoanFamilySequence(
     principalAmount: firstLoanHasDownPayment
       ? NEW_LOAN_WITH_DOWN_PAYMENT_PRINCIPAL
       : NEW_LOAN_PRINCIPAL,
-    interestRate: TEST_LOAN_INTEREST_RATE,
     disbursedAt: today,
     installmentFrequency: InstallmentFrequency.Biweekly,
     totalInstallments: 2,
@@ -201,7 +199,6 @@ async function runNewLoanFamilySequence(
     clientId,
     promissoryNoteNumber: randomPromissoryNoteNumber('9'),
     principalAmount: NEW_LOAN_PRINCIPAL,
-    interestRate: TEST_LOAN_INTEREST_RATE,
     disbursedAt: today,
     installmentFrequency: InstallmentFrequency.Biweekly,
     totalInstallments: 2,
@@ -216,7 +213,6 @@ async function runNewLoanFamilySequence(
 
   await loansService.refinance(loan2.id, {
     principalAmount: REFINANCE_PRINCIPAL,
-    interestRate: TEST_LOAN_INTEREST_RATE,
     disbursedAt: today,
     installmentFrequency: InstallmentFrequency.Biweekly,
     totalInstallments: 2,
@@ -232,7 +228,6 @@ async function runNewLoanFamilySequence(
     clientId,
     promissoryNoteNumber: randomPromissoryNoteNumber('9'),
     principalAmount: NEW_LOAN_WITH_DOWN_PAYMENT_PRINCIPAL,
-    interestRate: TEST_LOAN_INTEREST_RATE,
     disbursedAt: today,
     installmentFrequency: InstallmentFrequency.Biweekly,
     totalInstallments: 2,
@@ -269,6 +264,14 @@ async function runNewLoanFamilySequence(
   );
 }
 
+// Removed, 2026-09-09 — this loan is built directly via loanRepository.
+// create() (bypassing LoansService.create(), which always auto-assigns a
+// moratory concept), so it now has zero moratory concepts and accrues $0
+// mora regardless of how overdue `dueDate` is. That's harmless for what
+// these scenarios actually test — reminderTemplateSelection.ts branches
+// purely on overdueDays, not on the mora amount — but a scenario that
+// specifically wants to eyeball a nonzero surcharge figure in the real
+// WhatsApp message would need a LoanInstallmentConcept row added here.
 async function createBackdatedReminderLoan(
   dataSource: DataSource,
   clientId: string,
@@ -282,7 +285,6 @@ async function createBackdatedReminderLoan(
       clientId,
       promissoryNoteNumber: randomPromissoryNoteNumber('8'),
       principalAmount: REMINDER_TEST_INSTALLMENT_AMOUNT,
-      interestRate: TEST_LOAN_INTEREST_RATE,
       disbursedAt: addDaysToDateString(dueDate, -14),
       installmentFrequency: InstallmentFrequency.Biweekly,
       totalInstallments: 1,

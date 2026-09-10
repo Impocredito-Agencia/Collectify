@@ -79,9 +79,12 @@ export class InstallmentsService {
       where.status = query.status;
     }
 
+    // Removed, 2026-09-09 — relations: { loan: true } used to be loaded
+    // here purely to read loan.interestRate for enrichInstallment(), which
+    // no longer takes that parameter (see enrichInstallment.ts's own
+    // note). Nothing else in this method touches the loan relation.
     const [items, total] = await this.installmentsRepository.findAndCount({
       where,
-      relations: { loan: true },
       order: { dueDate: 'ASC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -102,7 +105,6 @@ export class InstallmentsService {
       items: items.map((installment) =>
         enrichInstallment(
           installment,
-          installment.loan.interestRate,
           conceptsByInstallmentId.get(installment.id) ?? [],
           totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
@@ -137,13 +139,8 @@ export class InstallmentsService {
     installmentId: string,
     dto: CreatePaymentDto,
   ): Promise<Payment> {
-    // Bug fix, 2026-09-07 — relations.loan added so the balance-ceiling
-    // check below can read the loan's interestRate (needed to compute this
-    // installment's live totalDue, see resolveRemainingBalance). Previously
-    // findOneBy, which doesn't eager-load relations.
     const installment = await this.installmentsRepository.findOne({
       where: { id: installmentId },
-      relations: { loan: true },
     });
     if (!installment) {
       throw new NotFoundException(
@@ -318,11 +315,8 @@ export class InstallmentsService {
         );
 
         for (const entry of sortedEntries) {
-          // relations.loan added for the same reason as registerPayment's —
-          // resolveRemainingBalance needs loan.interestRate.
           const installment = await installmentsRepository.findOne({
             where: { id: entry.installmentId },
-            relations: { loan: true },
           });
           if (!installment) {
             throw new NotFoundException(
@@ -454,9 +448,7 @@ export class InstallmentsService {
   // above): the actual amount still owed on `installment` right now — its
   // live totalDue (nominal amount + accrued moratory interest, same formula
   // GET /loans/:id uses) minus whatever has already been paid on it — which
-  // is the hard ceiling a new payment against it can never exceed. Requires
-  // `installment.loan` to already be loaded (relations: { loan: true }) —
-  // both callers fetch it that way now.
+  // is the hard ceiling a new payment against it can never exceed.
   private async resolveRemainingBalance(
     installment: Installment,
     totalPaid: number,
@@ -465,12 +457,7 @@ export class InstallmentsService {
     const concepts = await loanInstallmentConceptsRepository.find({
       where: { installmentId: installment.id },
     });
-    return enrichInstallment(
-      installment,
-      installment.loan.interestRate,
-      concepts,
-      totalPaid,
-    ).totalDue;
+    return enrichInstallment(installment, concepts, totalPaid).totalDue;
   }
 
   private async savePaymentImages(

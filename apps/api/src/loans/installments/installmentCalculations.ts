@@ -71,13 +71,13 @@ export function calculateDaysUntilDue(
 // applied to which WhatsApp template/wording to send
 // (reminderTemplateSelection.ts's own check against this same constant)
 // — it never gated the actual money calculation here, so every consumer
-// of calculateInterest/calculateMoratoryCharges (the self-service
-// breakdown, a loan's Total column, the Dashboard, cupo, and the payment
-// ceiling) silently charged mora starting day 1. Confirmed with the
-// human: once past the grace period, mora is charged over the FULL
-// overdue days (no offset) — this constant only gates whether it's
-// charged at all, it doesn't shift the formula. Keep in sync with
-// reminderTemplateSelection.ts's own check.
+// of calculateMoratoryCharges (the self-service breakdown, a loan's
+// Total column, the Dashboard, cupo, and the payment ceiling) silently
+// charged mora starting day 1. Confirmed with the human: once past the
+// grace period, mora is charged over the FULL overdue days (no offset)
+// — this constant only gates whether it's charged at all, it doesn't
+// shift the formula. Keep in sync with reminderTemplateSelection.ts's
+// own check.
 //
 // Narrowed from 8 to 6, 2026-09-09 (client correction) — the client
 // clarified the real cutoff: day 6 still has no mora, but day 7 already
@@ -86,17 +86,6 @@ export function calculateDaysUntilDue(
 // that means the threshold itself is 6, not 7 — day 6 satisfies
 // `6 <= 6` (no mora), day 7 fails `7 <= 6` (mora applies).
 export const MORA_GRACE_PERIOD_DAYS = 6;
-
-export function calculateInterest(
-  installmentAmount: number,
-  interestRate: number,
-  overdueDays: number,
-): number {
-  if (overdueDays <= MORA_GRACE_PERIOD_DAYS) {
-    return 0;
-  }
-  return ((installmentAmount * (interestRate / 100)) / 30) * overdueDays;
-}
 
 export interface MoratoryConceptAssignment {
   name: string;
@@ -118,21 +107,22 @@ export interface MoratoryChargeItem {
   value: number;
 }
 
-// Phase 23 — the per-concept generalization of calculateInterest above,
-// used when a loan has moratory concepts assigned via
-// LoanInstallmentConcept (see enrichInstallment.ts and calculatePayoff.ts
-// for the legacy-formula fallback when it doesn't). Computed on read, same
-// as calculateInterest — never projected ahead of time, since future
-// overdue days can't be known in advance (confirmed with the human, see
+// Phase 23 — computes each moratory concept assigned to a loan (see
+// enrichInstallment.ts) via LoanInstallmentConcept. Computed on read,
+// never projected ahead of time, since future overdue days can't be
+// known in advance (confirmed with the human, see
 // docs/phases/PHASE_23_DYNAMIC_CHARGES.md).
 //
-// A percentage concept uses the exact same shape as calculateInterest, just
-// per-concept instead of a single rate — a loan with one percentage
-// moratory concept at the same value as the legacy interestRate produces an
-// identical number, so migrating a loan onto the new engine causes no
-// silent jump. A fixed_amount concept is charged once, flat, the moment the
-// installment is overdue — it does not scale with overdueDays (confirmed
-// with the human).
+// Removed, 2026-09-09 — this used to also generalize a legacy single-rate
+// formula (calculateInterest, keyed off Loan.interestRate) for a loan
+// with no moratory concepts assigned; both that formula and the column
+// were dropped once verified dead (see enrichInstallment.ts's own note).
+//
+// A percentage concept is charged over the full overdue days, same shape
+// as the old single-rate formula, just per-concept instead of one rate
+// for the whole loan. A fixed_amount concept is charged once, flat, the
+// moment the installment is overdue — it does not scale with
+// overdueDays (confirmed with the human).
 export function calculateMoratoryCharges(
   installmentAmount: number,
   overdueDays: number,
@@ -141,9 +131,8 @@ export function calculateMoratoryCharges(
   return concepts.map((concept) => ({
     name: concept.name,
     amount:
-      // Bug fix, 2026-09-08 — see calculateInterest's own comment above:
-      // the grace period applies to every moratory concept, not just the
-      // legacy single-rate fallback.
+      // Bug fix, 2026-09-08 — the grace period gates every moratory
+      // concept, not just a single legacy formula.
       overdueDays <= MORA_GRACE_PERIOD_DAYS
         ? 0
         : concept.calculationType === ConceptCalculationType.Percentage

@@ -60,8 +60,9 @@ export function RegisterPaymentDialog({
   onClose,
   onConfirm,
 }: RegisterPaymentDialogProps) {
-  // totalDue is amount + accrued interest (interestRate / 30 × overdueDays)
-  // — that division routinely produces long repeating decimals (e.g.
+  // totalDue is amount + accrued moratory interest (each percentage
+  // concept's rate / 30 × overdueDays, see calculateMoratoryCharges) —
+  // that division routinely produces long repeating decimals (e.g.
   // 108333.3333333333). The business only ever deals in whole pesos
   // (formatCurrency's convention everywhere else in the app), so the
   // default shown here is rounded the same way rather than dumping the raw

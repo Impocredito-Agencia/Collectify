@@ -79,16 +79,13 @@ export function PayoffDialog({
   // layout) — collapsed down to two fixed columns (corriente/moratorio
   // totals) instead of a column per distinct concept name, so the table's
   // width no longer grows with how many charge types a loan happens to
-  // have. moratorioTotal is deliberately interestApplied MINUS the
-  // itemized corriente total, not a sum of moratorio conceptBreakdown
-  // items — this is what keeps it correct for a pre-Phase-23 loan too,
-  // whose legacy single-rate moratory interest has no itemized entry at
-  // all (see calculatePayoff.ts's own comment on that precedent): summing
-  // moratorio items there would silently show $0 despite real interest
-  // being charged. corriente's own total, by contrast, IS exactly the sum
-  // of its itemized entries — every corriente charge is always itemized,
-  // legacy or not. Individual concept names/amounts aren't lost, just
-  // moved into each cell's title= tooltip.
+  // have. moratorioTotal is interestApplied MINUS the itemized corriente
+  // total, rather than a sum of moratorio conceptBreakdown items — both
+  // are mathematically equivalent today (every loan's moratory interest is
+  // always itemized via real concepts, see calculatePayoff.ts), kept this
+  // way since it's already proven correct and there's no reason to
+  // introduce a second formula. Individual concept names/amounts aren't
+  // lost, just moved into each cell's title= tooltip.
   function conceptSummary(installment: PayoffInstallmentBreakdown) {
     const corrienteItems = installment.conceptBreakdown.filter(
       (concept) => concept.category === ConceptCategory.Corriente,

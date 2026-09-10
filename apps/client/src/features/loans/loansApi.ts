@@ -25,7 +25,6 @@ export interface Loan {
   clientId: string;
   promissoryNoteNumber: string;
   principalAmount: number;
-  interestRate: number;
   disbursedAt: string;
   installmentFrequency: InstallmentFrequency;
   totalInstallments: number;
@@ -144,13 +143,11 @@ export interface LoanConceptAssignment {
 // installment. concepts/moratoryConcepts are now
 // only for optional catalog fees — the loan's own corriente/moratorio
 // interest is corrienteInterestRate/moratoryInterestRate below (Redesign,
-// 2026-09-03). interestRate is a legacy field the API still requires;
-// LoanForm/RefinanceLoanForm send it as a fixed 0.
+// 2026-09-03).
 export interface CreateLoanInput {
   clientId: string;
   promissoryNoteNumber: string;
   principalAmount: number;
-  interestRate: number;
   disbursedAt: string;
   // Bug fix, 2026-09-09 — the exact due date of the schedule's own
   // (unshifted) installment 1, i.e. LoanForm's own `firstDueDate` state.
@@ -196,9 +193,9 @@ export interface CreateLoanInput {
   // should get the scheduled "new loan" WhatsApp message (sent by the
   // NewLoan cron sweep, not immediately). LoanForm.tsx has a checkbox for
   // this, unchecked by default. Left optional here, defaulting to false
-  // ("es viejo") server-side when omitted, so bulk Excel import
-  // (LoanImportService) — which never sets this field — keeps its
-  // existing safe-by-default behavior. See createLoan.dto.ts (api) and
+  // ("es viejo") server-side when omitted, so any other caller of
+  // create() that never sets it explicitly keeps its existing
+  // safe-by-default behavior. See createLoan.dto.ts (api) and
   // Loan.isNewLoan.
   isNewLoan?: boolean;
 }
@@ -213,7 +210,6 @@ export type PreviewScheduleInput = Omit<
   CreateLoanInput,
   | 'clientId'
   | 'promissoryNoteNumber'
-  | 'interestRate'
   | 'description'
   | 'downPaymentAmount'
   | 'downPaymentDueDate'
@@ -255,10 +251,7 @@ export interface PayoffInstallmentBreakdown {
   // Style cleanup, 2026-09-04 — per-cargo detail (corriente vs moratorio,
   // one entry per concept), same shape/precedent as
   // InstallmentWithCalculated's own conceptBreakdown above: empty for a
-  // not-yet-matured installment, and the legacy single-rate moratory
-  // formula still isn't itemized as its own line even though it's folded
-  // into interestApplied — see apps/api/src/loans/payoff/calculatePayoff.ts's
-  // own comment for the full reasoning.
+  // not-yet-matured installment.
   conceptBreakdown: ConceptBreakdownItem[];
 }
 
@@ -311,7 +304,6 @@ export interface UpdateLoanInput {
 // docs/DATABASE.md "Refinancing".
 export interface RefinanceLoanInput {
   principalAmount: number;
-  interestRate: number;
   disbursedAt: string;
   // See CreateLoanInput.firstInstallmentDueDate — same day-of-month bug
   // fix, 2026-09-09.

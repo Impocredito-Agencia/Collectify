@@ -88,6 +88,8 @@ The percentage used in the interest formula above. **Confirmed to vary per loan*
 
 **`EditLoanDialog.tsx` tried and reverted, same day (2026-09-04):** the client noticed this field was already dead for any loan with moratory concepts assigned (essentially every loan since Phase 254 — see "Superseded after Phase 23" above), since editing it changes nothing `calculatePayoff.ts`/`enrichInstallment.ts` actually read for those loans. `EditLoanDialog` briefly showed "Incremento en mora (%)" only for a loan with zero moratory concepts assigned, and editable moratory-concept values (Intereses moratorios, Gastos de cobranza, etc.) for every other loan. After seeing it in practice the client decided neither was useful enough to keep — see `docs/DATABASE.md`'s `loan_installment_concepts` note for the final call. `EditLoanDialog` now only edits `description`; its trigger also moved off the top action bar onto the Descripción line itself on `LoanDetailPage`, so the narrower scope reads as obvious from where the button lives. Creating or refinancing a loan now also requires confirming a warning dialog (`ConfirmCreateLoanDialog` in `LoanForm.tsx`, `ConfirmRefinanceDialog` in `RefinanceLoanForm.tsx`) before the mutation fires — spelling out that the loan's numbers are final from that point on and that the client's WhatsApp message goes out immediately on confirm. `interest_rate` itself was NOT removed (client asked directly) — it's still the only formula a pre-Phase-23 loan has, so removing it would need a full audit of the loan book first; it's just no longer editable by anyone post-creation.
 
+**Removed, 2026-09-09.** Prompted by a display bug (the "Incremento en mora" card always showed 0% for a modern loan). The "full audit" the 2026-09-04 note above said would be needed actually turned up no live path left that could reach the fallback formula: `LoansService.resolveConceptsWithInterest()` always assigns a real moratory concept, unconditionally, on every loan `create()`/`refinance()`; the one caller that could still reach it — a loan-only Excel import — was confirmed by the client to have no UI path to trigger it and was deleted outright rather than reworked. `interest_rate` and the single-rate mora formula it drove are both gone from the codebase; every loan's mora is now priced exclusively through its own moratory concepts (see "Interest / Interés (mora interest)" above). See `docs/DATABASE.md`'s "Removed, 2026-09-09" note for the full mechanics.
+
 ### Interest concept type / Tipo de concepto de interés
 Added Phase 14 — an admin-managed, reusable definition of a kind of charge a loan can carry (e.g. "Interés remuneratorio", "Gastos de cobranza", "Uso de plataforma"): a name, a default calculation type (percentage or fixed amount), and an optional default value. The admin can create, edit, or deactivate these at any time — confirmed with the client this must never require a code change to add or reprice a concept. In code: `InterestConceptType` entity, `interest_concept_types` table. See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`.
 
@@ -239,7 +241,7 @@ The following were open questions in an earlier version of this glossary, now re
 
 ## Still open — pending client confirmation
 
-- [ ] The exact rule governing `interest_rate` assignment or changes over time
+None currently open. (The only entry here — the rule governing `interest_rate` assignment/changes over time — was mooted 2026-09-09 when the field itself was removed; see "Interest rate / Tasa de mora"'s own "Removed" note above.)
 
 ## Resolved from Phase 6
 

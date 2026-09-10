@@ -265,14 +265,11 @@ export class DashboardService {
       this.paymentsRepository,
       installments.map((installment) => installment.id),
     );
-    // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which made
-    // enrichInstallment fall back to the legacy interestRate formula. Every
-    // loan created since the Phase 23 redesign (#254) sends
-    // `interestRate: 0` (see LoanForm.tsx/RefinanceLoanForm.tsx's own
-    // comment on that field), so this silently reported ZERO accrued mora
-    // here — understating the Dashboard's "cuotas vencidas" total and every
-    // overdue client's totalOverdueAmount for a current-generation loan.
-    // See docs/DATABASE.md's note of this date.
+    // Bug fix, 2026-09-08 — concepts was hardcoded to `[]` below, which
+    // silently understated the Dashboard's "cuotas vencidas" total and
+    // every overdue client's totalOverdueAmount for any loan with real
+    // moratory concepts assigned (every current-generation loan). See
+    // docs/DATABASE.md's note of this date.
     const conceptsByInstallmentId = await findConceptsByInstallmentId(
       this.loanInstallmentConceptsRepository,
       installments.map((installment) => installment.id),
@@ -281,7 +278,6 @@ export class DashboardService {
     return installments.map((installment) => {
       const enriched = enrichInstallment(
         installment,
-        installment.loan.interestRate,
         conceptsByInstallmentId.get(installment.id) ?? [],
         totalPaidByInstallmentId.get(installment.id) ?? 0,
       );
