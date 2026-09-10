@@ -115,9 +115,9 @@ function makeRowId(): string {
 // Redesign, 2026-09-03: the loan's own corriente/moratorio interest is a
 // system field (corrienteInterestRate/moratoryInterestRate), not a catalog
 // pick — see SystemInterestRateRow below. It replaces both the old
-// standalone "Tasa de interés moratorio (%)" input (interestRate) and the
-// earlier "mandatory catalog concept" mechanism. interestRate is still
-// sent as a fixed 0, since the API keeps it required — see performSubmit.
+// standalone "Tasa de interés moratorio (%)" input (Loan.interestRate,
+// removed entirely 2026-09-09 — see docs/DATABASE.md) and the earlier
+// "mandatory catalog concept" mechanism.
 export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const { user } = useAuth();
   // Phase 23 — "los cobradores no miren el amortizador pero sí deben poder
@@ -570,14 +570,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         clientId: selectedClient!.id,
         promissoryNoteNumber,
         principalAmount: principal,
-        // corrienteInterestRate/moratoryInterestRate (below) are the
-        // loan's real interest now — this legacy field's only remaining
-        // use (the pre-Phase-23 fallback for a loan with zero moratory
-        // concepts, see enrichInstallment.ts) never applies to a loan
-        // created through this form. Still required by the API — sent as
-        // a fixed 0 rather than removed there, to avoid a wider migration
-        // for a value that no longer does anything for new loans.
-        interestRate: 0,
         disbursedAt: computeDisbursedAt(),
         firstInstallmentDueDate: firstDueDate,
         installmentFrequency,
