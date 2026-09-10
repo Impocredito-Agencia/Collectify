@@ -234,28 +234,15 @@ export class LoansService {
     private readonly dataSource: DataSource,
   ) {}
 
-  // skipCreditCheck: false by default (the interactive "Crear préstamo"
-  // flow, via LoansController). LoanImportService is the one caller that
-  // can set it true — gated behind the temporary LOAN_IMPORT_SKIP_CREDIT_
-  // CHECK env var (see LoanImportConfig in config/configuration.ts), on
-  // while the business backfills historical pagarés into production:
-  // bulk-loading a past loan book shouldn't be blocked by a mora/cupo
-  // state that no longer reflects reality (the loan already happened).
-  // Bug fix, 2026-09-08 — this comment used to describe that wiring as
-  // already done ("ClientLoanImportService is the one caller that sets it
-  // true"), but LoanImportService never actually passed the option; every
-  // historical import was silently still enforcing the guard. Mirrors
-  // ClientsService.create's CreateClientOptions pattern. Note this only
-  // ever touches the mora/cupo guard below — the promissory-note-
-  // uniqueness and usury-rate checks always run regardless of mode: both
-  // are hard blocks, per Phase 24 (docs/phases/PHASE_24_USURY_MANDATORY.md).
-  async create(
-    dto: CreateLoanDto,
-    options: { skipCreditCheck?: boolean } = {},
-  ): Promise<LoanDetail> {
-    if (!options.skipCreditCheck) {
-      await this.assertClientCanTakeNewLoan(dto.clientId, dto.principalAmount);
-    }
+  // Changed, 2026-09-09 (client decision) — mora is no longer a hard
+  // block on new-loan creation, only cupo is; see
+  // assertClientCanTakeNewLoan's own comment for why. That removed the
+  // only reason a caller ever needed to skip this guard (the temporary
+  // LOAN_IMPORT_SKIP_CREDIT_CHECK toggle from 2026-09-08, gone as of this
+  // change — see docs/DATABASE.md's note of this date), so create() no
+  // longer takes an options bag at all: the guard always runs.
+  async create(dto: CreateLoanDto): Promise<LoanDetail> {
+    await this.assertClientCanTakeNewLoan(dto.clientId, dto.principalAmount);
 
     // Transactional — persistLoanWithInstallments is three sequential
     // saves (loan, then installments, then concept rows); without this, a
@@ -997,25 +984,27 @@ export class LoansService {
     return map;
   }
 
-  // Phase 10 cupo/mora-block guard — only on create(), not refinance(): the
-  // phase brief scopes this to new-loan creation specifically (refinancing
+  // Phase 10 cupo guard — only on create(), not refinance(): the phase
+  // brief scopes this to new-loan creation specifically (refinancing
   // restructures existing exposure rather than adding new exposure, and
   // isn't mentioned in docs/phases/PHASE_10_CLIENT_CAPACITY.md's guard
-  // scope). Two distinct rejection reasons, checked and reported
-  // separately, per that doc: mora-block first, since it applies regardless
-  // of how much cupo is left.
+  // scope).
+  //
+  // Changed, 2026-09-09 (client decision) — mora used to hard-block a new
+  // loan here too. Dropped: the client's own reasoning is that by the
+  // time a loan is actually being created, the negotiation, acceptance,
+  // and paperwork already happened — a hard block at this exact step was
+  // the wrong place to catch it, and mostly just got in the way (real
+  // reported case: a client with several existing pagarés, one of them
+  // overdue past 30 days, needed a genuinely new one created). The
+  // client's mora status is still surfaced — GET /clients/:id's
+  // isMoraBlocked is unchanged, still shown as a warning banner on
+  // LoanForm.tsx — it just no longer blocks submission. See
+  // docs/DATABASE.md's note of this date.
   private async assertClientCanTakeNewLoan(
     clientId: string,
     principalAmount: number,
   ): Promise<void> {
-    const isMoraBlocked = await this.clientsService.hasMoraBlock(clientId);
-    if (isMoraBlocked) {
-      throw new BadRequestException(
-        'This client has at least one installment more than 30 days ' +
-          'overdue and cannot be given a new loan until it is resolved.',
-      );
-    }
-
     const { creditAvailable } =
       await this.clientsService.getCreditUsage(clientId);
     if (creditAvailable !== null && principalAmount > creditAvailable) {

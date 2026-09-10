@@ -206,10 +206,14 @@ describe('LoansService', () => {
         isStale: false,
       }),
     };
-    // Default: no mora block, no cupo configured (creditAvailable: null
-    // means unrestricted — see ClientsService.getCreditUsage) — so every
+    // Default: no cupo configured (creditAvailable: null means
+    // unrestricted — see ClientsService.getCreditUsage) — so every
     // pre-existing test below, which doesn't care about Phase 10 at all,
-    // keeps passing unaffected. Tests that DO care override these.
+    // keeps passing unaffected. Tests that DO care override this.
+    // hasMoraBlock is no longer read by LoansService at all (2026-09-09,
+    // see the 'creates the loan even when the client is mora-blocked'
+    // test below) — kept mocked here only because ClientsService's own
+    // shape still has the method.
     clientsService = {
       hasMoraBlock: jest.fn().mockResolvedValue(false),
       getCreditUsage: jest.fn().mockResolvedValue({
@@ -761,16 +765,22 @@ describe('LoansService', () => {
       );
     });
 
-    // Phase 10 — docs/phases/PHASE_10_CLIENT_CAPACITY.md's cupo/mora-block
-    // guard. Mora-block is checked first and reported as a distinct reason
-    // from "over cupo" — both are asserted below.
-    it('rejects when the client is mora-blocked, even with cupo available', async () => {
+    // Phase 10 — docs/phases/PHASE_10_CLIENT_CAPACITY.md's cupo guard.
+    //
+    // Changed, 2026-09-09 (client decision) — mora used to reject a new
+    // loan here too, checked before cupo. Dropped: by the time a loan is
+    // actually being created, the negotiation/paperwork already happened,
+    // so a hard block at this exact step was the wrong place to catch it.
+    // Mora is still surfaced (GET /clients/:id's isMoraBlocked, shown as a
+    // warning on LoanForm.tsx) — it just no longer blocks creation. Cupo
+    // is unaffected. See docs/DATABASE.md's note of this date.
+    it('creates the loan even when the client is mora-blocked', async () => {
       clientsService.hasMoraBlock.mockResolvedValue(true);
 
-      await expect(service.create(createDto)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(loansRepository.save).not.toHaveBeenCalled();
+      const result = await service.create(createDto);
+
+      expect(result.id).toBe('loan-2');
+      expect(loansRepository.save).toHaveBeenCalled();
     });
 
     it("rejects when the principal exceeds the client's available cupo", async () => {
@@ -786,35 +796,7 @@ describe('LoansService', () => {
       expect(loansRepository.save).not.toHaveBeenCalled();
     });
 
-    it('reports mora-block and over-cupo as distinct error messages', async () => {
-      clientsService.hasMoraBlock.mockResolvedValue(true);
-      let moraMessage = '';
-      try {
-        await service.create(createDto);
-      } catch (error) {
-        moraMessage = (error as BadRequestException).message;
-      }
-
-      clientsService.hasMoraBlock.mockResolvedValue(false);
-      clientsService.getCreditUsage.mockResolvedValue({
-        creditLimit: 500000,
-        creditUsed: 500000,
-        creditAvailable: 0,
-      });
-      let cupoMessage = '';
-      try {
-        await service.create(createDto);
-      } catch (error) {
-        cupoMessage = (error as BadRequestException).message;
-      }
-
-      expect(moraMessage).not.toBe('');
-      expect(cupoMessage).not.toBe('');
-      expect(moraMessage).not.toBe(cupoMessage);
-    });
-
-    it('allows the loan when within cupo and not mora-blocked', async () => {
-      clientsService.hasMoraBlock.mockResolvedValue(false);
+    it('allows the loan when within cupo', async () => {
       clientsService.getCreditUsage.mockResolvedValue({
         creditLimit: 2000000,
         creditUsed: 0,
@@ -839,11 +821,11 @@ describe('LoansService', () => {
       expect(result.id).toBe('loan-2');
     });
 
-    it("checks mora-block and cupo for the loan's clientId", async () => {
+    it("checks cupo for the loan's clientId, and never checks mora-block at all", async () => {
       await service.create(createDto);
 
-      expect(clientsService.hasMoraBlock).toHaveBeenCalledWith('client-1');
       expect(clientsService.getCreditUsage).toHaveBeenCalledWith('client-1');
+      expect(clientsService.hasMoraBlock).not.toHaveBeenCalled();
     });
 
     // Redesign, 2026-09-03 — corrienteInterestRate/moratoryInterestRate

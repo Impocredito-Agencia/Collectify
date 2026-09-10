@@ -23,6 +23,8 @@ The maximum credit exposure a client is allowed to carry at once. Optional — a
 
 **Mora block** — a client with any single installment more than 30 days overdue on an active loan cannot receive a new loan, regardless of remaining cupo. This is per-installment, not a client-aggregate rule (confirmed with the client, Phase 10) — one overdue cuota is enough, even if every other installment is current. See `docs/phases/PHASE_10_CLIENT_CAPACITY.md` and `DATABASE.md`'s "Changed after Phase 10".
 
+**Changed, 2026-09-09 (client decision):** mora no longer blocks new-loan creation — it's the most practical fix given that by the time a pagaré is actually being created, the negotiation and paperwork already happened. Still surfaced as a red warning on `LoanForm.tsx` (`GET /clients/:id`'s `isMoraBlocked` is unchanged), just no longer a hard stop. Cupo is unaffected — still a real block.
+
 ### Loan / Pagaré
 The Spanish business term is **pagaré** (promissory note) — this is what the client calls it in every message and spreadsheet, always referenced by number (e.g. "pagaré #743"). In code: `Loan` entity, `loans` table, with a `promissory_note_number` field holding this business-facing identifier (distinct from the internal UUID `id`).
 
