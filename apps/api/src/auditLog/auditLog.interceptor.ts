@@ -237,10 +237,16 @@ export class AuditLogInterceptor implements NestInterceptor {
           return null;
         }
         const amount = this.formatCurrencyCop(entity.amountPaid);
-        const base =
-          typeof entity.paidAt === 'string'
-            ? `Pago de ${amount} el ${entity.paidAt}`
-            : `Pago de ${amount}`;
+        const dateSuffix =
+          typeof entity.paidAt === 'string' ? ` el ${entity.paidAt}` : '';
+        // Human report, 2026-09-09 — payment.void's response is the same
+        // Payment shape as payment.register, now with deletedAt/voidReason
+        // set (see InstallmentsService.voidPayment()). Distinguishing the
+        // label here means the mandatory reason is visible straight from
+        // Auditoría, not just buried in metadata.body.
+        const base = entity.deletedAt
+          ? `Pago de ${amount}${dateSuffix} ANULADO — motivo: ${typeof entity.voidReason === 'string' ? entity.voidReason : 'sin especificar'}`
+          : `Pago de ${amount}${dateSuffix}`;
         // Added 2026-09-04 — see the installmentsRepository comment in the
         // constructor.
         const installmentId =
@@ -344,15 +350,60 @@ export class AuditLogInterceptor implements NestInterceptor {
       installments.map((installment) => [installment.id, installment]),
     );
 
-    const parts = installmentIds
+    const orderedInstallments = installmentIds
       .map((id) => installmentById.get(id))
-      .filter((installment): installment is Installment => !!installment)
-      .map(
-        (installment) =>
-          `cuota ${installment.installmentNumber} del pagaré ${formatPromissoryNoteLabel(installment.loan.promissoryNoteNumber)}`,
-      );
+      .filter((installment): installment is Installment => !!installment);
+    if (orderedInstallments.length === 0) {
+      return base;
+    }
 
-    return parts.length > 0 ? `${base} — ${parts.join(', ')}` : base;
+    return `${base} — ${this.formatCuotaGroupsLabel(orderedInstallments)}`;
+  }
+
+  // Human report, 2026-09-09 — spelling out "cuota N del pagaré #X" once
+  // per installment made a batch of 3+ cuotas unreadably long and forced
+  // every other column in the audit table to shrink. Groups by loan
+  // instead — one "cuota 4, 5 y 6 del pagaré #2" segment per pagaré
+  // touched, in the order each loan first appears among the entries —
+  // rather than one segment per installment. Groups (plural loans in the
+  // same batch) are joined with "; " so they stay visually distinct from
+  // the ", "/" y " Intl.ListFormat already uses inside each group's own
+  // cuota list.
+  private formatCuotaGroupsLabel(installments: Installment[]): string {
+    const numbersByLoan = new Map<
+      string,
+      { promissoryNoteNumber: string; numbers: number[] }
+    >();
+    for (const installment of installments) {
+      const loanId = installment.loan.id;
+      const group = numbersByLoan.get(loanId);
+      if (group) {
+        group.numbers.push(installment.installmentNumber);
+      } else {
+        numbersByLoan.set(loanId, {
+          promissoryNoteNumber: installment.loan.promissoryNoteNumber,
+          numbers: [installment.installmentNumber],
+        });
+      }
+    }
+
+    return [...numbersByLoan.values()]
+      .map(({ promissoryNoteNumber, numbers }) => {
+        const sorted = [...numbers].sort((a, b) => a - b);
+        const cuotaWord = sorted.length > 1 ? 'cuotas' : 'cuota';
+        return `${cuotaWord} ${this.formatNumberList(sorted)} del pagaré ${formatPromissoryNoteLabel(promissoryNoteNumber)}`;
+      })
+      .join('; ');
+  }
+
+  // "4, 5 y 6" instead of a manual comma-join — Intl.ListFormat already
+  // handles the "y" before the last item (and the 2-item "4 y 5" case)
+  // correctly for Spanish, so this isn't reimplemented by hand.
+  private formatNumberList(numbers: number[]): string {
+    return new Intl.ListFormat('es', {
+      style: 'long',
+      type: 'conjunction',
+    }).format(numbers.map(String));
   }
 
   private formatClientLabel(client: Record<string, unknown>): string {

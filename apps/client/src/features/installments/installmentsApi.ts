@@ -122,7 +122,14 @@ export interface Payment {
   imageUrls: string[];
   createdAt: string;
   updatedAt: string;
+  // Human report, 2026-09-09 — a voided payment (see
+  // apps/api/src/loans/installments/installments.service.ts's
+  // voidPayment()) has deletedAt/voidReason set but otherwise stays a
+  // normal row — GET /loans/:id/payments deliberately still returns it
+  // (withDeleted: true), so the loan detail's payment history can show it
+  // as anulado instead of it silently vanishing.
   deletedAt: string | null;
+  voidReason: string | null;
 }
 
 export const installmentsApi = {
@@ -160,6 +167,16 @@ export const installmentsApi = {
     const { data } = await apiClient.post<Payment[]>(
       '/installments/payments/bulk',
       { payments },
+    );
+    return data;
+  },
+
+  // Human report, 2026-09-09 — admin-only correction for a payment
+  // registered by mistake. See InstallmentsService.voidPayment().
+  voidPayment: async (paymentId: string, reason: string): Promise<Payment> => {
+    const { data } = await apiClient.patch<Payment>(
+      `/installments/payments/${paymentId}/void`,
+      { reason },
     );
     return data;
   },

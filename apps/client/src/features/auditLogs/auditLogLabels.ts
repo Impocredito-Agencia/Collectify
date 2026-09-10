@@ -39,6 +39,8 @@ export const ACTION_LABELS: Record<string, string> = {
   'payment.register': 'Registró un pago',
   // Phase 28 — same gap: added when bulk payments shipped.
   'payment.registerBulk': 'Registró un pago sobre varias cuotas',
+  // Human report, 2026-09-09 — payment correction feature.
+  'payment.void': 'Anuló un pago',
   'user.create': 'Creó un usuario',
   'user.deactivate': 'Desactivó un usuario',
   'user.reactivate': 'Reactivó un usuario',

@@ -57,6 +57,17 @@ export class Payment {
   @UpdateDateColumn()
   updatedAt!: Date;
 
+  // Bug fix, 2026-09-09 (human report) — a payment could never be
+  // corrected once registered. Voiding sets deletedAt (see
+  // InstallmentsService.voidPayment()) — every existing query in the
+  // codebase that sums/lists payments already excludes soft-deleted rows
+  // by default, so a voided payment automatically stops counting
+  // anywhere without touching those call sites. This column carries the
+  // mandatory reason a voided row must be paired with; null for any
+  // payment that's never been voided.
+  @Column({ type: 'text', nullable: true })
+  voidReason!: string | null;
+
   @DeleteDateColumn()
   deletedAt!: Date | null;
 }

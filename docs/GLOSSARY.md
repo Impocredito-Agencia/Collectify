@@ -48,6 +48,8 @@ A record of money received against a specific installment. An installment can re
 
 **Comprobante (deposit receipt photo)** — added Phase 12: a payment can optionally carry a photo of the deposit/receipt, alongside its existing free-text `observation`. In code: `Payment.imageUrl`, nullable — the api only stores the URL, hosted externally (Cloudinary); it never receives the image bytes. See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md`.
 
+**Anular un pago (voiding a payment)** — added 2026-09-09: an admin-only correction for a payment registered by mistake (e.g. the full balance entered when the client had only paid part of it). Soft-deletes the `Payment` row (`deletedAt` + a mandatory `voidReason`) — it stops counting anywhere payments are summed, and if it's what had closed its installment, the installment (and the loan, if it had cascaded to `Paid`) reopens automatically with the real remaining balance. Shown in the loan detail's payment history as "Anulado" (crossed out, reason on hover) and recorded in `Auditoría` naming which cuota/pagaré it affected. See `DATABASE.md`'s "Added, 2026-09-09 — voiding/correcting a payment" for the full design.
+
 ## Status and mora
 
 ### Overdue (Mora / Vencido)

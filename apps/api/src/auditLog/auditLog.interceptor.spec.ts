@@ -556,6 +556,93 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
+    // Human report, 2026-09-09 — a voided payment's audit entry must call
+    // out that it was ANULADO, with its reason, and still identify which
+    // cuota/pagaré it belonged to (voidPayment's response carries
+    // deletedAt/voidReason and the same installment relation
+    // payment.register's own lookup already knows how to read).
+    it('labels a voided payment with ANULADO, its reason, and the cuota/pagaré it belonged to', async () => {
+      reflector.get.mockReturnValue({
+        action: 'payment.void',
+        entityType: 'payment',
+      });
+      installmentsRepository.findOne.mockResolvedValue({
+        id: 'installment-1',
+        installmentNumber: 3,
+        loan: { id: 'loan-1', promissoryNoteNumber: '#0910' },
+      });
+      const context = buildContext({
+        user: { id: 'user-1' },
+        params: { id: 'payment-1' },
+      });
+      const handler = buildCallHandler(
+        of({
+          id: 'payment-1',
+          installmentId: 'installment-1',
+          amountPaid: 110667,
+          paidAt: '2026-09-03',
+          deletedAt: new Date('2026-09-09'),
+          voidReason: 'Se registró el monto completo por error.',
+        }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringMatching(/^Pago de/) as unknown,
+        }),
+      );
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining(
+            'ANULADO — motivo: Se registró el monto completo por error.',
+          ) as unknown,
+        }),
+      );
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining(
+            '— cuota 3 del pagaré #0910',
+          ) as unknown,
+        }),
+      );
+    });
+
+    it('labels a voided payment with a generic "sin especificar" reason when none was recorded', async () => {
+      reflector.get.mockReturnValue({
+        action: 'payment.void',
+        entityType: 'payment',
+      });
+      installmentsRepository.findOne.mockResolvedValue(null);
+      const context = buildContext({
+        user: { id: 'user-1' },
+        params: { id: 'payment-1' },
+      });
+      const handler = buildCallHandler(
+        of({
+          id: 'payment-1',
+          installmentId: 'installment-1',
+          amountPaid: 110667,
+          paidAt: '2026-09-03',
+          deletedAt: new Date('2026-09-09'),
+          voidReason: null,
+        }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining(
+            'ANULADO — motivo: sin especificar',
+          ) as unknown,
+        }),
+      );
+    });
+
     // Bug fix, 2026-09-08 (human report): "Registró un pago sobre varias
     // cuotas" had no entityLabel at all — payment.registerBulk's response
     // is a Payment[] array, which the single-payment branch above never
@@ -624,6 +711,68 @@ describe('AuditLogInterceptor', () => {
         expect.objectContaining({
           entityLabel: expect.stringContaining(
             'cuota 1 del pagaré #0810',
+          ) as unknown,
+        }),
+      );
+    });
+
+    // Human report, 2026-09-09 — one "cuota N del pagaré #X" segment per
+    // installment made a same-loan batch of 3+ cuotas unreadably long
+    // ("cuota 4 del pagaré #2, cuota 5 del pagaré #2, cuota 6 del pagaré
+    // #2"), forcing every other column in the audit table to shrink.
+    it('groups a bulk payment’s cuotas by pagaré into one compact segment each', async () => {
+      reflector.get.mockReturnValue({
+        action: 'payment.registerBulk',
+        entityType: 'payment',
+      });
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'installment-4',
+          installmentNumber: 4,
+          loan: { id: 'loan-1', promissoryNoteNumber: '#2' },
+        },
+        {
+          id: 'installment-5',
+          installmentNumber: 5,
+          loan: { id: 'loan-1', promissoryNoteNumber: '#2' },
+        },
+        {
+          id: 'installment-6',
+          installmentNumber: 6,
+          loan: { id: 'loan-1', promissoryNoteNumber: '#2' },
+        },
+      ]);
+      const context = buildContext({ user: { id: 'user-1' }, params: {} });
+      const handler = buildCallHandler(
+        of([
+          {
+            id: 'payment-1',
+            installmentId: 'installment-4',
+            amountPaid: 100000,
+            paidAt: '2026-09-09',
+          },
+          {
+            id: 'payment-2',
+            installmentId: 'installment-5',
+            amountPaid: 100000,
+            paidAt: '2026-09-09',
+          },
+          {
+            id: 'payment-3',
+            installmentId: 'installment-6',
+            amountPaid: 101334,
+            paidAt: '2026-09-09',
+          },
+        ]),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringContaining(
+            'cuotas 4, 5 y 6 del pagaré #2',
           ) as unknown,
         }),
       );

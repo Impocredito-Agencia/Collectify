@@ -57,3 +57,27 @@ export function useRegisterBulkPayments(loanId: string) {
     },
   });
 }
+
+// Human report, 2026-09-09 — admin-only correction for a payment
+// registered by mistake. Same invalidation as the two hooks above:
+// voiding can reopen the installment (and the loan, if it had cascaded to
+// Paid), so both need re-fetching alongside the payments list itself.
+export function useVoidPayment(loanId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      paymentId,
+      reason,
+    }: {
+      paymentId: string;
+      reason: string;
+    }) => installmentsApi.voidPayment(paymentId, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['loans', loanId] });
+      queryClient.invalidateQueries({
+        queryKey: ['loans', loanId, 'payments'],
+      });
+    },
+  });
+}
