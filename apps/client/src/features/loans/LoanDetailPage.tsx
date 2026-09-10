@@ -8,6 +8,7 @@ import {
 
 import { Button } from '@/components/ui/Button';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
+import { Modal } from '@/components/ui/Modal';
 import { StatCard } from '@/components/ui/StatCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { RowActionButton } from '@/components/ui/RowActionButton';
@@ -21,6 +22,7 @@ import { RegisterPaymentDialog } from '@/features/installments/RegisterPaymentDi
 import {
   useRegisterBulkPayments,
   useRegisterPayment,
+  useVoidPayment,
 } from '@/features/installments/useInstallments';
 import {
   ConceptCalculationType,
@@ -46,9 +48,14 @@ import {
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
 import { NEW_LOAN_FAMILY_TYPES } from '@/features/messageTemplates/messageTemplatesApi';
+import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 
-import type { Installment } from '@/features/installments/installmentsApi';
+import type {
+  Installment,
+  Payment,
+} from '@/features/installments/installmentsApi';
 import type { LoanDetail } from '@/features/loans/loansApi';
 
 // Matches Figma frame 52:537 ("F-19 / Detalle préstamo — Desktop 1440"),
@@ -76,12 +83,19 @@ export function LoanDetailPage() {
   const canManageLoan = Boolean(
     user && (user.role === 'admin' || user.modules.includes('loans')),
   );
+  // Human report, 2026-09-09 — payment correction feature. Deliberately
+  // stricter than canManageLoan above: the human was explicit this stays
+  // admin-only, not extendable via the "loans" module grant a collector
+  // can otherwise have — mirrors the backend's own @Roles(UserRole.Admin)
+  // on PATCH /installments/payments/:id/void (not @RequireModule).
+  const isAdmin = user?.role === 'admin';
 
   const { data: loan, isLoading, isError } = useLoan(id ?? '');
   const { data: client } = useClient(loan?.clientId ?? '');
   const { data: payments } = useLoanPayments(id ?? '');
   const registerPayment = useRegisterPayment(id ?? '');
   const registerBulkPayments = useRegisterBulkPayments(id ?? '');
+  const voidPayment = useVoidPayment(id ?? '');
   const payoffLoan = usePayoffLoan();
   const updateLoan = useUpdateLoan();
   const refinanceLoan = useRefinanceLoan();
@@ -143,6 +157,9 @@ export function LoanDetailPage() {
     url: string;
     alt: string;
   } | null>(null);
+  // Human report, 2026-09-09 — which payment (if any) is currently going
+  // through the "Anular pago" confirmation dialog below.
+  const [voidingPayment, setVoidingPayment] = useState<Payment | null>(null);
 
   const pendingInstallments =
     loan?.installments.filter(
@@ -515,13 +532,15 @@ export function LoanDetailPage() {
                 <Th>Monto</Th>
                 <Th>Observación</Th>
                 <Th>Comprobante</Th>
+                <Th>Estado</Th>
+                {isAdmin && <Th>Acción</Th>}
               </tr>
             </thead>
             <tbody>
               {(payments ?? []).length === 0 && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={isAdmin ? 7 : 6}
                     className="p-6 text-center text-small text-muted"
                   >
                     Todavía no se han registrado pagos.
@@ -529,7 +548,10 @@ export function LoanDetailPage() {
                 </tr>
               )}
               {(payments ?? []).map((payment, index) => (
-                <tr key={payment.id} className="border-t border-border">
+                <tr
+                  key={payment.id}
+                  className={`border-t border-border${payment.deletedAt ? ' opacity-50' : ''}`}
+                >
                   <Td muted>{index + 1}</Td>
                   <Td>{formatDateOnly(payment.paidAt)}</Td>
                   <Td>{formatCurrency(payment.amountPaid)}</Td>
@@ -561,6 +583,31 @@ export function LoanDetailPage() {
                       <span className="text-meta text-mid">—</span>
                     )}
                   </Td>
+                  <Td>
+                    {payment.deletedAt ? (
+                      <StatusBadge
+                        tone="danger"
+                        title={payment.voidReason ?? undefined}
+                      >
+                        Anulado
+                      </StatusBadge>
+                    ) : (
+                      <span className="text-meta text-mid">—</span>
+                    )}
+                  </Td>
+                  {isAdmin && (
+                    <Td>
+                      {payment.deletedAt ? (
+                        <span className="text-meta text-mid">—</span>
+                      ) : (
+                        <RowActionButton
+                          onClick={() => setVoidingPayment(payment)}
+                        >
+                          Anular
+                        </RowActionButton>
+                      )}
+                    </Td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -629,6 +676,19 @@ export function LoanDetailPage() {
         />
       )}
 
+      {voidingPayment && (
+        <VoidPaymentDialog
+          payment={voidingPayment}
+          onClose={() => setVoidingPayment(null)}
+          onConfirm={(reason) =>
+            voidPayment.mutateAsync({
+              paymentId: voidingPayment.id,
+              reason,
+            })
+          }
+        />
+      )}
+
       {isEditing && (
         <EditLoanDialog
           loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
@@ -672,6 +732,99 @@ export function LoanDetailPage() {
         />
       )}
     </div>
+  );
+}
+
+// Human report, 2026-09-09 — admin-only correction for a payment
+// registered by mistake (see InstallmentsService.voidPayment()). No Figma
+// frame exists for this (same gap category as DeleteLoanDialog); styled
+// after that dialog's own confirmation pattern, plus a mandatory reason
+// textarea styled like RegisterPaymentDialog's "Observación" field — the
+// human explicitly required the reason ("Motivo obligatorio al anular"),
+// so Confirmar stays disabled until something is typed.
+function VoidPaymentDialog({
+  payment,
+  onClose,
+  onConfirm,
+}: {
+  payment: Payment;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<unknown>;
+}) {
+  const [reason, setReason] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEscapeKey(onClose);
+
+  const trimmedReason = reason.trim();
+
+  const handleConfirm = async () => {
+    if (!trimmedReason) {
+      setError('El motivo es obligatorio.');
+      return;
+    }
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await onConfirm(trimmedReason);
+      onClose();
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'No se pudo anular el pago. Intenta de nuevo.',
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal maxWidth="max-w-[440px]">
+      <h2 className="text-[16px] font-medium text-white">Anular pago</h2>
+      <p className="mt-2.5 text-small text-muted">
+        Vas a anular el pago de {formatCurrency(payment.amountPaid)} del{' '}
+        {formatDateOnly(payment.paidAt)}. Si este pago había dejado la cuota
+        como pagada, la cuota (y el préstamo, si había quedado marcado como
+        pagado) volverán a quedar activos con el saldo real pendiente.
+      </p>
+
+      <div className="mt-4 flex flex-col gap-1.5">
+        <label className="text-label text-muted" htmlFor="void-payment-reason">
+          Motivo de la anulación
+        </label>
+        <textarea
+          id="void-payment-reason"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="Ej: se registró el monto completo por error, el cliente solo pagó una parte"
+          rows={3}
+          className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
+        />
+      </div>
+
+      {error && (
+        <p className="mt-3 text-small text-danger" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-6 border-t border-border" />
+
+      <div className="mt-5 flex items-center justify-end gap-3">
+        <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          Cancelar
+        </Button>
+        <Button
+          variant="danger"
+          onClick={() => void handleConfirm()}
+          disabled={isSubmitting || !trimmedReason}
+        >
+          {isSubmitting ? 'Anulando…' : 'Sí, anular pago'}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
