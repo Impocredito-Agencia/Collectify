@@ -397,8 +397,12 @@ function ConfirmRegisterPaymentDialog({
         Confirmar registro de pago
       </h2>
       <p className="mt-2.5 text-small text-muted">
-        Vas a registrar un pago de {formatCurrency(amountPaid)} para la cuota{' '}
-        {installment.installmentNumber}. Esta cuota quedará{' '}
+        Vas a registrar un pago de{' '}
+        <strong className="text-white">{formatCurrency(amountPaid)}</strong>{' '}
+        para la cuota {installment.installmentNumber}.
+      </p>
+      <p className="mt-2 text-small text-muted">
+        Con este pago, la cuota quedará{' '}
         {willCloseCuota ? (
           <strong className="text-white">PAGADA COMPLETA</strong>
         ) : (
@@ -413,8 +417,8 @@ function ConfirmRegisterPaymentDialog({
       </p>
       {willCloseCuota && (
         <p className="mt-2.5 text-small text-muted">
-          Al confirmar, se envía de inmediato el mensaje de WhatsApp de
-          confirmación de pago al cliente.
+          Al confirmar, se le enviará automáticamente al cliente un mensaje de
+          WhatsApp confirmando el pago.
         </p>
       )}
 

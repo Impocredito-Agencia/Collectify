@@ -394,8 +394,8 @@ function ConfirmBulkRegisterPaymentDialog({
         saldando por completo cada una de esas cuotas.
       </p>
       <p className="mt-2.5 text-small text-muted">
-        Al confirmar, se envía de inmediato el mensaje de WhatsApp de
-        confirmación de pago al cliente por cada cuota saldada.
+        Al confirmar, se le enviará automáticamente al cliente un mensaje de
+        WhatsApp por cada cuota saldada, confirmando el pago.
       </p>
 
       <div className="mt-6 border-t border-border" />
