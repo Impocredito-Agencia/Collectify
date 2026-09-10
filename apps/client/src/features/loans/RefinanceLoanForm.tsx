@@ -467,7 +467,11 @@ export function RefinanceLoanForm({
 
   // See LoanForm.tsx's identical computeDisbursedAt comment — firstDueDate
   // always means the schedule's own unshifted installment 1 date,
-  // regardless of hasDownPayment.
+  // regardless of hasDownPayment. Bug fix, 2026-09-09: only used for the
+  // `disbursedAt` record field now — every installment's real due date is
+  // anchored on firstDueDate directly (see firstInstallmentDueDate below),
+  // since this subtraction is lossy whenever firstDueDate falls on the
+  // 29th-31st and the previous month is shorter.
   const computeDisbursedAt = (): string =>
     installmentFrequency === InstallmentFrequency.Monthly
       ? subtractMonthsFromDateString(firstDueDate, 1)
@@ -507,6 +511,7 @@ export function RefinanceLoanForm({
       const result = await previewSchedule.mutateAsync({
         principalAmount: principal,
         disbursedAt: computeDisbursedAt(),
+        firstInstallmentDueDate: firstDueDate,
         installmentFrequency,
         totalInstallments: count,
         concepts: toConceptAssignments(),
@@ -563,6 +568,7 @@ export function RefinanceLoanForm({
         // See LoanForm.tsx's identical comment.
         interestRate: 0,
         disbursedAt: computeDisbursedAt(),
+        firstInstallmentDueDate: firstDueDate,
         installmentFrequency,
         totalInstallments: count,
         concepts: toConceptAssignments(),

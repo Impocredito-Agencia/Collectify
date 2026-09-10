@@ -152,6 +152,15 @@ export interface CreateLoanInput {
   principalAmount: number;
   interestRate: number;
   disbursedAt: string;
+  // Bug fix, 2026-09-09 — the exact due date of the schedule's own
+  // (unshifted) installment 1, i.e. LoanForm's own `firstDueDate` state.
+  // Sent alongside disbursedAt (back-computed from this same value via
+  // computeDisbursedAt, which loses the true day-of-month whenever the
+  // period before it falls in a shorter month) so the API can anchor the
+  // whole schedule on the date the admin actually entered instead of
+  // re-deriving it from that lossy disbursedAt. See createLoan.dto.ts
+  // (api) and dueDateMath.ts's own comment.
+  firstInstallmentDueDate?: string;
   installmentFrequency: InstallmentFrequency;
   totalInstallments: number;
   concepts: LoanConceptAssignment[];
@@ -304,6 +313,9 @@ export interface RefinanceLoanInput {
   principalAmount: number;
   interestRate: number;
   disbursedAt: string;
+  // See CreateLoanInput.firstInstallmentDueDate — same day-of-month bug
+  // fix, 2026-09-09.
+  firstInstallmentDueDate?: string;
   installmentFrequency: InstallmentFrequency;
   totalInstallments: number;
   concepts: LoanConceptAssignment[];

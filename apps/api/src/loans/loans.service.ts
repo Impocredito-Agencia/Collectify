@@ -169,6 +169,24 @@ interface PersistLoanParams {
   principalAmount: number;
   interestRate: number;
   disbursedAt: string;
+  // Bug fix, 2026-09-09 — the exact due date of the schedule's own
+  // (unshifted) installment 1, as entered by the admin on LoanForm/
+  // RefinanceLoanForm. When provided, calculateDueDate() anchors every
+  // installment's date on this value directly instead of re-deriving it
+  // from disbursedAt + one period. Necessary because disbursedAt itself
+  // is back-computed on the frontend as "firstInstallmentDueDate minus
+  // one period" (computeDisbursedAt()), which is lossy whenever that
+  // period's month is shorter than the target day — e.g. subtracting a
+  // month from a March 31 due date clamps disbursedAt to Feb 28, and Feb
+  // 28 can never recover the original 31 when a month is added back. The
+  // installment day-of-month then stayed stuck at whatever the clamp
+  // produced for every subsequent installment too — not just the ones
+  // actually landing in a short month. Optional: LoanImportService's
+  // disbursedAt is a real historical date (not back-computed from a due
+  // date), so its existing disbursedAt-only generation is unaffected. See
+  // dueDateSchedule.ts's addMonthsToDateString for the clamping this
+  // works around.
+  firstInstallmentDueDate?: string;
   installmentFrequency: InstallmentFrequency;
   totalInstallments: number;
   concepts: LoanConceptAssignmentDto[];
@@ -257,6 +275,7 @@ export class LoansService {
           principalAmount: dto.principalAmount,
           interestRate: dto.interestRate,
           disbursedAt: dto.disbursedAt,
+          firstInstallmentDueDate: dto.firstInstallmentDueDate,
           installmentFrequency: dto.installmentFrequency,
           totalInstallments: dto.totalInstallments,
           concepts: dto.concepts,
@@ -315,6 +334,7 @@ export class LoansService {
         dto.disbursedAt,
         dto.installmentFrequency,
         generated.installmentNumber,
+        dto.firstInstallmentDueDate,
       ),
       principalPortion: generated.principalPortion,
       amount: generated.amount,
@@ -397,6 +417,7 @@ export class LoansService {
           principalAmount: dto.principalAmount,
           interestRate: dto.interestRate,
           disbursedAt: dto.disbursedAt,
+          firstInstallmentDueDate: dto.firstInstallmentDueDate,
           installmentFrequency: dto.installmentFrequency,
           totalInstallments: dto.totalInstallments,
           concepts: dto.concepts,
@@ -1090,6 +1111,7 @@ export class LoansService {
       params.downPaymentDueDate,
       params.disbursedAt,
       params.installmentFrequency,
+      params.firstInstallmentDueDate,
     );
     const hasDownPayment = params.downPaymentAmount != null;
 
@@ -1172,6 +1194,7 @@ export class LoansService {
           params.disbursedAt,
           params.installmentFrequency,
           generated.installmentNumber,
+          params.firstInstallmentDueDate,
         ),
         isDownPayment: false,
         scheduleIndex: index,
@@ -1248,6 +1271,7 @@ export class LoansService {
     downPaymentDueDate: string | undefined,
     disbursedAt: string,
     installmentFrequency: InstallmentFrequency,
+    firstInstallmentDueDate?: string,
   ): void {
     if (downPaymentAmount == null && downPaymentDueDate == null) {
       return;
@@ -1262,6 +1286,7 @@ export class LoansService {
       disbursedAt,
       installmentFrequency,
       1,
+      firstInstallmentDueDate,
     );
     if (downPaymentDueDate >= secondInstallmentDueDate) {
       throw new BadRequestException(
@@ -1520,11 +1545,32 @@ export class LoansService {
     }
   }
 
+  // Bug fix, 2026-09-09 — when firstInstallmentDueDate is given, it's the
+  // exact date the admin entered for the schedule's own (unshifted)
+  // installment 1, and every other installment is anchored on THAT date
+  // instead of disbursedAt — see PersistLoanParams.firstInstallmentDueDate
+  // for why disbursedAt alone can no longer be trusted to carry the
+  // correct day-of-month once it's been back-computed from a due date.
+  // Falls back to the old disbursedAt-based formula when omitted (e.g.
+  // LoanImportService, whose disbursedAt is a real, not back-computed,
+  // date).
   private calculateDueDate(
     disbursedAt: string,
     frequency: InstallmentFrequency,
     installmentNumber: number,
+    firstInstallmentDueDate?: string,
   ): string {
+    if (firstInstallmentDueDate) {
+      if (installmentNumber === 1) {
+        return firstInstallmentDueDate;
+      }
+      return frequency === InstallmentFrequency.Monthly
+        ? addMonthsToDateString(firstInstallmentDueDate, installmentNumber - 1)
+        : addWeeksToDateString(
+            firstInstallmentDueDate,
+            (installmentNumber - 1) * 2,
+          );
+    }
     return frequency === InstallmentFrequency.Monthly
       ? addMonthsToDateString(disbursedAt, installmentNumber)
       : addWeeksToDateString(disbursedAt, installmentNumber * 2);

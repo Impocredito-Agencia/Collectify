@@ -54,6 +54,13 @@ export class RefinanceLoanDto {
   @IsDateString()
   disbursedAt!: string;
 
+  // See CreateLoanDto's identical field — same day-of-month bug fix,
+  // 2026-09-09.
+  @ApiPropertyOptional({ example: '2026-08-10' })
+  @IsOptional()
+  @IsDateString()
+  firstInstallmentDueDate?: string;
+
   @ApiProperty({ enum: InstallmentFrequency })
   @IsEnum(InstallmentFrequency)
   installmentFrequency!: InstallmentFrequency;

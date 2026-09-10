@@ -2,17 +2,24 @@
 // arithmetic (kept as its own small copy here rather than importing backend
 // code across the app boundary — apps/api and apps/client don't share a
 // lib). Used only to work backward from "fecha de la primera cuota" — what
-// LoanForm now asks the admin for, since that's what's actually written on
-// the physical pagaré — to `disbursedAt`, which is what POST /loans still
-// requires. The API is unchanged: it keeps generating every installment's
-// due date from disbursedAt + installmentFrequency exactly as before: only
-// the form's input field changed, not the contract.
+// LoanForm asks the admin for, since that's what's actually written on the
+// physical pagaré — to `disbursedAt`, which POST /loans still requires as a
+// record of when the money was actually given.
 //
-// Same caveat as the backend's addMonthsToDateString: month-length
-// clamping isn't perfectly invertible for due dates on the 29th-31st (e.g.
-// subtracting a month from Mar 31 clamps to Feb 28, and adding a month back
-// to Feb 28 lands on Mar 28, not Mar 31). Rare in practice, and the backend
-// file has the same inherent limitation for the forward direction.
+// Bug fix, 2026-09-09 — this subtraction is NOT perfectly invertible for a
+// due date on the 29th-31st whenever the previous month is shorter (e.g.
+// subtracting a month from Mar 31 clamps disbursedAt to Feb 28, and adding
+// a month back to Feb 28 lands on Mar 28, not Mar 31 — every installment
+// from then on was silently stuck on that clamped day, not just the one in
+// the short month). This used to matter because the API regenerated every
+// due date from disbursedAt alone; it no longer does. LoanForm/
+// RefinanceLoanForm now also send `firstInstallmentDueDate` (the exact
+// value the admin entered, unmodified) alongside the disbursedAt computed
+// here, and the API anchors the whole schedule on that instead — see
+// CreateLoanInput.firstInstallmentDueDate and LoansService.calculateDueDate
+// (api). disbursedAt computed by this file is therefore only ever used for
+// the informational `disbursed_at` column now, where an approximated value
+// is harmless.
 
 function parseDateString(dateString: string): {
   year: number;

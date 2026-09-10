@@ -467,7 +467,16 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   // down payment it's stored as installment 1 and this schedule installment
   // becomes installment 2 (see the "Fecha de la primera/segunda cuota"
   // label below), but the date math and this field are unchanged either
-  // way — the API does the same unshifted-index due-date calculation.
+  // way.
+  //
+  // Bug fix, 2026-09-09 — computeDisbursedAt() is only used for the
+  // `disbursedAt` record field now, not to regenerate due dates: this
+  // subtraction clamps to the previous month's last day whenever
+  // firstDueDate falls on the 29th-31st and that month is shorter (e.g.
+  // March 31 -> Feb 28), and there's no way to recover the original day
+  // from that clamped value alone. Every installment's real due date is
+  // now anchored on firstDueDate directly instead — see
+  // firstInstallmentDueDate below.
   const computeDisbursedAt = (): string =>
     installmentFrequency === InstallmentFrequency.Monthly
       ? subtractMonthsFromDateString(firstDueDate, 1)
@@ -504,6 +513,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
       const result = await previewSchedule.mutateAsync({
         principalAmount: principal,
         disbursedAt: computeDisbursedAt(),
+        firstInstallmentDueDate: firstDueDate,
         installmentFrequency,
         totalInstallments: count,
         concepts: toConceptAssignments(),
@@ -569,6 +579,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         // for a value that no longer does anything for new loans.
         interestRate: 0,
         disbursedAt: computeDisbursedAt(),
+        firstInstallmentDueDate: firstDueDate,
         installmentFrequency,
         totalInstallments: count,
         concepts: toConceptAssignments(),

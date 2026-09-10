@@ -64,6 +64,21 @@ export class CreateLoanDto {
   @IsDateString()
   disbursedAt!: string;
 
+  // Bug fix, 2026-09-09 — the exact due date of the schedule's own
+  // (unshifted) installment 1. Optional, but LoanForm always sends it: the
+  // form only ever asks the admin for "fecha de la primera cuota" and
+  // back-computes disbursedAt from it by subtracting one period, which
+  // loses the true day-of-month whenever that period's month is shorter
+  // (e.g. subtracting a month from a March 31 due date clamps disbursedAt
+  // to Feb 28 — every installment then silently stuck on day 28, not just
+  // the ones landing in a short month). Passing the original date here
+  // lets the schedule anchor on it directly instead of re-deriving it from
+  // the lossy disbursedAt. See LoansService.calculateDueDate.
+  @ApiPropertyOptional({ example: '2026-08-09' })
+  @IsOptional()
+  @IsDateString()
+  firstInstallmentDueDate?: string;
+
   @ApiProperty({ enum: InstallmentFrequency })
   @IsEnum(InstallmentFrequency)
   installmentFrequency!: InstallmentFrequency;
