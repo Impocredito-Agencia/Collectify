@@ -65,20 +65,27 @@ export function calculateDaysUntilDue(
 }
 
 // Bug fix, 2026-09-08 (human report) — the business doesn't charge mora
-// during an installment's first 8 overdue days (see
+// during an installment's first N overdue days (see
 // docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md's Template 6 note: "the
 // business doesn't charge mora until day 9"). That rule was only ever
 // applied to which WhatsApp template/wording to send
-// (reminderTemplateSelection.ts's `overdueDays > 8` check) — it never
-// gated the actual money calculation here, so every consumer of
-// calculateInterest/calculateMoratoryCharges (the self-service breakdown,
-// a loan's Total column, the Dashboard, cupo, and the payment ceiling)
-// silently charged mora starting day 1. Confirmed with the human: once
-// past the grace period, mora is charged over the FULL overdue days (no
-// day-8 offset) — this constant only gates whether it's charged at all,
-// it doesn't shift the formula. Keep in sync with
-// reminderTemplateSelection.ts's own `> 8` check.
-export const MORA_GRACE_PERIOD_DAYS = 8;
+// (reminderTemplateSelection.ts's own check against this same constant)
+// — it never gated the actual money calculation here, so every consumer
+// of calculateInterest/calculateMoratoryCharges (the self-service
+// breakdown, a loan's Total column, the Dashboard, cupo, and the payment
+// ceiling) silently charged mora starting day 1. Confirmed with the
+// human: once past the grace period, mora is charged over the FULL
+// overdue days (no offset) — this constant only gates whether it's
+// charged at all, it doesn't shift the formula. Keep in sync with
+// reminderTemplateSelection.ts's own check.
+//
+// Narrowed from 8 to 6, 2026-09-09 (client correction) — the client
+// clarified the real cutoff: day 6 still has no mora, but day 7 already
+// does ("si el mensaje ya dice 7 días vencidos, ya debe estar aplicado
+// el mora"). With this gate (`overdueDays <= MORA_GRACE_PERIOD_DAYS`),
+// that means the threshold itself is 6, not 7 — day 6 satisfies
+// `6 <= 6` (no mora), day 7 fails `7 <= 6` (mora applies).
+export const MORA_GRACE_PERIOD_DAYS = 6;
 
 export function calculateInterest(
   installmentAmount: number,
@@ -135,8 +142,8 @@ export function calculateMoratoryCharges(
     name: concept.name,
     amount:
       // Bug fix, 2026-09-08 — see calculateInterest's own comment above:
-      // the 8-day grace period applies to every moratory concept, not
-      // just the legacy single-rate fallback.
+      // the grace period applies to every moratory concept, not just the
+      // legacy single-rate fallback.
       overdueDays <= MORA_GRACE_PERIOD_DAYS
         ? 0
         : concept.calculationType === ConceptCalculationType.Percentage

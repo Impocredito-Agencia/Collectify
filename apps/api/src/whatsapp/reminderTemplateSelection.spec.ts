@@ -1,3 +1,5 @@
+import { MORA_GRACE_PERIOD_DAYS } from '../loans/installments/installmentCalculations';
+
 import { MessageType } from './messageType.enum';
 import { NotaAdicionalState } from './notaAdicional';
 import { selectReminderTemplate } from './reminderTemplateSelection';
@@ -45,7 +47,7 @@ describe('selectReminderTemplate', () => {
     ]);
   });
 
-  it('picks SingleOverdueInstallment for one overdue installment within 8 days', () => {
+  it('picks SingleOverdueInstallment for one overdue installment within the mora grace period', () => {
     const result = selectReminderTemplate(
       'Fernando Villota',
       [overdueInstallment({ overdueDays: 3, amount: 300000 })],
@@ -58,7 +60,7 @@ describe('selectReminderTemplate', () => {
     expect(result.bodyParameters[4]).toBe('hace 3 días');
   });
 
-  it('picks SingleOverdueInstallmentWithSurcharge past day 8, using totalDue', () => {
+  it('picks SingleOverdueInstallmentWithSurcharge past the mora grace period, using totalDue', () => {
     const result = selectReminderTemplate(
       'Jesus Dorado',
       [overdueInstallment({ overdueDays: 85, totalDue: 717000 })],
@@ -69,6 +71,30 @@ describe('selectReminderTemplate', () => {
     expect(result.type).toBe(MessageType.SingleOverdueInstallmentWithSurcharge);
     expect(result.bodyParameters).toContain('$717.000');
     expect(result.bodyParameters).toContain('hace 85 días');
+  });
+
+  // Narrowed from 8 to 6 days, 2026-09-09 (client correction) — day 6
+  // still has no surcharge, day 7 already does.
+  it('stays on the plain SingleOverdueInstallment template exactly at the grace period boundary', () => {
+    const result = selectReminderTemplate(
+      'Cliente',
+      [overdueInstallment({ overdueDays: MORA_GRACE_PERIOD_DAYS })],
+      [],
+      normal,
+    );
+
+    expect(result.type).toBe(MessageType.SingleOverdueInstallment);
+  });
+
+  it('switches to SingleOverdueInstallmentWithSurcharge the very next day', () => {
+    const result = selectReminderTemplate(
+      'Cliente',
+      [overdueInstallment({ overdueDays: MORA_GRACE_PERIOD_DAYS + 1 })],
+      [],
+      normal,
+    );
+
+    expect(result.type).toBe(MessageType.SingleOverdueInstallmentWithSurcharge);
   });
 
   it('uses singular "hace 1 día" for exactly one overdue day', () => {

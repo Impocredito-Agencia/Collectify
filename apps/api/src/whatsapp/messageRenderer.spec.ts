@@ -260,7 +260,7 @@ describe('messageRenderer', () => {
       );
 
       expect(message).toContain('Pagaré #743:');
-      // 45 days overdue — past the 8-day mora grace period, so this line
+      // 45 days overdue — past the mora grace period, so this line
       // must flag that its $520.800 already includes recargos.
       expect(message).toContain(
         '1️⃣ Cuota No. 3 por $520.800 (recargos incluidos) venció hace 45 días.',
@@ -348,16 +348,19 @@ describe('messageRenderer', () => {
       expect(message).toContain('Pagaré #743:\n\n1️⃣ Cuota No. 3');
     });
 
-    // Bug fix, 2026-09-08 (human report): a cuota inside the 8-day mora
-    // grace period looked identical to one that's actually accruing
-    // recargos — flag only the ones past the grace period.
-    it('flags "(recargos incluidos)" only for a cuota past the 8-day mora grace period', () => {
+    // Bug fix, 2026-09-08 (human report): a cuota inside the mora grace
+    // period looked identical to one that's actually accruing recargos —
+    // flag only the ones past the grace period.
+    //
+    // Narrowed from 8 to 6 days, 2026-09-09 (client correction) — day 6
+    // still has no recargos, day 7 already does.
+    it('flags "(recargos incluidos)" only for a cuota past the mora grace period', () => {
       const installments: AccountSummaryInstallmentForMessage[] = [
         {
           installmentNumber: 9,
           promissoryNoteNumber: '10001',
           totalDue: 205000,
-          overdueDays: 7,
+          overdueDays: 6,
           daysUntilDue: 0,
         },
         {
@@ -376,7 +379,7 @@ describe('messageRenderer', () => {
       );
 
       expect(message).toContain(
-        '1️⃣ Cuota No. 9 por $205.000 venció hace 7 días.',
+        '1️⃣ Cuota No. 9 por $205.000 venció hace 6 días.',
       );
       expect(message).toContain(
         '2️⃣ Cuota No. 8 por $223.177 (recargos incluidos) venció hace 38 días.',

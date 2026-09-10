@@ -270,14 +270,14 @@ overdueDays = todayInBogota > installment.dueDate
   ? wholeCalendarDaysBetween(todayInBogota, installment.dueDate)
   : 0;
 
-interest = overdueDays <= 8
+interest = overdueDays <= 6
   ? 0
   : installment.amount * (loan.interestRate / 100) / 30 * overdueDays;
 
 totalDueForInstallment = installment.amount + interest;
 ```
 
-This matches the manual calculations found across both source spreadsheets — verified against multiple real examples. The `overdueDays <= 8` gate was added 2026-09-08 — see that date's note near the end of this document.
+This matches the manual calculations found across both source spreadsheets — verified against multiple real examples. The grace-period gate was added 2026-09-08 (originally `overdueDays <= 8`, narrowed to `overdueDays <= 6` on 2026-09-09 per client correction) — see that date's note near the end of this document.
 
 **Bug fix, 2026-09-07 — `totalDueForInstallment` above is incomplete: it must also subtract any payments already registered against that pending installment.** See "Bug fix, 2026-09-07 — payment could exceed an installment's real remaining balance" near the end of this document for the full story; `enrichInstallment()`'s real formula is `max(0, installment.amount + interest - totalPaid)`.
 
@@ -813,6 +813,14 @@ Client request: add "edad" and "sexo/género" to the client profile, in the inte
 Client request: `$1,000` rounded too aggressively on the smoothed installment total generated at loan creation/refinance (see `GLOSSARY.md`'s "Amortization method / Capital fijo" → "Cuota con interés" smoothing) — e.g. a true $345,400 cuota rounded down to $345,000, or $245,700 rounded up to $246,000. Narrowed to the nearest $100 instead (e.g. $135,456 → $135,500; $247,830 → $247,800), keeping the "round number" convenience of a flat identical cuota every installment while landing much closer to the real, unrounded figure.
 
 Only one function implements this business rule server-side: `generateAmortizationSchedule()`'s `roundToNearestHundred()` (renamed from `roundToNearestThousand()`) in `apps/api/src/loans/amortization/generateSchedule.ts` — reused unchanged by loan creation, refinancing, and the preview-schedule/"Proyector rápido" quote endpoint, so all three picked up the change automatically. The only other place implementing this exact rounding was client-side only: `RefinanceLoanForm.tsx`'s own `roundToNearestHundred` (a display/pre-fill convenience for "Capital sugerido"/"Capital renegociado" when refinancing, never sent to the backend as-is — the admin can still hand-edit the field) — updated to match, so the two stay in sync. No other call site anywhere in either app implements a nearest-$1,000/$100 rounding rule.
+
+## Changed, 2026-09-09 — mora grace period narrowed from 8 days to 6
+
+Follow-up to "Bug fix, 2026-09-08 — mora was charged starting overdue day 1, not day 9 as the business actually requires" above. The client's first answer put the mora-free window at days 1-8 (mora starting day 9); once that fix shipped and the client saw it in a real WhatsApp message, they corrected it: **day 6 still has no mora, but day 7 already does.**
+
+**Fix:** `installmentCalculations.ts`'s `MORA_GRACE_PERIOD_DAYS` changed from `8` to `6` — a one-line value change, since every consumer (`calculateInterest`, `calculateMoratoryCharges`, and everything built on them: `enrichInstallment()`, `calculatePayoff()`, WhatsApp reminders/self-service menu, the Dashboard, cupo, the payment ceiling, and `reminderTemplateSelection.ts`'s template-choice branch) already reads the constant rather than a hardcoded number. `docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`'s Template 6 doc updated to match (días 1-6 sin recargos / día 7+ con recargos) — no Meta resubmission needed, since neither approved template's body text hardcodes a day number.
+
+Two test fixtures had hardcoded day-7 scenarios that assumed the OLD threshold (day 7 = still no mora) and would have silently passed the wrong behavior under the new one: `messageRenderer.spec.ts`'s recargos-flagging test (moved its "still in grace" fixture from day 7 to day 6) and `installmentCalculations.spec.ts`'s "full overdue days" test (recomputed its hand-checked expected amount for day 7 instead of the old day 9). Every other test referencing the grace period reads `MORA_GRACE_PERIOD_DAYS` dynamically and needed no numeric changes, only comment updates.
 
 ## Related documents
 

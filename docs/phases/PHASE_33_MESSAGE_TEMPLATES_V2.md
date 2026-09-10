@@ -29,8 +29,8 @@ Required reading alongside this: `docs/phases/PHASE_9_MESSAGE_TYPES.md` (the out
 | `refinanciamiento_un_solo_pagar` | Template 3 — refinanciamiento de un único pagaré | `refinanciamiento_un_solo_pagar` |
 | `una_cuota_proxima_vencer` | Template 4 — una cuota próxima a vencer | `una_cuota_proxima_vencer` |
 | `varias_cuota_proxima_vencer` | Template 5 — varias cuotas próximas a vencer | `varias_cuota_proxima_vencer` |
-| `una_cuota_vencida` | Template 6, Variante A (días 1–8, sin recargos) | `una_cuota_vencida` |
-| `una_cuota_vencida_en_mora` | Template 6, Variante B (día 9+, con recargos) | `una_cuota_vencida_en_mora` |
+| `una_cuota_vencida` | Template 6, Variante A (días 1–6, sin recargos) | `una_cuota_vencida` |
+| `una_cuota_vencida_en_mora` | Template 6, Variante B (día 7+, con recargos) | `una_cuota_vencida_en_mora` |
 | `varias_cuota_vencida` | Template 7 — varias cuotas vencidas | `varias_cuota_vencida` |
 | `proxima_vencer_y_vencida` | Template 8 — mezcla de próximas a vencer y vencidas | `proxima_vencer_y_vencida` |
 | `confirmacion_pago` | Template 9 — confirmación de pago (cuota individual) | `confirmacion_pago` |
@@ -215,9 +215,11 @@ Parameters: `{{1}}` tratamiento + nombre, `{{2}}` # cuotas próximas, `{{3}}` su
 
 ### Template 6 — Una sola cuota vencida (dos variantes)
 
-Split into two templates because the business doesn't charge mora until day 9 — the fixed text "(con recargos incluidos)" can't be shown/hidden conditionally inside one Meta template, so the backend picks the template by `diasVencida > 8`.
+Split into two templates because the business doesn't charge mora until day 7 — the fixed text "(con recargos incluidos)" can't be shown/hidden conditionally inside one Meta template, so the backend picks the template by `diasVencida > MORA_GRACE_PERIOD_DAYS` (see `installmentCalculations.ts`).
 
-#### Variante A — días 1 a 8 (aún sin recargos)
+**Narrowed from day 9 to day 7, 2026-09-09 (client correction):** the day count below (and the `diasVencida > 8` check) originally reflected the client's first answer; they later clarified the real cutoff: day 6 has no mora, day 7 already does — see `docs/DATABASE.md`'s note of that date. Neither Meta template's body text hardcodes a day number (both are fully parametrized via `{{5}}`/`{{4}}`'s "hace N días" phrase), so this was a selection-logic change only, no Meta resubmission needed.
+
+#### Variante A — días 1 a 6 (aún sin recargos)
 
 **Meta name: `una_cuota_vencida`**
 
@@ -237,7 +239,7 @@ Parameters: `{{1}}` tratamiento + nombre, `{{2}}` # cuota, `{{3}}` # pagaré, `{
 
 **Buttons:** "Ver desglose" — "Ya pagué" — "Hablar con asesor".
 
-#### Variante B — día 9 en adelante (recargos ya aplicados)
+#### Variante B — día 7 en adelante (recargos ya aplicados)
 
 **Meta name: `una_cuota_vencida_en_mora`**
 
