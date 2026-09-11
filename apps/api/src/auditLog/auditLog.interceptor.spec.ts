@@ -980,6 +980,97 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
+    // Human report, 2026-09-10 — docs/DATABASE.md's 2026-09-03 coverage
+    // sweep had flagged "cron pause/resume/reschedule" as missing
+    // @Audit() entirely; this covers the label rule added to close that
+    // specific gap.
+    it('labels a paused reminder family by its Spanish name', async () => {
+      reflector.get.mockReturnValue({
+        action: 'whatsappCron.pause',
+        entityType: 'whatsappCron',
+      });
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        params: { family: 'overdue' },
+      });
+      const handler = buildCallHandler(of({ paused: true }));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: 'Cuotas vencidas — pausado',
+        }),
+      );
+    });
+
+    it('labels a resumed reminder family by its Spanish name', async () => {
+      reflector.get.mockReturnValue({
+        action: 'whatsappCron.resume',
+        entityType: 'whatsappCron',
+      });
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        params: { family: 'upcoming_due' },
+      });
+      const handler = buildCallHandler(of({ paused: false }));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: 'Cuotas próximas a vencer — reanudado',
+        }),
+      );
+    });
+
+    it('labels a rescheduled reminder family with its new cron expression', async () => {
+      reflector.get.mockReturnValue({
+        action: 'whatsappCron.reschedule',
+        entityType: 'whatsappCron',
+      });
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        params: { family: 'new_loan' },
+      });
+      const handler = buildCallHandler(
+        of({ id: 'template-1', cronExpression: '0 8 * * 1' }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel:
+            'Nuevo pagaré / Refinanciación — nuevo horario: 0 8 * * 1',
+        }),
+      );
+    });
+
+    it('falls back to the raw family string when it is not a known ReminderFamily', async () => {
+      reflector.get.mockReturnValue({
+        action: 'whatsappCron.pause',
+        entityType: 'whatsappCron',
+      });
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        params: { family: 'not_a_real_family' },
+      });
+      const handler = buildCallHandler(of({ paused: true }));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: 'not_a_real_family — pausado',
+        }),
+      );
+    });
+
     it('resolves a null entityLabel for an entityType with no labeling rule', async () => {
       reflector.get.mockReturnValue({
         action: 'something.new',

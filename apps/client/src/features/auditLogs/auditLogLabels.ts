@@ -41,6 +41,13 @@ export const ACTION_LABELS: Record<string, string> = {
   'payment.registerBulk': 'Registró un pago sobre varias cuotas',
   // Human report, 2026-09-09 — payment correction feature.
   'payment.void': 'Anuló un pago',
+  // Human report, 2026-09-10 — docs/DATABASE.md's 2026-09-03 coverage
+  // sweep had already flagged "cron pause/resume/reschedule" (the
+  // Plantillas tab's per-family Pausar/Reanudar/Guardar horario menu) as
+  // missing @Audit() entirely; this closes that specific gap.
+  'whatsappCron.pause': 'Pausó un recordatorio automático',
+  'whatsappCron.resume': 'Reanudó un recordatorio automático',
+  'whatsappCron.reschedule': 'Cambió el horario de un recordatorio automático',
   'user.create': 'Creó un usuario',
   'user.deactivate': 'Desactivó un usuario',
   'user.reactivate': 'Reactivó un usuario',
@@ -93,6 +100,8 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   client: 'Cliente',
   loan: 'Préstamo',
   payment: 'Pago',
+  // Human report, 2026-09-10 — see 'whatsappCron.pause' above.
+  whatsappCron: 'Recordatorio automático',
   user: 'Usuario',
   usuryRate: 'Tasa de usura',
   // Phase 32 — same sync gap as ACTION_LABELS above. Kept for historical

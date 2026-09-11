@@ -18,9 +18,20 @@ import { InterestConceptType } from '../interestConceptTypes/entities/interestCo
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
 import { User } from '../users/entities/user.entity';
+import { ReminderFamily } from '../whatsapp/reminderFamily';
 
 import { AuditLogService } from './auditLog.service';
 import { AUDIT_KEY, AuditMetadata } from './decorators/audit.decorator';
+
+// Mirrors apps/client/src/features/messageTemplates/MessageTemplatesPage.tsx's
+// own FAMILY_LABELS — kept as a separate copy rather than a shared package,
+// same as every other Spanish label already hardcoded in this file (see
+// formatClientLabel/formatCuotaGroupsLabel etc.).
+const WHATSAPP_CRON_FAMILY_LABELS: Record<ReminderFamily, string> = {
+  [ReminderFamily.Overdue]: 'Cuotas vencidas',
+  [ReminderFamily.UpcomingDue]: 'Cuotas próximas a vencer',
+  [ReminderFamily.NewLoan]: 'Nuevo pagaré / Refinanciación',
+};
 
 interface AuditableRequest {
   user?: AuthenticatedUser;
@@ -288,6 +299,31 @@ export class AuditLogInterceptor implements NestInterceptor {
           ? `${entity.ratePercentage}% desde ${entity.effectiveMonth}`
           : `${entity.ratePercentage}%`;
       }
+      // Human report, 2026-09-10 — docs/DATABASE.md's 2026-09-03 coverage
+      // sweep had already flagged "cron pause/resume/reschedule" as
+      // missing @Audit() entirely; this closes that specific gap (the
+      // rest of that sweep's list — reply/close-conversation/manual
+      // send-reminder/send-upcoming-due/message_logs.retry — stays open).
+      // Distinguishes pause vs. resume vs. reschedule off the response
+      // shape alone, same convention as the 'payment' case above
+      // (register vs. void) rather than branching on `entityType` +
+      // `action` together: pause/resume both return `{ paused: boolean }`
+      // (WhatsappCronService.pause/resume), reschedule returns the full
+      // schedule-owner MessageTemplate (has cronExpression, no `paused`).
+      case 'whatsappCron': {
+        const family = params.family;
+        const familyLabel =
+          family && this.isReminderFamily(family)
+            ? WHATSAPP_CRON_FAMILY_LABELS[family]
+            : (family ?? 'desconocida');
+        if (entity && typeof entity.paused === 'boolean') {
+          return `${familyLabel} — ${entity.paused ? 'pausado' : 'reanudado'}`;
+        }
+        if (entity && typeof entity.cronExpression === 'string') {
+          return `${familyLabel} — nuevo horario: ${entity.cronExpression}`;
+        }
+        return family ? familyLabel : null;
+      }
       case 'interestConceptType': {
         if (entity && typeof entity.name === 'string') {
           return entity.name;
@@ -404,6 +440,10 @@ export class AuditLogInterceptor implements NestInterceptor {
       style: 'long',
       type: 'conjunction',
     }).format(numbers.map(String));
+  }
+
+  private isReminderFamily(value: string): value is ReminderFamily {
+    return (Object.values(ReminderFamily) as string[]).includes(value);
   }
 
   private formatClientLabel(client: Record<string, unknown>): string {
