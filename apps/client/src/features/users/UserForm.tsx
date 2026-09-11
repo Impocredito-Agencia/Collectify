@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select';
 import { ModuleChecklist } from '@/features/users/ModuleChecklist';
 import { USER_ROLE_LABELS } from '@/features/users/usersApi';
 import { ApiError } from '@/lib/apiClient';
+import { EMAIL_REGEX } from '@/lib/emailPattern';
 import { inputClassName } from '@/lib/formStyles';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
@@ -61,6 +62,12 @@ export function UserForm({
     }
     if (!email.trim()) {
       errors.email = 'El correo es obligatorio.';
+    } else if (!EMAIL_REGEX.test(email.trim())) {
+      // Human report, 2026-09-10 — see EMAIL_REGEX's own comment
+      // (@/lib/emailPattern.ts). This used to be the only check on
+      // format (via the native `type="email"` input below), which
+      // rejected ñ/accented letters outright.
+      errors.email = 'Debe ser un correo electrónico válido.';
     }
     if (password.length < 8) {
       errors.password = 'La contraseña debe tener al menos 8 caracteres.';
@@ -158,7 +165,14 @@ export function UserForm({
         <Field label="Correo electrónico" error={fieldErrors.email}>
           <input
             required
-            type="email"
+            // type="text" instead of "email" — see EMAIL_REGEX's own
+            // comment (@/lib/emailPattern.ts): the native email-format
+            // check rejects ñ/accented letters outright. inputMode keeps
+            // the "@"-friendly mobile keyboard the "email" type gave for
+            // free.
+            type="text"
+            inputMode="email"
+            autoComplete="email"
             value={email}
             onChange={(event) => {
               setEmail(event.target.value);
