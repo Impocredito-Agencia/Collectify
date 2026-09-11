@@ -988,13 +988,23 @@ function InstallmentsTable({
                 >
                   <Td>
                     {isPending ? (
-                      <input
-                        type="checkbox"
-                        checked={selectedInstallmentIds.has(installment.id)}
-                        onChange={() => onToggleSelected(installment.id)}
-                        aria-label={`Seleccionar cuota ${installment.installmentNumber}`}
-                        className="h-3.5 w-3.5 accent-white"
-                      />
+                      // QoL, 2026-09-10 — the checkbox itself is tiny
+                      // (h-3.5 w-3.5, ~14px); wrapping it in a <label> that
+                      // bleeds into the cell's own px-3.5 padding (via
+                      // negative margin) turns the WHOLE cell into the
+                      // clickable target instead of just the checkbox
+                      // square, without growing the checkbox visually or
+                      // spilling into neighboring cells — a <td>'s box
+                      // still stops at the column boundary either way.
+                      <label className="-mx-3.5 flex h-full w-full cursor-pointer items-center justify-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedInstallmentIds.has(installment.id)}
+                          onChange={() => onToggleSelected(installment.id)}
+                          aria-label={`Seleccionar cuota ${installment.installmentNumber}`}
+                          className="h-3.5 w-3.5 accent-white"
+                        />
+                      </label>
                     ) : null}
                   </Td>
                   <Td>
