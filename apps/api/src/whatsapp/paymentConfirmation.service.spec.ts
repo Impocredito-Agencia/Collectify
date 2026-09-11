@@ -1,4 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
@@ -32,6 +33,7 @@ describe('PaymentConfirmationService', () => {
   let loanInstallmentConceptsRepository: { find: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
   let whatsAppService: { sendTemplateMessage: jest.Mock };
+  let configService: { get: jest.Mock };
 
   const client = {
     id: 'client-1',
@@ -73,6 +75,9 @@ describe('PaymentConfirmationService', () => {
     };
     messageTemplatesService = { findByTypeOrThrow: jest.fn() };
     whatsAppService = { sendTemplateMessage: jest.fn() };
+    configService = {
+      get: jest.fn().mockReturnValue({ paymentConfirmationPaused: false }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -97,6 +102,7 @@ describe('PaymentConfirmationService', () => {
         },
         { provide: MessageTemplatesService, useValue: messageTemplatesService },
         { provide: WhatsAppService, useValue: whatsAppService },
+        { provide: ConfigService, useValue: configService },
       ],
     }).compile();
 
@@ -132,7 +138,7 @@ describe('PaymentConfirmationService', () => {
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.PaymentConfirmation,
       );
-      expect(result.status).toBe(MessageLogStatus.Sent);
+      expect(result?.status).toBe(MessageLogStatus.Sent);
     });
 
     it('reports an overpayment as saldo a favor', async () => {
@@ -200,6 +206,18 @@ describe('PaymentConfirmationService', () => {
         NotFoundException,
       );
     });
+
+    // Human report, 2026-09-11 — see WhatsappConfig.paymentConfirmationPaused.
+    it('returns null and never touches the DB or WhatsAppService when paused', async () => {
+      configService.get.mockReturnValue({ paymentConfirmationPaused: true });
+
+      const result = await service.sendPaymentConfirmation('inst-1');
+
+      expect(result).toBeNull();
+      expect(installmentsRepository.findOne).not.toHaveBeenCalled();
+      expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
+      expect(messageLogsRepository.save).not.toHaveBeenCalled();
+    });
   });
 
   describe('sendPaidInFull', () => {
@@ -219,7 +237,7 @@ describe('PaymentConfirmationService', () => {
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.PaidInFull,
       );
-      expect(result.status).toBe(MessageLogStatus.Sent);
+      expect(result?.status).toBe(MessageLogStatus.Sent);
     });
 
     it('throws NotFoundException when the loan does not exist', async () => {
@@ -228,6 +246,17 @@ describe('PaymentConfirmationService', () => {
       await expect(service.sendPaidInFull('missing')).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    it('returns null and never touches the DB or WhatsAppService when paused', async () => {
+      configService.get.mockReturnValue({ paymentConfirmationPaused: true });
+
+      const result = await service.sendPaidInFull('loan-1');
+
+      expect(result).toBeNull();
+      expect(loansRepository.findOne).not.toHaveBeenCalled();
+      expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
+      expect(messageLogsRepository.save).not.toHaveBeenCalled();
     });
   });
 });

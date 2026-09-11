@@ -143,6 +143,16 @@ export class MessageLogsService {
     }
 
     const retryLog = await this.dispatchRetry(original);
+    // Human report, 2026-09-11 — PaymentConfirmation/PaidInFull return null
+    // instead of a MessageLog while paymentConfirmationPaused is on (see
+    // PaymentConfirmationService), so there's nothing to stamp retriedAt
+    // against yet. Surfaced as a clear error rather than a null-pointer
+    // crash — the admin can retry again once that flag is off.
+    if (!retryLog) {
+      throw new BadRequestException(
+        'Los mensajes de confirmación de pago están pausados temporalmente — no se puede reintentar en este momento.',
+      );
+    }
 
     await this.messageLogsRepository.update(
       { id: original.id },
@@ -159,7 +169,9 @@ export class MessageLogsService {
   // Phase 33 — the old switch-per-exact-type dispatch doesn't scale to 13
   // template types, so this groups by family instead (see
   // reminderFamily.ts and docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md).
-  private async dispatchRetry(original: MessageLog): Promise<MessageLog> {
+  private async dispatchRetry(
+    original: MessageLog,
+  ): Promise<MessageLog | null> {
     if (OVERDUE_FAMILY_TYPES.includes(original.type)) {
       return this.overdueReminderService.sendReminderForClient(
         original.clientId,

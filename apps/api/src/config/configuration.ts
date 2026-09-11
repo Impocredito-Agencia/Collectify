@@ -44,6 +44,19 @@ export interface WhatsappConfig {
   // blocked exactly as before. Empty by default — the allowlist is an
   // explicit, opt-in exception, never a default-open one.
   testRecipients: string[];
+  // Narrower kill switch, 2026-09-11 — while historical loans AND their
+  // payments are both being backfilled (Loan.isNewLoan already stops the
+  // "nuevo pagaré" message for backfilled loans; this stops
+  // PaymentConfirmation/PaidInFull for backfilled payments the same way,
+  // since there's no per-payment "is this backfilled" flag to key off of
+  // instead). Independent of sendingPaused above — composes with it
+  // rather than replacing it: sendingPaused blocks every message type
+  // unconditionally inside WhatsAppService; this one only blocks
+  // PaymentConfirmationService's two message types, checked before that,
+  // so turning sendingPaused back on for everything else doesn't
+  // accidentally resume these too. Meant to be turned back off once real
+  // (non-backfilled) payments start flowing through normally.
+  paymentConfirmationPaused: boolean;
 }
 
 export interface CloudinaryConfig {
@@ -111,6 +124,8 @@ export default (): Configuration => ({
       .split(',')
       .map((phoneNumber) => phoneNumber.trim())
       .filter((phoneNumber) => phoneNumber.length > 0),
+    paymentConfirmationPaused:
+      process.env.PAYMENT_CONFIRMATION_MESSAGES_PAUSED === 'true',
   },
   cloudinary: {
     // Pending — no Cloudinary account created for this project yet, same

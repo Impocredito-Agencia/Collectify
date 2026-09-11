@@ -33,6 +33,11 @@ export const envValidationSchema = Joi.object({
   // .env.example or any file checked into git.
   WHATSAPP_TEST_RECIPIENTS: Joi.string().allow('').default(''),
 
+  // Narrower kill switch (2026-09-11) — stops PaymentConfirmation/
+  // PaidInFull specifically while historical payments are being
+  // backfilled. See WhatsappConfig.paymentConfirmationPaused.
+  PAYMENT_CONFIRMATION_MESSAGES_PAUSED: Joi.boolean().default(false),
+
   // Pending client's Cloudinary account setup — same "allow blank" pattern
   // as the Meta WhatsApp vars above. UploadsService fails clearly (not
   // silently) if a signature is requested while any of these are empty.
