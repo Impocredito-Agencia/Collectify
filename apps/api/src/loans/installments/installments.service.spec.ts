@@ -13,6 +13,7 @@ import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entit
 import { Payment } from '../entities/payment.entity';
 import { PaymentImage } from '../entities/paymentImage.entity';
 
+import { WhatsappInboundMessage } from '../../whatsapp/entities/whatsappInboundMessage.entity';
 import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
 
 import { enrichInstallment } from './enrichInstallment';
@@ -35,6 +36,7 @@ describe('InstallmentsService', () => {
   let loansRepository: { update: jest.Mock };
   let loanInstallmentConceptsRepository: { find: jest.Mock };
   let paymentImagesRepository: { create: jest.Mock; save: jest.Mock };
+  let whatsappInboundMessagesRepository: { update: jest.Mock };
   let dataSource: { transaction: jest.Mock };
   let paymentConfirmationService: {
     sendPaymentConfirmation: jest.Mock;
@@ -103,6 +105,9 @@ describe('InstallmentsService', () => {
       create: jest.fn((dto: Partial<PaymentImage>) => dto),
       save: jest.fn((images: unknown[]) => Promise.resolve(images)),
     };
+    whatsappInboundMessagesRepository = {
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
     // Mirrors LoansService's own transaction mock (loans.service.spec.ts) —
     // routes manager.getRepository() to the same mocks above by entity
     // class, so registerBulkPayments (run inside dataSource.transaction())
@@ -154,6 +159,10 @@ describe('InstallmentsService', () => {
         {
           provide: getRepositoryToken(PaymentImage),
           useValue: paymentImagesRepository,
+        },
+        {
+          provide: getRepositoryToken(WhatsappInboundMessage),
+          useValue: whatsappInboundMessagesRepository,
         },
         { provide: DataSource, useValue: dataSource },
         {
@@ -565,6 +574,78 @@ describe('InstallmentsService', () => {
 
       expect(result).toMatchObject({ imageUrl: null });
       expect(paymentImagesRepository.save).not.toHaveBeenCalled();
+    });
+
+    // Human report, 2026-09-11 — the "Registrar pago con este comprobante"
+    // flow's linking step.
+    it('links the payment to the source WhatsappInboundMessage when sourceWhatsappMessageId is given', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
+      paymentsRepository.save.mockResolvedValue({
+        ...paymentDto,
+        id: 'payment-1',
+      });
+      mockInstallmentsFind();
+
+      await service.registerPayment(mockInstallment.id, {
+        ...paymentDto,
+        sourceWhatsappMessageId: 'wa-msg-1',
+      });
+
+      expect(whatsappInboundMessagesRepository.update).toHaveBeenCalledWith(
+        { id: 'wa-msg-1' },
+        { paymentId: 'payment-1' },
+      );
+    });
+
+    it('does not touch WhatsappInboundMessage when sourceWhatsappMessageId is omitted', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
+      mockInstallmentsFind();
+
+      await service.registerPayment(mockInstallment.id, paymentDto);
+
+      expect(whatsappInboundMessagesRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('still registers the payment when sourceWhatsappMessageId matches no message', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
+      paymentsRepository.save.mockResolvedValue({
+        ...paymentDto,
+        id: 'payment-1',
+      });
+      whatsappInboundMessagesRepository.update.mockResolvedValue({
+        affected: 0,
+      });
+      mockInstallmentsFind();
+
+      await expect(
+        service.registerPayment(mockInstallment.id, {
+          ...paymentDto,
+          sourceWhatsappMessageId: 'wa-msg-does-not-exist',
+        }),
+      ).resolves.toMatchObject(paymentDto);
+    });
+
+    it('still registers the payment when the WhatsappInboundMessage update throws unexpectedly', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
+      paymentsRepository.save.mockResolvedValue({
+        ...paymentDto,
+        id: 'payment-1',
+      });
+      whatsappInboundMessagesRepository.update.mockRejectedValue(
+        new Error('DB is down'),
+      );
+      mockInstallmentsFind();
+
+      await expect(
+        service.registerPayment(mockInstallment.id, {
+          ...paymentDto,
+          sourceWhatsappMessageId: 'wa-msg-1',
+        }),
+      ).resolves.toMatchObject(paymentDto);
     });
   });
 

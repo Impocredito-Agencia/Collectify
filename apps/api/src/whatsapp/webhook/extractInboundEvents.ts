@@ -100,7 +100,12 @@ function parseMessage(message: Record<string, unknown>): {
   // caption when present so a client's real words (e.g. "aquí está el
   // comprobante") still show, not just the media's presence. mediaId
   // (added alongside WhatsappMediaService, same date) is Meta's own
-  // reference to the file itself — needed to actually fetch it.
+  // reference to the file itself — needed to actually fetch it. Only set
+  // for image/document, since those are the only kinds relevant as
+  // payment evidence for this business — audio/video/sticker keep their
+  // own recognized `type` (still logged, never dropped) but leave mediaId
+  // null so WhatsappMediaService never spends Cloudinary quota re-hosting
+  // something nobody needs to review as a comprobante.
   if (messageType === 'image' && isRecord(message.image)) {
     return {
       type: WhatsappInboundMessageType.Image,
@@ -128,7 +133,7 @@ function parseMessage(message: Record<string, unknown>): {
       type: WhatsappInboundMessageType.Audio,
       buttonPayload: null,
       bodyText: null,
-      mediaId: asString(message.audio.id),
+      mediaId: null,
     };
   }
 
@@ -137,7 +142,7 @@ function parseMessage(message: Record<string, unknown>): {
       type: WhatsappInboundMessageType.Video,
       buttonPayload: null,
       bodyText: asString(message.video.caption),
-      mediaId: asString(message.video.id),
+      mediaId: null,
     };
   }
 
@@ -146,7 +151,7 @@ function parseMessage(message: Record<string, unknown>): {
       type: WhatsappInboundMessageType.Sticker,
       buttonPayload: null,
       bodyText: null,
-      mediaId: asString(message.sticker.id),
+      mediaId: null,
     };
   }
 

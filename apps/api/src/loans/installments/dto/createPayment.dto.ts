@@ -6,6 +6,7 @@ import {
   IsPositive,
   IsString,
   IsUrl,
+  IsUUID,
 } from 'class-validator';
 
 export class CreatePaymentDto {
@@ -39,4 +40,18 @@ export class CreatePaymentDto {
   @IsArray()
   @IsUrl({}, { each: true })
   imageUrls?: string[];
+
+  // Human report, 2026-09-11 — set by the "Registrar pago con este
+  // comprobante" flow (WhatsApp inbox → RegisterPaymentFromWhatsappModal)
+  // so InstallmentsService.registerPayment can link the resulting Payment
+  // back to the WhatsappInboundMessage the comprobante came from. Optional
+  // and best-effort: a payment always registers successfully even if this
+  // id is missing or stale — see that method's own comment.
+  @ApiPropertyOptional({
+    description:
+      "The WhatsappInboundMessage id this payment's comprobante was reviewed from, if registered via the WhatsApp inbox — links the two so the inbox can show it as already handled.",
+  })
+  @IsOptional()
+  @IsUUID()
+  sourceWhatsappMessageId?: string;
 }

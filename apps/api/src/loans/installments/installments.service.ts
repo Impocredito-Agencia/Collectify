@@ -17,6 +17,7 @@ import {
 } from 'typeorm';
 
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
+import { WhatsappInboundMessage } from '../../whatsapp/entities/whatsappInboundMessage.entity';
 import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { Loan, LoanStatus } from '../entities/loan.entity';
@@ -52,6 +53,8 @@ export class InstallmentsService {
     private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     @InjectRepository(PaymentImage)
     private readonly paymentImagesRepository: Repository<PaymentImage>,
+    @InjectRepository(WhatsappInboundMessage)
+    private readonly whatsappInboundMessagesRepository: Repository<WhatsappInboundMessage>,
     private readonly dataSource: DataSource,
     private readonly paymentConfirmationService: PaymentConfirmationService,
   ) {}
@@ -214,6 +217,12 @@ export class InstallmentsService {
       dto.imageUrls,
       this.paymentImagesRepository,
     );
+    if (dto.sourceWhatsappMessageId) {
+      await this.linkSourceWhatsappMessageSafely(
+        savedPayment.id,
+        dto.sourceWhatsappMessageId,
+      );
+    }
 
     if (installment.status === InstallmentStatus.Pending) {
       // Bug fix, 2026-09-08 (human decision, following the #0920 payment-cap
@@ -600,6 +609,33 @@ export class InstallmentsService {
       { status: LoanStatus.Paid },
     );
     return (result.affected ?? 0) > 0;
+  }
+
+  // Human report, 2026-09-11 — the "Registrar pago con este comprobante"
+  // flow's linking step. Best-effort and never lets a bad/stale message id
+  // affect the payment that was just registered — same "safely" principle
+  // as sendPaymentConfirmationSafely below: a mismatch here means only the
+  // inbox misses its "✅ Ya registrado" badge, not a failed payment.
+  private async linkSourceWhatsappMessageSafely(
+    paymentId: string,
+    sourceWhatsappMessageId: string,
+  ): Promise<void> {
+    try {
+      const result = await this.whatsappInboundMessagesRepository.update(
+        { id: sourceWhatsappMessageId },
+        { paymentId },
+      );
+      if ((result.affected ?? 0) === 0) {
+        this.logger.warn(
+          `sourceWhatsappMessageId ${sourceWhatsappMessageId} for payment ${paymentId} matched no WhatsappInboundMessage row.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to link payment ${paymentId} to WhatsappInboundMessage ${sourceWhatsappMessageId}`,
+        error,
+      );
+    }
   }
 
   // Never lets a messaging failure affect the payment that was just

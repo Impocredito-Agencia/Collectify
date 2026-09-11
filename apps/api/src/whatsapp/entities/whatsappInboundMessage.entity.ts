@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
+import { Payment } from '../../loans/entities/payment.entity';
 
 // Image/Document/Audio/Video/Sticker/Location added 2026-09-11 (human
 // report — a client's payment receipt photo rendered as a bare "—" in the
@@ -63,14 +64,37 @@ export class WhatsappInboundMessage {
   bodyText!: string | null;
 
   // Human report, 2026-09-11 — the Cloudinary URL WhatsappMediaService
-  // re-hosted this message's attachment to (image/document/audio/video/
-  // sticker only — see WhatsappInboundMessageType). Null until that
-  // download+upload succeeds, which never blocks this row itself from
-  // being saved — see WhatsappWebhookService.persistEvent. Stays null
-  // forever for a non-media message, or when Cloudinary/WhatsApp
-  // credentials aren't configured, or the download/upload failed.
+  // re-hosted this message's attachment to. Only image/document trigger a
+  // re-host — those are the only kinds relevant as payment evidence for
+  // this business; audio/video/sticker/location are still logged with
+  // their own `type` above (never dropped) but never hit Cloudinary at
+  // all, on purpose — see extractInboundEvents.ts's parseMessage. Null
+  // until the download+upload succeeds, which never blocks this row
+  // itself from being saved — see WhatsappWebhookService.persistEvent.
+  // Stays null forever for a non-media message, an unhosted media type, or
+  // when Cloudinary/WhatsApp credentials aren't configured, or the
+  // download/upload failed.
   @Column({ type: 'varchar', nullable: true })
   mediaUrl!: string | null;
+
+  // Human report, 2026-09-11 — set once a collector reviews this
+  // message's comprobante and registers a payment from it (the "Registrar
+  // pago con este comprobante" flow — see
+  // apps/client/src/features/whatsappInboundMessages/RegisterPaymentFromWhatsappModal.tsx
+  // and InstallmentsService.registerPayment's sourceWhatsappMessageId
+  // handling). Nullable and SET NULL on delete — a payment record is
+  // never hard-deleted in this system (only soft-deleted/voided), but this
+  // stays defensive regardless, same convention as clientId above. Lets
+  // the inbox render "✅ Ya registrado" instead of the raw media bubble,
+  // so a comprobante doesn't get registered as a payment twice by
+  // accident.
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  paymentId!: string | null;
+
+  @ManyToOne(() => Payment, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'payment_id' })
+  payment!: Payment | null;
 
   // The full webhook event Meta sent, for debugging/replay — see
   // docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md.

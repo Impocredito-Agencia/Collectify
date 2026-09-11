@@ -347,7 +347,7 @@ describe('WhatsappWebhookService', () => {
       expect(inboundMessagesRepository.findAndCount).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {},
-          relations: { client: true },
+          relations: { client: true, payment: true },
           order: { receivedAt: 'DESC' },
           skip: 0,
           take: 20,

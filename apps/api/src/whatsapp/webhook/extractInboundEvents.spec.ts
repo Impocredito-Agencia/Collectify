@@ -356,13 +356,10 @@ describe('extractInboundEvents', () => {
   // needs this id to actually fetch the file from Meta. Every media type
   // parsed above (image/document/audio/video/sticker) must carry it;
   // nothing else (text, button, location, other) has a file to fetch.
-  it('extracts the media id for image/document/audio/video/sticker only', () => {
+  it('extracts the media id for image/document only', () => {
     const mediaTypes: [string, Record<string, unknown>][] = [
       ['image', { image: { id: 'media-1', mime_type: 'image/jpeg' } }],
       ['document', { document: { id: 'media-2', filename: 'a.pdf' } }],
-      ['audio', { audio: { id: 'media-3', mime_type: 'audio/ogg' } }],
-      ['video', { video: { id: 'media-5' } }],
-      ['sticker', { sticker: { id: 'media-4', mime_type: 'image/webp' } }],
     ];
 
     for (const [type, fields] of mediaTypes) {
@@ -375,8 +372,19 @@ describe('extractInboundEvents', () => {
     }
   });
 
-  it('leaves the media id null for text, button, location, and other events', () => {
+  // Human report, 2026-09-11 — image/document are the only kinds relevant
+  // as payment evidence for this business; audio/video/sticker keep their
+  // own recognized type (still logged, never dropped, see
+  // WhatsappInboundMessageType) but never re-host to Cloudinary, so their
+  // mediaId stays null on purpose — see parseMessage's own comment.
+  it('leaves the media id null for audio, video, sticker, text, button, location, and other events', () => {
     const nonMediaPayloads: Record<string, unknown>[] = [
+      { type: 'audio', audio: { id: 'media-3', mime_type: 'audio/ogg' } },
+      { type: 'video', video: { id: 'media-5' } },
+      {
+        type: 'sticker',
+        sticker: { id: 'media-4', mime_type: 'image/webp' },
+      },
       { type: 'text', text: { body: 'hola' } },
       { type: 'button', button: { payload: 'p', text: 'p' } },
       { type: 'location', location: { latitude: 1, longitude: 2 } },
