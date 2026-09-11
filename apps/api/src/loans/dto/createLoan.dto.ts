@@ -200,14 +200,18 @@ export class CreateLoanDto {
 
   // Added 2026-09-06 — see Loan.isNewLoan. Defaults to false ("es viejo")
   // when omitted, so a historical/backfilled loan never needs this set
-  // explicitly to behave safely. LoanForm.tsx (the interactive admin
-  // panel) always sends `true` now — its own checkbox was removed the
-  // same day (confirmed with the human): with the message now sent
-  // synchronously (see LoansService.create()'s own comment on the
-  // 2026-09-06 revert), a historical loan typed in through that form
-  // relies on WHATSAPP_SENDING_PAUSED instead. This field stays optional
-  // so any other caller of create() that never sets it explicitly keeps
-  // defaulting to false unaffected.
+  // explicitly to behave safely. Stale note corrected 2026-09-18 (human
+  // report): this comment used to say LoanForm.tsx always sends `true`
+  // — that was only ever true for the brief window when its checkbox was
+  // removed, between the two reverts documented in docs/DATABASE.md
+  // ("Reverted, 2026-09-06 — new-loan/refinance messages back to
+  // synchronous send") and Loan.isNewLoan's own comment (restored
+  // 2026-09-09). Every loan created through that form during that window
+  // is stuck with isNewLoan: true in the database regardless of what the
+  // current code does — see migration
+  // SetIsNewLoanFalseForExistingLoans. This field stays optional so any
+  // other caller of create() that never sets it explicitly keeps
+  // explicitly keeps defaulting to false unaffected.
   @ApiPropertyOptional({
     default: false,
     description:
