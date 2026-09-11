@@ -70,13 +70,14 @@ export class PaymentConfirmationService {
   // even a Failed one (unlike WHATSAPP_SENDING_PAUSED, which still logs a
   // Failed row since that check happens one layer down, inside
   // WhatsAppService). bypassPause (human report, 2026-09-19) — set by
-  // InstallmentsService.registerPayment whenever the payment came from
-  // the "Registrar pago con este comprobante" WhatsApp flow
-  // (dto.sourceWhatsappMessageId): that payment is, by construction, a
-  // real transaction happening right now, never one of the historical
-  // payments this flag exists to silence — same "explicit, opt-in
-  // exception" precedent as WHATSAPP_TEST_RECIPIENTS bypassing
-  // WHATSAPP_SENDING_PAUSED.
+  // InstallmentsService.registerPayment/registerBulkPayments whenever
+  // either (a) the payment came from the "Registrar pago con este
+  // comprobante" WhatsApp flow (dto.sourceWhatsappMessageId), or (b) the
+  // installment's loan is marked isNewLoan. Both cases are, by
+  // construction, real activity happening right now, never one of the
+  // historical/backfilled payments this flag exists to silence — same
+  // "explicit, opt-in exception" precedent as WHATSAPP_TEST_RECIPIENTS
+  // bypassing WHATSAPP_SENDING_PAUSED.
   private isPaused(bypassPause: boolean): boolean {
     if (bypassPause) {
       return false;

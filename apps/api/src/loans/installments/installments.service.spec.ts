@@ -33,7 +33,7 @@ describe('InstallmentsService', () => {
     find: jest.Mock;
     findOne: jest.Mock;
   };
-  let loansRepository: { update: jest.Mock };
+  let loansRepository: { update: jest.Mock; findOne: jest.Mock };
   let loanInstallmentConceptsRepository: { find: jest.Mock };
   let paymentImagesRepository: { create: jest.Mock; save: jest.Mock };
   let whatsappInboundMessagesRepository: { update: jest.Mock };
@@ -97,6 +97,10 @@ describe('InstallmentsService', () => {
     };
     loansRepository = {
       update: jest.fn().mockResolvedValue({ affected: 1 }),
+      // Defaults to an ordinary (non-new) loan — loanBypassesConfirmationPause
+      // resolves false unless a test overrides this to exercise the isNewLoan
+      // bypass explicitly.
+      findOne: jest.fn().mockResolvedValue({ isNewLoan: false }),
     };
     loanInstallmentConceptsRepository = {
       find: jest.fn().mockResolvedValue([]),
@@ -327,6 +331,30 @@ describe('InstallmentsService', () => {
         amountPaid: 200000,
         paidAt: '2026-01-05',
         sourceWhatsappMessageId: 'wa-msg-1',
+      });
+
+      expect(
+        paymentConfirmationService.sendPaymentConfirmation,
+      ).toHaveBeenCalledWith(mockInstallment.id, { bypassPause: true });
+    });
+
+    // Human report, 2026-09-19 — a payment registered normally (no
+    // sourceWhatsappMessageId) on a loan marked isNewLoan must still bypass
+    // the pause: it's a genuinely new loan created during testing, not one
+    // of the historical/backfilled loans the flag exists to silence.
+    it('bypasses the payment-confirmation pause when the loan is marked isNewLoan', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ amountPaid: 200000 }]);
+      mockInstallmentsFind([
+        { ...mockInstallment, status: InstallmentStatus.Paid },
+      ]);
+      loansRepository.findOne.mockResolvedValue({ isNewLoan: true });
+
+      await service.registerPayment(mockInstallment.id, {
+        amountPaid: 200000,
+        paidAt: '2026-01-05',
       });
 
       expect(

@@ -266,7 +266,15 @@ export class InstallmentsService {
         // WhatsApp comprobante always bypasses
         // PAYMENT_CONFIRMATION_MESSAGES_PAUSED: it's never one of the
         // historical/backfilled payments that flag exists to silence.
-        const bypassPause = Boolean(dto.sourceWhatsappMessageId);
+        // Widened same day (human report): a payment on a loan the user
+        // explicitly marked "es un préstamo nuevo" (isNewLoan) is, by the
+        // same reasoning, never backfilled historical data either — it
+        // was missing this bypass, so a confirmation silently never sent
+        // for a genuinely new loan created while the pause flag was on
+        // for backfill work.
+        const bypassPause =
+          Boolean(dto.sourceWhatsappMessageId) ||
+          (await this.loanBypassesConfirmationPause(installment.loanId));
         await this.sendPaymentConfirmationSafely(installmentId, bypassPause);
         if (paidInFull) {
           await this.sendPaidInFullSafely(installment.loanId, bypassPause);
@@ -290,6 +298,7 @@ export class InstallmentsService {
     entries: BulkPaymentEntryDto[],
   ): Promise<Payment[]> {
     const paidInFullLoanIds = new Set<string>();
+    const loanIdByInstallmentId = new Map<string, string>();
 
     const savedPayments = await this.dataSource.transaction(
       async (manager: EntityManager) => {
@@ -401,6 +410,7 @@ export class InstallmentsService {
             { status: InstallmentStatus.Paid },
           );
           loanIdsToCascade.add(installment.loanId);
+          loanIdByInstallmentId.set(entry.installmentId, installment.loanId);
         }
 
         for (const loanId of loanIdsToCascade) {
@@ -421,12 +431,23 @@ export class InstallmentsService {
     // Fired only after the transaction has actually committed — see
     // sendPaymentConfirmationSafely's doc comment. Every entry in a bulk
     // payment always fully settles its installment (enforced above), so
-    // every one of them gets a confirmation, not just some.
+    // every one of them gets a confirmation, not just some. bypassPause
+    // (human report, 2026-09-19) — same isNewLoan reasoning as
+    // registerPayment's single-payment path above: a bulk payment on a
+    // genuinely new (non-backfilled) loan shouldn't be silenced either.
     for (const payment of savedPayments) {
-      await this.sendPaymentConfirmationSafely(payment.installmentId);
+      const loanId = loanIdByInstallmentId.get(payment.installmentId);
+      const bypassPause = loanId
+        ? await this.loanBypassesConfirmationPause(loanId)
+        : false;
+      await this.sendPaymentConfirmationSafely(
+        payment.installmentId,
+        bypassPause,
+      );
     }
     for (const loanId of paidInFullLoanIds) {
-      await this.sendPaidInFullSafely(loanId);
+      const bypassPause = await this.loanBypassesConfirmationPause(loanId);
+      await this.sendPaidInFullSafely(loanId, bypassPause);
     }
 
     return savedPayments;
@@ -643,14 +664,32 @@ export class InstallmentsService {
     }
   }
 
+  // Human report, 2026-09-19 — a loan explicitly marked "es un préstamo
+  // nuevo" is, by definition, not one of the historical/backfilled loans
+  // PAYMENT_CONFIRMATION_MESSAGES_PAUSED exists to silence (see the
+  // isNewLoan migration/fix this same day: every pre-existing loan was
+  // backfilled to isNewLoan = false). Used by both registerPayment and
+  // registerBulkPayments to decide bypassPause alongside the existing
+  // sourceWhatsappMessageId check.
+  private async loanBypassesConfirmationPause(
+    loanId: string,
+  ): Promise<boolean> {
+    const loan = await this.loansRepository.findOne({
+      where: { id: loanId },
+      select: { isNewLoan: true },
+    });
+    return loan?.isNewLoan ?? false;
+  }
+
   // Never lets a messaging failure affect the payment that was just
   // registered — same principle as LoansService.sendNewLoanMessageSafely.
   // See docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md. bypassPause (human
-  // report, 2026-09-19) — forwarded to PaymentConfirmationService for a
-  // payment registered via the "Registrar pago con este comprobante"
-  // flow, which is always a real, current transaction, never one of the
-  // historical payments PAYMENT_CONFIRMATION_MESSAGES_PAUSED exists to
-  // silence. See registerPayment's own call site and that flag's comment.
+  // report, 2026-09-19) — forwarded to PaymentConfirmationService whenever
+  // the payment came from the "Registrar pago con este comprobante" flow
+  // or landed on an isNewLoan loan: both are always a real, current
+  // transaction, never one of the historical payments
+  // PAYMENT_CONFIRMATION_MESSAGES_PAUSED exists to silence. See
+  // registerPayment's own call site and loanBypassesConfirmationPause.
   private async sendPaymentConfirmationSafely(
     installmentId: string,
     bypassPause = false,
