@@ -20,6 +20,7 @@ import {
   LoanStatus,
 } from '../loans/entities/loan.entity';
 import { LoansService } from '../loans/loans.service';
+import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 // One-off CLI utility, same pattern as seedAdmin.ts — sets up (and can
 // re-run to top up) two real client profiles purely for manually testing
@@ -32,6 +33,20 @@ import { LoansService } from '../loans/loans.service';
 //
 // This script never hardcodes a phone number — both identities are
 // supplied as CLI arguments so nothing personal ends up committed to git.
+//
+// Bug fix, 2026-09-11 (human report) — the new-loan/refinance templates
+// stopped firing here after "Restored, 2026-09-09" moved that send off
+// LoansService.create()/refinance() and onto NewLoanReminderService's
+// weekly cron sweep (see that service's own comment). This script used to
+// rely on the old synchronous send; isNewLoan itself was never the
+// problem (loan1/loan2/loan3 below have always correctly passed
+// isNewLoan: true) — the loans just sat waiting for
+// NEW_LOAN_REMINDER_CRON (Monday 10am by default) instead of sending
+// immediately. Since this script's whole point is to see every template
+// fire right away against a real phone, it now calls
+// NewLoanReminderService.sendNewLoanMessage() itself for each new-loan/
+// refinance loan, right after creating it, instead of waiting on the
+// sweep.
 //
 // Test data is tagged so cleanupWhatsappTestData.ts can find exactly (and
 // only) what this script created:
@@ -142,6 +157,7 @@ async function findOrCreateTestClient(
 async function runNewLoanFamilySequence(
   loansService: LoansService,
   installmentsService: InstallmentsService,
+  newLoanReminderService: NewLoanReminderService,
   dataSource: DataSource,
   clientId: string,
   firstLoanHasDownPayment: boolean,
@@ -186,8 +202,9 @@ async function runNewLoanFamilySequence(
         }
       : {}),
   });
+  await newLoanReminderService.sendNewLoanMessage(loan1.id);
   Logger.log(
-    `Loan1 creado (${loan1.promissoryNoteNumber}) — dispara ${
+    `Loan1 creado (${loan1.promissoryNoteNumber}) — envió ${
       firstLoanHasDownPayment
         ? 'NewLoanNewClientInitialInstallment'
         : 'NewLoanNewClient'
@@ -206,12 +223,13 @@ async function runNewLoanFamilySequence(
     description: 'Prueba de plantilla WhatsApp — préstamo cliente existente',
     isNewLoan: true,
   });
+  await newLoanReminderService.sendNewLoanMessage(loan2.id);
   Logger.log(
-    `Loan2 creado (${loan2.promissoryNoteNumber}) — dispara NewLoanExistingClient.`,
+    `Loan2 creado (${loan2.promissoryNoteNumber}) — envió NewLoanExistingClient.`,
     'seedWhatsappTestData',
   );
 
-  await loansService.refinance(loan2.id, {
+  const refinancedLoan2 = await loansService.refinance(loan2.id, {
     principalAmount: REFINANCE_PRINCIPAL,
     disbursedAt: today,
     installmentFrequency: InstallmentFrequency.Biweekly,
@@ -219,8 +237,9 @@ async function runNewLoanFamilySequence(
     concepts: [],
     description: 'Prueba de plantilla WhatsApp — refinanciamiento',
   });
+  await newLoanReminderService.sendNewLoanMessage(refinancedLoan2.id);
   Logger.log(
-    `Loan2 (${loan2.promissoryNoteNumber}) refinanciado — dispara RefinanceSingleLoan.`,
+    `Loan2 (${loan2.promissoryNoteNumber}) refinanciado — envió RefinanceSingleLoan.`,
     'seedWhatsappTestData',
   );
 
@@ -237,8 +256,9 @@ async function runNewLoanFamilySequence(
     downPaymentAmount: DOWN_PAYMENT_AMOUNT,
     downPaymentDueDate,
   });
+  await newLoanReminderService.sendNewLoanMessage(loan3.id);
   Logger.log(
-    `Loan3 creado (${loan3.promissoryNoteNumber}) — dispara NewLoanExistingClientInitialInstallment.`,
+    `Loan3 creado (${loan3.promissoryNoteNumber}) — envió NewLoanExistingClientInitialInstallment.`,
     'seedWhatsappTestData',
   );
 
@@ -450,6 +470,7 @@ async function main(): Promise<void> {
     const clientsService = app.get(ClientsService);
     const loansService = app.get(LoansService);
     const installmentsService = app.get(InstallmentsService);
+    const newLoanReminderService = app.get(NewLoanReminderService);
     const dataSource = app.get(DataSource);
 
     if (command === 'setup') {
@@ -463,6 +484,7 @@ async function main(): Promise<void> {
       await runNewLoanFamilySequence(
         loansService,
         installmentsService,
+        newLoanReminderService,
         dataSource,
         clientA.id,
         false,
@@ -470,6 +492,7 @@ async function main(): Promise<void> {
       await runNewLoanFamilySequence(
         loansService,
         installmentsService,
+        newLoanReminderService,
         dataSource,
         clientB.id,
         true,
