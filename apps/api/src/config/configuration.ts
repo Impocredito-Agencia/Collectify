@@ -46,6 +46,12 @@ export interface WhatsappConfig {
   testRecipients: string[];
 }
 
+export interface CloudinaryConfig {
+  cloudName: string;
+  apiKey: string;
+  apiSecret: string;
+}
+
 export interface CronConfig {
   overdueReminderExpression: string;
   upcomingDueReminderExpression: string;
@@ -72,6 +78,7 @@ export interface Configuration {
   database: DatabaseConfig;
   jwt: JwtConfig;
   whatsapp: WhatsappConfig;
+  cloudinary: CloudinaryConfig;
   cron: CronConfig;
 }
 
@@ -104,6 +111,20 @@ export default (): Configuration => ({
       .split(',')
       .map((phoneNumber) => phoneNumber.trim())
       .filter((phoneNumber) => phoneNumber.length > 0),
+  },
+  cloudinary: {
+    // Pending — no Cloudinary account created for this project yet, same
+    // status as the Meta WhatsApp vars above. UploadsService throws a
+    // clear error if a signature is requested while any of these are
+    // empty, rather than silently signing with a blank secret. Replaces
+    // the old client-side VITE_CLOUDINARY_CLOUD_NAME/UPLOAD_PRESET
+    // (unsigned preset) — every upload is now signed here so it can only
+    // be requested by an authenticated user, not by anyone who copies the
+    // public preset name out of the client bundle. See
+    // docs/ENVIRONMENT_VARIABLES.md and apps/client/src/lib/imageUpload.ts.
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME ?? '',
+    apiKey: process.env.CLOUDINARY_API_KEY ?? '',
+    apiSecret: process.env.CLOUDINARY_API_SECRET ?? '',
   },
   cron: {
     overdueReminderExpression: process.env.OVERDUE_REMINDER_CRON ?? '0 9 * * 1',

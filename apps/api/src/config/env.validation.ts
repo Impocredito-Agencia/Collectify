@@ -33,6 +33,13 @@ export const envValidationSchema = Joi.object({
   // .env.example or any file checked into git.
   WHATSAPP_TEST_RECIPIENTS: Joi.string().allow('').default(''),
 
+  // Pending client's Cloudinary account setup — same "allow blank" pattern
+  // as the Meta WhatsApp vars above. UploadsService fails clearly (not
+  // silently) if a signature is requested while any of these are empty.
+  CLOUDINARY_CLOUD_NAME: Joi.string().allow('').default(''),
+  CLOUDINARY_API_KEY: Joi.string().allow('').default(''),
+  CLOUDINARY_API_SECRET: Joi.string().allow('').default(''),
+
   OVERDUE_REMINDER_CRON: Joi.string().default('0 9 * * 1'),
   NEW_LOAN_REMINDER_CRON: Joi.string().default('0 10 * * 1'),
 
