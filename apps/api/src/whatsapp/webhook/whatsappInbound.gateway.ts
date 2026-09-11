@@ -14,6 +14,7 @@ import { Configuration } from '../../config/configuration';
 import { UserRole } from '../../users/entities/user.entity';
 import { UsersService } from '../../users/users.service';
 import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
+import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 
 // Real-time push for the "Mensajes entrantes" inbox — see
 // docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md. Admin-only, mirroring
@@ -83,5 +84,12 @@ export class WhatsappInboundGateway
   // live, with no page refresh needed.
   emitInboundMessage(message: WhatsappInboundMessage): void {
     this.server.emit('inbound-message', message);
+  }
+
+  // Human report, 2026-09-19 — same live-push treatment as an inbound
+  // client message, so an admin's manual reply shows up for every OTHER
+  // connected admin immediately, not just locally in the sender's own tab.
+  emitManualReply(reply: WhatsappManualReply): void {
+    this.server.emit('manual-reply', reply);
   }
 }

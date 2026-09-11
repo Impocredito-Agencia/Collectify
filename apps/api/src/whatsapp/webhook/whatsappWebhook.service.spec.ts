@@ -10,6 +10,7 @@ import {
   WhatsappInboundMessage,
   WhatsappInboundMessageType,
 } from '../entities/whatsappInboundMessage.entity';
+import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
 import { WhatsAppService } from '../whatsapp.service';
@@ -34,7 +35,15 @@ describe('WhatsappWebhookService', () => {
   };
   let clientsRepository: { findOneBy: jest.Mock };
   let configGet: jest.Mock;
-  let whatsappInboundGateway: { emitInboundMessage: jest.Mock };
+  let whatsappInboundGateway: {
+    emitInboundMessage: jest.Mock;
+    emitManualReply: jest.Mock;
+  };
+  let manualRepliesRepository: {
+    create: jest.Mock;
+    save: jest.Mock;
+    find: jest.Mock;
+  };
   let whatsAppService: { sendTextMessage: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
   let conversationStateService: { getActive: jest.Mock; clear: jest.Mock };
@@ -51,7 +60,17 @@ describe('WhatsappWebhookService', () => {
       webhookVerifyToken: VERIFY_TOKEN,
       appSecret: APP_SECRET,
     });
-    whatsappInboundGateway = { emitInboundMessage: jest.fn() };
+    whatsappInboundGateway = {
+      emitInboundMessage: jest.fn(),
+      emitManualReply: jest.fn(),
+    };
+    manualRepliesRepository = {
+      create: jest.fn((data: Record<string, unknown>) => data),
+      save: jest.fn((data: Record<string, unknown>) =>
+        Promise.resolve({ id: 'reply-1', ...data }),
+      ),
+      find: jest.fn().mockResolvedValue([]),
+    };
     whatsAppService = { sendTextMessage: jest.fn() };
     selfServiceMenuService = {
       handleInboundEvent: jest.fn().mockResolvedValue(undefined),
@@ -77,6 +96,10 @@ describe('WhatsappWebhookService', () => {
           useValue: inboundMessagesRepository,
         },
         { provide: getRepositoryToken(Client), useValue: clientsRepository },
+        {
+          provide: getRepositoryToken(WhatsappManualReply),
+          useValue: manualRepliesRepository,
+        },
         {
           provide: WhatsappInboundGateway,
           useValue: whatsappInboundGateway,
@@ -428,8 +451,13 @@ describe('WhatsappWebhookService', () => {
   describe('sendManualReply', () => {
     it('normalizes the phone number and sends via WhatsAppService', async () => {
       whatsAppService.sendTextMessage.mockResolvedValue(true);
+      clientsRepository.findOneBy.mockResolvedValue(null);
 
-      const result = await service.sendManualReply('573001234567', 'Hola!');
+      const result = await service.sendManualReply(
+        '573001234567',
+        'Hola!',
+        'user-1',
+      );
 
       expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
         '+573001234567',
@@ -440,14 +468,66 @@ describe('WhatsappWebhookService', () => {
 
     it('leaves an already-normalized number unchanged', async () => {
       whatsAppService.sendTextMessage.mockResolvedValue(false);
+      clientsRepository.findOneBy.mockResolvedValue(null);
 
-      const result = await service.sendManualReply('+573001234567', 'Hola!');
+      const result = await service.sendManualReply(
+        '+573001234567',
+        'Hola!',
+        'user-1',
+      );
 
       expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
         '+573001234567',
         'Hola!',
       );
       expect(result).toBe(false);
+    });
+
+    // Human report, 2026-09-19 — used to only send, never persist or push
+    // live. See sendManualReply's own doc comment.
+    it('persists the reply and pushes it live via the gateway', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+
+      await service.sendManualReply('573001234567', 'Hola!', 'user-1');
+
+      expect(manualRepliesRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: 'client-1',
+          phoneNumber: '+573001234567',
+          messageContent: 'Hola!',
+          sentByUserId: 'user-1',
+          status: 'sent',
+        }),
+      );
+      expect(whatsappInboundGateway.emitManualReply).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'reply-1' }),
+      );
+    });
+
+    it('persists status "failed" when the send itself fails, still pushed live', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(false);
+      clientsRepository.findOneBy.mockResolvedValue(null);
+
+      await service.sendManualReply('573001234567', 'Hola!', 'user-1');
+
+      expect(manualRepliesRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'failed', clientId: null }),
+      );
+      expect(whatsappInboundGateway.emitManualReply).toHaveBeenCalled();
+    });
+  });
+
+  describe('getManualReplies', () => {
+    it('returns the most recent manual replies', async () => {
+      manualRepliesRepository.find.mockResolvedValue([{ id: 'reply-1' }]);
+
+      const result = await service.getManualReplies();
+
+      expect(result).toEqual([{ id: 'reply-1' }]);
+      expect(manualRepliesRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({ order: { sentAt: 'DESC' } }),
+      );
     });
   });
 

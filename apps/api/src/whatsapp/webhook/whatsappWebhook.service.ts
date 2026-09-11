@@ -10,6 +10,10 @@ import { PaginatedResult } from '../../common/interfaces/paginatedResult.interfa
 import { Configuration } from '../../config/configuration';
 import { ConversationMenu } from '../entities/whatsappConversationState.entity';
 import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
+import {
+  WhatsappManualReply,
+  WhatsappManualReplyStatus,
+} from '../entities/whatsappManualReply.entity';
 import { CONVERSATION_CLOSED_MESSAGE } from '../selfServiceMenuMessages';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
@@ -38,6 +42,8 @@ export class WhatsappWebhookService {
     private readonly inboundMessagesRepository: Repository<WhatsappInboundMessage>,
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
+    @InjectRepository(WhatsappManualReply)
+    private readonly manualRepliesRepository: Repository<WhatsappManualReply>,
     private readonly whatsappInboundGateway: WhatsappInboundGateway,
     private readonly whatsAppService: WhatsAppService,
     private readonly selfServiceMenuService: SelfServiceMenuService,
@@ -234,15 +240,48 @@ export class WhatsappWebhookService {
 
   // Manual reply from the panel — a free-form session message, valid
   // within the 24h window the client's own inbound message opened. See
-  // POST /whatsapp/inbound-messages/reply.
+  // POST /whatsapp/inbound-messages/reply. Human report, 2026-09-19 — used
+  // to only send, never persist: the reply lived as local React state on
+  // WhatsappInboundMessagesPage.tsx only, gone on refresh and invisible to
+  // any OTHER connected admin. Now saved (sent or failed either way, same
+  // "log everything" convention as message_logs) and pushed live via the
+  // same gateway inbound messages already use.
   async sendManualReply(
     rawPhoneNumber: string,
     message: string,
+    sentByUserId: string,
   ): Promise<boolean> {
-    return this.whatsAppService.sendTextMessage(
-      normalizeIncomingPhoneNumber(rawPhoneNumber),
+    const phoneNumber = normalizeIncomingPhoneNumber(rawPhoneNumber);
+    const sent = await this.whatsAppService.sendTextMessage(
+      phoneNumber,
       message,
     );
+
+    const client = await this.clientsRepository.findOneBy({ phoneNumber });
+    const reply = this.manualRepliesRepository.create({
+      clientId: client?.id ?? null,
+      phoneNumber,
+      messageContent: message,
+      sentByUserId,
+      status: sent
+        ? WhatsappManualReplyStatus.Sent
+        : WhatsappManualReplyStatus.Failed,
+      sentAt: new Date(),
+    });
+    const saved = await this.manualRepliesRepository.save(reply);
+    this.whatsappInboundGateway.emitManualReply(saved);
+
+    return sent;
+  }
+
+  // Backs the inbox's thread — a flat recent window merged client-side
+  // into each conversation, same "no per-conversation pagination yet"
+  // convention as whatsapp_self_service_replies.
+  async getManualReplies(): Promise<WhatsappManualReply[]> {
+    return this.manualRepliesRepository.find({
+      order: { sentAt: 'DESC' },
+      take: DEFAULT_PAGE_SIZE * 10,
+    });
   }
 
   // Backs the panel's "Responder"/"Cerrar conversación" gating — see

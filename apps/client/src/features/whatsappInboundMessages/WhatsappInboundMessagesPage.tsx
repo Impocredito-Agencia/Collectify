@@ -8,6 +8,7 @@ import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMess
 import {
   useCloseConversation,
   useConversationState,
+  useManualReplies,
   useReplyToInboundMessage,
   useWhatsappInboundMessages,
 } from '@/features/whatsappInboundMessages/useWhatsappInboundMessages';
@@ -23,7 +24,10 @@ import {
   formatPhoneNumber,
 } from '@/lib/format';
 
-import type { WhatsappInboundMessage } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
+import type {
+  WhatsappInboundMessage,
+  WhatsappManualReply,
+} from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 import type { ReactNode } from 'react';
 
 // No Figma frame for this phase (docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md /
@@ -155,32 +159,38 @@ function messagePreview(message: WhatsappInboundMessage): string {
   return MEDIA_TYPE_FALLBACK_LABELS[message.type] ?? '—';
 }
 
-// A reply sent from this page — kept in local state only, not fetched
-// from the server (replies aren't persisted as MessageLog rows yet).
-interface LocalReply {
-  id: string;
-  message: string;
-  sentAt: string;
-}
-
 type ThreadItem =
   | { direction: 'inbound'; sentAt: string; message: WhatsappInboundMessage }
-  | { direction: 'outbound'; sentAt: string; reply: LocalReply };
+  | { direction: 'outbound'; sentAt: string; reply: WhatsappManualReply };
 
+// Human report, 2026-09-19 — manualReplies is the full flat recent window
+// (see useManualReplies), filtered down to this one conversation here.
+// Matched the same way groupIntoConversations keys a conversation:
+// clientId when the reply resolved to a known client, otherwise the raw
+// phone number — reply.phoneNumber is E.164-normalized
+// (+573001234567) while conversation.key falls back to the RAW
+// as-received-from-Meta number (573001234567) for an unrecognized
+// contact, hence the leading '+' stripped before comparing.
 function buildThreadItems(
   conversation: Conversation,
-  localReplies: LocalReply[],
+  manualReplies: WhatsappManualReply[],
 ): ThreadItem[] {
   const inbound: ThreadItem[] = conversation.messages.map((message) => ({
     direction: 'inbound',
     sentAt: message.receivedAt,
     message,
   }));
-  const outbound: ThreadItem[] = localReplies.map((reply) => ({
-    direction: 'outbound',
-    sentAt: reply.sentAt,
-    reply,
-  }));
+  const outbound: ThreadItem[] = manualReplies
+    .filter(
+      (reply) =>
+        (reply.clientId ?? reply.phoneNumber.replace('+', '')) ===
+        conversation.key,
+    )
+    .map((reply) => ({
+      direction: 'outbound',
+      sentAt: reply.sentAt,
+      reply,
+    }));
   return [...inbound, ...outbound].sort(
     (a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime(),
   );
@@ -191,14 +201,12 @@ export function WhatsappInboundMessagesPage() {
 
   const [search, setSearch] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [localRepliesByKey, setLocalRepliesByKey] = useState<
-    Record<string, LocalReply[]>
-  >({});
 
   const { data, isLoading, isError } = useWhatsappInboundMessages({
     search: search || undefined,
     limit: MESSAGE_FETCH_LIMIT,
   });
+  const { data: manualReplies } = useManualReplies();
 
   const conversations = useMemo(
     () => groupIntoConversations(data?.items ?? []),
@@ -209,20 +217,6 @@ export function WhatsappInboundMessagesPage() {
     conversations.find((conversation) => conversation.key === selectedKey) ??
     conversations[0] ??
     null;
-
-  function handleReplySent(conversationKey: string, message: string) {
-    setLocalRepliesByKey((current) => ({
-      ...current,
-      [conversationKey]: [
-        ...(current[conversationKey] ?? []),
-        {
-          id: `${Date.now()}-${Math.random()}`,
-          message,
-          sentAt: new Date().toISOString(),
-        },
-      ],
-    }));
-  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -265,10 +259,7 @@ export function WhatsappInboundMessagesPage() {
           {selectedConversation ? (
             <ConversationThread
               conversation={selectedConversation}
-              localReplies={localRepliesByKey[selectedConversation.key] ?? []}
-              onReplySent={(message) =>
-                handleReplySent(selectedConversation.key, message)
-              }
+              manualReplies={manualReplies ?? []}
             />
           ) : (
             !isLoading && (
@@ -325,18 +316,16 @@ function ConversationListItem({
 
 function ConversationThread({
   conversation,
-  localReplies,
-  onReplySent,
+  manualReplies,
 }: {
   conversation: Conversation;
-  localReplies: LocalReply[];
-  onReplySent: (message: string) => void;
+  manualReplies: WhatsappManualReply[];
 }) {
   const { data: currentMenu } = useConversationState(conversation.phoneNumber);
   const humanReplyEnabled =
     currentMenu === ConversationMenu.AwaitingReceipt ||
     currentMenu === ConversationMenu.HandedOffToHuman;
-  const threadItems = buildThreadItems(conversation, localReplies);
+  const threadItems = buildThreadItems(conversation, manualReplies);
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -365,7 +354,7 @@ function ConversationThread({
       </div>
 
       {humanReplyEnabled ? (
-        <ReplyBox phoneNumber={conversation.phoneNumber} onSent={onReplySent} />
+        <ReplyBox phoneNumber={conversation.phoneNumber} />
       ) : (
         <p className="text-meta text-subtle">
           El cliente todavía no pidió hablar con un asesor ni reportó un pago —
@@ -502,9 +491,10 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
 }
 
 // Right-aligned, distinct color — the admin's own reply, not something the
-// client sent. Local-only (see LocalReply above), so it disappears on
-// refresh — it's not fetched from the server.
-function ReplyBubble({ reply }: { reply: LocalReply }) {
+// client sent. Human report, 2026-09-19 — now persisted server-side and
+// pushed live to every connected admin (see useManualReplies/
+// useWhatsappInboundSocket), no longer local-only/lost on refresh.
+function ReplyBubble({ reply }: { reply: WhatsappManualReply }) {
   return (
     <div className="ml-auto flex max-w-[480px] flex-col gap-1 rounded-lg bg-white/10 px-3.5 py-2.5">
       <div className="flex items-center gap-2">
@@ -518,18 +508,12 @@ function ReplyBubble({ reply }: { reply: LocalReply }) {
           })}
         </span>
       </div>
-      <p className="text-small text-white">{reply.message}</p>
+      <p className="text-small text-white">{reply.messageContent}</p>
     </div>
   );
 }
 
-function ReplyBox({
-  phoneNumber,
-  onSent,
-}: {
-  phoneNumber: string;
-  onSent: (message: string) => void;
-}) {
+function ReplyBox({ phoneNumber }: { phoneNumber: string }) {
   const [draft, setDraft] = useState('');
   const replyMutation = useReplyToInboundMessage();
 
@@ -539,12 +523,7 @@ function ReplyBox({
 
     replyMutation.mutate(
       { phoneNumber, message },
-      {
-        onSuccess: () => {
-          onSent(message);
-          setDraft('');
-        },
-      },
+      { onSuccess: () => setDraft('') },
     );
   }
 

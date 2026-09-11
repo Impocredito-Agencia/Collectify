@@ -13,7 +13,12 @@ export function useWhatsappInboundMessages(
   });
 }
 
+// Human report, 2026-09-19 — replies are now persisted server-side; this
+// invalidates the fetched list on success so the sender's own view
+// updates immediately, without waiting on the websocket round trip (which
+// also fires, harmlessly re-invalidating the same key).
 export function useReplyToInboundMessage() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
       phoneNumber,
@@ -22,6 +27,15 @@ export function useReplyToInboundMessage() {
       phoneNumber: string;
       message: string;
     }) => whatsappInboundMessagesApi.reply(phoneNumber, message),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['whatsappManualReplies'] }),
+  });
+}
+
+export function useManualReplies() {
+  return useQuery({
+    queryKey: ['whatsappManualReplies'],
+    queryFn: whatsappInboundMessagesApi.getManualReplies,
   });
 }
 
