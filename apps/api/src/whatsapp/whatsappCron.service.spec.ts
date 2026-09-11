@@ -39,6 +39,7 @@ describe('WhatsappCronService', () => {
   let messageTemplatesService: {
     findByTypeOrThrow: jest.Mock;
     updateCronExpression: jest.Mock;
+    updateCronPaused: jest.Mock;
   };
   let jobs: Map<string, FakeCronJob>;
   let schedulerRegistry: {
@@ -53,8 +54,11 @@ describe('WhatsappCronService', () => {
     upcomingDueReminderService = { runDailyReminder: jest.fn() };
     newLoanReminderService = { runPendingLoanNotifications: jest.fn() };
     messageTemplatesService = {
-      findByTypeOrThrow: jest.fn().mockResolvedValue({ cronExpression: null }),
+      findByTypeOrThrow: jest
+        .fn()
+        .mockResolvedValue({ cronExpression: null, cronPaused: false }),
       updateCronExpression: jest.fn(),
+      updateCronPaused: jest.fn(),
     };
 
     jobs = new Map();
@@ -124,6 +128,7 @@ describe('WhatsappCronService', () => {
           Promise.resolve({
             cronExpression:
               type === OVERDUE_FAMILY_TYPES[0] ? '0 7 * * *' : null,
+            cronPaused: false,
           }),
       );
 
@@ -182,9 +187,55 @@ describe('WhatsappCronService', () => {
     it('resumes a paused job', async () => {
       await service.pause(ReminderFamily.Overdue);
 
-      service.resume(ReminderFamily.Overdue);
+      await service.resume(ReminderFamily.Overdue);
 
       expect(service.getStatus(ReminderFamily.Overdue)).toEqual({
+        running: true,
+      });
+    });
+
+    // Human report, 2026-09-19 — pause()/resume() used to only touch the
+    // in-memory CronJob; nothing survived a restart. See
+    // WhatsappCronService's own comment on this date.
+    it('persists the pause on the schedule-owner template', async () => {
+      await service.pause(ReminderFamily.Overdue);
+
+      expect(messageTemplatesService.updateCronPaused).toHaveBeenCalledWith(
+        OVERDUE_FAMILY_TYPES[0],
+        true,
+      );
+    });
+
+    it('persists the resume on the schedule-owner template', async () => {
+      await service.resume(ReminderFamily.Overdue);
+
+      expect(messageTemplatesService.updateCronPaused).toHaveBeenCalledWith(
+        OVERDUE_FAMILY_TYPES[0],
+        false,
+      );
+    });
+  });
+
+  describe('onModuleInit — pause survives a restart', () => {
+    // Human report, 2026-09-19 — the whole point of persisting cronPaused:
+    // a fresh boot (simulated here by a brand-new onModuleInit(), the same
+    // call a real restart/deploy makes) must not silently resume a family
+    // an admin had paused before.
+    it('does not start a job whose schedule-owner template has cronPaused: true', async () => {
+      messageTemplatesService.findByTypeOrThrow.mockImplementation(
+        (type: MessageType) =>
+          Promise.resolve({
+            cronExpression: null,
+            cronPaused: type === OVERDUE_FAMILY_TYPES[0],
+          }),
+      );
+
+      await service.onModuleInit();
+
+      expect(service.getStatus(ReminderFamily.Overdue)).toEqual({
+        running: false,
+      });
+      expect(service.getStatus(ReminderFamily.UpcomingDue)).toEqual({
         running: true,
       });
     });
@@ -216,6 +267,23 @@ describe('WhatsappCronService', () => {
       );
       expect(service.getStatus(ReminderFamily.Overdue)).toEqual({
         running: true,
+      });
+    });
+
+    // Human report, 2026-09-19 — a schedule change shouldn't silently
+    // resume a family an admin had paused.
+    it('does not resume an already-paused family just because its schedule changed', async () => {
+      await service.pause(ReminderFamily.Overdue);
+      messageTemplatesService.updateCronExpression.mockResolvedValue({
+        type: OVERDUE_FAMILY_TYPES[0],
+        cronExpression: '0 10 * * *',
+        cronPaused: true,
+      });
+
+      await service.reschedule(ReminderFamily.Overdue, '0 10 * * *');
+
+      expect(service.getStatus(ReminderFamily.Overdue)).toEqual({
+        running: false,
       });
     });
   });

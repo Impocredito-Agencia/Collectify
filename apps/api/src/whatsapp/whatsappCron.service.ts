@@ -69,10 +69,20 @@ export class WhatsappCronService implements OnModuleInit {
     return `whatsappCron:${family}`;
   }
 
+  // Human report, 2026-09-19 — pause()/resume() below used to only stop/
+  // start the in-memory CronJob, never persisting anything: every
+  // deploy/restart called this again, unconditionally started every job
+  // regardless of what an admin had paused before, and silently undid the
+  // pause. cronPaused (schedule-owner row, same convention as
+  // cronExpression) is read here so a pause survives past a restart.
   async onModuleInit(): Promise<void> {
     for (const family of Object.values(ReminderFamily)) {
-      const expression = await this.resolveExpression(family);
-      this.registerJob(family, expression);
+      const template = await this.messageTemplatesService.findByTypeOrThrow(
+        SCHEDULE_OWNER[family],
+      );
+      const expression =
+        template.cronExpression ?? this.defaultExpression(family);
+      this.registerJob(family, expression, template.cronPaused);
     }
   }
 
@@ -86,19 +96,31 @@ export class WhatsappCronService implements OnModuleInit {
   }
 
   async pause(family: ReminderFamily): Promise<{ paused: true }> {
+    await this.messageTemplatesService.updateCronPaused(
+      SCHEDULE_OWNER[family],
+      true,
+    );
     await this.schedulerRegistry
       .getCronJob(WhatsappCronService.jobName(family))
       .stop();
     return { paused: true };
   }
 
-  resume(family: ReminderFamily): { paused: false } {
+  async resume(family: ReminderFamily): Promise<{ paused: false }> {
+    await this.messageTemplatesService.updateCronPaused(
+      SCHEDULE_OWNER[family],
+      false,
+    );
     this.schedulerRegistry
       .getCronJob(WhatsappCronService.jobName(family))
       .start();
     return { paused: false };
   }
 
+  // template.cronPaused carries over unchanged (updateCronExpression only
+  // touches cronExpression) — registerJob below re-applies whatever
+  // pause state was already in effect instead of silently resuming a
+  // paused family just because its schedule changed.
   async reschedule(
     family: ReminderFamily,
     cronExpression: string,
@@ -107,15 +129,8 @@ export class WhatsappCronService implements OnModuleInit {
       SCHEDULE_OWNER[family],
       cronExpression,
     );
-    this.registerJob(family, cronExpression);
+    this.registerJob(family, cronExpression, template.cronPaused);
     return template;
-  }
-
-  private async resolveExpression(family: ReminderFamily): Promise<string> {
-    const template = await this.messageTemplatesService.findByTypeOrThrow(
-      SCHEDULE_OWNER[family],
-    );
-    return template.cronExpression ?? this.defaultExpression(family);
   }
 
   private defaultExpression(family: ReminderFamily): string {
@@ -148,8 +163,16 @@ export class WhatsappCronService implements OnModuleInit {
 
   // Registering over an existing job name replaces it — used both at boot
   // and by reschedule(), so a schedule change takes effect without a
-  // restart.
-  private registerJob(family: ReminderFamily, expression: string): void {
+  // restart. paused (human report, 2026-09-19) — when true, the job is
+  // registered but never started, so getStatus()/the admin panel
+  // correctly show it as paused immediately, without waiting for an
+  // explicit pause() call that would (redundantly) persist the same
+  // already-true value again.
+  private registerJob(
+    family: ReminderFamily,
+    expression: string,
+    paused = false,
+  ): void {
     const jobName = WhatsappCronService.jobName(family);
     if (this.schedulerRegistry.doesExist('cron', jobName)) {
       this.schedulerRegistry.deleteCronJob(jobName);
@@ -168,7 +191,11 @@ export class WhatsappCronService implements OnModuleInit {
     );
 
     this.schedulerRegistry.addCronJob(jobName, job);
-    job.start();
-    this.logger.log(`${family} cron scheduled: ${expression}`);
+    if (!paused) {
+      job.start();
+    }
+    this.logger.log(
+      `${family} cron scheduled: ${expression}${paused ? ' (paused)' : ''}`,
+    );
   }
 }

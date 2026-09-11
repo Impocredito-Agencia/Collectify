@@ -119,4 +119,33 @@ describe('MessageTemplatesService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  // Human report, 2026-09-19 — see WhatsappCronService's own comment on
+  // why this needed to become persisted rather than in-memory-only.
+  describe('updateCronPaused', () => {
+    it('persists the paused flag on the template', async () => {
+      repository.findOneBy.mockResolvedValue({ ...mockTemplate });
+      repository.save.mockImplementation((template) =>
+        Promise.resolve(template),
+      );
+
+      const result = await service.updateCronPaused(
+        MessageType.SingleOverdueInstallment,
+        true,
+      );
+
+      expect(result.cronPaused).toBe(true);
+      expect(repository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ cronPaused: true }),
+      );
+    });
+
+    it('throws NotFoundException when no template of that type exists', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(
+        service.updateCronPaused(MessageType.SingleOverdueInstallment, true),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
 });

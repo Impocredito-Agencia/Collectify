@@ -160,7 +160,7 @@ export class WhatsappController {
   @ApiResponse({ status: 200, description: 'The job is running again.' })
   resumeCron(
     @Param('family', new ParseEnumPipe(ReminderFamily)) family: ReminderFamily,
-  ): { paused: false } {
+  ): Promise<{ paused: false }> {
     return this.whatsappCronService.resume(family);
   }
 

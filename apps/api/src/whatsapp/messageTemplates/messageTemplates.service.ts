@@ -53,4 +53,16 @@ export class MessageTemplatesService {
     template.cronExpression = cronExpression;
     return this.messageTemplatesRepository.save(template);
   }
+
+  // Human report, 2026-09-19 — persists WhatsappCronService.pause()/
+  // resume() so it survives a deploy/restart, same "schedule-owner row"
+  // convention as updateCronExpression above.
+  async updateCronPaused(
+    type: MessageType,
+    cronPaused: boolean,
+  ): Promise<MessageTemplate> {
+    const template = await this.findByTypeOrThrow(type);
+    template.cronPaused = cronPaused;
+    return this.messageTemplatesRepository.save(template);
+  }
 }
