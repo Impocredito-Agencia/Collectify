@@ -90,6 +90,19 @@ export function ClientsListPage() {
   // First row number on the current page — see rowNumber comment below.
   const rowNumberOffset = ((meta?.page ?? 1) - 1) * (meta?.limit ?? 0);
 
+  // QoL, 2026-09-10 — rendered both above and below the table (see the
+  // comment at the top call site) so paging doesn't require scrolling to
+  // the bottom first. Built once here rather than duplicated at both JSX
+  // spots, so the two copies can never drift out of sync.
+  const paginationBar = meta && meta.total > 0 && (
+    <div className="flex h-8 items-center justify-between">
+      <p className="text-label text-muted">
+        Mostrando {clients.length} de {meta.total} clientes
+      </p>
+      <Pager page={page} totalPages={meta.totalPages} onPageChange={setPage} />
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-5">
       <Header title="Clientes" subtitle="Gestión de todos los clientes" />
@@ -181,6 +194,12 @@ export function ClientsListPage() {
         />
       )}
 
+      {/* QoL, 2026-09-10 — the pager used to live only below the table,
+          which meant paging past a long list required scrolling all the
+          way down first. Same block rendered above and below now (stored
+          once so the two copies can't drift), sandwiching the table. */}
+      {paginationBar}
+
       <div className="overflow-hidden rounded-lg bg-surface">
         {/* Style cleanup, 2026-09-06 (client feedback — hand-tuned
             per-column percentages, "no podemos acomodar una por una",
@@ -251,18 +270,7 @@ export function ClientsListPage() {
         </p>
       )}
 
-      {meta && meta.total > 0 && (
-        <div className="flex h-8 items-center justify-between">
-          <p className="text-label text-muted">
-            Mostrando {clients.length} de {meta.total} clientes
-          </p>
-          <Pager
-            page={page}
-            totalPages={meta.totalPages}
-            onPageChange={setPage}
-          />
-        </div>
-      )}
+      {paginationBar}
 
       {editingClient && (
         <ClientForm
