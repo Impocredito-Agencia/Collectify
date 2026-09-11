@@ -22,6 +22,7 @@ import {
 } from './extractInboundEvents';
 import { normalizeIncomingPhoneNumber } from './normalizeIncomingPhoneNumber';
 import { WhatsappInboundGateway } from './whatsappInbound.gateway';
+import { WhatsappMediaService } from './whatsappMedia.service';
 
 const HUB_SUBSCRIBE_MODE = 'subscribe';
 const DEFAULT_PAGE = 1;
@@ -41,6 +42,7 @@ export class WhatsappWebhookService {
     private readonly whatsAppService: WhatsAppService,
     private readonly selfServiceMenuService: SelfServiceMenuService,
     private readonly conversationStateService: WhatsappConversationStateService,
+    private readonly whatsappMediaService: WhatsappMediaService,
   ) {}
 
   // Meta's one-time verification handshake — echoes hub.challenge back only
@@ -165,7 +167,39 @@ export class WhatsappWebhookService {
       receivedAt: event.receivedAt,
     });
 
-    const saved = await this.inboundMessagesRepository.save(inboundMessage);
+    let saved = await this.inboundMessagesRepository.save(inboundMessage);
+
+    // Human report, 2026-09-11 — see WhatsappMediaService's own comment.
+    // Runs before the gateway push below so a live-connected admin sees
+    // the image/document ready to view immediately, not a follow-up
+    // update a moment later. Delays this method's return (and so the
+    // webhook's own ack to Meta) by however long the download+upload
+    // takes — acceptable for a first version given there's no background-
+    // job infrastructure in this project yet; revisit if that ever causes
+    // Meta to see this webhook as timing out. downloadAndStore() itself
+    // never throws, but this stays wrapped anyway — a media failure must
+    // never break the "every inbound event is durably logged" guarantee
+    // this method already provides, the same principle the self-service
+    // dispatch below already follows.
+    if (event.mediaId) {
+      try {
+        const mediaUrl = await this.whatsappMediaService.downloadAndStore(
+          event.mediaId,
+        );
+        if (mediaUrl) {
+          saved = await this.inboundMessagesRepository.save({
+            ...saved,
+            mediaUrl,
+          });
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to attach re-hosted media to inbound message ${saved.id}`,
+          error,
+        );
+      }
+    }
+
     // Attach the already-resolved client so the pushed payload matches
     // findAll()'s shape (relations: { client: true }) — the frontend
     // merges both sources into the same list/cache, so they need to look

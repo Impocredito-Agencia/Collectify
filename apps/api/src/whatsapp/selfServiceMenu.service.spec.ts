@@ -50,6 +50,7 @@ describe('SelfServiceMenuService', () => {
       buttonPayload: null,
       bodyText,
       contextMessageId: null,
+      mediaId: null,
       receivedAt: new Date(),
       rawPayload: {},
     };
@@ -65,6 +66,7 @@ describe('SelfServiceMenuService', () => {
       buttonPayload,
       bodyText: null,
       contextMessageId,
+      mediaId: null,
       receivedAt: new Date(),
       rawPayload: {},
     };
@@ -77,6 +79,7 @@ describe('SelfServiceMenuService', () => {
       buttonPayload: null,
       bodyText: null,
       contextMessageId: null,
+      mediaId: null,
       receivedAt: new Date(),
       rawPayload: {},
     };

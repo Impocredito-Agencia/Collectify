@@ -8,6 +8,7 @@ import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
 import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
+import { UploadsModule } from '../uploads/uploads.module';
 import { UsersModule } from '../users/users.module';
 
 import { MessageLog } from './entities/messageLog.entity';
@@ -26,6 +27,7 @@ import { PaymentConfirmationService } from './paymentConfirmation.service';
 import { SelfServiceMenuService } from './selfServiceMenu.service';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
 import { WhatsappInboundGateway } from './webhook/whatsappInbound.gateway';
+import { WhatsappMediaService } from './webhook/whatsappMedia.service';
 import { WhatsappWebhookController } from './webhook/whatsappWebhook.controller';
 import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
 import { WhatsappConversationStateService } from './whatsappConversationState.service';
@@ -68,6 +70,10 @@ import { WhatsAppService } from './whatsapp.service';
     // comment.
     AuthModule,
     UsersModule,
+    // WhatsappMediaService signs its Cloudinary uploads through
+    // UploadsService rather than duplicating that algorithm — see
+    // UploadsModule's own comment on why it's exported.
+    UploadsModule,
   ],
   controllers: [
     WhatsappController,
@@ -86,6 +92,7 @@ import { WhatsAppService } from './whatsapp.service';
     PaymentConfirmationService,
     WhatsappCronService,
     WhatsappWebhookService,
+    WhatsappMediaService,
     WhatsappInboundGateway,
     WhatsappConversationStateService,
     SelfServiceMenuService,

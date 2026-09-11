@@ -15,6 +15,7 @@ import { WhatsappConversationStateService } from '../whatsappConversationState.s
 import { WhatsAppService } from '../whatsapp.service';
 
 import { WhatsappInboundGateway } from './whatsappInbound.gateway';
+import { WhatsappMediaService } from './whatsappMedia.service';
 import { WhatsappWebhookService } from './whatsappWebhook.service';
 
 const APP_SECRET = 'test-app-secret';
@@ -37,6 +38,7 @@ describe('WhatsappWebhookService', () => {
   let whatsAppService: { sendTextMessage: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
   let conversationStateService: { getActive: jest.Mock; clear: jest.Mock };
+  let whatsappMediaService: { downloadAndStore: jest.Mock };
 
   beforeEach(async () => {
     inboundMessagesRepository = {
@@ -58,6 +60,13 @@ describe('WhatsappWebhookService', () => {
       getActive: jest.fn().mockResolvedValue(null),
       clear: jest.fn().mockResolvedValue(undefined),
     };
+    // Defaults to "nothing to attach" — most tests below don't involve a
+    // media message at all (mediaId stays null out of extractInboundEvents
+    // for text/button/location/other, so this is never even called for
+    // them).
+    whatsappMediaService = {
+      downloadAndStore: jest.fn().mockResolvedValue(null),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -78,6 +87,7 @@ describe('WhatsappWebhookService', () => {
           provide: WhatsappConversationStateService,
           useValue: conversationStateService,
         },
+        { provide: WhatsappMediaService, useValue: whatsappMediaService },
       ],
     }).compile();
 
@@ -248,6 +258,83 @@ describe('WhatsappWebhookService', () => {
       ).resolves.toBeUndefined();
       expect(inboundMessagesRepository.save).not.toHaveBeenCalled();
       expect(whatsappInboundGateway.emitInboundMessage).not.toHaveBeenCalled();
+    });
+
+    // Human report, 2026-09-11 — see WhatsappMediaService's own comment.
+    function buildImagePayload(from: string) {
+      return {
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  messages: [
+                    {
+                      from,
+                      timestamp: '1700000000',
+                      type: 'image',
+                      image: { id: 'media-1', mime_type: 'image/jpeg' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+    }
+
+    it('attaches the re-hosted media url before pushing the live update, for a media message', async () => {
+      whatsappMediaService.downloadAndStore.mockResolvedValue(
+        'https://res.cloudinary.com/demo/image/upload/media-1.jpg',
+      );
+
+      await service.handleIncomingPayload(buildImagePayload('573001234567'));
+
+      expect(whatsappMediaService.downloadAndStore).toHaveBeenCalledWith(
+        'media-1',
+      );
+      expect(inboundMessagesRepository.save).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          mediaUrl: 'https://res.cloudinary.com/demo/image/upload/media-1.jpg',
+        }),
+      );
+      expect(whatsappInboundGateway.emitInboundMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mediaUrl: 'https://res.cloudinary.com/demo/image/upload/media-1.jpg',
+        }),
+      );
+    });
+
+    it('never calls the media service for a non-media message', async () => {
+      await service.handleIncomingPayload(buildPayload('573001234567'));
+
+      expect(whatsappMediaService.downloadAndStore).not.toHaveBeenCalled();
+    });
+
+    it('still persists and acks (with no mediaUrl) when the download resolves to null', async () => {
+      whatsappMediaService.downloadAndStore.mockResolvedValue(null);
+
+      await expect(
+        service.handleIncomingPayload(buildImagePayload('573001234567')),
+      ).resolves.toBeUndefined();
+
+      // Only the initial save — the second, mediaUrl-attaching save never
+      // runs when there's nothing to attach.
+      expect(inboundMessagesRepository.save).toHaveBeenCalledTimes(1);
+      expect(whatsappInboundGateway.emitInboundMessage).toHaveBeenCalled();
+    });
+
+    it('still persists and acks when the media service throws unexpectedly', async () => {
+      whatsappMediaService.downloadAndStore.mockRejectedValue(
+        new Error('Cloudinary is down'),
+      );
+
+      await expect(
+        service.handleIncomingPayload(buildImagePayload('573001234567')),
+      ).resolves.toBeUndefined();
+      expect(inboundMessagesRepository.save).toHaveBeenCalledTimes(1);
+      expect(whatsappInboundGateway.emitInboundMessage).toHaveBeenCalled();
     });
   });
 

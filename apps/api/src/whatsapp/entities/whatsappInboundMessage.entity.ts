@@ -10,9 +10,22 @@ import {
 
 import { Client } from '../../clients/entities/client.entity';
 
+// Image/Document/Audio/Video/Sticker/Location added 2026-09-11 (human
+// report — a client's payment receipt photo rendered as a bare "—" in the
+// inbox, indistinguishable from any other unrecognized event). Only the
+// media kinds this business's WhatsApp bot actually receives in practice
+// get their own value; anything else Meta might send (contacts, reactions,
+// orders, system events, truly unknown types) still falls back to Other —
+// see extractInboundEvents.ts's parseMessage.
 export enum WhatsappInboundMessageType {
   Button = 'button',
   Text = 'text',
+  Image = 'image',
+  Document = 'document',
+  Audio = 'audio',
+  Video = 'video',
+  Sticker = 'sticker',
+  Location = 'location',
   Other = 'other',
 }
 
@@ -48,6 +61,16 @@ export class WhatsappInboundMessage {
 
   @Column({ type: 'text', nullable: true })
   bodyText!: string | null;
+
+  // Human report, 2026-09-11 — the Cloudinary URL WhatsappMediaService
+  // re-hosted this message's attachment to (image/document/audio/video/
+  // sticker only — see WhatsappInboundMessageType). Null until that
+  // download+upload succeeds, which never blocks this row itself from
+  // being saved — see WhatsappWebhookService.persistEvent. Stays null
+  // forever for a non-media message, or when Cloudinary/WhatsApp
+  // credentials aren't configured, or the download/upload failed.
+  @Column({ type: 'varchar', nullable: true })
+  mediaUrl!: string | null;
 
   // The full webhook event Meta sent, for debugging/replay — see
   // docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md.

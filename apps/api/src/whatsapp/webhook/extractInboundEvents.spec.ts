@@ -112,8 +112,8 @@ describe('extractInboundEvents', () => {
       {
         from: '573001234567',
         timestamp: '1700000000',
-        type: 'sticker',
-        sticker: { id: 'abc' },
+        type: 'contacts',
+        contacts: [{ name: { formatted_name: 'Alguien' } }],
       },
     ]);
 
@@ -123,6 +123,178 @@ describe('extractInboundEvents', () => {
       type: WhatsappInboundMessageType.Other,
       buttonPayload: null,
       bodyText: null,
+    });
+  });
+
+  // Human report, 2026-09-11 — a client's payment receipt photo used to
+  // render as a bare "—" in the inbox (type "other", no caption), same as
+  // any unrecognized event. See WhatsappInboundMessageType's own comment.
+  it('parses an image, keeping its caption as bodyText when present', () => {
+    const payload = buildPayload([
+      {
+        from: '573001234567',
+        timestamp: '1700000000',
+        type: 'image',
+        image: {
+          id: 'media-1',
+          mime_type: 'image/jpeg',
+          caption: 'Aquí está mi comprobante',
+        },
+      },
+    ]);
+
+    const events = extractInboundEvents(payload);
+
+    expect(events[0]).toMatchObject({
+      type: WhatsappInboundMessageType.Image,
+      buttonPayload: null,
+      bodyText: 'Aquí está mi comprobante',
+    });
+  });
+
+  it('parses an image with no caption as bodyText null, not "other"', () => {
+    const payload = buildPayload([
+      {
+        from: '573001234567',
+        timestamp: '1700000000',
+        type: 'image',
+        image: { id: 'media-1', mime_type: 'image/jpeg' },
+      },
+    ]);
+
+    const events = extractInboundEvents(payload);
+
+    expect(events[0]).toMatchObject({
+      type: WhatsappInboundMessageType.Image,
+      buttonPayload: null,
+      bodyText: null,
+    });
+  });
+
+  it('parses a document, preferring its caption over its filename', () => {
+    const payload = buildPayload([
+      {
+        from: '573001234567',
+        timestamp: '1700000000',
+        type: 'document',
+        document: {
+          id: 'media-2',
+          filename: 'comprobante.pdf',
+          caption: 'Pago de la cuota 3',
+        },
+      },
+    ]);
+
+    const events = extractInboundEvents(payload);
+
+    expect(events[0]).toMatchObject({
+      type: WhatsappInboundMessageType.Document,
+      bodyText: 'Pago de la cuota 3',
+    });
+  });
+
+  it('falls back to the filename when a document has no caption', () => {
+    const payload = buildPayload([
+      {
+        from: '573001234567',
+        timestamp: '1700000000',
+        type: 'document',
+        document: { id: 'media-2', filename: 'comprobante.pdf' },
+      },
+    ]);
+
+    const events = extractInboundEvents(payload);
+
+    expect(events[0]).toMatchObject({
+      type: WhatsappInboundMessageType.Document,
+      bodyText: 'comprobante.pdf',
+    });
+  });
+
+  it('parses audio and stickers with a null bodyText (WhatsApp never offers a caption for either)', () => {
+    const audioPayload = buildPayload([
+      {
+        from: '573001234567',
+        timestamp: '1700000000',
+        type: 'audio',
+        audio: { id: 'media-3', mime_type: 'audio/ogg' },
+      },
+    ]);
+    const stickerPayload = buildPayload([
+      {
+        from: '573001234567',
+        timestamp: '1700000000',
+        type: 'sticker',
+        sticker: { id: 'media-4', mime_type: 'image/webp' },
+      },
+    ]);
+
+    expect(extractInboundEvents(audioPayload)[0]).toMatchObject({
+      type: WhatsappInboundMessageType.Audio,
+      bodyText: null,
+    });
+    expect(extractInboundEvents(stickerPayload)[0]).toMatchObject({
+      type: WhatsappInboundMessageType.Sticker,
+      bodyText: null,
+    });
+  });
+
+  it('parses a video, keeping its caption as bodyText when present', () => {
+    const payload = buildPayload([
+      {
+        from: '573001234567',
+        timestamp: '1700000000',
+        type: 'video',
+        video: { id: 'media-5', caption: 'video del recibo' },
+      },
+    ]);
+
+    const events = extractInboundEvents(payload);
+
+    expect(events[0]).toMatchObject({
+      type: WhatsappInboundMessageType.Video,
+      bodyText: 'video del recibo',
+    });
+  });
+
+  it('parses a shared location, combining name and address when both are present', () => {
+    const payload = buildPayload([
+      {
+        from: '573001234567',
+        timestamp: '1700000000',
+        type: 'location',
+        location: {
+          latitude: 1.2136,
+          longitude: -77.2811,
+          name: 'Mi casa',
+          address: 'Cra 1 # 2-3, Pasto',
+        },
+      },
+    ]);
+
+    const events = extractInboundEvents(payload);
+
+    expect(events[0]).toMatchObject({
+      type: WhatsappInboundMessageType.Location,
+      bodyText: 'Mi casa — Cra 1 # 2-3, Pasto',
+    });
+  });
+
+  it('falls back to raw coordinates for a shared location with no name or address', () => {
+    const payload = buildPayload([
+      {
+        from: '573001234567',
+        timestamp: '1700000000',
+        type: 'location',
+        location: { latitude: 1.2136, longitude: -77.2811 },
+      },
+    ]);
+
+    const events = extractInboundEvents(payload);
+
+    expect(events[0]).toMatchObject({
+      type: WhatsappInboundMessageType.Location,
+      bodyText: '1.2136, -77.2811',
     });
   });
 
@@ -178,5 +350,44 @@ describe('extractInboundEvents', () => {
     expect(extractInboundEvents({})).toEqual([]);
     expect(extractInboundEvents({ entry: 'not-an-array' })).toEqual([]);
     expect(extractInboundEvents({ entry: [{ changes: 'nope' }] })).toEqual([]);
+  });
+
+  // Human report, 2026-09-11 — added alongside WhatsappMediaService, which
+  // needs this id to actually fetch the file from Meta. Every media type
+  // parsed above (image/document/audio/video/sticker) must carry it;
+  // nothing else (text, button, location, other) has a file to fetch.
+  it('extracts the media id for image/document/audio/video/sticker only', () => {
+    const mediaTypes: [string, Record<string, unknown>][] = [
+      ['image', { image: { id: 'media-1', mime_type: 'image/jpeg' } }],
+      ['document', { document: { id: 'media-2', filename: 'a.pdf' } }],
+      ['audio', { audio: { id: 'media-3', mime_type: 'audio/ogg' } }],
+      ['video', { video: { id: 'media-5' } }],
+      ['sticker', { sticker: { id: 'media-4', mime_type: 'image/webp' } }],
+    ];
+
+    for (const [type, fields] of mediaTypes) {
+      const payload = buildPayload([
+        { from: '573001234567', timestamp: '1700000000', type, ...fields },
+      ]);
+      expect(extractInboundEvents(payload)[0].mediaId).toBe(
+        (fields[type] as { id: string }).id,
+      );
+    }
+  });
+
+  it('leaves the media id null for text, button, location, and other events', () => {
+    const nonMediaPayloads: Record<string, unknown>[] = [
+      { type: 'text', text: { body: 'hola' } },
+      { type: 'button', button: { payload: 'p', text: 'p' } },
+      { type: 'location', location: { latitude: 1, longitude: 2 } },
+      { type: 'contacts', contacts: [] },
+    ];
+
+    for (const fields of nonMediaPayloads) {
+      const payload = buildPayload([
+        { from: '573001234567', timestamp: '1700000000', ...fields },
+      ]);
+      expect(extractInboundEvents(payload)[0].mediaId).toBeNull();
+    }
   });
 });
