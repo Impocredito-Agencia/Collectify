@@ -97,6 +97,15 @@ const BREAKDOWN_TEMPLATE = [
 export function renderBreakdownMessage(
   clientFullName: string,
   installments: AccountSummaryInstallmentForMessage[],
+  // Human report, 2026-09-19 — sendBreakdownForContext's scoped reply sets
+  // this. The client tapped "Más información" on a specific reminder (an
+  // overdue one OR an upcoming one, e.g. varias_cuota_proxima_vencer) —
+  // they already know those cuotas exist, so "estás al día" below would
+  // flatly contradict the reminder they just received whenever every
+  // scoped cuota happens to be upcoming rather than overdue. Unset (the
+  // unscoped Estado de cuenta / Cuotas pendientes / no-match-fallback
+  // paths) keeps the original shortcut.
+  options?: { alwaysShowBreakdown?: boolean },
 ): string {
   // Bug fix, 2026-09-08 (human report): "Señor/a" before the client's name,
   // matching how every Meta-approved reminder template already greets a
@@ -116,7 +125,7 @@ export function renderBreakdownMessage(
   const hasOverdueInstallment = installments.some(
     (installment) => installment.overdueDays > 0,
   );
-  if (!hasOverdueInstallment) {
+  if (!options?.alwaysShowBreakdown && !hasOverdueInstallment) {
     return `Hola ${tratamiento}, estás al día con tus pagos. 🎉`;
   }
 

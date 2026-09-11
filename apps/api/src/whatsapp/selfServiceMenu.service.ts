@@ -314,9 +314,17 @@ export class SelfServiceMenuService {
     }
 
     const clientFullName = `${client.firstName} ${client.lastName}`;
+    // Human report, 2026-09-19 — always show the actual breakdown here,
+    // never the "estás al día" shortcut: the client tapped "Más
+    // información" on a specific reminder (which may have been entirely
+    // about upcoming, not-yet-overdue cuotas — e.g.
+    // varias_cuota_proxima_vencer), so they already know these cuotas
+    // exist. See renderBreakdownMessage's own doc comment.
     await this.whatsAppService.sendTextMessage(
       client.phoneNumber,
-      renderBreakdownMessage(clientFullName, scoped),
+      renderBreakdownMessage(clientFullName, scoped, {
+        alwaysShowBreakdown: true,
+      }),
     );
     await this.sendVolverAlMenuFollowUp(client);
   }
