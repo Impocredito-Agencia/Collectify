@@ -15,6 +15,21 @@ export enum WhatsappInboundMessageType {
   Other = 'other',
 }
 
+// Human report, 2026-09-19 — an admin's "Responder" reply used to only
+// exist as local React state (gone on refresh, invisible to any other
+// admin). Now persisted server-side and pushed live over the same socket
+// as inbound client messages — see whatsappInbound.gateway.ts's
+// emitManualReply.
+export interface WhatsappManualReply {
+  id: string;
+  clientId: string | null;
+  phoneNumber: string;
+  messageContent: string;
+  status: 'sent' | 'failed';
+  sentAt: string;
+  createdAt: string;
+}
+
 // GET /whatsapp/inbound-messages leftJoinAndSelects `client` so the list
 // can show a name (or "número no reconocido") instead of a bare id — same
 // shape as MessageLog.client, nullable here since an inbound message from
@@ -118,6 +133,15 @@ export const whatsappInboundMessagesApi = {
       { phoneNumber, message },
     );
     return data.sent;
+  },
+
+  // A flat recent window, merged client-side into each conversation —
+  // same pattern as getAll above.
+  getManualReplies: async (): Promise<WhatsappManualReply[]> => {
+    const { data } = await apiClient.get<WhatsappManualReply[]>(
+      '/whatsapp/inbound-messages/manual-replies',
+    );
+    return data;
   },
 
   // Backs the "Responder"/"Cerrar conversación" gating — see

@@ -16,6 +16,7 @@ import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
 import { WhatsappConversationState } from './entities/whatsappConversationState.entity';
 import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
+import { WhatsappManualReply } from './entities/whatsappManualReply.entity';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { MessageLogsController } from './messageLogs/messageLogs.controller';
 import { MessageLogsService } from './messageLogs/messageLogs.service';
@@ -52,6 +53,7 @@ import { WhatsAppService } from './whatsapp.service';
       MessageLog,
       MessageLogItem,
       WhatsappInboundMessage,
+      WhatsappManualReply,
       WhatsappConversationState,
       Client,
       ClientMessageFrequency,

@@ -26,6 +26,15 @@ export function useWhatsappInboundSocket(): void {
       });
     });
 
+    // Human report, 2026-09-19 — an admin's manual reply now persists and
+    // pushes live, same as an inbound client message, so every OTHER
+    // connected admin sees it immediately too.
+    socket.on('manual-reply', () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['whatsappManualReplies'],
+      });
+    });
+
     return () => {
       socket.disconnect();
     };

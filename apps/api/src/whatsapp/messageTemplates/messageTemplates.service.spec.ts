@@ -23,6 +23,7 @@ describe('MessageTemplatesService', () => {
     metaTemplateName: 'una_cuota_vencida',
     metaLanguageCode: 'es',
     cronExpression: null,
+    cronPaused: false,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,

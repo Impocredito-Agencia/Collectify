@@ -15,6 +15,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { CurrentUser } from '../auth/decorators/currentUser.decorator';
 import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { AppModule } from '../users/entities/userModulePermission.entity';
@@ -24,6 +25,7 @@ import { ConversationMenu } from './entities/whatsappConversationState.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
 import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
+import { WhatsappManualReply } from './entities/whatsappManualReply.entity';
 import { OverdueReminderService } from './overdueReminder.service';
 import { ReminderFamily } from './reminderFamily';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
@@ -32,6 +34,8 @@ import { QueryWhatsappInboundMessagesDto } from './webhook/dto/queryWhatsappInbo
 import { ReplyToInboundMessageDto } from './webhook/dto/replyToInboundMessage.dto';
 import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
 import { WhatsappCronService } from './whatsappCron.service';
+
+import type { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
 
 @ApiTags('whatsapp')
 @ApiBearerAuth()
@@ -78,12 +82,30 @@ export class WhatsappController {
   })
   async replyToInboundMessage(
     @Body() dto: ReplyToInboundMessageDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
   ): Promise<{ sent: boolean }> {
     const sent = await this.whatsappWebhookService.sendManualReply(
       dto.phoneNumber,
       dto.message,
+      currentUser.id,
     );
     return { sent };
+  }
+
+  // Human report, 2026-09-19 — a flat recent window, merged client-side
+  // into each conversation by WhatsappInboundMessagesPage.tsx, same
+  // convention as findInboundMessages above.
+  @Get('inbound-messages/manual-replies')
+  @ApiOperation({
+    summary:
+      "An admin's own manual replies, recent window (admin or granted the messages module)",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns the most recent manual replies.',
+  })
+  findManualReplies(): Promise<WhatsappManualReply[]> {
+    return this.whatsappWebhookService.getManualReplies();
   }
 
   @Get('inbound-messages/conversation-state')
