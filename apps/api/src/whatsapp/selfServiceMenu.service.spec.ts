@@ -306,6 +306,24 @@ describe('SelfServiceMenuService', () => {
       },
     );
 
+    // Bug fix, 2026-09-19 (human report): "Más información" worked on two
+    // of the three templates that carry it but not a third — traced to a
+    // casing typo on just that one template's button text in Meta's
+    // console. This exercises the exact failure mode: a payload that
+    // differs from TemplateButtonPayload.MasInformacion only by case
+    // must still resolve to the same action, not fall through to the
+    // "Unrecognized" no-op.
+    it('matches a button payload case-insensitively (Meta config typo on one template)', async () => {
+      installmentsRepository.find.mockResolvedValue([]);
+
+      await service.handleInboundEvent(buttonEvent('Más Información'), client);
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        client.phoneNumber,
+        expect.stringContaining('Juan Pérez'),
+      );
+    });
+
     // Bug fix, 2026-09-03 (human report): "Más información" must answer
     // only about the pagaré/installment(s) the tapped reminder was
     // actually about, not the client's whole account.
