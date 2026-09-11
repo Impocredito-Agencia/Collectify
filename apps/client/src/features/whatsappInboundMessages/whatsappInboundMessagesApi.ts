@@ -42,11 +42,19 @@ export interface WhatsappInboundMessage {
   // Human report, 2026-09-11 — set once a collector registers a payment
   // from this message via "Registrar pago con este comprobante" (see
   // RegisterPaymentFromWhatsappModal). Null means the comprobante hasn't
-  // been used yet.
+  // been used yet. installment/promissoryNoteNumber widened in 2026-09-19
+  // (human report) so the "✅ Ya registrado" badge can name which cuota/
+  // pagaré the payment applied to, not just the amount/date.
   payment: {
     id: string;
     amountPaid: number;
     paidAt: string;
+    installment: {
+      installmentNumber: number;
+      loan: {
+        promissoryNoteNumber: string;
+      };
+    };
   } | null;
   receivedAt: string;
   createdAt: string;

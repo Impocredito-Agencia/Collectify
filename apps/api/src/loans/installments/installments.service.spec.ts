@@ -309,6 +309,50 @@ describe('InstallmentsService', () => {
       );
     });
 
+    // Human report, 2026-09-19 — a payment sourced from a real WhatsApp
+    // comprobante must always notify, regardless of
+    // PAYMENT_CONFIRMATION_MESSAGES_PAUSED (checked inside
+    // PaymentConfirmationService itself — this only verifies the flag is
+    // derived and forwarded correctly).
+    it('bypasses the payment-confirmation pause when sourceWhatsappMessageId is set', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ amountPaid: 200000 }]);
+      mockInstallmentsFind([
+        { ...mockInstallment, status: InstallmentStatus.Paid },
+      ]);
+
+      await service.registerPayment(mockInstallment.id, {
+        amountPaid: 200000,
+        paidAt: '2026-01-05',
+        sourceWhatsappMessageId: 'wa-msg-1',
+      });
+
+      expect(
+        paymentConfirmationService.sendPaymentConfirmation,
+      ).toHaveBeenCalledWith(mockInstallment.id, { bypassPause: true });
+    });
+
+    it('does not bypass the payment-confirmation pause for an ordinary payment', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ amountPaid: 200000 }]);
+      mockInstallmentsFind([
+        { ...mockInstallment, status: InstallmentStatus.Paid },
+      ]);
+
+      await service.registerPayment(mockInstallment.id, {
+        amountPaid: 200000,
+        paidAt: '2026-01-05',
+      });
+
+      expect(
+        paymentConfirmationService.sendPaymentConfirmation,
+      ).toHaveBeenCalledWith(mockInstallment.id, { bypassPause: false });
+    });
+
     it('cascades the loan to paid when every installment of it is paid', async () => {
       installmentsRepository.findOne.mockResolvedValue(mockInstallment);
       paymentsRepository.find

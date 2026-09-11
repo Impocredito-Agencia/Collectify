@@ -51,6 +51,14 @@ export class MessageTemplate {
   @Column({ type: 'varchar', nullable: true })
   cronExpression!: string | null;
 
+  // Human report, 2026-09-19 — whether an admin paused this family's cron
+  // via WhatsappCronService.pause(). Only the schedule-owner row per
+  // family carries a meaningful value (same convention as cronExpression
+  // above) — WhatsappCronService reads it at boot so a pause survives a
+  // deploy/restart instead of silently resuming every time.
+  @Column({ default: false })
+  cronPaused!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 

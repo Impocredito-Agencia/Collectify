@@ -218,6 +218,31 @@ describe('PaymentConfirmationService', () => {
       expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
       expect(messageLogsRepository.save).not.toHaveBeenCalled();
     });
+
+    // Human report, 2026-09-19 — a payment sourced from a real WhatsApp
+    // comprobante always sends, regardless of the flag.
+    it('sends anyway when paused but bypassPause is set', async () => {
+      configService.get.mockReturnValue({ paymentConfirmationPaused: true });
+      installmentsRepository.findOne.mockResolvedValue({
+        id: 'inst-1',
+        loanId: 'loan-1',
+        loan,
+        installmentNumber: 14,
+        amount: 300000,
+        dueDate: notYetDueDate,
+      });
+      installmentsRepository.count.mockResolvedValue(4);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 300000 },
+      ]);
+
+      const result = await service.sendPaymentConfirmation('inst-1', {
+        bypassPause: true,
+      });
+
+      expect(result?.status).toBe(MessageLogStatus.Sent);
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalled();
+    });
   });
 
   describe('sendPaidInFull', () => {
@@ -257,6 +282,24 @@ describe('PaymentConfirmationService', () => {
       expect(loansRepository.findOne).not.toHaveBeenCalled();
       expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
       expect(messageLogsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('sends anyway when paused but bypassPause is set', async () => {
+      configService.get.mockReturnValue({ paymentConfirmationPaused: true });
+      loansRepository.findOne.mockResolvedValue(loan);
+      installmentsRepository.find.mockResolvedValue([
+        { id: 'inst-1', amount: 300000, dueDate: notYetDueDate },
+      ]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 300000 },
+      ]);
+
+      const result = await service.sendPaidInFull('loan-1', {
+        bypassPause: true,
+      });
+
+      expect(result?.status).toBe(MessageLogStatus.Sent);
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalled();
     });
   });
 });

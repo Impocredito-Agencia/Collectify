@@ -262,9 +262,14 @@ export class InstallmentsService {
           this.installmentsRepository,
           this.loansRepository,
         );
-        await this.sendPaymentConfirmationSafely(installmentId);
+        // Human report, 2026-09-19 — a payment registered from a real
+        // WhatsApp comprobante always bypasses
+        // PAYMENT_CONFIRMATION_MESSAGES_PAUSED: it's never one of the
+        // historical/backfilled payments that flag exists to silence.
+        const bypassPause = Boolean(dto.sourceWhatsappMessageId);
+        await this.sendPaymentConfirmationSafely(installmentId, bypassPause);
         if (paidInFull) {
-          await this.sendPaidInFullSafely(installment.loanId);
+          await this.sendPaidInFullSafely(installment.loanId, bypassPause);
         }
       }
     }
@@ -640,13 +645,20 @@ export class InstallmentsService {
 
   // Never lets a messaging failure affect the payment that was just
   // registered — same principle as LoansService.sendNewLoanMessageSafely.
-  // See docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md.
+  // See docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md. bypassPause (human
+  // report, 2026-09-19) — forwarded to PaymentConfirmationService for a
+  // payment registered via the "Registrar pago con este comprobante"
+  // flow, which is always a real, current transaction, never one of the
+  // historical payments PAYMENT_CONFIRMATION_MESSAGES_PAUSED exists to
+  // silence. See registerPayment's own call site and that flag's comment.
   private async sendPaymentConfirmationSafely(
     installmentId: string,
+    bypassPause = false,
   ): Promise<void> {
     try {
       await this.paymentConfirmationService.sendPaymentConfirmation(
         installmentId,
+        { bypassPause },
       );
     } catch (error) {
       this.logger.error(
@@ -656,9 +668,14 @@ export class InstallmentsService {
     }
   }
 
-  private async sendPaidInFullSafely(loanId: string): Promise<void> {
+  private async sendPaidInFullSafely(
+    loanId: string,
+    bypassPause = false,
+  ): Promise<void> {
     try {
-      await this.paymentConfirmationService.sendPaidInFull(loanId);
+      await this.paymentConfirmationService.sendPaidInFull(loanId, {
+        bypassPause,
+      });
     } catch (error) {
       this.logger.error(
         `Failed to send paid-in-full WhatsApp message for loan ${loanId}`,

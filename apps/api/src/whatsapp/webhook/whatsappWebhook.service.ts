@@ -140,10 +140,16 @@ export class WhatsappWebhookService {
 
     const [items, total] = await this.inboundMessagesRepository.findAndCount({
       where,
-      // Human report, 2026-09-11 — payment: true lets the inbox render
-      // "✅ Ya registrado" for a message linked via the "Registrar pago
-      // con este comprobante" flow, instead of the raw media bubble.
-      relations: { client: true, payment: true },
+      // Human report, 2026-09-11 — payment lets the inbox render "✅ Ya
+      // registrado" for a message linked via the "Registrar pago con este
+      // comprobante" flow, instead of the raw media bubble. Widened
+      // 2026-09-19 (human report) to also nest installment/loan — the
+      // badge needs to name which cuota/pagaré the payment applied to,
+      // not just the amount/date.
+      relations: {
+        client: true,
+        payment: { installment: { loan: true } },
+      },
       order: { receivedAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
