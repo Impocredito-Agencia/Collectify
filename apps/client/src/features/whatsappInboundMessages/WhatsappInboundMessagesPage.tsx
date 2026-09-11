@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { RowActionButton } from '@/components/ui/RowActionButton';
+import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMessages/RegisterPaymentFromWhatsappModal';
 import {
   useCloseConversation,
   useConversationState,
@@ -15,7 +17,11 @@ import {
   WhatsappInboundMessageType,
 } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 import { ApiError } from '@/lib/apiClient';
-import { formatPhoneNumber } from '@/lib/format';
+import {
+  formatCurrency,
+  formatDateOnly,
+  formatPhoneNumber,
+} from '@/lib/format';
 
 import type { WhatsappInboundMessage } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 import type { ReactNode } from 'react';
@@ -46,7 +52,38 @@ const MESSAGE_FETCH_LIMIT = 100;
 const TYPE_LABELS: Record<WhatsappInboundMessageType, string> = {
   [WhatsappInboundMessageType.Button]: 'Botón',
   [WhatsappInboundMessageType.Text]: 'Texto',
+  [WhatsappInboundMessageType.Image]: 'Imagen',
+  [WhatsappInboundMessageType.Document]: 'Documento',
+  [WhatsappInboundMessageType.Audio]: 'Audio',
+  [WhatsappInboundMessageType.Video]: 'Video',
+  [WhatsappInboundMessageType.Sticker]: 'Sticker',
+  [WhatsappInboundMessageType.Location]: 'Ubicación',
   [WhatsappInboundMessageType.Other]: 'Otro',
+};
+
+// Human report, 2026-09-11 — an image/document/etc. with no caption used
+// to render as a bare "—" in the message bubble, indistinguishable from a
+// genuinely unrecognized event. Icons prefix a caption so it still reads
+// as "media with a note attached", and the fallback labels give a caption-
+// less media message readable text instead of "—".
+const MEDIA_TYPE_ICONS: Partial<Record<WhatsappInboundMessageType, string>> = {
+  [WhatsappInboundMessageType.Image]: '📷',
+  [WhatsappInboundMessageType.Document]: '📄',
+  [WhatsappInboundMessageType.Audio]: '🎙️',
+  [WhatsappInboundMessageType.Video]: '🎥',
+  [WhatsappInboundMessageType.Sticker]: '🙂',
+  [WhatsappInboundMessageType.Location]: '📍',
+};
+
+const MEDIA_TYPE_FALLBACK_LABELS: Partial<
+  Record<WhatsappInboundMessageType, string>
+> = {
+  [WhatsappInboundMessageType.Image]: '📷 Imagen',
+  [WhatsappInboundMessageType.Document]: '📄 Documento',
+  [WhatsappInboundMessageType.Audio]: '🎙️ Nota de voz',
+  [WhatsappInboundMessageType.Video]: '🎥 Video',
+  [WhatsappInboundMessageType.Sticker]: '🙂 Sticker',
+  [WhatsappInboundMessageType.Location]: '📍 Ubicación',
 };
 
 interface Conversation {
@@ -106,10 +143,16 @@ function formatSenderPhoneNumber(fromPhoneNumber: string): string {
 }
 
 function messagePreview(message: WhatsappInboundMessage): string {
-  return (
-    message.bodyText ??
-    (message.buttonPayload ? `Botón: ${message.buttonPayload}` : '—')
-  );
+  if (message.bodyText) {
+    // A caption on a photo/documento/video — prefix with its icon so it
+    // still reads as "media with a note attached", not plain text.
+    const icon = MEDIA_TYPE_ICONS[message.type];
+    return icon ? `${icon} ${message.bodyText}` : message.bodyText;
+  }
+  if (message.buttonPayload) {
+    return `Botón: ${message.buttonPayload}`;
+  }
+  return MEDIA_TYPE_FALLBACK_LABELS[message.type] ?? '—';
 }
 
 // A reply sent from this page — kept in local state only, not fetched
@@ -346,7 +389,31 @@ function CloseConversationButton({ phoneNumber }: { phoneNumber: string }) {
   );
 }
 
+// Only image ever populates mediaUrl for an inline thumbnail — document
+// gets a "ver archivo" link instead (see MessageBubble below). audio/
+// video/sticker never re-host at all (see WhatsappMediaService), so they
+// never reach either branch.
+const VIEWABLE_IMAGE_TYPES: WhatsappInboundMessageType[] = [
+  WhatsappInboundMessageType.Image,
+];
+
+// Human report, 2026-09-11 — the two kinds relevant as payment evidence,
+// the only ones "Registrar pago con este comprobante" applies to.
+const PAYMENT_EVIDENCE_TYPES: WhatsappInboundMessageType[] = [
+  WhatsappInboundMessageType.Image,
+  WhatsappInboundMessageType.Document,
+];
+
 function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
+  const [isImageOpen, setIsImageOpen] = useState(false);
+  const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
+  const isViewableImage = VIEWABLE_IMAGE_TYPES.includes(message.type);
+  const canRegisterPayment =
+    !message.payment &&
+    message.mediaUrl &&
+    message.client &&
+    PAYMENT_EVIDENCE_TYPES.includes(message.type);
+
   return (
     <div className="flex max-w-[480px] flex-col gap-1 rounded-lg bg-input px-3.5 py-2.5">
       <div className="flex items-center gap-2">
@@ -360,7 +427,74 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
           })}
         </span>
       </div>
-      <p className="text-small text-white">{messagePreview(message)}</p>
+      {/* Human report, 2026-09-11 — see WhatsappMediaService's own
+          comment. mediaUrl is null until that download+upload succeeds
+          (or for any non-media message, or while Cloudinary/WhatsApp
+          credentials aren't configured), in which case this falls all
+          the way through to the same type/caption-only text it always
+          showed. document gets a link instead of an inline thumbnail —
+          those don't render as an <img>. */}
+      {message.mediaUrl && isViewableImage && (
+        <button
+          type="button"
+          onClick={() => setIsImageOpen(true)}
+          className="self-start"
+        >
+          <img
+            src={message.mediaUrl}
+            alt="Imagen enviada por el cliente"
+            className="max-h-56 rounded object-cover"
+          />
+        </button>
+      )}
+      {message.mediaUrl && !isViewableImage && (
+        <a
+          href={message.mediaUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-small text-white underline"
+        >
+          {messagePreview(message)}
+        </a>
+      )}
+      {(!message.mediaUrl || (isViewableImage && message.bodyText)) && (
+        <p className="text-small text-white">{messagePreview(message)}</p>
+      )}
+      {/* Human report, 2026-09-11 — set once "Registrar pago con este
+          comprobante" (below) registers a payment from this exact
+          message. Shown instead of that button so the same comprobante
+          can't accidentally be registered twice. */}
+      {message.payment && (
+        <p className="text-small text-success">
+          ✅ Ya registrado — pago de{' '}
+          {formatCurrency(message.payment.amountPaid)} el{' '}
+          {formatDateOnly(message.payment.paidAt)}
+        </p>
+      )}
+      {canRegisterPayment && (
+        <button
+          type="button"
+          onClick={() => setIsRegisteringPayment(true)}
+          className="self-start text-small text-white underline"
+        >
+          Registrar pago con este comprobante
+        </button>
+      )}
+      {isImageOpen && message.mediaUrl && (
+        <ImageLightbox
+          imageUrl={message.mediaUrl}
+          alt="Imagen enviada por el cliente"
+          onClose={() => setIsImageOpen(false)}
+        />
+      )}
+      {isRegisteringPayment && message.client && message.mediaUrl && (
+        <RegisterPaymentFromWhatsappModal
+          clientId={message.client.id}
+          mediaUrl={message.mediaUrl}
+          sourceWhatsappMessageId={message.id}
+          onClose={() => setIsRegisteringPayment(false)}
+        />
+      )}
     </div>
   );
 }

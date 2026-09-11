@@ -44,4 +44,27 @@ describe('CreatePaymentDto', () => {
     expect(errors[0].property).toBe('imageUrls');
     expect(errors[0].constraints).toHaveProperty('isUrl');
   });
+
+  // Human report, 2026-09-11 — the "Registrar pago con este comprobante"
+  // flow's own validation logic (@IsUUID), same reasoning as imageUrls
+  // above for testing it directly here.
+  it('is valid with a well-formed sourceWhatsappMessageId', async () => {
+    const dto = plainToInstance(CreatePaymentDto, {
+      ...baseInput,
+      sourceWhatsappMessageId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('rejects a malformed sourceWhatsappMessageId', async () => {
+    const dto = plainToInstance(CreatePaymentDto, {
+      ...baseInput,
+      sourceWhatsappMessageId: 'not-a-uuid',
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].property).toBe('sourceWhatsappMessageId');
+    expect(errors[0].constraints).toHaveProperty('isUuid');
+  });
 });

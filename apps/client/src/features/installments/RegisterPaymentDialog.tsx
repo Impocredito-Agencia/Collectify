@@ -24,6 +24,13 @@ interface RegisterPaymentDialogProps {
   // per row for when a specific installment needs to be targeted).
   installment: Installment;
   loanLabel: string;
+  // Human report, 2026-09-11 — lets a caller (RegisterPaymentFromWhatsappModal)
+  // pre-attach a comprobante that's already hosted on Cloudinary, so the
+  // admin doesn't have to download it from WhatsApp and re-upload it by
+  // hand. Shown alongside any newly-picked files, removable the same way,
+  // and included in onConfirm's imageUrls without going through
+  // uploadPaymentReceipt again.
+  initialImageUrls?: string[];
   onClose: () => void;
   onConfirm: (input: {
     amountPaid: number;
@@ -57,6 +64,7 @@ function todayDateString(): string {
 export function RegisterPaymentDialog({
   installment,
   loanLabel,
+  initialImageUrls,
   onClose,
   onConfirm,
 }: RegisterPaymentDialogProps) {
@@ -100,6 +108,12 @@ export function RegisterPaymentDialog({
   const [images, setImages] = useState<{ file: File; previewUrl: string }[]>(
     [],
   );
+  // Already-hosted URLs handed in via initialImageUrls (see that prop's
+  // own comment) — kept in their own state so removing one is just a
+  // local filter, no upload/revoke bookkeeping needed like `images` above.
+  const [preAttachedImageUrls, setPreAttachedImageUrls] = useState<string[]>(
+    initialImageUrls ?? [],
+  );
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -141,6 +155,10 @@ export function RegisterPaymentDialog({
     setUploadError(null);
   };
 
+  const handleRemovePreAttachedImage = (index: number) => {
+    setPreAttachedImageUrls((current) => current.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
@@ -160,12 +178,12 @@ export function RegisterPaymentDialog({
     // explicit requirement) — so this resolves every imageUrl first,
     // sequentially (so a failure identifies which specific file failed),
     // entirely separate from isSubmitting, and bails out before touching
-    // onConfirm if any upload fails.
-    let imageUrls: string[] | undefined;
+    // onConfirm if any upload fails. preAttachedImageUrls are already
+    // hosted (see that state's own comment) — included as-is, no upload.
+    const uploaded: string[] = [];
     if (images.length > 0) {
       setUploadError(null);
       setIsUploadingImage(true);
-      const uploaded: string[] = [];
       try {
         for (const image of images) {
           uploaded.push(await uploadPaymentReceipt(image.file));
@@ -180,8 +198,11 @@ export function RegisterPaymentDialog({
         return;
       }
       setIsUploadingImage(false);
-      imageUrls = uploaded;
     }
+    const imageUrls =
+      preAttachedImageUrls.length > 0 || uploaded.length > 0
+        ? [...preAttachedImageUrls, ...uploaded]
+        : undefined;
 
     setPendingInput({
       amountPaid: amount,
@@ -264,6 +285,29 @@ export function RegisterPaymentDialog({
         </Field>
 
         <Field label="Fotos del comprobante (opcional)">
+          {preAttachedImageUrls.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3">
+              {preAttachedImageUrls.map((url, index) => (
+                <div
+                  key={url}
+                  className="relative flex flex-col items-center gap-1"
+                >
+                  <img
+                    src={url}
+                    alt="Comprobante de WhatsApp"
+                    className="h-[42px] w-[42px] rounded border border-border object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePreAttachedImage(index)}
+                    className="text-meta text-subtle hover:text-white"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {images.length > 0 && (
             <div className="flex flex-wrap items-center gap-3">
               {images.map((image, index) => (

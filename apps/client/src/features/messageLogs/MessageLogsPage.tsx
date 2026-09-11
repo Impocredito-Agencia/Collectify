@@ -49,16 +49,19 @@ import type { ReactNode } from 'react';
 //     "Reintentar" action per failed row instead.
 //   - Changed after go-live (confirmed with the client's colleague): this
 //     page used to have a Todos/Enviados/Fallidos filter defaulting to
-//     "Todos". It now always shows only failed/unsent messages — the
-//     table is meant to be a to-do list of sends that need attention, not
-//     a full audit log. The Enviados/Fallidos legend counts are kept as
-//     read-only context (they still reflect the true totals, not just
-//     what's listed).
-//   - Phase 32: dropped the "X Enviados" legend count — per the client's
-//     own framing above, a sent-count has no place on a page meant to
-//     only ever surface failures. Kept "X Fallidos" only, since that one
-//     IS actionable context for this list.
+//     "Todos". It then always showed only failed/unsent messages — the
+//     table was meant to be a to-do list of sends that need attention,
+//     not a full audit log. Phase 32 dropped the "X Enviados" legend
+//     count for the same reason, keeping only "X Fallidos".
+//   - Reversed 2026-09-11 (human report): with WHATSAPP_SENDING_PAUSED
+//     active and no access to the Meta WhatsApp Business panel yet, there
+//     was no way at all to confirm a message that DID go out (e.g. to a
+//     WHATSAPP_TEST_RECIPIENTS number) actually sent. The Todos/Enviados/
+//     Fallidos filter and the "X Enviados" legend are both back — still
+//     defaulting to Fallidos, so the day-to-day "to-do list" framing above
+//     holds, but an admin can switch to Enviados/Todos to verify sends.
 type TypeFilter = 'all' | MessageType;
+type StatusFilter = 'all' | MessageLogStatus;
 
 const TYPE_FILTER_OPTIONS = [
   { value: 'all', label: 'Todos los tipos' },
@@ -66,6 +69,12 @@ const TYPE_FILTER_OPTIONS = [
     value: type,
     label: MESSAGE_TYPE_LABELS[type],
   })),
+];
+
+const STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'Todos los estados' },
+  { value: MessageLogStatus.Sent, label: 'Enviados' },
+  { value: MessageLogStatus.Failed, label: 'Fallidos' },
 ];
 
 export function MessageLogsPage() {
@@ -78,17 +87,20 @@ export function MessageLogsPage() {
   );
 
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
+    MessageLogStatus.Failed,
+  );
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [openLog, setOpenLog] = useState<MessageLog | null>(null);
 
-  // Always scoped to failed/unsent messages — see the Fase-9-comment block
-  // above for why the Todos/Enviados/Fallidos filter was removed.
+  // Defaults to Fallidos — see the comment block above for why, and for
+  // when this was reversed to let it switch to Enviados/Todos too.
   const { data, isLoading, isError } = useMessageLogs({
     search: search || undefined,
-    status: MessageLogStatus.Failed,
+    status: statusFilter === 'all' ? undefined : statusFilter,
     type: typeFilter === 'all' ? undefined : typeFilter,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
@@ -96,6 +108,10 @@ export function MessageLogsPage() {
   });
   const { data: failedCount } = useMessageLogs({
     status: MessageLogStatus.Failed,
+    limit: 1,
+  });
+  const { data: sentCount } = useMessageLogs({
+    status: MessageLogStatus.Sent,
     limit: 1,
   });
 
@@ -141,6 +157,16 @@ export function MessageLogsPage() {
         />
 
         <Select
+          value={statusFilter}
+          onChange={(next) => {
+            setStatusFilter(next as StatusFilter);
+            setPage(1);
+          }}
+          options={STATUS_FILTER_OPTIONS}
+          className="w-[190px]"
+        />
+
+        <Select
           value={typeFilter}
           onChange={(next) => {
             setTypeFilter(next as TypeFilter);
@@ -165,6 +191,10 @@ export function MessageLogsPage() {
         <div className="flex-1" />
 
         <div className="flex items-center gap-3 text-label text-muted">
+          <Legend
+            tone="success"
+            label={`${sentCount?.meta.total ?? 0} Enviados`}
+          />
           <Legend
             tone="danger"
             label={`${failedCount?.meta.total ?? 0} Fallidos`}
@@ -194,7 +224,9 @@ export function MessageLogsPage() {
             )}
             {!isLoading && !isError && logs.length === 0 && (
               <EmptyRow>
-                No hay mensajes fallidos pendientes de revisar.
+                {statusFilter === MessageLogStatus.Failed
+                  ? 'No hay mensajes fallidos pendientes de revisar.'
+                  : 'No se encontraron mensajes.'}
               </EmptyRow>
             )}
             {logs.map((log) => (
@@ -231,7 +263,14 @@ export function MessageLogsPage() {
                     <RowActionButton onClick={() => setOpenLog(log)}>
                       Ver completo
                     </RowActionButton>
+                    {/* Human report, 2026-09-11 — the status filter can now
+                        show a Sent row too (see the comment block above),
+                        which the backend's retry endpoint already rejects
+                        with a 400 ("Only failed messages can be retried").
+                        Gated here so the button doesn't even appear on a
+                        row it can't act on. */}
                     {canRetryMessage &&
+                      log.status === MessageLogStatus.Failed &&
                       (log.retriedAt ? (
                         <span className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-subtle">
                           Reintentado

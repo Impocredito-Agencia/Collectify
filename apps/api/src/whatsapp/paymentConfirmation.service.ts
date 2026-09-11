@@ -1,7 +1,9 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
+import { Configuration } from '../config/configuration';
 import { ConceptCategory } from '../interestConceptTypes/entities/interestConceptType.entity';
 import {
   Installment,
@@ -58,11 +60,34 @@ export class PaymentConfirmationService {
     private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     private readonly messageTemplatesService: MessageTemplatesService,
     private readonly whatsAppService: WhatsAppService,
+    private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
+  // Human report, 2026-09-11 — see WhatsappConfig.paymentConfirmationPaused's
+  // own comment. Checked at the very top of both public methods below,
+  // before any DB work or WhatsAppService.sendTemplateMessage call — so no
+  // message_logs row gets created for a backfilled payment at all, not
+  // even a Failed one (unlike WHATSAPP_SENDING_PAUSED, which still logs a
+  // Failed row since that check happens one layer down, inside
+  // WhatsAppService).
+  private isPaused(): boolean {
+    return this.configService.get('whatsapp', { infer: true })
+      .paymentConfirmationPaused;
+  }
+
   // Call once an installment has just been marked Paid by a normal
-  // (non-payoff) payment.
-  async sendPaymentConfirmation(installmentId: string): Promise<MessageLog> {
+  // (non-payoff) payment. Returns null (not a MessageLog) when
+  // paymentConfirmationPaused is on — see isPaused() above.
+  async sendPaymentConfirmation(
+    installmentId: string,
+  ): Promise<MessageLog | null> {
+    if (this.isPaused()) {
+      this.logger.log(
+        `Payment confirmation messages are paused — skipping installment ${installmentId}.`,
+      );
+      return null;
+    }
+
     const installment = await this.installmentsRepository.findOne({
       where: { id: installmentId },
       relations: { loan: { client: true } },
@@ -96,8 +121,16 @@ export class PaymentConfirmationService {
   }
 
   // Call once a loan's last installment has just cascaded it to
-  // LoanStatus.Paid.
-  async sendPaidInFull(loanId: string): Promise<MessageLog> {
+  // LoanStatus.Paid. Returns null when paymentConfirmationPaused is on —
+  // see sendPaymentConfirmation's identical guard above.
+  async sendPaidInFull(loanId: string): Promise<MessageLog | null> {
+    if (this.isPaused()) {
+      this.logger.log(
+        `Payment confirmation messages are paused — skipping loan ${loanId}.`,
+      );
+      return null;
+    }
+
     const loan = await this.loansRepository.findOne({
       where: { id: loanId },
       relations: { client: true },

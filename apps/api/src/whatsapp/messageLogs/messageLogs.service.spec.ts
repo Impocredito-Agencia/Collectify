@@ -382,5 +382,24 @@ describe('MessageLogsService', () => {
         'loan-1',
       );
     });
+
+    // Human report, 2026-09-11 — PaymentConfirmationService returns null
+    // instead of a MessageLog while paymentConfirmationPaused is on.
+    it('throws a clear error instead of crashing when payment confirmation retry returns null', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockLog,
+        type: MessageType.PaymentConfirmation,
+        status: MessageLogStatus.Failed,
+      });
+      messageLogItemsRepository.findOne.mockResolvedValue({
+        installmentId: 'inst-1',
+        installment: { loanId: 'loan-1' },
+      });
+      paymentConfirmationService.sendPaymentConfirmation.mockResolvedValue(
+        null,
+      );
+
+      await expect(service.retry('log-1')).rejects.toThrow(BadRequestException);
+    });
   });
 });

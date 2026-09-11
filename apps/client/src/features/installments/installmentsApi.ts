@@ -98,6 +98,10 @@ export interface CreatePaymentInput {
   paidAt: string;
   observation?: string;
   imageUrls?: string[];
+  // Human report, 2026-09-11 — set by RegisterPaymentFromWhatsappModal so
+  // the api can link this payment back to the WhatsApp comprobante it was
+  // reviewed from — see whatsappInboundMessagesApi.ts's WhatsappInboundMessage.payment.
+  sourceWhatsappMessageId?: string;
 }
 
 // Matches apps/api/src/loans/installments/dto/registerBulkPayments.dto.ts.

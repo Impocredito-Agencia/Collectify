@@ -11,6 +11,10 @@ export interface ParsedInboundEvent {
   // from, see SelfServiceMenuService.sendBreakdownForContext. Bug fix,
   // 2026-09-03.
   contextMessageId: string | null;
+  // Set for image/document/audio/video/sticker — Meta's own reference to
+  // the actual file, needed to fetch and re-host it (see
+  // WhatsappMediaService). Human report, 2026-09-11.
+  mediaId: string | null;
   receivedAt: Date;
   rawPayload: Record<string, unknown>;
 }
@@ -53,6 +57,7 @@ function parseMessage(message: Record<string, unknown>): {
   type: WhatsappInboundMessageType;
   buttonPayload: string | null;
   bodyText: string | null;
+  mediaId: string | null;
 } {
   const messageType = asString(message.type);
 
@@ -61,6 +66,7 @@ function parseMessage(message: Record<string, unknown>): {
       type: WhatsappInboundMessageType.Button,
       buttonPayload: asString(message.button.payload),
       bodyText: asString(message.button.text),
+      mediaId: null,
     };
   }
 
@@ -74,6 +80,7 @@ function parseMessage(message: Record<string, unknown>): {
       type: WhatsappInboundMessageType.Button,
       buttonPayload: asString(message.interactive.button_reply.id),
       bodyText: asString(message.interactive.button_reply.title),
+      mediaId: null,
     };
   }
 
@@ -82,6 +89,95 @@ function parseMessage(message: Record<string, unknown>): {
       type: WhatsappInboundMessageType.Text,
       buttonPayload: null,
       bodyText: asString(message.text.body),
+      mediaId: null,
+    };
+  }
+
+  // Media types added 2026-09-11 (human report) — see
+  // WhatsappInboundMessageType's own comment. Only image/document/video
+  // carry an optional caption Meta preserves as-is; audio and stickers
+  // never do (not offered by any WhatsApp client's UI). bodyText is that
+  // caption when present so a client's real words (e.g. "aquí está el
+  // comprobante") still show, not just the media's presence. mediaId
+  // (added alongside WhatsappMediaService, same date) is Meta's own
+  // reference to the file itself — needed to actually fetch it. Only set
+  // for image/document, since those are the only kinds relevant as
+  // payment evidence for this business — audio/video/sticker keep their
+  // own recognized `type` (still logged, never dropped) but leave mediaId
+  // null so WhatsappMediaService never spends Cloudinary quota re-hosting
+  // something nobody needs to review as a comprobante.
+  if (messageType === 'image' && isRecord(message.image)) {
+    return {
+      type: WhatsappInboundMessageType.Image,
+      buttonPayload: null,
+      bodyText: asString(message.image.caption),
+      mediaId: asString(message.image.id),
+    };
+  }
+
+  if (messageType === 'document' && isRecord(message.document)) {
+    return {
+      type: WhatsappInboundMessageType.Document,
+      buttonPayload: null,
+      // Falls back to the filename Meta always sends for a document (even
+      // with no caption) — "estado_cuenta.pdf" is more useful than nothing.
+      bodyText:
+        asString(message.document.caption) ??
+        asString(message.document.filename),
+      mediaId: asString(message.document.id),
+    };
+  }
+
+  if (messageType === 'audio' && isRecord(message.audio)) {
+    return {
+      type: WhatsappInboundMessageType.Audio,
+      buttonPayload: null,
+      bodyText: null,
+      mediaId: null,
+    };
+  }
+
+  if (messageType === 'video' && isRecord(message.video)) {
+    return {
+      type: WhatsappInboundMessageType.Video,
+      buttonPayload: null,
+      bodyText: asString(message.video.caption),
+      mediaId: null,
+    };
+  }
+
+  if (messageType === 'sticker' && isRecord(message.sticker)) {
+    return {
+      type: WhatsappInboundMessageType.Sticker,
+      buttonPayload: null,
+      bodyText: null,
+      mediaId: null,
+    };
+  }
+
+  if (messageType === 'location' && isRecord(message.location)) {
+    // name/address are only present when the sender shared a named place
+    // (e.g. picked from search) rather than their live/current position —
+    // fall back to raw coordinates (Meta sends these as numbers, not
+    // strings, unlike every other field parsed in this file) rather than
+    // nothing.
+    const name = asString(message.location.name);
+    const address = asString(message.location.address);
+    const { latitude, longitude } = message.location;
+    const coordinates =
+      typeof latitude === 'number' && typeof longitude === 'number'
+        ? `${latitude}, ${longitude}`
+        : null;
+    return {
+      type: WhatsappInboundMessageType.Location,
+      buttonPayload: null,
+      bodyText:
+        name && address
+          ? `${name} — ${address}`
+          : (name ?? address ?? coordinates),
+      // No media id — a shared location is coordinates, not a file to
+      // fetch from Meta's Media API.
+      mediaId: null,
     };
   }
 
@@ -89,6 +185,7 @@ function parseMessage(message: Record<string, unknown>): {
     type: WhatsappInboundMessageType.Other,
     buttonPayload: null,
     bodyText: null,
+    mediaId: null,
   };
 }
 
@@ -117,13 +214,15 @@ export function extractInboundEvents(payload: unknown): ParsedInboundEvent[] {
         const fromPhoneNumber = asString(message.from);
         if (!fromPhoneNumber) continue;
 
-        const { type, buttonPayload, bodyText } = parseMessage(message);
+        const { type, buttonPayload, bodyText, mediaId } =
+          parseMessage(message);
 
         events.push({
           fromPhoneNumber,
           type,
           buttonPayload,
           bodyText,
+          mediaId,
           contextMessageId: parseContextMessageId(message),
           receivedAt: parseReceivedAt(message.timestamp),
           rawPayload: payload,

@@ -69,9 +69,22 @@ const FAMILY_SCHEDULE_OWNER: Record<ReminderFamily, MessageType> = {
 // family's schedule, listed on that family's own card so it's clear at a
 // glance what a pause/reschedule actually affects, without having to
 // cross-reference the grid of 13 cards below.
+//
+// Human report, 2026-09-11 — UpcomingAndOverdueMixed is filtered out of
+// UpcomingDue's list here, even though it's a real member of
+// UPCOMING_FAMILY_TYPES (kept there as-is for the message-frequency
+// throttle — see reminderFamily.ts). Showing it on both cards implied
+// pausing "Cuotas próximas a vencer" also stops the combined message,
+// which isn't true: the daily upcoming_due cron excludes any client who
+// also has an overdue installment, so it never actually selects this
+// template for an automated send — the weekly overdue cron owns that
+// case exclusively (OverdueReminderService, reversed 2026-09-07). This is
+// a display-only fix — UPCOMING_FAMILY_TYPES itself is untouched.
 const FAMILY_TYPES: Record<ReminderFamily, MessageType[]> = {
   [ReminderFamily.Overdue]: OVERDUE_FAMILY_TYPES,
-  [ReminderFamily.UpcomingDue]: UPCOMING_FAMILY_TYPES,
+  [ReminderFamily.UpcomingDue]: UPCOMING_FAMILY_TYPES.filter(
+    (type) => type !== MessageType.UpcomingAndOverdueMixed,
+  ),
   [ReminderFamily.NewLoan]: NEW_LOAN_FAMILY_TYPES,
 };
 

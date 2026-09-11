@@ -44,6 +44,25 @@ export interface WhatsappConfig {
   // blocked exactly as before. Empty by default — the allowlist is an
   // explicit, opt-in exception, never a default-open one.
   testRecipients: string[];
+  // Narrower kill switch, 2026-09-11 — while historical loans AND their
+  // payments are both being backfilled (Loan.isNewLoan already stops the
+  // "nuevo pagaré" message for backfilled loans; this stops
+  // PaymentConfirmation/PaidInFull for backfilled payments the same way,
+  // since there's no per-payment "is this backfilled" flag to key off of
+  // instead). Independent of sendingPaused above — composes with it
+  // rather than replacing it: sendingPaused blocks every message type
+  // unconditionally inside WhatsAppService; this one only blocks
+  // PaymentConfirmationService's two message types, checked before that,
+  // so turning sendingPaused back on for everything else doesn't
+  // accidentally resume these too. Meant to be turned back off once real
+  // (non-backfilled) payments start flowing through normally.
+  paymentConfirmationPaused: boolean;
+}
+
+export interface CloudinaryConfig {
+  cloudName: string;
+  apiKey: string;
+  apiSecret: string;
 }
 
 export interface CronConfig {
@@ -72,6 +91,7 @@ export interface Configuration {
   database: DatabaseConfig;
   jwt: JwtConfig;
   whatsapp: WhatsappConfig;
+  cloudinary: CloudinaryConfig;
   cron: CronConfig;
 }
 
@@ -104,6 +124,22 @@ export default (): Configuration => ({
       .split(',')
       .map((phoneNumber) => phoneNumber.trim())
       .filter((phoneNumber) => phoneNumber.length > 0),
+    paymentConfirmationPaused:
+      process.env.PAYMENT_CONFIRMATION_MESSAGES_PAUSED === 'true',
+  },
+  cloudinary: {
+    // Pending — no Cloudinary account created for this project yet, same
+    // status as the Meta WhatsApp vars above. UploadsService throws a
+    // clear error if a signature is requested while any of these are
+    // empty, rather than silently signing with a blank secret. Replaces
+    // the old client-side VITE_CLOUDINARY_CLOUD_NAME/UPLOAD_PRESET
+    // (unsigned preset) — every upload is now signed here so it can only
+    // be requested by an authenticated user, not by anyone who copies the
+    // public preset name out of the client bundle. See
+    // docs/ENVIRONMENT_VARIABLES.md and apps/client/src/lib/imageUpload.ts.
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME ?? '',
+    apiKey: process.env.CLOUDINARY_API_KEY ?? '',
+    apiSecret: process.env.CLOUDINARY_API_SECRET ?? '',
   },
   cron: {
     overdueReminderExpression: process.env.OVERDUE_REMINDER_CRON ?? '0 9 * * 1',

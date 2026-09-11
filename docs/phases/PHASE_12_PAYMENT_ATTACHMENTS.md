@@ -12,6 +12,7 @@ Let a payment carry a photo of the deposit/receipt ("comprobante de consignació
   - **Cloudflare Images** — cheapest at real scale ($5/100K images stored + $1/100K served, no bandwidth charge) and lives in the same ecosystem the `client` app is already deployed to (Cloudflare Pages) — worth revisiting if payment-photo volume grows significantly.
   - At the volume expected for a collections business (photos of deposit receipts, likely in the hundreds per month), any of the three stays free indefinitely. This is a reversible choice — swapping providers later only changes where new uploads go, not the stored URLs of old ones.
 - **The `api` never touches image bytes.** The client uploads directly to the provider (signed upload preset or unsigned upload widget, per the provider's recommended client-side flow) and sends only the resulting URL to the `api`. This keeps `apps/api` free of file-handling code and storage costs.
+  - **Resolved 2026-09-11: signed, not unsigned.** The original build used an unsigned preset (cloud name + preset name shipped in the client bundle); reworked to a signed upload after a security review flagged that anyone could copy those public values out of devtools and spam uploads to the account without ever logging into Collectify. The api now signs a short-lived upload payload per request via `POST /uploads/cloudinary-signature` (see `apps/api/src/uploads`), tying every upload to an authenticated session — image bytes still never pass through the api. See `docs/ENVIRONMENT_VARIABLES.md`.
 
 ## Scope
 

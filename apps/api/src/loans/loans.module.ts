@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientsModule } from '../clients/clients.module';
 import { InterestConceptTypesModule } from '../interestConceptTypes/interestConceptTypes.module';
 import { UsuryRatesModule } from '../usuryRates/usuryRates.module';
+import { WhatsappInboundMessage } from '../whatsapp/entities/whatsappInboundMessage.entity';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 import { Installment } from './entities/installment.entity';
@@ -24,6 +25,11 @@ import { LoansService } from './loans.service';
       Payment,
       PaymentImage,
       LoanInstallmentConcept,
+      // InstallmentsService.linkSourceWhatsappMessageSafely — the
+      // "Registrar pago con este comprobante" flow. Cross-domain entity
+      // access via forFeature, same pattern DashboardModule already uses
+      // for Loan/Installment/Payment/MessageLog.
+      WhatsappInboundMessage,
     ]),
     WhatsappModule,
     InterestConceptTypesModule,
