@@ -20,7 +20,7 @@ describe('selectPaymentConfirmationTemplate', () => {
       '14',
       '778',
       '4',
-      'Quedamos atentos a cualquier consulta.',
+      'Gracias por su atención.',
     ]);
   });
 
@@ -51,7 +51,7 @@ describe('selectPaidInFullTemplate', () => {
     expect(result.bodyParameters).toEqual([
       'Señor/a Nicolas Sarasty',
       '922',
-      'Quedamos atentos a cualquier consulta.',
+      'Gracias por su atención.',
     ]);
   });
 

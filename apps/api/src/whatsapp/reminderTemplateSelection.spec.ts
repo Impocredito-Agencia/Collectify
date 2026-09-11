@@ -43,7 +43,7 @@ describe('selectReminderTemplate', () => {
       '$1.200.000',
       '1',
       '$600.000',
-      'Quedamos atentos a cualquier consulta.',
+      'Gracias por su atención.',
     ]);
   });
 
@@ -125,7 +125,7 @@ describe('selectReminderTemplate', () => {
       '2',
       'hace 85 días',
       '$2.245.000',
-      'Quedamos atentos a cualquier consulta.',
+      'Gracias por su atención.',
     ]);
   });
 
@@ -169,7 +169,7 @@ describe('selectReminderTemplate', () => {
       '2',
       '$600.000',
       'mañana',
-      'Quedamos atentos a cualquier consulta.',
+      'Gracias por su atención.',
     ]);
   });
 
