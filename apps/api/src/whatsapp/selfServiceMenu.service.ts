@@ -117,7 +117,21 @@ export class SelfServiceMenuService {
         this.sendPaymentHistory(c),
       [SelfServiceMenuButtonId.VolverAlMenu]: (c) => this.sendMainMenu(c),
     };
-    return actions[payload];
+
+    // Bug fix, 2026-09-19 (human report) — "Más información" worked on
+    // two of the three templates that carry it but silently did nothing
+    // on the third. Each template's Quick Reply button text is typed by
+    // hand, per template, in Meta's own Business Manager console — a
+    // one-off casing/whitespace slip on just that one template's button
+    // fell outside this dictionary's exact-match lookup while its
+    // correctly-typed siblings kept matching fine. Matched
+    // case-insensitively and trimmed so a config-side typo like that
+    // can't silently swallow a button tap again.
+    const normalizedPayload = payload.trim().toLowerCase();
+    const match = Object.entries(actions).find(
+      ([key]) => key.trim().toLowerCase() === normalizedPayload,
+    );
+    return match?.[1];
   }
 
   private async handleButtonPayload(
