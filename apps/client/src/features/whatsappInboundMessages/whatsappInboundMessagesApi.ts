@@ -1,10 +1,17 @@
 import { apiClient } from '@/lib/apiClient';
 
 // Matches apps/api/src/whatsapp/entities/whatsappInboundMessage.entity.ts's
-// WhatsappInboundMessageType.
+// WhatsappInboundMessageType. Image/Document/Audio/Video/Sticker/Location
+// added 2026-09-11 — see that entity's own comment.
 export enum WhatsappInboundMessageType {
   Button = 'button',
   Text = 'text',
+  Image = 'image',
+  Document = 'document',
+  Audio = 'audio',
+  Video = 'video',
+  Sticker = 'sticker',
+  Location = 'location',
   Other = 'other',
 }
 
@@ -25,6 +32,12 @@ export interface WhatsappInboundMessage {
   type: WhatsappInboundMessageType;
   buttonPayload: string | null;
   bodyText: string | null;
+  // Human report, 2026-09-11 — the Cloudinary URL this message's
+  // attachment (image/document/audio/video/sticker) was re-hosted to, so
+  // it survives Meta's own copy eventually expiring. Null until that
+  // download+upload succeeds — see WhatsappMediaService — or for any
+  // non-media message.
+  mediaUrl: string | null;
   receivedAt: string;
   createdAt: string;
 }

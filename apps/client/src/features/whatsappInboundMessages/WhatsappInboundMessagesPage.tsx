@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import {
   useCloseConversation,
@@ -46,7 +47,38 @@ const MESSAGE_FETCH_LIMIT = 100;
 const TYPE_LABELS: Record<WhatsappInboundMessageType, string> = {
   [WhatsappInboundMessageType.Button]: 'Botón',
   [WhatsappInboundMessageType.Text]: 'Texto',
+  [WhatsappInboundMessageType.Image]: 'Imagen',
+  [WhatsappInboundMessageType.Document]: 'Documento',
+  [WhatsappInboundMessageType.Audio]: 'Audio',
+  [WhatsappInboundMessageType.Video]: 'Video',
+  [WhatsappInboundMessageType.Sticker]: 'Sticker',
+  [WhatsappInboundMessageType.Location]: 'Ubicación',
   [WhatsappInboundMessageType.Other]: 'Otro',
+};
+
+// Human report, 2026-09-11 — an image/document/etc. with no caption used
+// to render as a bare "—" in the message bubble, indistinguishable from a
+// genuinely unrecognized event. Icons prefix a caption so it still reads
+// as "media with a note attached", and the fallback labels give a caption-
+// less media message readable text instead of "—".
+const MEDIA_TYPE_ICONS: Partial<Record<WhatsappInboundMessageType, string>> = {
+  [WhatsappInboundMessageType.Image]: '📷',
+  [WhatsappInboundMessageType.Document]: '📄',
+  [WhatsappInboundMessageType.Audio]: '🎙️',
+  [WhatsappInboundMessageType.Video]: '🎥',
+  [WhatsappInboundMessageType.Sticker]: '🙂',
+  [WhatsappInboundMessageType.Location]: '📍',
+};
+
+const MEDIA_TYPE_FALLBACK_LABELS: Partial<
+  Record<WhatsappInboundMessageType, string>
+> = {
+  [WhatsappInboundMessageType.Image]: '📷 Imagen',
+  [WhatsappInboundMessageType.Document]: '📄 Documento',
+  [WhatsappInboundMessageType.Audio]: '🎙️ Nota de voz',
+  [WhatsappInboundMessageType.Video]: '🎥 Video',
+  [WhatsappInboundMessageType.Sticker]: '🙂 Sticker',
+  [WhatsappInboundMessageType.Location]: '📍 Ubicación',
 };
 
 interface Conversation {
@@ -106,10 +138,16 @@ function formatSenderPhoneNumber(fromPhoneNumber: string): string {
 }
 
 function messagePreview(message: WhatsappInboundMessage): string {
-  return (
-    message.bodyText ??
-    (message.buttonPayload ? `Botón: ${message.buttonPayload}` : '—')
-  );
+  if (message.bodyText) {
+    // A caption on a photo/documento/video — prefix with its icon so it
+    // still reads as "media with a note attached", not plain text.
+    const icon = MEDIA_TYPE_ICONS[message.type];
+    return icon ? `${icon} ${message.bodyText}` : message.bodyText;
+  }
+  if (message.buttonPayload) {
+    return `Botón: ${message.buttonPayload}`;
+  }
+  return MEDIA_TYPE_FALLBACK_LABELS[message.type] ?? '—';
 }
 
 // A reply sent from this page — kept in local state only, not fetched
@@ -346,7 +384,18 @@ function CloseConversationButton({ phoneNumber }: { phoneNumber: string }) {
   );
 }
 
+// A media message this business's WhatsApp bot actually receives that
+// still makes sense to show as an inline thumbnail — a document/audio/
+// video gets a "ver archivo" link instead (see MessageBubble below).
+const VIEWABLE_IMAGE_TYPES: WhatsappInboundMessageType[] = [
+  WhatsappInboundMessageType.Image,
+  WhatsappInboundMessageType.Sticker,
+];
+
 function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
+  const [isImageOpen, setIsImageOpen] = useState(false);
+  const isViewableImage = VIEWABLE_IMAGE_TYPES.includes(message.type);
+
   return (
     <div className="flex max-w-[480px] flex-col gap-1 rounded-lg bg-input px-3.5 py-2.5">
       <div className="flex items-center gap-2">
@@ -360,7 +409,46 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
           })}
         </span>
       </div>
-      <p className="text-small text-white">{messagePreview(message)}</p>
+      {/* Human report, 2026-09-11 — see WhatsappMediaService's own
+          comment. mediaUrl is null until that download+upload succeeds
+          (or for any non-media message, or while Cloudinary/WhatsApp
+          credentials aren't configured), in which case this falls all
+          the way through to the same type/caption-only text it always
+          showed. A document/audio/video gets a link instead of an inline
+          thumbnail — those don't render as an <img>. */}
+      {message.mediaUrl && isViewableImage && (
+        <button
+          type="button"
+          onClick={() => setIsImageOpen(true)}
+          className="self-start"
+        >
+          <img
+            src={message.mediaUrl}
+            alt="Imagen enviada por el cliente"
+            className="max-h-56 rounded object-cover"
+          />
+        </button>
+      )}
+      {message.mediaUrl && !isViewableImage && (
+        <a
+          href={message.mediaUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-small text-white underline"
+        >
+          {messagePreview(message)}
+        </a>
+      )}
+      {(!message.mediaUrl || (isViewableImage && message.bodyText)) && (
+        <p className="text-small text-white">{messagePreview(message)}</p>
+      )}
+      {isImageOpen && message.mediaUrl && (
+        <ImageLightbox
+          imageUrl={message.mediaUrl}
+          alt="Imagen enviada por el cliente"
+          onClose={() => setIsImageOpen(false)}
+        />
+      )}
     </div>
   );
 }
