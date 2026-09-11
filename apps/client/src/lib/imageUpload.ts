@@ -1,17 +1,21 @@
 /**
- * Thin wrapper around Cloudinary's unsigned upload endpoint, per
+ * Thin wrapper around Cloudinary's signed upload endpoint, per
  * docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md's provider recommendation.
- * The api never touches image bytes (see CreatePaymentDto.imageUrl) — the
+ * The api never touches image bytes (see CreatePaymentDto.imageUrls) — the
  * client uploads directly to Cloudinary from the browser and only sends
  * the resulting URL to our own api. This keeps apps/api free of
  * file-handling code and storage costs, per that doc's explicit scope
  * decision.
  *
- * Uses an unsigned upload preset (configured in the Cloudinary dashboard,
- * not a server secret) rather than a signed upload — a signed upload would
- * require an api key/secret pair that can't safely live in client-side
- * code. See docs/ENVIRONMENT_VARIABLES.md for the two public env vars this
- * needs.
+ * Uses a *signed* upload rather than the original unsigned-preset design:
+ * an unsigned preset's cloud name/preset name ship in the client bundle,
+ * so anyone who copies them out of devtools can POST uploads straight to
+ * the Cloudinary account without ever logging into Collectify (quota/cost
+ * abuse risk). A signed upload ties every upload to an authenticated
+ * session instead — the api's POST /uploads/cloudinary-signature (see
+ * apps/api/src/uploads) signs a short-lived payload with the Cloudinary
+ * api secret, which never leaves the backend. Image bytes still never
+ * pass through the api — only the small signature payload does.
  *
  * Phase 21 widens this to also accept PDFs (client ID documents / the
  * consent evidence document may be uploaded as a single combined PDF
@@ -25,8 +29,20 @@
  * silently uploading as a raw resource.
  */
 
-const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+import { apiClient, ApiError } from '@/lib/apiClient';
+
+// Mirrors apps/api/src/uploads/dto/generateCloudinarySignature.dto.ts's
+// CloudinaryUploadFolder enum — kept as a plain string union here since
+// apps/client can't import from apps/api (separate deployed apps).
+type CloudinaryUploadFolder = 'payment-receipts' | 'client-documents';
+
+interface CloudinarySignature {
+  signature: string;
+  timestamp: number;
+  apiKey: string;
+  cloudName: string;
+  folder: CloudinaryUploadFolder;
+}
 
 export class ImageUploadError extends Error {
   constructor(message: string) {
@@ -35,32 +51,45 @@ export class ImageUploadError extends Error {
   }
 }
 
-// Shared by both upload paths below — resolves the Cloudinary endpoint,
-// posts the file, and unwraps secure_url, with identical error handling.
+// Shared by both upload paths below: asks the api to sign the upload,
+// then posts the file straight to Cloudinary and unwraps secure_url.
 // `resourceType` picks the Cloudinary endpoint (`image` vs `auto`); the
 // error messages stay generic ("la foto"/"el archivo") via the caller's
 // own wording, not duplicated here.
 async function uploadToCloudinary(
   file: File,
+  folder: CloudinaryUploadFolder,
   resourceType: 'image' | 'auto',
   configErrorMessage: string,
   uploadErrorMessage: string,
 ): Promise<string> {
-  if (!CLOUD_NAME || !UPLOAD_PRESET) {
-    // Mirrors the "fail gracefully, don't crash" convention
-    // ENVIRONMENT_VARIABLES.md documents for the pending Meta WhatsApp
-    // credentials — except here there's no server-side fallback to log
-    // and skip, so the caller must surface this as a blocking upload
-    // error rather than silently submitting without the file.
-    throw new ImageUploadError(configErrorMessage);
+  let signaturePayload: CloudinarySignature;
+  try {
+    const { data } = await apiClient.post<CloudinarySignature>(
+      '/uploads/cloudinary-signature',
+      { folder },
+    );
+    signaturePayload = data;
+  } catch (err) {
+    // Mirrors the api's own "pending credentials" error (503) when no
+    // Cloudinary account has been created yet — surfaced here as the same
+    // blocking ImageUploadError the caller already expects, rather than
+    // leaking a raw ApiError.
+    throw new ImageUploadError(
+      err instanceof ApiError ? err.message : configErrorMessage,
+    );
   }
 
+  const { signature, timestamp, apiKey, cloudName } = signaturePayload;
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('upload_preset', UPLOAD_PRESET);
+  formData.append('api_key', apiKey);
+  formData.append('timestamp', String(timestamp));
+  formData.append('folder', folder);
+  formData.append('signature', signature);
 
   const response = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`,
+    `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
     { method: 'POST', body: formData },
   );
 
@@ -84,8 +113,9 @@ async function uploadToCloudinary(
 export async function uploadPaymentReceipt(file: File): Promise<string> {
   return uploadToCloudinary(
     file,
+    'payment-receipts',
     'image',
-    'La subida de imágenes no está configurada (faltan las variables VITE_CLOUDINARY_CLOUD_NAME / VITE_CLOUDINARY_UPLOAD_PRESET).',
+    'La subida de imágenes no está configurada (faltan las credenciales de Cloudinary en el api).',
     'No se pudo subir la foto del comprobante. Intenta de nuevo.',
   );
 }
@@ -102,8 +132,9 @@ export async function uploadPaymentReceipt(file: File): Promise<string> {
 export async function uploadDocument(file: File): Promise<string> {
   return uploadToCloudinary(
     file,
+    'client-documents',
     'auto',
-    'La subida de archivos no está configurada (faltan las variables VITE_CLOUDINARY_CLOUD_NAME / VITE_CLOUDINARY_UPLOAD_PRESET).',
+    'La subida de archivos no está configurada (faltan las credenciales de Cloudinary en el api).',
     'No se pudo subir el archivo. Intenta de nuevo.',
   );
 }
