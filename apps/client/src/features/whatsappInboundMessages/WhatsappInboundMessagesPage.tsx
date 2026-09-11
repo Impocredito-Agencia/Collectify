@@ -467,7 +467,9 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
       {message.payment && (
         <p className="text-small text-success">
           ✅ Ya registrado — pago de{' '}
-          {formatCurrency(message.payment.amountPaid)} el{' '}
+          {formatCurrency(message.payment.amountPaid)} a la cuota{' '}
+          {message.payment.installment.installmentNumber} del pagaré{' '}
+          {message.payment.installment.loan.promissoryNoteNumber} el{' '}
           {formatDateOnly(message.payment.paidAt)}
         </p>
       )}

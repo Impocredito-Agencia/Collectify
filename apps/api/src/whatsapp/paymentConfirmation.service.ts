@@ -69,19 +69,31 @@ export class PaymentConfirmationService {
   // message_logs row gets created for a backfilled payment at all, not
   // even a Failed one (unlike WHATSAPP_SENDING_PAUSED, which still logs a
   // Failed row since that check happens one layer down, inside
-  // WhatsAppService).
-  private isPaused(): boolean {
+  // WhatsAppService). bypassPause (human report, 2026-09-19) — set by
+  // InstallmentsService.registerPayment whenever the payment came from
+  // the "Registrar pago con este comprobante" WhatsApp flow
+  // (dto.sourceWhatsappMessageId): that payment is, by construction, a
+  // real transaction happening right now, never one of the historical
+  // payments this flag exists to silence — same "explicit, opt-in
+  // exception" precedent as WHATSAPP_TEST_RECIPIENTS bypassing
+  // WHATSAPP_SENDING_PAUSED.
+  private isPaused(bypassPause: boolean): boolean {
+    if (bypassPause) {
+      return false;
+    }
     return this.configService.get('whatsapp', { infer: true })
       .paymentConfirmationPaused;
   }
 
   // Call once an installment has just been marked Paid by a normal
   // (non-payoff) payment. Returns null (not a MessageLog) when
-  // paymentConfirmationPaused is on — see isPaused() above.
+  // paymentConfirmationPaused is on and bypassPause isn't set — see
+  // isPaused() above.
   async sendPaymentConfirmation(
     installmentId: string,
+    options?: { bypassPause?: boolean },
   ): Promise<MessageLog | null> {
-    if (this.isPaused()) {
+    if (this.isPaused(options?.bypassPause ?? false)) {
       this.logger.log(
         `Payment confirmation messages are paused — skipping installment ${installmentId}.`,
       );
@@ -123,8 +135,11 @@ export class PaymentConfirmationService {
   // Call once a loan's last installment has just cascaded it to
   // LoanStatus.Paid. Returns null when paymentConfirmationPaused is on —
   // see sendPaymentConfirmation's identical guard above.
-  async sendPaidInFull(loanId: string): Promise<MessageLog | null> {
-    if (this.isPaused()) {
+  async sendPaidInFull(
+    loanId: string,
+    options?: { bypassPause?: boolean },
+  ): Promise<MessageLog | null> {
+    if (this.isPaused(options?.bypassPause ?? false)) {
       this.logger.log(
         `Payment confirmation messages are paused — skipping loan ${loanId}.`,
       );
