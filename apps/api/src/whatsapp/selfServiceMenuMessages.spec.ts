@@ -32,6 +32,33 @@ describe('renderBreakdownMessage', () => {
     );
   });
 
+  // Human report, 2026-09-19 — "Más información" on varias_cuota_proxima_vencer
+  // (a reminder entirely about upcoming, not-yet-overdue cuotas) sent
+  // "estás al día con tus pagos" instead of the breakdown: flatly
+  // contradicting the reminder the client had just received and tapped
+  // this button on. sendBreakdownForContext now passes
+  // alwaysShowBreakdown: true for this scoped case, which must skip the
+  // "up to date" shortcut even when every scoped installment is upcoming.
+  it('renders the full desglose for a scoped reply even when nothing is overdue, when alwaysShowBreakdown is set', () => {
+    const installments: AccountSummaryInstallmentForMessage[] = [
+      {
+        installmentNumber: 1,
+        promissoryNoteNumber: '9424769191',
+        totalDue: 114000,
+        overdueDays: 0,
+        daysUntilDue: 2,
+      },
+    ];
+
+    const message = renderBreakdownMessage('David Ortega', installments, {
+      alwaysShowBreakdown: true,
+    });
+
+    expect(message).toContain('este es el desglose de tus cuotas');
+    expect(message).toContain('1️⃣ Cuota No. 1 por $114.000 vence en 2 días.');
+    expect(message).not.toContain('estás al día');
+  });
+
   it('renders the full desglose when at least one installment is overdue', () => {
     const installments: AccountSummaryInstallmentForMessage[] = [
       {
