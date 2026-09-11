@@ -33,11 +33,21 @@ export interface WhatsappInboundMessage {
   buttonPayload: string | null;
   bodyText: string | null;
   // Human report, 2026-09-11 — the Cloudinary URL this message's
-  // attachment (image/document/audio/video/sticker) was re-hosted to, so
-  // it survives Meta's own copy eventually expiring. Null until that
-  // download+upload succeeds — see WhatsappMediaService — or for any
-  // non-media message.
+  // attachment was re-hosted to, so it survives Meta's own copy
+  // eventually expiring. Only image/document ever populate this (see
+  // WhatsappMediaService) — null until that download+upload succeeds, or
+  // for any non-media message, or for audio/video/sticker/location, which
+  // are deliberately never re-hosted.
   mediaUrl: string | null;
+  // Human report, 2026-09-11 — set once a collector registers a payment
+  // from this message via "Registrar pago con este comprobante" (see
+  // RegisterPaymentFromWhatsappModal). Null means the comprobante hasn't
+  // been used yet.
+  payment: {
+    id: string;
+    amountPaid: number;
+    paidAt: string;
+  } | null;
   receivedAt: string;
   createdAt: string;
 }

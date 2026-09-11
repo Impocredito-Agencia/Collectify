@@ -4,6 +4,7 @@ import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { RowActionButton } from '@/components/ui/RowActionButton';
+import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMessages/RegisterPaymentFromWhatsappModal';
 import {
   useCloseConversation,
   useConversationState,
@@ -16,7 +17,11 @@ import {
   WhatsappInboundMessageType,
 } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 import { ApiError } from '@/lib/apiClient';
-import { formatPhoneNumber } from '@/lib/format';
+import {
+  formatCurrency,
+  formatDateOnly,
+  formatPhoneNumber,
+} from '@/lib/format';
 
 import type { WhatsappInboundMessage } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 import type { ReactNode } from 'react';
@@ -384,17 +389,30 @@ function CloseConversationButton({ phoneNumber }: { phoneNumber: string }) {
   );
 }
 
-// A media message this business's WhatsApp bot actually receives that
-// still makes sense to show as an inline thumbnail — a document/audio/
-// video gets a "ver archivo" link instead (see MessageBubble below).
+// Only image ever populates mediaUrl for an inline thumbnail — document
+// gets a "ver archivo" link instead (see MessageBubble below). audio/
+// video/sticker never re-host at all (see WhatsappMediaService), so they
+// never reach either branch.
 const VIEWABLE_IMAGE_TYPES: WhatsappInboundMessageType[] = [
   WhatsappInboundMessageType.Image,
-  WhatsappInboundMessageType.Sticker,
+];
+
+// Human report, 2026-09-11 — the two kinds relevant as payment evidence,
+// the only ones "Registrar pago con este comprobante" applies to.
+const PAYMENT_EVIDENCE_TYPES: WhatsappInboundMessageType[] = [
+  WhatsappInboundMessageType.Image,
+  WhatsappInboundMessageType.Document,
 ];
 
 function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
   const [isImageOpen, setIsImageOpen] = useState(false);
+  const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
   const isViewableImage = VIEWABLE_IMAGE_TYPES.includes(message.type);
+  const canRegisterPayment =
+    !message.payment &&
+    message.mediaUrl &&
+    message.client &&
+    PAYMENT_EVIDENCE_TYPES.includes(message.type);
 
   return (
     <div className="flex max-w-[480px] flex-col gap-1 rounded-lg bg-input px-3.5 py-2.5">
@@ -414,8 +432,8 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
           (or for any non-media message, or while Cloudinary/WhatsApp
           credentials aren't configured), in which case this falls all
           the way through to the same type/caption-only text it always
-          showed. A document/audio/video gets a link instead of an inline
-          thumbnail — those don't render as an <img>. */}
+          showed. document gets a link instead of an inline thumbnail —
+          those don't render as an <img>. */}
       {message.mediaUrl && isViewableImage && (
         <button
           type="button"
@@ -442,11 +460,39 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
       {(!message.mediaUrl || (isViewableImage && message.bodyText)) && (
         <p className="text-small text-white">{messagePreview(message)}</p>
       )}
+      {/* Human report, 2026-09-11 — set once "Registrar pago con este
+          comprobante" (below) registers a payment from this exact
+          message. Shown instead of that button so the same comprobante
+          can't accidentally be registered twice. */}
+      {message.payment && (
+        <p className="text-small text-success">
+          ✅ Ya registrado — pago de{' '}
+          {formatCurrency(message.payment.amountPaid)} el{' '}
+          {formatDateOnly(message.payment.paidAt)}
+        </p>
+      )}
+      {canRegisterPayment && (
+        <button
+          type="button"
+          onClick={() => setIsRegisteringPayment(true)}
+          className="self-start text-small text-white underline"
+        >
+          Registrar pago con este comprobante
+        </button>
+      )}
       {isImageOpen && message.mediaUrl && (
         <ImageLightbox
           imageUrl={message.mediaUrl}
           alt="Imagen enviada por el cliente"
           onClose={() => setIsImageOpen(false)}
+        />
+      )}
+      {isRegisteringPayment && message.client && message.mediaUrl && (
+        <RegisterPaymentFromWhatsappModal
+          clientId={message.client.id}
+          mediaUrl={message.mediaUrl}
+          sourceWhatsappMessageId={message.id}
+          onClose={() => setIsRegisteringPayment(false)}
         />
       )}
     </div>
