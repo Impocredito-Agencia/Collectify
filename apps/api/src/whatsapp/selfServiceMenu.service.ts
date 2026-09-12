@@ -36,7 +36,8 @@ import {
 } from './selfServiceMenuPayloads';
 import { ParsedInboundEvent } from './webhook/extractInboundEvents';
 import { WhatsappConversationStateService } from './whatsappConversationState.service';
-import { WhatsAppService } from './whatsapp.service';
+import { WhatsAppService, WhatsAppInteractiveButton } from './whatsapp.service';
+import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
 
 // Phase 34 — dispatches one already-persisted inbound WhatsApp event to the
 // self-service menu, for a KNOWN client only. An unrecognized phone number
@@ -63,7 +64,54 @@ export class SelfServiceMenuService {
     private readonly messageLogItemsRepository: Repository<MessageLogItem>,
     private readonly conversationStateService: WhatsappConversationStateService,
     private readonly whatsAppService: WhatsAppService,
+    private readonly whatsappOutboundLogService: WhatsappOutboundLogService,
   ) {}
+
+  // Human report, 2026-09-19 — every automated reply this menu sends needs
+  // a durable record too, same reasoning as
+  // WhatsappOutboundLogService's own comment: without this, the
+  // conversation thread in "Mensajes entrantes" only ever showed the
+  // client's OWN messages plus an admin's manual replies, so a client's
+  // "ya pagué" read as unprompted even once the reminder/confirmation
+  // that caused it was fixed (see AutomatedMessageBubble). sentByUserId
+  // is always null here — the bot composed and sent this, no admin typed
+  // it. Every sendTextMessage/sendInteractiveButtonsMessage call in this
+  // class goes through one of these two wrappers instead of calling
+  // whatsAppService directly.
+  private async sendText(client: Client, message: string): Promise<boolean> {
+    const sent = await this.whatsAppService.sendTextMessage(
+      client.phoneNumber,
+      message,
+    );
+    await this.whatsappOutboundLogService.log({
+      clientId: client.id,
+      phoneNumber: client.phoneNumber,
+      messageContent: message,
+      sentByUserId: null,
+      sent,
+    });
+    return sent;
+  }
+
+  private async sendInteractive(
+    client: Client,
+    bodyText: string,
+    buttons: WhatsAppInteractiveButton[],
+  ): Promise<boolean> {
+    const sent = await this.whatsAppService.sendInteractiveButtonsMessage(
+      client.phoneNumber,
+      bodyText,
+      buttons,
+    );
+    await this.whatsappOutboundLogService.log({
+      clientId: client.id,
+      phoneNumber: client.phoneNumber,
+      messageContent: bodyText,
+      sentByUserId: null,
+      sent,
+    });
+    return sent;
+  }
 
   async handleInboundEvent(
     event: ParsedInboundEvent,
@@ -190,10 +238,7 @@ export class SelfServiceMenuService {
       return;
     }
 
-    await this.whatsAppService.sendTextMessage(
-      client.phoneNumber,
-      RECEIPT_RECEIVED_MESSAGE,
-    );
+    await this.sendText(client, RECEIPT_RECEIVED_MESSAGE);
     // Hands off to a human for review — see the ConversationMenu doc
     // comment. No further automated replies fire for this number until an
     // admin closes the conversation.
@@ -219,11 +264,7 @@ export class SelfServiceMenuService {
   }
 
   private async sendMainMenu(client: Client): Promise<void> {
-    await this.whatsAppService.sendInteractiveButtonsMessage(
-      client.phoneNumber,
-      MAIN_MENU_BODY,
-      MAIN_MENU_BUTTONS,
-    );
+    await this.sendInteractive(client, MAIN_MENU_BODY, MAIN_MENU_BUTTONS);
     await this.conversationStateService.upsert(
       client.phoneNumber,
       client.id,
@@ -232,8 +273,8 @@ export class SelfServiceMenuService {
   }
 
   private async sendMiCuentaSubmenu(client: Client): Promise<void> {
-    await this.whatsAppService.sendInteractiveButtonsMessage(
-      client.phoneNumber,
+    await this.sendInteractive(
+      client,
       MI_CUENTA_SUBMENU_BODY,
       MI_CUENTA_SUBMENU_BUTTONS,
     );
@@ -245,10 +286,7 @@ export class SelfServiceMenuService {
   }
 
   private async startReceiptFlow(client: Client): Promise<void> {
-    await this.whatsAppService.sendTextMessage(
-      client.phoneNumber,
-      RECEIPT_REQUEST_MESSAGE,
-    );
+    await this.sendText(client, RECEIPT_REQUEST_MESSAGE);
     await this.conversationStateService.upsert(
       client.phoneNumber,
       client.id,
@@ -262,10 +300,7 @@ export class SelfServiceMenuService {
   // triggered this is already pushed live via WhatsappInboundGateway
   // (Phase 22). Revisit if the human wants a dedicated alert instead.
   private async handOffToAdvisor(client: Client): Promise<void> {
-    await this.whatsAppService.sendTextMessage(
-      client.phoneNumber,
-      ADVISOR_HANDOFF_MESSAGE,
-    );
+    await this.sendText(client, ADVISOR_HANDOFF_MESSAGE);
     // Hands off to a human — see the ConversationMenu doc comment. No
     // further automated replies fire for this number until an admin closes
     // the conversation.
@@ -285,8 +320,8 @@ export class SelfServiceMenuService {
     );
     const clientFullName = `${client.firstName} ${client.lastName}`;
 
-    await this.whatsAppService.sendTextMessage(
-      client.phoneNumber,
+    await this.sendText(
+      client,
       renderBreakdownMessage(clientFullName, installments),
     );
     await this.sendVolverAlMenuFollowUp(client);
@@ -320,8 +355,8 @@ export class SelfServiceMenuService {
     // about upcoming, not-yet-overdue cuotas — e.g.
     // varias_cuota_proxima_vencer), so they already know these cuotas
     // exist. See renderBreakdownMessage's own doc comment.
-    await this.whatsAppService.sendTextMessage(
-      client.phoneNumber,
+    await this.sendText(
+      client,
       renderBreakdownMessage(clientFullName, scoped, {
         alwaysShowBreakdown: true,
       }),
@@ -362,16 +397,16 @@ export class SelfServiceMenuService {
     );
     const clientFullName = `${client.firstName} ${client.lastName}`;
 
-    await this.whatsAppService.sendTextMessage(
-      client.phoneNumber,
+    await this.sendText(
+      client,
       renderPaymentHistoryMessage(clientFullName, payments),
     );
     await this.sendVolverAlMenuFollowUp(client);
   }
 
   private async sendVolverAlMenuFollowUp(client: Client): Promise<void> {
-    await this.whatsAppService.sendInteractiveButtonsMessage(
-      client.phoneNumber,
+    await this.sendInteractive(
+      client,
       VOLVER_FOLLOW_UP_BODY,
       VOLVER_AL_MENU_BUTTONS,
     );

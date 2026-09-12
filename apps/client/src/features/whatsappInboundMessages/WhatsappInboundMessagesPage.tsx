@@ -572,11 +572,22 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
 // pushed live to every connected admin (see useManualReplies/
 // useWhatsappInboundSocket), no longer local-only/lost on refresh.
 function ReplyBubble({ reply }: { reply: WhatsappManualReply }) {
+  // Human report, 2026-09-19 — this table now also holds the self-service
+  // menu's own automated replies (sentByUserId null), not just an admin's
+  // typed ones — label them apart so "Tú" doesn't misrepresent something
+  // the bot sent.
+  const isAutomated = reply.sentByUserId === null;
+  const failed = reply.status === 'failed';
+
   return (
-    <div className="ml-auto flex max-w-[480px] flex-col gap-1 rounded-lg bg-white/10 px-3.5 py-2.5">
+    <div
+      className={`ml-auto flex max-w-[480px] flex-col gap-1 rounded-lg px-3.5 py-2.5 ${
+        failed ? 'bg-danger/10' : 'bg-white/10'
+      }`}
+    >
       <div className="flex items-center gap-2">
         <span className="rounded-[3px] border border-border bg-surface px-1.5 py-0.5 text-meta text-muted">
-          Tú
+          {isAutomated ? 'Automático' : 'Tú'}
         </span>
         <span className="text-meta text-subtle">
           {new Date(reply.sentAt).toLocaleString('es-CO', {
@@ -584,6 +595,7 @@ function ReplyBubble({ reply }: { reply: WhatsappManualReply }) {
             timeStyle: 'short',
           })}
         </span>
+        {failed && <span className="text-meta text-danger">No entregado</span>}
       </div>
       <p className="text-small text-white">{reply.messageContent}</p>
     </div>
