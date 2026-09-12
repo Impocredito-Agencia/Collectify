@@ -311,6 +311,27 @@ export function WhatsappInboundMessagesPage() {
   );
 }
 
+// Human report, 2026-09-19 — the client's only way to explicitly ask for a
+// human is the self-service menu's "Hablar con asesor" button
+// (HandedOffToHuman). AwaitingReceipt (tapped "Reportar un pago", still
+// waiting on the photo) is deliberately NOT counted here — that's the bot
+// still doing its job, not a client waiting on a person.
+function hasRequestedAdvisor(
+  currentMenu: ConversationMenu | null | undefined,
+): boolean {
+  return currentMenu === ConversationMenu.HandedOffToHuman;
+}
+
+// Left-border accent so an admin scanning the list (or the open thread)
+// can tell at a glance which conversations need a person, without opening
+// each one — red by default (the bot is still handling it, or nobody's
+// asked for anything), green once the client explicitly asked to talk to
+// an advisor. Purely a status signal: every conversation can always be
+// replied to manually regardless of color (see ReplyBox below).
+function attentionBorderClass(requestedAdvisor: boolean): string {
+  return requestedAdvisor ? 'border-l-success' : 'border-l-danger';
+}
+
 function ConversationListItem({
   conversation,
   isActive,
@@ -320,13 +341,16 @@ function ConversationListItem({
   isActive: boolean;
   onClick: () => void;
 }) {
+  const { data: currentMenu } = useConversationState(conversation.phoneNumber);
+  const requestedAdvisor = hasRequestedAdvisor(currentMenu);
+
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-col gap-1 border-b border-border px-4 py-3 text-left ${
-        isActive ? 'bg-input' : 'hover:bg-input/50'
-      }`}
+      className={`flex flex-col gap-1 border-b border-border border-l-4 px-4 py-3 text-left ${attentionBorderClass(
+        requestedAdvisor,
+      )} ${isActive ? 'bg-input' : 'hover:bg-input/50'}`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-small font-medium text-white">
@@ -360,7 +384,14 @@ function ConversationThread({
 }) {
   const { data: currentMenu } = useConversationState(conversation.phoneNumber);
   const { data: messageLogs } = useMessageLogsForClient(conversation.clientId);
-  const humanReplyEnabled =
+  const requestedAdvisor = hasRequestedAdvisor(currentMenu);
+  // Human report, 2026-09-19 — "Cerrar conversación" only means something
+  // while the bot is actually paused waiting on this client (AwaitingReceipt)
+  // or handed off (HandedOffToHuman); unlike the reply box below, this one
+  // stays conditional. Kept as its own check rather than reusing
+  // requestedAdvisor (which is HandedOffToHuman only) — AwaitingReceipt
+  // still needs a way to bail out of the wait.
+  const showCloseConversationButton =
     currentMenu === ConversationMenu.AwaitingReceipt ||
     currentMenu === ConversationMenu.HandedOffToHuman;
   const threadItems = buildThreadItems(
@@ -370,7 +401,11 @@ function ConversationThread({
   );
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div
+      className={`flex h-full flex-col gap-4 rounded-lg border-l-4 pl-4 ${attentionBorderClass(
+        requestedAdvisor,
+      )}`}
+    >
       <div className="flex items-center justify-between gap-2 border-b border-border pb-3">
         <div>
           <p className="text-small font-medium text-white">
@@ -380,7 +415,7 @@ function ConversationThread({
             {formatSenderPhoneNumber(conversation.phoneNumber)}
           </p>
         </div>
-        {humanReplyEnabled && (
+        {showCloseConversationButton && (
           <CloseConversationButton phoneNumber={conversation.phoneNumber} />
         )}
       </div>
@@ -399,14 +434,10 @@ function ConversationThread({
         })}
       </div>
 
-      {humanReplyEnabled ? (
-        <ReplyBox phoneNumber={conversation.phoneNumber} />
-      ) : (
-        <p className="text-meta text-subtle">
-          El cliente todavía no pidió hablar con un asesor ni reportó un pago —
-          la respuesta manual se habilita cuando lo hace.
-        </p>
-      )}
+      {/* Human report, 2026-09-19 — replying manually must always stay
+          possible, regardless of self-service-menu state: the color-coded
+          border above is only a status signal, never a gate. */}
+      <ReplyBox phoneNumber={conversation.phoneNumber} />
     </div>
   );
 }
