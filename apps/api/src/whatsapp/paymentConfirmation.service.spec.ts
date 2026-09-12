@@ -133,7 +133,7 @@ describe('PaymentConfirmationService', () => {
         { installmentId: 'inst-1', amountPaid: 300000 },
       ]);
 
-      const result = await service.sendPaymentConfirmation('inst-1');
+      const [result] = await service.sendPaymentConfirmation('inst-1');
 
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.PaymentConfirmation,
@@ -213,7 +213,7 @@ describe('PaymentConfirmationService', () => {
 
       const result = await service.sendPaymentConfirmation('inst-1');
 
-      expect(result).toBeNull();
+      expect(result).toEqual([]);
       expect(installmentsRepository.findOne).not.toHaveBeenCalled();
       expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
       expect(messageLogsRepository.save).not.toHaveBeenCalled();
@@ -236,7 +236,7 @@ describe('PaymentConfirmationService', () => {
         { installmentId: 'inst-1', amountPaid: 300000 },
       ]);
 
-      const result = await service.sendPaymentConfirmation('inst-1', {
+      const [result] = await service.sendPaymentConfirmation('inst-1', {
         bypassPause: true,
       });
 
@@ -257,7 +257,7 @@ describe('PaymentConfirmationService', () => {
         { installmentId: 'inst-2', amountPaid: 300000 },
       ]);
 
-      const result = await service.sendPaidInFull('loan-1');
+      const [result] = await service.sendPaidInFull('loan-1');
 
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.PaidInFull,
@@ -278,7 +278,7 @@ describe('PaymentConfirmationService', () => {
 
       const result = await service.sendPaidInFull('loan-1');
 
-      expect(result).toBeNull();
+      expect(result).toEqual([]);
       expect(loansRepository.findOne).not.toHaveBeenCalled();
       expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
       expect(messageLogsRepository.save).not.toHaveBeenCalled();
@@ -294,7 +294,7 @@ describe('PaymentConfirmationService', () => {
         { installmentId: 'inst-1', amountPaid: 300000 },
       ]);
 
-      const result = await service.sendPaidInFull('loan-1', {
+      const [result] = await service.sendPaidInFull('loan-1', {
         bypassPause: true,
       });
 

@@ -167,8 +167,18 @@ export class WhatsappWebhookService {
   }
 
   private async persistEvent(event: ParsedInboundEvent): Promise<void> {
-    const client = await this.clientsRepository.findOneBy({
-      phoneNumber: normalizeIncomingPhoneNumber(event.fromPhoneNumber),
+    const fromPhoneNumber = normalizeIncomingPhoneNumber(event.fromPhoneNumber);
+    // Human report, 2026-09-19 — a client can text in from either their
+    // primary phoneNumber or their alternatePhoneNumber (Phase 21 KYC
+    // field); both must resolve to the same client record, not just the
+    // primary one, so a reply from the second number shows up under that
+    // client here instead of "Número no reconocido" and can still drive
+    // the self-service menu below.
+    const client = await this.clientsRepository.findOne({
+      where: [
+        { phoneNumber: fromPhoneNumber },
+        { alternatePhoneNumber: fromPhoneNumber },
+      ],
     });
 
     const inboundMessage = this.inboundMessagesRepository.create({
@@ -227,7 +237,22 @@ export class WhatsappWebhookService {
     // guarantee this method already provides.
     if (client) {
       try {
-        await this.selfServiceMenuService.handleInboundEvent(event, client);
+        // Human report, 2026-09-19 — SelfServiceMenuService replies on
+        // whatever `client.phoneNumber` is, which is normally correct
+        // since that's the number the client is texting from. Once a
+        // client can text in from a SECOND number, that assumption breaks
+        // for a message that arrived on the alternate one — replying on
+        // the stored primary would go to the wrong conversation entirely.
+        // This shallow override makes every existing `client.phoneNumber`
+        // reference downstream mean "the number this message actually
+        // arrived on" with no changes needed inside that service. Every
+        // other field (id, name, etc.) is untouched, so loan/breakdown
+        // lookups are unaffected.
+        const respondingClient = { ...client, phoneNumber: fromPhoneNumber };
+        await this.selfServiceMenuService.handleInboundEvent(
+          event,
+          respondingClient,
+        );
       } catch (error) {
         this.logger.error(
           `Self-service menu handling failed for client ${client.id}`,
@@ -256,7 +281,13 @@ export class WhatsappWebhookService {
       message,
     );
 
-    const client = await this.clientsRepository.findOneBy({ phoneNumber });
+    // Human report, 2026-09-19 — matches either known number, same as
+    // persistEvent's inbound resolution, so a reply on a conversation
+    // under the client's alternatePhoneNumber still attributes clientId
+    // correctly.
+    const client = await this.clientsRepository.findOne({
+      where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
+    });
     await this.whatsappOutboundLogService.log({
       clientId: client?.id ?? null,
       phoneNumber,
@@ -309,8 +340,11 @@ export class WhatsappWebhookService {
     // record" reasoning as WhatsappOutboundLogService's own comment: this
     // closing message used to leave no trace in the conversation thread.
     // sentByUserId null since the admin only triggered it, they didn't
-    // type this fixed message themselves.
-    const client = await this.clientsRepository.findOneBy({ phoneNumber });
+    // type this fixed message themselves. Matches either known number —
+    // see sendManualReply's identical comment.
+    const client = await this.clientsRepository.findOne({
+      where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
+    });
     await this.whatsappOutboundLogService.log({
       clientId: client?.id ?? null,
       phoneNumber,

@@ -5,6 +5,7 @@ import { IsNull, Repository } from 'typeorm';
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
 
+import { getRecipientPhoneNumbers } from './clientRecipientPhoneNumbers';
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
@@ -60,7 +61,12 @@ export class NewLoanReminderService {
     private readonly whatsAppService: WhatsAppService,
   ) {}
 
-  async sendNewLoanMessage(loanId: string): Promise<MessageLog> {
+  // Human report, 2026-09-19 — see OverdueReminderService's identical
+  // targetPhoneNumbers comment.
+  async sendNewLoanMessage(
+    loanId: string,
+    options?: { targetPhoneNumbers?: string[] },
+  ): Promise<MessageLog[]> {
     const loan = await this.loansRepository.findOne({
       where: { id: loanId },
       relations: ['client', 'refinancedFromLoan'],
@@ -112,49 +118,58 @@ export class NewLoanReminderService {
     const template = await this.messageTemplatesService.findByTypeOrThrow(
       selection.type,
     );
-    const { sent, whatsappMessageId } =
-      await this.whatsAppService.sendTemplateMessage(
-        loan.client.phoneNumber,
-        template.metaTemplateName,
-        template.metaLanguageCode,
-        selection.bodyParameters,
+
+    const phoneNumbers =
+      options?.targetPhoneNumbers ?? getRecipientPhoneNumbers(loan.client);
+    const savedLogs: MessageLog[] = [];
+    let anySent = false;
+    for (const phoneNumber of phoneNumbers) {
+      const { sent, whatsappMessageId } =
+        await this.whatsAppService.sendTemplateMessage(
+          phoneNumber,
+          template.metaTemplateName,
+          template.metaLanguageCode,
+          selection.bodyParameters,
+        );
+      anySent = anySent || sent;
+
+      const messageLog = this.messageLogsRepository.create({
+        clientId: loan.clientId,
+        type: selection.type,
+        phoneNumber,
+        messageContent: selection.bodyParameters.join(' | '),
+        status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
+        sentAt: new Date(),
+        whatsappMessageId,
+      });
+      const savedLog = await this.messageLogsRepository.save(messageLog);
+
+      // overdueDaysSnapshot/interestSnapshot are legitimately 0 here — a
+      // brand-new installment is never overdue. See docs/DATABASE.md.
+      const items = installments.map((installment) =>
+        this.messageLogItemsRepository.create({
+          messageLogId: savedLog.id,
+          installmentId: installment.id,
+          overdueDaysSnapshot: 0,
+          interestSnapshot: 0,
+        }),
       );
+      await this.messageLogItemsRepository.save(items);
+      savedLogs.push(savedLog);
+    }
 
-    const messageLog = this.messageLogsRepository.create({
-      clientId: loan.clientId,
-      type: selection.type,
-      phoneNumber: loan.client.phoneNumber,
-      messageContent: selection.bodyParameters.join(' | '),
-      status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
-      sentAt: new Date(),
-      whatsappMessageId,
-    });
-    const savedLog = await this.messageLogsRepository.save(messageLog);
-
-    // overdueDaysSnapshot/interestSnapshot are legitimately 0 here — a
-    // brand-new installment is never overdue. See docs/DATABASE.md.
-    const items = installments.map((installment) =>
-      this.messageLogItemsRepository.create({
-        messageLogId: savedLog.id,
-        installmentId: installment.id,
-        overdueDaysSnapshot: 0,
-        interestSnapshot: 0,
-      }),
-    );
-    await this.messageLogItemsRepository.save(items);
-
-    // Only a genuinely Sent result marks newLoanMessageSentAt — a Failed
-    // result (WhatsAppService itself reported failure, no exception
-    // thrown) must leave it null, so runPendingLoanNotifications() picks
-    // the loan back up on its next scheduled run.
-    if (sent) {
+    // Only marks newLoanMessageSentAt once at least one number actually
+    // got the message — see the original single-number comment this
+    // replaces. A loan whose only number(s) all failed leaves it null, so
+    // runPendingLoanNotifications() picks the loan back up next run.
+    if (anySent) {
       await this.loansRepository.update(
         { id: loanId },
         { newLoanMessageSentAt: new Date() },
       );
     }
 
-    return savedLog;
+    return savedLogs;
   }
 
   // Called on the admin's configured schedule (WhatsappCronService's

@@ -219,10 +219,40 @@ describe('OverdueReminderService', () => {
   }
 
   describe('sendReminderForClient', () => {
-    it('sends SingleOverdueInstallment for one overdue installment within 8 days', async () => {
+    // Human report, 2026-09-19 — a client with an alternatePhoneNumber on
+    // file gets the reminder sent to both numbers, each logged as its own
+    // MessageLog row (never one row covering two sends — see
+    // getRecipientPhoneNumbers/MessageLogsService.retry's own comment on
+    // why retrying must be able to target just one number specifically).
+    it('sends to both numbers and logs one MessageLog per number when an alternate is on file', async () => {
+      clientsRepository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        alternatePhoneNumber: '+573009876543',
+      });
       mockGathered([overdueInstallment({ dueDate: daysAgoDateString(3) })]);
 
       const result = await service.sendReminderForClient(mockClient.id);
+
+      expect(result).toHaveLength(2);
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        '+573001234567',
+        expect.any(String),
+        expect.any(String),
+        expect.any(Array),
+      );
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        '+573009876543',
+        expect.any(String),
+        expect.any(String),
+        expect.any(Array),
+      );
+      expect(messageLogsRepository.save).toHaveBeenCalledTimes(2);
+    });
+
+    it('sends SingleOverdueInstallment for one overdue installment within 8 days', async () => {
+      mockGathered([overdueInstallment({ dueDate: daysAgoDateString(3) })]);
+
+      const [result] = await service.sendReminderForClient(mockClient.id);
 
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.SingleOverdueInstallment,
@@ -359,7 +389,7 @@ describe('OverdueReminderService', () => {
         whatsappMessageId: null,
       });
 
-      const result = await service.sendReminderForClient(mockClient.id);
+      const [result] = await service.sendReminderForClient(mockClient.id);
 
       expect(result.status).toBe(MessageLogStatus.Failed);
     });
@@ -387,7 +417,7 @@ describe('OverdueReminderService', () => {
         [overdueInstallment({ dueDate: daysFromNowDateString(5) })],
       );
 
-      const result = await service.sendReminderForClient(mockClient.id, {
+      const [result] = await service.sendReminderForClient(mockClient.id, {
         allowEmpty: true,
       });
 
@@ -424,7 +454,7 @@ describe('OverdueReminderService', () => {
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
+        .mockResolvedValue([{} as MessageLog]);
 
       await service.runWeeklyReminder();
 
@@ -439,7 +469,7 @@ describe('OverdueReminderService', () => {
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
+        .mockResolvedValue([{} as MessageLog]);
 
       await service.runWeeklyReminder();
 
@@ -455,7 +485,7 @@ describe('OverdueReminderService', () => {
       ]);
       jest
         .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
+        .mockResolvedValue([{} as MessageLog]);
 
       await service.runWeeklyReminder();
 
@@ -474,7 +504,7 @@ describe('OverdueReminderService', () => {
       );
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
+        .mockResolvedValue([{} as MessageLog]);
 
       await service.runWeeklyReminder();
 
@@ -490,7 +520,7 @@ describe('OverdueReminderService', () => {
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
         .mockRejectedValueOnce(new Error('boom'))
-        .mockResolvedValueOnce({} as MessageLog);
+        .mockResolvedValueOnce([{} as MessageLog]);
 
       await expect(service.runWeeklyReminder()).resolves.toBeUndefined();
       expect(sendSpy).toHaveBeenCalledTimes(2);

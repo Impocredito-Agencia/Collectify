@@ -52,18 +52,20 @@ export const whatsappApi = {
   },
 
   // Same grouping/rendering as the weekly job, triggered on demand for one
-  // client. 400 if the client has no overdue installments.
-  sendReminder: async (clientId: string): Promise<MessageLog> => {
-    const { data } = await apiClient.post<MessageLog>(
+  // client. 400 if the client has no overdue installments. Returns one
+  // MessageLog per phone number on file for the client (human report,
+  // 2026-09-19 — see Client.alternatePhoneNumber).
+  sendReminder: async (clientId: string): Promise<MessageLog[]> => {
+    const { data } = await apiClient.post<MessageLog[]>(
       `/whatsapp/clients/${clientId}/send-reminder`,
     );
     return data;
   },
 
   // 400 if the client has no installments approaching due date across
-  // their active loans.
-  sendUpcomingDueReminder: async (clientId: string): Promise<MessageLog> => {
-    const { data } = await apiClient.post<MessageLog>(
+  // their active loans. Returns one MessageLog per phone number on file.
+  sendUpcomingDueReminder: async (clientId: string): Promise<MessageLog[]> => {
+    const { data } = await apiClient.post<MessageLog[]>(
       `/whatsapp/clients/${clientId}/send-upcoming-due`,
     );
     return data;
