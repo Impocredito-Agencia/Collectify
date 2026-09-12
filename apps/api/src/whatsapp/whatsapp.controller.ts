@@ -208,13 +208,17 @@ export class WhatsappController {
     description:
       'Same grouping/rendering logic as the weekly job, triggered on demand.',
   })
-  @ApiResponse({ status: 201, description: 'Returns the created message log.' })
+  @ApiResponse({
+    status: 201,
+    description:
+      'Returns the created message log(s) — one per phone number on file for the client.',
+  })
   @ApiResponse({
     status: 400,
     description: 'Client has no overdue installments.',
   })
   @ApiResponse({ status: 404, description: 'Client not found.' })
-  sendReminder(@Param('clientId') clientId: string): Promise<MessageLog> {
+  sendReminder(@Param('clientId') clientId: string): Promise<MessageLog[]> {
     return this.overdueReminderService.sendReminderForClient(clientId);
   }
 
@@ -225,7 +229,11 @@ export class WhatsappController {
     description:
       'Same grouping/rendering logic as the daily job, triggered on demand.',
   })
-  @ApiResponse({ status: 201, description: 'Returns the created message log.' })
+  @ApiResponse({
+    status: 201,
+    description:
+      'Returns the created message log(s) — one per phone number on file for the client.',
+  })
   @ApiResponse({
     status: 400,
     description:
@@ -234,7 +242,7 @@ export class WhatsappController {
   @ApiResponse({ status: 404, description: 'Client not found.' })
   sendUpcomingDueReminder(
     @Param('clientId') clientId: string,
-  ): Promise<MessageLog> {
+  ): Promise<MessageLog[]> {
     return this.upcomingDueReminderService.sendReminderForClient(clientId);
   }
 }

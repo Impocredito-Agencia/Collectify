@@ -167,7 +167,7 @@ Unique on (`user_id`, `module`). **Row presence is the grant — there's no bool
 | `document_issue_place` | VARCHAR, nullable | Added Phase 21. |
 | `document_issue_date` | DATE, nullable | Added Phase 21 (client feedback after reviewing the built form — `document_issue_place` already existed, the date didn't). |
 | `email` | VARCHAR, nullable | Added Phase 21. |
-| `alternate_phone_number` | VARCHAR, nullable | Added Phase 21. Same E.164 normalization as `phone_number` — see 2026-09-06 note above. |
+| `alternate_phone_number` | VARCHAR, nullable | Added Phase 21. Same E.164 normalization as `phone_number` — see 2026-09-06 note above. **Widened, 2026-09-19** (human report): previously just a KYC contact detail with no messaging effect. Now every business-initiated WhatsApp send (overdue/upcoming-due/new-loan reminders, payment confirmations) goes to this number too when set, alongside `phone_number` — one `message_logs` row per number actually sent to, see `getRecipientPhoneNumbers()`. A reply from either number resolves to this same client (`WhatsappWebhookService.persistEvent`'s client lookup matches both fields), and the self-service menu/manual replies answer back on whichever number the client is actually texting from, not always the primary. |
 | `home_address` | TEXT, nullable | Added Phase 21. As of Phase 26, at least one of `home_address`/`work_address` is enforced (rejected if both are missing/empty) in `ClientsService.create()` for interactively-created clients — see "Added/changed in Phase 26" below. |
 | `work_address` | TEXT, nullable | Added Phase 21. Same either/or requirement as `home_address` above, as of Phase 26. |
 | `city` | VARCHAR, nullable | Added Phase 21. |
@@ -367,7 +367,7 @@ Added Phase 14 — one row per interest/fee concept applied to a specific instal
 
 ### `message_logs`
 
-One row per reminder **actually sent to a client** — not per installment.
+One row per reminder **actually sent to a client** — not per installment. **2026-09-19** (human report): also not per client-messaging-event anymore — a client with `clients.alternate_phone_number` set gets one row per phone number the reminder/confirmation actually went to (see `alternate_phone_number`'s own note above and `getRecipientPhoneNumbers()`), each independently `sent`/`failed`.
 
 | Column | Type | Notes |
 |---|---|---|

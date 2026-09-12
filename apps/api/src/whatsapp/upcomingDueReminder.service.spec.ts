@@ -212,7 +212,7 @@ describe('UpcomingDueReminderService', () => {
     it('sends SingleUpcomingInstallment for one upcoming installment', async () => {
       mockGathered([upcomingInstallment()]);
 
-      const result = await service.sendReminderForClient(mockClient.id);
+      const [result] = await service.sendReminderForClient(mockClient.id);
 
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.SingleUpcomingInstallment,
@@ -256,7 +256,7 @@ describe('UpcomingDueReminderService', () => {
         whatsappMessageId: null,
       });
 
-      const result = await service.sendReminderForClient(mockClient.id);
+      const [result] = await service.sendReminderForClient(mockClient.id);
 
       expect(result.status).toBe(MessageLogStatus.Failed);
     });
@@ -284,7 +284,7 @@ describe('UpcomingDueReminderService', () => {
         [upcomingInstallment({ dueDate: daysAgoDateString(3) })],
       );
 
-      const result = await service.sendReminderForClient(mockClient.id, {
+      const [result] = await service.sendReminderForClient(mockClient.id, {
         allowEmpty: true,
       });
 
@@ -325,7 +325,7 @@ describe('UpcomingDueReminderService', () => {
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
+        .mockResolvedValue([{} as MessageLog]);
 
       await service.runDailyReminder();
 
@@ -343,7 +343,7 @@ describe('UpcomingDueReminderService', () => {
       );
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
+        .mockResolvedValue([{} as MessageLog]);
 
       await service.runDailyReminder();
 
@@ -357,7 +357,7 @@ describe('UpcomingDueReminderService', () => {
       ]);
       jest
         .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
+        .mockResolvedValue([{} as MessageLog]);
 
       await service.runDailyReminder();
 
@@ -376,7 +376,7 @@ describe('UpcomingDueReminderService', () => {
       );
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
+        .mockResolvedValue([{} as MessageLog]);
 
       await service.runDailyReminder();
 
@@ -392,7 +392,7 @@ describe('UpcomingDueReminderService', () => {
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
         .mockRejectedValueOnce(new Error('boom'))
-        .mockResolvedValueOnce({} as MessageLog);
+        .mockResolvedValueOnce([{} as MessageLog]);
 
       await expect(service.runDailyReminder()).resolves.toBeUndefined();
       expect(sendSpy).toHaveBeenCalledTimes(2);

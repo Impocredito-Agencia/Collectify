@@ -13,6 +13,8 @@ import { Loan } from '../loans/entities/loan.entity';
 import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 import { findConceptsByInstallmentId } from '../loans/installments/conceptsByInstallmentId';
+
+import { getRecipientPhoneNumbers } from './clientRecipientPhoneNumbers';
 import {
   calculateMoratoryCharges,
   calculateOverdueDays,
@@ -87,18 +89,21 @@ export class PaymentConfirmationService {
   }
 
   // Call once an installment has just been marked Paid by a normal
-  // (non-payoff) payment. Returns null (not a MessageLog) when
+  // (non-payoff) payment. Returns [] (not a MessageLog) when
   // paymentConfirmationPaused is on and bypassPause isn't set — see
-  // isPaused() above.
+  // isPaused() above. targetPhoneNumbers (human report, 2026-09-19) lets
+  // a manual retry resend to exactly the one number the original attempt
+  // failed on — see OverdueReminderService's identical comment. Omitted
+  // (the normal real-time path) sends to every number on file.
   async sendPaymentConfirmation(
     installmentId: string,
-    options?: { bypassPause?: boolean },
-  ): Promise<MessageLog | null> {
+    options?: { bypassPause?: boolean; targetPhoneNumbers?: string[] },
+  ): Promise<MessageLog[]> {
     if (this.isPaused(options?.bypassPause ?? false)) {
       this.logger.log(
         `Payment confirmation messages are paused — skipping installment ${installmentId}.`,
       );
-      return null;
+      return [];
     }
 
     const installment = await this.installmentsRepository.findOne({
@@ -124,27 +129,26 @@ export class PaymentConfirmationService {
       overpaymentAmount,
     });
 
-    const savedLog = await this.sendAndLog(
-      installment.loan.clientId,
-      installment.loan.client.phoneNumber,
-      selection,
-      [installmentId],
-    );
-    return savedLog;
+    const phoneNumbers =
+      options?.targetPhoneNumbers ??
+      getRecipientPhoneNumbers(installment.loan.client);
+    return this.sendAndLog(installment.loan.clientId, phoneNumbers, selection, [
+      installmentId,
+    ]);
   }
 
   // Call once a loan's last installment has just cascaded it to
-  // LoanStatus.Paid. Returns null when paymentConfirmationPaused is on —
+  // LoanStatus.Paid. Returns [] when paymentConfirmationPaused is on —
   // see sendPaymentConfirmation's identical guard above.
   async sendPaidInFull(
     loanId: string,
-    options?: { bypassPause?: boolean },
-  ): Promise<MessageLog | null> {
+    options?: { bypassPause?: boolean; targetPhoneNumbers?: string[] },
+  ): Promise<MessageLog[]> {
     if (this.isPaused(options?.bypassPause ?? false)) {
       this.logger.log(
         `Payment confirmation messages are paused — skipping loan ${loanId}.`,
       );
-      return null;
+      return [];
     }
 
     const loan = await this.loansRepository.findOne({
@@ -167,9 +171,11 @@ export class PaymentConfirmationService {
       overpaymentAmount,
     });
 
+    const phoneNumbers =
+      options?.targetPhoneNumbers ?? getRecipientPhoneNumbers(loan.client);
     return this.sendAndLog(
       loan.clientId,
-      loan.client.phoneNumber,
+      phoneNumbers,
       selection,
       installments.map((installment) => installment.id),
     );
@@ -177,43 +183,48 @@ export class PaymentConfirmationService {
 
   private async sendAndLog(
     clientId: string,
-    phoneNumber: string,
+    phoneNumbers: string[],
     selection: { type: MessageType; bodyParameters: string[] },
     installmentIds: string[],
-  ): Promise<MessageLog> {
+  ): Promise<MessageLog[]> {
     const template = await this.messageTemplatesService.findByTypeOrThrow(
       selection.type,
     );
-    const { sent, whatsappMessageId } =
-      await this.whatsAppService.sendTemplateMessage(
+
+    const savedLogs: MessageLog[] = [];
+    for (const phoneNumber of phoneNumbers) {
+      const { sent, whatsappMessageId } =
+        await this.whatsAppService.sendTemplateMessage(
+          phoneNumber,
+          template.metaTemplateName,
+          template.metaLanguageCode,
+          selection.bodyParameters,
+        );
+
+      const messageLog = this.messageLogsRepository.create({
+        clientId,
+        type: selection.type,
         phoneNumber,
-        template.metaTemplateName,
-        template.metaLanguageCode,
-        selection.bodyParameters,
+        messageContent: selection.bodyParameters.join(' | '),
+        status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
+        sentAt: new Date(),
+        whatsappMessageId,
+      });
+      const savedLog = await this.messageLogsRepository.save(messageLog);
+
+      const items = installmentIds.map((installmentId) =>
+        this.messageLogItemsRepository.create({
+          messageLogId: savedLog.id,
+          installmentId,
+          overdueDaysSnapshot: 0,
+          interestSnapshot: 0,
+        }),
       );
+      await this.messageLogItemsRepository.save(items);
+      savedLogs.push(savedLog);
+    }
 
-    const messageLog = this.messageLogsRepository.create({
-      clientId,
-      type: selection.type,
-      phoneNumber,
-      messageContent: selection.bodyParameters.join(' | '),
-      status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
-      sentAt: new Date(),
-      whatsappMessageId,
-    });
-    const savedLog = await this.messageLogsRepository.save(messageLog);
-
-    const items = installmentIds.map((installmentId) =>
-      this.messageLogItemsRepository.create({
-        messageLogId: savedLog.id,
-        installmentId,
-        overdueDaysSnapshot: 0,
-        interestSnapshot: 0,
-      }),
-    );
-    await this.messageLogItemsRepository.save(items);
-
-    return savedLog;
+    return savedLogs;
   }
 
   // Bug fix, 2026-09-08 (human report — a fully-mora'd cuota's payment

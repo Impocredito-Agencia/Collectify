@@ -34,7 +34,7 @@ describe('WhatsappWebhookService', () => {
     save: jest.Mock;
     findAndCount: jest.Mock;
   };
-  let clientsRepository: { findOneBy: jest.Mock };
+  let clientsRepository: { findOne: jest.Mock };
   let configGet: jest.Mock;
   let whatsappInboundGateway: {
     emitInboundMessage: jest.Mock;
@@ -57,7 +57,7 @@ describe('WhatsappWebhookService', () => {
       save: jest.fn((data: Record<string, unknown>) => Promise.resolve(data)),
       findAndCount: jest.fn(),
     };
-    clientsRepository = { findOneBy: jest.fn() };
+    clientsRepository = { findOne: jest.fn() };
     configGet = jest.fn().mockReturnValue({
       webhookVerifyToken: VERIFY_TOKEN,
       appSecret: APP_SECRET,
@@ -223,12 +223,15 @@ describe('WhatsappWebhookService', () => {
     }
 
     it('resolves and stamps the matching client when the phone number is known', async () => {
-      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
 
       await service.handleIncomingPayload(buildPayload('573001234567'));
 
-      expect(clientsRepository.findOneBy).toHaveBeenCalledWith({
-        phoneNumber: '+573001234567',
+      expect(clientsRepository.findOne).toHaveBeenCalledWith({
+        where: [
+          { phoneNumber: '+573001234567' },
+          { alternatePhoneNumber: '+573001234567' },
+        ],
       });
       expect(inboundMessagesRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ clientId: 'client-1' }),
@@ -242,7 +245,7 @@ describe('WhatsappWebhookService', () => {
     });
 
     it('persists with clientId null when the phone number matches no client', async () => {
-      clientsRepository.findOneBy.mockResolvedValue(null);
+      clientsRepository.findOne.mockResolvedValue(null);
 
       await service.handleIncomingPayload(buildPayload('573009999999'));
 
@@ -255,19 +258,46 @@ describe('WhatsappWebhookService', () => {
     });
 
     it('dispatches to the self-service menu when the client is known', async () => {
-      const client = { id: 'client-1' };
-      clientsRepository.findOneBy.mockResolvedValue(client);
+      const client = { id: 'client-1', phoneNumber: '+573009999999' };
+      clientsRepository.findOne.mockResolvedValue(client);
 
       await service.handleIncomingPayload(buildPayload('573001234567'));
 
+      // Human report, 2026-09-19 — dispatched with phoneNumber overridden
+      // to whichever number the message actually arrived on
+      // ('+573001234567'), not the client's stored primary
+      // ('+573009999999' here) — see persistEvent's own comment on why.
       expect(selfServiceMenuService.handleInboundEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: WhatsappInboundMessageType.Text }),
-        client,
+        { id: 'client-1', phoneNumber: '+573001234567' },
+      );
+    });
+
+    // Human report, 2026-09-19 — a client matched via their
+    // alternatePhoneNumber must get self-service replies back on that
+    // SAME number, not their stored primary (a different physical
+    // conversation) — see persistEvent's respondingClient comment.
+    it('replies on the alternate number when the client texted in from it', async () => {
+      clientsRepository.findOne.mockResolvedValue({
+        id: 'client-1',
+        phoneNumber: '+573001234567',
+        alternatePhoneNumber: '+573009876543',
+      });
+
+      await service.handleIncomingPayload(buildPayload('573009876543'));
+
+      expect(selfServiceMenuService.handleInboundEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: WhatsappInboundMessageType.Text }),
+        {
+          id: 'client-1',
+          phoneNumber: '+573009876543',
+          alternatePhoneNumber: '+573009876543',
+        },
       );
     });
 
     it('does not dispatch to the self-service menu for an unrecognized number', async () => {
-      clientsRepository.findOneBy.mockResolvedValue(null);
+      clientsRepository.findOne.mockResolvedValue(null);
 
       await service.handleIncomingPayload(buildPayload('573009999999'));
 
@@ -275,7 +305,7 @@ describe('WhatsappWebhookService', () => {
     });
 
     it('still persists and acks when the self-service menu handler throws', async () => {
-      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
       selfServiceMenuService.handleInboundEvent.mockRejectedValue(
         new Error('WhatsApp API down'),
       );
@@ -462,7 +492,7 @@ describe('WhatsappWebhookService', () => {
   describe('sendManualReply', () => {
     it('normalizes the phone number and sends via WhatsAppService', async () => {
       whatsAppService.sendTextMessage.mockResolvedValue(true);
-      clientsRepository.findOneBy.mockResolvedValue(null);
+      clientsRepository.findOne.mockResolvedValue(null);
 
       const result = await service.sendManualReply(
         '573001234567',
@@ -479,7 +509,7 @@ describe('WhatsappWebhookService', () => {
 
     it('leaves an already-normalized number unchanged', async () => {
       whatsAppService.sendTextMessage.mockResolvedValue(false);
-      clientsRepository.findOneBy.mockResolvedValue(null);
+      clientsRepository.findOne.mockResolvedValue(null);
 
       const result = await service.sendManualReply(
         '+573001234567',
@@ -500,7 +530,7 @@ describe('WhatsappWebhookService', () => {
     // sendManualReply derives and forwards the right params to it.
     it('logs the reply as sent by this admin', async () => {
       whatsAppService.sendTextMessage.mockResolvedValue(true);
-      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
 
       await service.sendManualReply('573001234567', 'Hola!', 'user-1');
 
@@ -515,7 +545,7 @@ describe('WhatsappWebhookService', () => {
 
     it('logs a failed send with no client, still by this admin', async () => {
       whatsAppService.sendTextMessage.mockResolvedValue(false);
-      clientsRepository.findOneBy.mockResolvedValue(null);
+      clientsRepository.findOne.mockResolvedValue(null);
 
       await service.sendManualReply('573001234567', 'Hola!', 'user-1');
 
@@ -597,7 +627,7 @@ describe('WhatsappWebhookService', () => {
     // only triggered it, they didn't type this fixed message themselves.
     it('logs the closing message with no admin attribution', async () => {
       whatsAppService.sendTextMessage.mockResolvedValue(true);
-      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
 
       await service.closeConversation('573001234567');
 

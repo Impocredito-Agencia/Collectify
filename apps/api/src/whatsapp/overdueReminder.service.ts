@@ -14,6 +14,7 @@ import { Installment } from '../loans/entities/installment.entity';
 import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
+import { getRecipientPhoneNumbers } from './clientRecipientPhoneNumbers';
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
@@ -97,10 +98,16 @@ export class OverdueReminderService {
     }
   }
 
+  // Human report, 2026-09-19 — targetPhoneNumbers lets a manual retry
+  // (MessageLogsService.dispatchRetry) resend to exactly the one number
+  // the original attempt failed on, instead of fanning out to every
+  // number on file again (which would re-send to a number that may have
+  // already succeeded). Omitted (the normal cron path) defaults to every
+  // known number — see getRecipientPhoneNumbers.
   async sendReminderForClient(
     clientId: string,
-    options?: { allowEmpty?: boolean },
-  ): Promise<MessageLog> {
+    options?: { allowEmpty?: boolean; targetPhoneNumbers?: string[] },
+  ): Promise<MessageLog[]> {
     const client = await this.clientsRepository.findOneBy({ id: clientId });
     if (!client) {
       throw new NotFoundException(`Client with id ${clientId} not found`);
@@ -145,51 +152,58 @@ export class OverdueReminderService {
     const template = await this.messageTemplatesService.findByTypeOrThrow(
       selection.type,
     );
-    const { sent, whatsappMessageId } =
-      await this.whatsAppService.sendTemplateMessage(
-        client.phoneNumber,
-        template.metaTemplateName,
-        template.metaLanguageCode,
-        selection.bodyParameters,
-      );
 
-    const messageLog = this.messageLogsRepository.create({
-      clientId,
-      type: selection.type,
-      phoneNumber: client.phoneNumber,
-      messageContent: selection.bodyParameters.join(' | '),
-      status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
-      sentAt: new Date(),
-      whatsappMessageId,
-    });
-    const savedLog = await this.messageLogsRepository.save(messageLog);
+    const phoneNumbers =
+      options?.targetPhoneNumbers ?? getRecipientPhoneNumbers(client);
+    const savedLogs: MessageLog[] = [];
+    for (const phoneNumber of phoneNumbers) {
+      const { sent, whatsappMessageId } =
+        await this.whatsAppService.sendTemplateMessage(
+          phoneNumber,
+          template.metaTemplateName,
+          template.metaLanguageCode,
+          selection.bodyParameters,
+        );
 
-    const items = [
-      ...overdue.map((installment) =>
-        this.messageLogItemsRepository.create({
-          messageLogId: savedLog.id,
-          installmentId: installment.id,
-          overdueDaysSnapshot: installment.overdueDays,
-          // Bug fix, 2026-09-07 — was `totalDue - amount`, which broke once
-          // totalDue started netting out payments already made (see
-          // reminderInstallmentQueries.ts's OverdueInstallmentResult.interest
-          // doc comment): a partially paid overdue installment would
-          // otherwise snapshot an understated, even negative, "interest".
-          interestSnapshot: installment.interest,
-        }),
-      ),
-      ...upcoming.map((installment) =>
-        this.messageLogItemsRepository.create({
-          messageLogId: savedLog.id,
-          installmentId: installment.id,
-          overdueDaysSnapshot: 0,
-          interestSnapshot: 0,
-        }),
-      ),
-    ];
-    await this.messageLogItemsRepository.save(items);
+      const messageLog = this.messageLogsRepository.create({
+        clientId,
+        type: selection.type,
+        phoneNumber,
+        messageContent: selection.bodyParameters.join(' | '),
+        status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
+        sentAt: new Date(),
+        whatsappMessageId,
+      });
+      const savedLog = await this.messageLogsRepository.save(messageLog);
 
-    return savedLog;
+      const items = [
+        ...overdue.map((installment) =>
+          this.messageLogItemsRepository.create({
+            messageLogId: savedLog.id,
+            installmentId: installment.id,
+            overdueDaysSnapshot: installment.overdueDays,
+            // Bug fix, 2026-09-07 — was `totalDue - amount`, which broke once
+            // totalDue started netting out payments already made (see
+            // reminderInstallmentQueries.ts's OverdueInstallmentResult.interest
+            // doc comment): a partially paid overdue installment would
+            // otherwise snapshot an understated, even negative, "interest".
+            interestSnapshot: installment.interest,
+          }),
+        ),
+        ...upcoming.map((installment) =>
+          this.messageLogItemsRepository.create({
+            messageLogId: savedLog.id,
+            installmentId: installment.id,
+            overdueDaysSnapshot: 0,
+            interestSnapshot: 0,
+          }),
+        ),
+      ];
+      await this.messageLogItemsRepository.save(items);
+      savedLogs.push(savedLog);
+    }
+
+    return savedLogs;
   }
 
   // See saldoPendiente.ts — derived from existing Payment rows, never

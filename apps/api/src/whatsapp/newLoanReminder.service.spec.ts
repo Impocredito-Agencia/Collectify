@@ -180,7 +180,7 @@ describe('NewLoanReminderService', () => {
       loansRepository.findOne.mockResolvedValue(loan());
       otherLoanCount = 0;
 
-      const result = await service.sendNewLoanMessage('loan-1');
+      const [result] = await service.sendNewLoanMessage('loan-1');
 
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.NewLoanNewClient,
@@ -251,7 +251,7 @@ describe('NewLoanReminderService', () => {
         whatsappMessageId: null,
       });
 
-      const result = await service.sendNewLoanMessage('loan-1');
+      const [result] = await service.sendNewLoanMessage('loan-1');
 
       expect(result.status).toBe(MessageLogStatus.Failed);
     });

@@ -142,12 +142,20 @@ export class MessageLogsService {
       throw new BadRequestException('Only failed messages can be retried');
     }
 
-    const retryLog = await this.dispatchRetry(original);
-    // Human report, 2026-09-11 — PaymentConfirmation/PaidInFull return null
-    // instead of a MessageLog while paymentConfirmationPaused is on (see
-    // PaymentConfirmationService), so there's nothing to stamp retriedAt
-    // against yet. Surfaced as a clear error rather than a null-pointer
-    // crash — the admin can retry again once that flag is off.
+    // Human report, 2026-09-19 — every send method now fans out across a
+    // client's known phone numbers (see getRecipientPhoneNumbers) and
+    // returns one MessageLog per number, so dispatchRetry always passes
+    // targetPhoneNumbers: [original.phoneNumber] to resend to exactly the
+    // one number this original row failed on — never every number again,
+    // which would re-send to one that may have already succeeded. Exactly
+    // one element back in the normal case.
+    const retryLogs = await this.dispatchRetry(original);
+    const retryLog = retryLogs[0] ?? null;
+    // PaymentConfirmation/PaidInFull return [] instead of a MessageLog
+    // while paymentConfirmationPaused is on (see PaymentConfirmationService),
+    // so there's nothing to stamp retriedAt against yet. Surfaced as a
+    // clear error rather than a null-pointer crash — the admin can retry
+    // again once that flag is off.
     if (!retryLog) {
       throw new BadRequestException(
         'Los mensajes de confirmación de pago están pausados temporalmente — no se puede reintentar en este momento.',
@@ -169,19 +177,18 @@ export class MessageLogsService {
   // Phase 33 — the old switch-per-exact-type dispatch doesn't scale to 13
   // template types, so this groups by family instead (see
   // reminderFamily.ts and docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md).
-  private async dispatchRetry(
-    original: MessageLog,
-  ): Promise<MessageLog | null> {
+  private async dispatchRetry(original: MessageLog): Promise<MessageLog[]> {
+    const targetPhoneNumbers = [original.phoneNumber];
     if (OVERDUE_FAMILY_TYPES.includes(original.type)) {
       return this.overdueReminderService.sendReminderForClient(
         original.clientId,
-        { allowEmpty: true },
+        { allowEmpty: true, targetPhoneNumbers },
       );
     }
     if (UPCOMING_FAMILY_TYPES.includes(original.type)) {
       return this.upcomingDueReminderService.sendReminderForClient(
         original.clientId,
-        { allowEmpty: true },
+        { allowEmpty: true, targetPhoneNumbers },
       );
     }
 
@@ -206,14 +213,17 @@ export class MessageLogsService {
       case MessageType.RefinanceSingleLoan:
         return this.newLoanReminderService.sendNewLoanMessage(
           item.installment.loanId,
+          { targetPhoneNumbers },
         );
       case MessageType.PaymentConfirmation:
         return this.paymentConfirmationService.sendPaymentConfirmation(
           item.installmentId,
+          { targetPhoneNumbers },
         );
       case MessageType.PaidInFull:
         return this.paymentConfirmationService.sendPaidInFull(
           item.installment.loanId,
+          { targetPhoneNumbers },
         );
       default:
         throw new BadRequestException(

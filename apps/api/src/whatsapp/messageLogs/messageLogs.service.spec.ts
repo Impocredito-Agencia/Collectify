@@ -250,13 +250,16 @@ describe('MessageLogsService', () => {
       const failedLog = { ...mockLog, status: MessageLogStatus.Failed };
       repository.findOneBy.mockResolvedValue(failedLog);
       const newLog = { ...mockLog, id: 'log-2', status: MessageLogStatus.Sent };
-      overdueReminderService.sendReminderForClient.mockResolvedValue(newLog);
+      overdueReminderService.sendReminderForClient.mockResolvedValue([newLog]);
 
       const result = await service.retry('log-1');
 
+      // Human report, 2026-09-19 — targetPhoneNumbers pins the retry to
+      // exactly the failed row's own number, never every number on file
+      // again (see sendReminderForClient's own comment).
       expect(overdueReminderService.sendReminderForClient).toHaveBeenCalledWith(
         'client-1',
-        { allowEmpty: true },
+        { allowEmpty: true, targetPhoneNumbers: ['+573001234567'] },
       );
       expect(repository.update).toHaveBeenCalledWith(
         { id: 'log-1' },
@@ -275,16 +278,18 @@ describe('MessageLogsService', () => {
         type: MessageType.SingleUpcomingInstallment,
         status: MessageLogStatus.Failed,
       });
-      upcomingDueReminderService.sendReminderForClient.mockResolvedValue({
-        ...mockLog,
-        id: 'log-2',
-      });
+      upcomingDueReminderService.sendReminderForClient.mockResolvedValue([
+        { ...mockLog, id: 'log-2' },
+      ]);
 
       await service.retry('log-1');
 
       expect(
         upcomingDueReminderService.sendReminderForClient,
-      ).toHaveBeenCalledWith('client-1', { allowEmpty: true });
+      ).toHaveBeenCalledWith('client-1', {
+        allowEmpty: true,
+        targetPhoneNumbers: ['+573001234567'],
+      });
     });
 
     it('re-sends the mixed overdue+upcoming reminder via the overdue family path', async () => {
@@ -293,16 +298,15 @@ describe('MessageLogsService', () => {
         type: MessageType.UpcomingAndOverdueMixed,
         status: MessageLogStatus.Failed,
       });
-      overdueReminderService.sendReminderForClient.mockResolvedValue({
-        ...mockLog,
-        id: 'log-2',
-      });
+      overdueReminderService.sendReminderForClient.mockResolvedValue([
+        { ...mockLog, id: 'log-2' },
+      ]);
 
       await service.retry('log-1');
 
       expect(overdueReminderService.sendReminderForClient).toHaveBeenCalledWith(
         'client-1',
-        { allowEmpty: true },
+        { allowEmpty: true, targetPhoneNumbers: ['+573001234567'] },
       );
     });
 
@@ -315,15 +319,15 @@ describe('MessageLogsService', () => {
       messageLogItemsRepository.findOne.mockResolvedValue({
         installment: { loanId: 'loan-1' },
       });
-      newLoanReminderService.sendNewLoanMessage.mockResolvedValue({
-        ...mockLog,
-        id: 'log-2',
-      });
+      newLoanReminderService.sendNewLoanMessage.mockResolvedValue([
+        { ...mockLog, id: 'log-2' },
+      ]);
 
       await service.retry('log-1');
 
       expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
         'loan-1',
+        { targetPhoneNumbers: ['+573001234567'] },
       );
     });
 
@@ -349,16 +353,17 @@ describe('MessageLogsService', () => {
         installmentId: 'inst-1',
         installment: { loanId: 'loan-1' },
       });
-      paymentConfirmationService.sendPaymentConfirmation.mockResolvedValue({
-        ...mockLog,
-        id: 'log-2',
-      });
+      paymentConfirmationService.sendPaymentConfirmation.mockResolvedValue([
+        { ...mockLog, id: 'log-2' },
+      ]);
 
       await service.retry('log-1');
 
       expect(
         paymentConfirmationService.sendPaymentConfirmation,
-      ).toHaveBeenCalledWith('inst-1');
+      ).toHaveBeenCalledWith('inst-1', {
+        targetPhoneNumbers: ['+573001234567'],
+      });
     });
 
     it('re-sends a paid-in-full message using the loan found via the message items', async () => {
@@ -371,21 +376,21 @@ describe('MessageLogsService', () => {
         installmentId: 'inst-1',
         installment: { loanId: 'loan-1' },
       });
-      paymentConfirmationService.sendPaidInFull.mockResolvedValue({
-        ...mockLog,
-        id: 'log-2',
-      });
+      paymentConfirmationService.sendPaidInFull.mockResolvedValue([
+        { ...mockLog, id: 'log-2' },
+      ]);
 
       await service.retry('log-1');
 
       expect(paymentConfirmationService.sendPaidInFull).toHaveBeenCalledWith(
         'loan-1',
+        { targetPhoneNumbers: ['+573001234567'] },
       );
     });
 
-    // Human report, 2026-09-11 — PaymentConfirmationService returns null
+    // Human report, 2026-09-11 — PaymentConfirmationService returns []
     // instead of a MessageLog while paymentConfirmationPaused is on.
-    it('throws a clear error instead of crashing when payment confirmation retry returns null', async () => {
+    it('throws a clear error instead of crashing when payment confirmation retry returns nothing', async () => {
       repository.findOneBy.mockResolvedValue({
         ...mockLog,
         type: MessageType.PaymentConfirmation,
@@ -395,9 +400,7 @@ describe('MessageLogsService', () => {
         installmentId: 'inst-1',
         installment: { loanId: 'loan-1' },
       });
-      paymentConfirmationService.sendPaymentConfirmation.mockResolvedValue(
-        null,
-      );
+      paymentConfirmationService.sendPaymentConfirmation.mockResolvedValue([]);
 
       await expect(service.retry('log-1')).rejects.toThrow(BadRequestException);
     });
