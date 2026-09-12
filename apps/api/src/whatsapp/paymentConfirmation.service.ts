@@ -129,9 +129,15 @@ export class PaymentConfirmationService {
       overpaymentAmount,
     });
 
+    // Human report, 2026-09-19 — a loan with alternateContactPhoneNumber
+    // set routes here instead of the client's own number(s) — see
+    // Loan.alternateContactPhoneNumber's own comment. A contact is a
+    // single number, never fanned out the way a client's own numbers are.
     const phoneNumbers =
       options?.targetPhoneNumbers ??
-      getRecipientPhoneNumbers(installment.loan.client);
+      (installment.loan.alternateContactPhoneNumber
+        ? [installment.loan.alternateContactPhoneNumber]
+        : getRecipientPhoneNumbers(installment.loan.client));
     return this.sendAndLog(installment.loan.clientId, phoneNumbers, selection, [
       installmentId,
     ]);
@@ -171,8 +177,12 @@ export class PaymentConfirmationService {
       overpaymentAmount,
     });
 
+    // See sendPaymentConfirmation's identical comment above.
     const phoneNumbers =
-      options?.targetPhoneNumbers ?? getRecipientPhoneNumbers(loan.client);
+      options?.targetPhoneNumbers ??
+      (loan.alternateContactPhoneNumber
+        ? [loan.alternateContactPhoneNumber]
+        : getRecipientPhoneNumbers(loan.client));
     return this.sendAndLog(
       loan.clientId,
       phoneNumbers,

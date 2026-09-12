@@ -74,7 +74,9 @@ type FieldName =
   | 'coDebtorClientId'
   | 'downPaymentAmount'
   | 'downPaymentDueDate'
-  | 'description';
+  | 'description'
+  | 'alternateContactName'
+  | 'alternateContactPhoneNumber';
 type FieldErrors = Partial<Record<FieldName, string>>;
 
 // Same fix as ClientForm.tsx's scrollToFirstError, applied here 2026-09-05
@@ -96,8 +98,16 @@ const FIELD_ORDER: FieldName[] = [
   'moratoryConcepts',
   'description',
   'coDebtorClientId',
+  'alternateContactName',
+  'alternateContactPhoneNumber',
 ];
 const fieldElementId = (name: FieldName) => `loan-form-field-${name}`;
+
+// Same client-side gate as ClientForm.tsx's identical constant (kept as
+// its own copy here rather than shared, matching that file's own
+// precedent) — the backend's @IsPhoneNumber('CO') is the real check,
+// this just flags an obviously-wrong format before submit.
+const CO_PHONE_REGEX = /^\+57\d{10}$/;
 
 let nextRowId = 0;
 function makeRowId(): string {
@@ -223,6 +233,20 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   // ones — see apps/api/src/loans/entities/loan.entity.ts's isNewLoan
   // comment.
   const [isNewLoan, setIsNewLoan] = useState(false);
+
+  // Human report, 2026-09-19 — optional, per-loan alternate contact,
+  // rare by design ("algo extra que pasa en pocos casos"): off by
+  // default, checking it reveals the name/phone fields. Free-form, not
+  // an existing Client picker like coDebtor above — this contact is
+  // typically outside the business's client base entirely (e.g. a
+  // relative handling this one pagaré). When enabled, every WhatsApp
+  // message about THIS loan (reminders, confirmations, new-loan notice)
+  // goes to this contact instead of the client. See
+  // Loan.alternateContactPhoneNumber (api).
+  const [hasAlternateContact, setHasAlternateContact] = useState(false);
+  const [alternateContactName, setAlternateContactName] = useState('');
+  const [alternateContactPhoneNumber, setAlternateContactPhoneNumber] =
+    useState('');
 
   // QoL — never offer the loan's own client as a codeudor candidate, so
   // there's nothing to pick that would only get rejected at submit time.
@@ -459,6 +483,18 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
       errors.coDebtorClientId =
         'El codeudor no puede ser el mismo cliente del préstamo.';
     }
+    if (hasAlternateContact) {
+      if (!alternateContactName.trim()) {
+        errors.alternateContactName = 'El nombre del contacto es obligatorio.';
+      }
+      if (!alternateContactPhoneNumber.trim()) {
+        errors.alternateContactPhoneNumber =
+          'El número del contacto es obligatorio.';
+      } else if (!CO_PHONE_REGEX.test(alternateContactPhoneNumber.trim())) {
+        errors.alternateContactPhoneNumber =
+          'El número debe tener el formato +57 seguido de 10 dígitos.';
+      }
+    }
     return errors;
   };
 
@@ -595,6 +631,12 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               ...(coDebtorRelationship.trim()
                 ? { coDebtorRelationship: coDebtorRelationship.trim() }
                 : {}),
+            }
+          : {}),
+        ...(hasAlternateContact
+          ? {
+              alternateContactName: alternateContactName.trim(),
+              alternateContactPhoneNumber: alternateContactPhoneNumber.trim(),
             }
           : {}),
         isNewLoan,
@@ -1388,6 +1430,84 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                       }
                       placeholder="Ej: Hermano del deudor"
                       className={inputClassName(false)}
+                    />
+                  </Field>
+                </div>
+              )}
+            </div>
+
+            {/* Human report, 2026-09-19 — optional, off by default, rare
+                by design ("algo extra que pasa en pocos casos"). Unlike
+                codeudor above, this contact is typically outside the
+                business's client base entirely (e.g. a relative handling
+                this one pagaré), so it's free-typed rather than an
+                existing-Client picker. When enabled, every WhatsApp
+                message about THIS loan goes to this contact instead of
+                the client. */}
+            <div className="flex flex-col gap-3.5 rounded border border-border bg-input p-3">
+              <label className="flex items-center gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={hasAlternateContact}
+                  onChange={(event) => {
+                    setHasAlternateContact(event.target.checked);
+                    if (!event.target.checked) {
+                      setAlternateContactName('');
+                      setAlternateContactPhoneNumber('');
+                    }
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      alternateContactName: undefined,
+                      alternateContactPhoneNumber: undefined,
+                    }));
+                  }}
+                  className="size-4 shrink-0 rounded border-border bg-background accent-white"
+                />
+                <span className="text-control text-white">
+                  Los mensajes de WhatsApp de este préstamo van a otro contacto
+                </span>
+              </label>
+
+              {hasAlternateContact && (
+                <div className="flex gap-4">
+                  <Field
+                    label="Nombre del contacto"
+                    error={fieldErrors.alternateContactName}
+                    id={fieldElementId('alternateContactName')}
+                  >
+                    <input
+                      value={alternateContactName}
+                      onChange={(event) => {
+                        setAlternateContactName(event.target.value);
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          alternateContactName: undefined,
+                        }));
+                      }}
+                      placeholder="Ej: Hermana del deudor"
+                      className={inputClassName(
+                        Boolean(fieldErrors.alternateContactName),
+                      )}
+                    />
+                  </Field>
+                  <Field
+                    label="Número del contacto"
+                    error={fieldErrors.alternateContactPhoneNumber}
+                    id={fieldElementId('alternateContactPhoneNumber')}
+                  >
+                    <input
+                      value={alternateContactPhoneNumber}
+                      onChange={(event) => {
+                        setAlternateContactPhoneNumber(event.target.value);
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          alternateContactPhoneNumber: undefined,
+                        }));
+                      }}
+                      placeholder="+573001234567"
+                      className={inputClassName(
+                        Boolean(fieldErrors.alternateContactPhoneNumber),
+                      )}
                     />
                   </Field>
                 </div>

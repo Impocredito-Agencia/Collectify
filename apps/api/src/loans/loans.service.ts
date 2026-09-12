@@ -218,6 +218,11 @@ interface PersistLoanParams {
   coDebtorRelationship?: string | null;
   // See CreateLoanDto.isNewLoan. Defaults to false in persistLoanWithInstallments.
   isNewLoan?: boolean;
+  // Human report, 2026-09-19 — see Loan.alternateContactPhoneNumber's own
+  // comment. Must be provided together or omitted together — validated in
+  // assertAlternateContactIsValid.
+  alternateContactName?: string | null;
+  alternateContactPhoneNumber?: string | null;
   // Redesign, 2026-09-06 (confirmed with the human) — set only by
   // refinance(), which passes the OLD loan's own promissoryNoteNumber
   // straight through as this new loan's number (see its own comment).
@@ -286,6 +291,8 @@ export class LoansService {
           coDebtorClientId: dto.coDebtorClientId,
           coDebtorRelationship: dto.coDebtorRelationship,
           isNewLoan: dto.isNewLoan,
+          alternateContactName: dto.alternateContactName,
+          alternateContactPhoneNumber: dto.alternateContactPhoneNumber,
         },
         manager,
       ),
@@ -442,6 +449,18 @@ export class LoansService {
             dto.coDebtorRelationship === undefined
               ? oldLoan.coDebtorRelationship
               : dto.coDebtorRelationship,
+          // Human report, 2026-09-19 — carries over the old loan's
+          // alternate contact unchanged unless the dto explicitly
+          // overrides it, same distinguish-omitted-from-null convention
+          // as coDebtorClientId/coDebtorRelationship above.
+          alternateContactName:
+            dto.alternateContactName === undefined
+              ? oldLoan.alternateContactName
+              : dto.alternateContactName,
+          alternateContactPhoneNumber:
+            dto.alternateContactPhoneNumber === undefined
+              ? oldLoan.alternateContactPhoneNumber
+              : dto.alternateContactPhoneNumber,
           // Redesign, 2026-09-06 (confirmed with the human) — always true,
           // no longer dto-driven. Unlike create(), a refinance is never a
           // historical/backfilled event being typed in after the fact: it
@@ -733,6 +752,16 @@ export class LoansService {
       await this.assertCoDebtorIsValid(loan.clientId, dto.coDebtorClientId);
     }
     Object.assign(loan, dto);
+    // Human report, 2026-09-19 — validated against the loan's RESULTING
+    // state (post-merge), not just the two fields on this one dto in
+    // isolation: a PATCH setting only alternateContactPhoneNumber while
+    // alternateContactName was already set from an earlier request must
+    // still pass, and one clearing only alternateContactName while a
+    // phone number stays on the loan must still be caught.
+    this.assertAlternateContactIsValid(
+      loan.alternateContactName,
+      loan.alternateContactPhoneNumber,
+    );
     return this.loansRepository.save(loan);
   }
 
@@ -1101,6 +1130,10 @@ export class LoansService {
       );
     }
     await this.assertCoDebtorIsValid(params.clientId, params.coDebtorClientId);
+    this.assertAlternateContactIsValid(
+      params.alternateContactName,
+      params.alternateContactPhoneNumber,
+    );
     this.assertDownPaymentIsValid(
       params.downPaymentAmount,
       params.downPaymentDueDate,
@@ -1140,6 +1173,8 @@ export class LoansService {
       coDebtorClientId: params.coDebtorClientId ?? null,
       coDebtorRelationship: params.coDebtorRelationship ?? null,
       isNewLoan: params.isNewLoan ?? false,
+      alternateContactName: params.alternateContactName ?? null,
+      alternateContactPhoneNumber: params.alternateContactPhoneNumber ?? null,
     });
 
     let savedLoan: Loan;
@@ -1260,6 +1295,23 @@ export class LoansService {
   // ends up on once the down payment occupies slot 1. Plain string
   // comparison is safe: both are 'YYYY-MM-DD', same convention used
   // elsewhere for dueDate comparisons (see dueDateSchedule.ts).
+  // Human report, 2026-09-19 — see Loan.alternateContactPhoneNumber's own
+  // comment. Same "both or neither" shape as assertDownPaymentIsValid
+  // below, no cross-field date/uniqueness rule to check beyond that.
+  private assertAlternateContactIsValid(
+    alternateContactName: string | null | undefined,
+    alternateContactPhoneNumber: string | null | undefined,
+  ): void {
+    const hasName = alternateContactName != null;
+    const hasPhoneNumber = alternateContactPhoneNumber != null;
+    if (hasName === hasPhoneNumber) {
+      return;
+    }
+    throw new BadRequestException(
+      'alternateContactName and alternateContactPhoneNumber must be provided together, or both omitted.',
+    );
+  }
+
   private assertDownPaymentIsValid(
     downPaymentAmount: number | undefined,
     downPaymentDueDate: string | undefined,

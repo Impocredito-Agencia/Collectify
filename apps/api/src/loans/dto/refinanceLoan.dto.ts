@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
@@ -7,6 +7,7 @@ import {
   IsInt,
   IsNumber,
   IsOptional,
+  IsPhoneNumber,
   IsPositive,
   IsString,
   IsUUID,
@@ -15,6 +16,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { normalizePhoneNumber } from '../../clients/normalizePhoneNumber';
 import { InstallmentFrequency } from '../entities/loan.entity';
 
 import { LoanConceptAssignmentDto } from './loanConceptAssignment.dto';
@@ -163,6 +165,32 @@ export class RefinanceLoanDto {
   @IsOptional()
   @IsString()
   coDebtorRelationship?: string | null;
+
+  // --- Optional alternate contact for the new loan, human report
+  // 2026-09-19. Same omit-to-carry-over/null-to-clear rule as
+  // coDebtorClientId above — see Loan.alternateContactPhoneNumber. ---
+
+  @ApiPropertyOptional({
+    example: 'Hermana del deudor',
+    description:
+      "Alternate contact name for the new loan. Omit to carry over the old loan's alternate " +
+      'contact unchanged; send null explicitly to clear it.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  alternateContactName?: string | null;
+
+  @ApiPropertyOptional({
+    example: '+573009876543',
+    nullable: true,
+  })
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === null ? null : normalizePhoneNumber(value),
+  )
+  @IsPhoneNumber('CO')
+  alternateContactPhoneNumber?: string | null;
 
   // Redesign, 2026-09-06 (confirmed with the human) — no longer a field
   // here at all. Unlike CreateLoanDto's isNewLoan (which distinguishes a

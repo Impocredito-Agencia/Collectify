@@ -123,6 +123,25 @@ export class Loan {
   @Column({ type: 'varchar', nullable: true })
   coDebtorRelationship!: string | null;
 
+  // Human report, 2026-09-19 — an optional, per-loan alternate contact
+  // (not a Client — a free-form name/number, since it's typically someone
+  // outside the business's client base entirely, e.g. a relative handling
+  // this one pagaré for the actual debtor). Rare by design ("algo extra
+  // que pasa en pocos casos") — presence of alternateContactPhoneNumber
+  // IS the "enabled" flag, same convention as coDebtorClientId above, no
+  // separate boolean column. When set, every WhatsApp message ABOUT this
+  // specific loan (reminders, confirmations, the self-service menu when
+  // this contact texts in) goes to this number instead of the client's
+  // own — see clientRecipientPhoneNumbers.ts's reminder-grouping callers
+  // and docs/DATABASE.md's note of this date. Scoped strictly to this one
+  // loan: the contact never sees or acts on the client's other loans,
+  // even if a client has several and only one carries this override.
+  @Column({ type: 'varchar', nullable: true })
+  alternateContactName!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  alternateContactPhoneNumber!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

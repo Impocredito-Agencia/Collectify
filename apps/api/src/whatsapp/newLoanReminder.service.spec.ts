@@ -176,6 +176,31 @@ describe('NewLoanReminderService', () => {
       });
     });
 
+    // Human report, 2026-09-19 — a loan with alternateContactPhoneNumber
+    // set routes the "new loan" message to that contact instead of the
+    // client's own number(s).
+    it('sends to the alternate contact instead of the client when the loan has one', async () => {
+      loansRepository.findOne.mockResolvedValue(
+        loan({ alternateContactPhoneNumber: '+573009876543' }),
+      );
+      otherLoanCount = 0;
+
+      await service.sendNewLoanMessage('loan-1');
+
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        '+573009876543',
+        expect.any(String),
+        expect.any(String),
+        expect.any(Array),
+      );
+      expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalledWith(
+        mockClient.phoneNumber,
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
     it('sends NewLoanNewClient when the client has no other loan', async () => {
       loansRepository.findOne.mockResolvedValue(loan());
       otherLoanCount = 0;
