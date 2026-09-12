@@ -10,14 +10,12 @@ import { PaginatedResult } from '../../common/interfaces/paginatedResult.interfa
 import { Configuration } from '../../config/configuration';
 import { ConversationMenu } from '../entities/whatsappConversationState.entity';
 import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
-import {
-  WhatsappManualReply,
-  WhatsappManualReplyStatus,
-} from '../entities/whatsappManualReply.entity';
+import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 import { CONVERSATION_CLOSED_MESSAGE } from '../selfServiceMenuMessages';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
 import { WhatsAppService } from '../whatsapp.service';
+import { WhatsappOutboundLogService } from '../whatsappOutboundLog.service';
 
 import { QueryWhatsappInboundMessagesDto } from './dto/queryWhatsappInboundMessages.dto';
 import {
@@ -49,6 +47,7 @@ export class WhatsappWebhookService {
     private readonly selfServiceMenuService: SelfServiceMenuService,
     private readonly conversationStateService: WhatsappConversationStateService,
     private readonly whatsappMediaService: WhatsappMediaService,
+    private readonly whatsappOutboundLogService: WhatsappOutboundLogService,
   ) {}
 
   // Meta's one-time verification handshake — echoes hub.challenge back only
@@ -258,18 +257,13 @@ export class WhatsappWebhookService {
     );
 
     const client = await this.clientsRepository.findOneBy({ phoneNumber });
-    const reply = this.manualRepliesRepository.create({
+    await this.whatsappOutboundLogService.log({
       clientId: client?.id ?? null,
       phoneNumber,
       messageContent: message,
       sentByUserId,
-      status: sent
-        ? WhatsappManualReplyStatus.Sent
-        : WhatsappManualReplyStatus.Failed,
-      sentAt: new Date(),
+      sent,
     });
-    const saved = await this.manualRepliesRepository.save(reply);
-    this.whatsappInboundGateway.emitManualReply(saved);
 
     return sent;
   }
@@ -311,6 +305,19 @@ export class WhatsappWebhookService {
       phoneNumber,
       CONVERSATION_CLOSED_MESSAGE,
     );
+    // Human report, 2026-09-19 — same "every outbound message needs a
+    // record" reasoning as WhatsappOutboundLogService's own comment: this
+    // closing message used to leave no trace in the conversation thread.
+    // sentByUserId null since the admin only triggered it, they didn't
+    // type this fixed message themselves.
+    const client = await this.clientsRepository.findOneBy({ phoneNumber });
+    await this.whatsappOutboundLogService.log({
+      clientId: client?.id ?? null,
+      phoneNumber,
+      messageContent: CONVERSATION_CLOSED_MESSAGE,
+      sentByUserId: null,
+      sent,
+    });
     await this.conversationStateService.clear(phoneNumber);
     return sent;
   }

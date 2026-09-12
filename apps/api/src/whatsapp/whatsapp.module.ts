@@ -35,6 +35,7 @@ import { WhatsappConversationStateService } from './whatsappConversationState.se
 import { WhatsappController } from './whatsapp.controller';
 import { WhatsappCronService } from './whatsappCron.service';
 import { WhatsAppService } from './whatsapp.service';
+import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
 
 // Phase 27 — MessageAudience is deliberately no longer registered here:
 // its only consumer (MessageAudiencesService) was removed along with the
@@ -98,6 +99,7 @@ import { WhatsAppService } from './whatsapp.service';
     WhatsappInboundGateway,
     WhatsappConversationStateService,
     SelfServiceMenuService,
+    WhatsappOutboundLogService,
   ],
   // LoansService calls NewLoanReminderService synchronously after creating
   // a loan — see docs/phases/PHASE_9_MESSAGE_TYPES.md. WhatsappModule does

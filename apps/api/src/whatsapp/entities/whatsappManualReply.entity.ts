@@ -22,6 +22,15 @@ export enum WhatsappManualReplyStatus {
 // refresh and never reached any OTHER connected admin. Append-only, one
 // row per reply actually sent — same convention as message_logs/
 // whatsapp_inbound_messages/whatsapp_self_service_replies.
+//
+// Widened same day (human report) to also cover every OTHER outbound
+// message a client receives outside the message_logs template system —
+// the self-service menu's own automated replies (SelfServiceMenuService)
+// and WhatsappWebhookService's "Cerrar conversación" closing message —
+// via WhatsappOutboundLogService. sentByUserId is how the two are told
+// apart: non-null means an admin actually typed this; null means either
+// the bot composed and sent it, or (rarer) the admin who typed it was
+// since deleted (see that column's own comment).
 @Entity('whatsapp_manual_replies')
 export class WhatsappManualReply {
   @PrimaryGeneratedColumn('uuid')

@@ -18,6 +18,7 @@ import {
 import { ParsedInboundEvent } from './webhook/extractInboundEvents';
 import { WhatsappConversationStateService } from './whatsappConversationState.service';
 import { WhatsAppService } from './whatsapp.service';
+import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
 
 describe('SelfServiceMenuService', () => {
   let service: SelfServiceMenuService;
@@ -35,6 +36,7 @@ describe('SelfServiceMenuService', () => {
     sendTextMessage: jest.Mock;
     sendInteractiveButtonsMessage: jest.Mock;
   };
+  let whatsappOutboundLogService: { log: jest.Mock };
 
   const client: Client = {
     id: 'client-1',
@@ -103,6 +105,9 @@ describe('SelfServiceMenuService', () => {
       sendTextMessage: jest.fn().mockResolvedValue(true),
       sendInteractiveButtonsMessage: jest.fn().mockResolvedValue(true),
     };
+    whatsappOutboundLogService = {
+      log: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -129,6 +134,10 @@ describe('SelfServiceMenuService', () => {
           useValue: conversationStateService,
         },
         { provide: WhatsAppService, useValue: whatsAppService },
+        {
+          provide: WhatsappOutboundLogService,
+          useValue: whatsappOutboundLogService,
+        },
       ],
     }).compile();
 
@@ -152,6 +161,25 @@ describe('SelfServiceMenuService', () => {
         client.phoneNumber,
         client.id,
         ConversationMenu.Main,
+      );
+    });
+
+    // Human report, 2026-09-19 — every automated reply this menu sends
+    // must be logged (see WhatsappOutboundLogService), with no admin
+    // attribution since the bot composed and sent it. Covers both the
+    // interactive-buttons path (this one) and the plain-text path (the
+    // "Más información"/breakdown test further below) rather than
+    // asserting it on all nine call sites individually.
+    it('logs the main menu send with no admin attribution', async () => {
+      await service.handleInboundEvent(textEvent('hola'), client);
+
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: client.id,
+          phoneNumber: client.phoneNumber,
+          sentByUserId: null,
+          sent: true,
+        }),
       );
     });
 
@@ -302,6 +330,17 @@ describe('SelfServiceMenuService', () => {
         );
         expect(conversationStateService.clear).toHaveBeenCalledWith(
           client.phoneNumber,
+        );
+        // Human report, 2026-09-19 — covers the plain-text sendText path
+        // (the interactive-buttons path is covered by the main-menu test
+        // above).
+        expect(whatsappOutboundLogService.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            clientId: client.id,
+            messageContent: expect.stringContaining('Juan Pérez') as unknown,
+            sentByUserId: null,
+            sent: true,
+          }),
         );
       },
     );

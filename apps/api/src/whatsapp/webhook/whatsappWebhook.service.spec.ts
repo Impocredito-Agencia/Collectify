@@ -14,6 +14,7 @@ import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
 import { WhatsAppService } from '../whatsapp.service';
+import { WhatsappOutboundLogService } from '../whatsappOutboundLog.service';
 
 import { WhatsappInboundGateway } from './whatsappInbound.gateway';
 import { WhatsappMediaService } from './whatsappMedia.service';
@@ -45,6 +46,7 @@ describe('WhatsappWebhookService', () => {
     find: jest.Mock;
   };
   let whatsAppService: { sendTextMessage: jest.Mock };
+  let whatsappOutboundLogService: { log: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
   let conversationStateService: { getActive: jest.Mock; clear: jest.Mock };
   let whatsappMediaService: { downloadAndStore: jest.Mock };
@@ -72,6 +74,11 @@ describe('WhatsappWebhookService', () => {
       find: jest.fn().mockResolvedValue([]),
     };
     whatsAppService = { sendTextMessage: jest.fn() };
+    whatsappOutboundLogService = {
+      log: jest.fn((params: Record<string, unknown>) =>
+        Promise.resolve({ id: 'reply-1', ...params }),
+      ),
+    };
     selfServiceMenuService = {
       handleInboundEvent: jest.fn().mockResolvedValue(undefined),
     };
@@ -105,6 +112,10 @@ describe('WhatsappWebhookService', () => {
           useValue: whatsappInboundGateway,
         },
         { provide: WhatsAppService, useValue: whatsAppService },
+        {
+          provide: WhatsappOutboundLogService,
+          useValue: whatsappOutboundLogService,
+        },
         { provide: SelfServiceMenuService, useValue: selfServiceMenuService },
         {
           provide: WhatsappConversationStateService,
@@ -484,37 +495,37 @@ describe('WhatsappWebhookService', () => {
     });
 
     // Human report, 2026-09-19 — used to only send, never persist or push
-    // live. See sendManualReply's own doc comment.
-    it('persists the reply and pushes it live via the gateway', async () => {
+    // live. See sendManualReply's own doc comment. Persistence/live-push
+    // itself now lives in WhatsappOutboundLogService — this only verifies
+    // sendManualReply derives and forwards the right params to it.
+    it('logs the reply as sent by this admin', async () => {
       whatsAppService.sendTextMessage.mockResolvedValue(true);
       clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
 
       await service.sendManualReply('573001234567', 'Hola!', 'user-1');
 
-      expect(manualRepliesRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          clientId: 'client-1',
-          phoneNumber: '+573001234567',
-          messageContent: 'Hola!',
-          sentByUserId: 'user-1',
-          status: 'sent',
-        }),
-      );
-      expect(whatsappInboundGateway.emitManualReply).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'reply-1' }),
-      );
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith({
+        clientId: 'client-1',
+        phoneNumber: '+573001234567',
+        messageContent: 'Hola!',
+        sentByUserId: 'user-1',
+        sent: true,
+      });
     });
 
-    it('persists status "failed" when the send itself fails, still pushed live', async () => {
+    it('logs a failed send with no client, still by this admin', async () => {
       whatsAppService.sendTextMessage.mockResolvedValue(false);
       clientsRepository.findOneBy.mockResolvedValue(null);
 
       await service.sendManualReply('573001234567', 'Hola!', 'user-1');
 
-      expect(manualRepliesRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'failed', clientId: null }),
-      );
-      expect(whatsappInboundGateway.emitManualReply).toHaveBeenCalled();
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith({
+        clientId: null,
+        phoneNumber: '+573001234567',
+        messageContent: 'Hola!',
+        sentByUserId: 'user-1',
+        sent: false,
+      });
     });
   });
 
@@ -579,6 +590,24 @@ describe('WhatsappWebhookService', () => {
         '+573001234567',
       );
       expect(result).toBe(false);
+    });
+
+    // Human report, 2026-09-19 — this closing message used to leave no
+    // trace in the conversation thread. sentByUserId is null: the admin
+    // only triggered it, they didn't type this fixed message themselves.
+    it('logs the closing message with no admin attribution', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+
+      await service.closeConversation('573001234567');
+
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith({
+        clientId: 'client-1',
+        phoneNumber: '+573001234567',
+        messageContent: expect.stringContaining('Gracias') as unknown,
+        sentByUserId: null,
+        sent: true,
+      });
     });
   });
 });

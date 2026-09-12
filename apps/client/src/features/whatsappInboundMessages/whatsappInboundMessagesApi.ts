@@ -20,11 +20,20 @@ export enum WhatsappInboundMessageType {
 // admin). Now persisted server-side and pushed live over the same socket
 // as inbound client messages — see whatsappInbound.gateway.ts's
 // emitManualReply.
+//
+// Widened same day (human report) to also cover the self-service menu's
+// own automated replies and WhatsappWebhookService's "Cerrar
+// conversación" closing message — without them, a client's "ya pagué" or
+// tapped "Más información" looked unprompted, since the bot's own reply
+// left no trace here. sentByUserId is how the two are told apart: null
+// means the bot composed and sent it, not an admin — see
+// WhatsappInboundMessagesPage.tsx's ReplyBubble.
 export interface WhatsappManualReply {
   id: string;
   clientId: string | null;
   phoneNumber: string;
   messageContent: string;
+  sentByUserId: string | null;
   status: 'sent' | 'failed';
   sentAt: string;
   createdAt: string;
