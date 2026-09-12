@@ -4,6 +4,12 @@ import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { RowActionButton } from '@/components/ui/RowActionButton';
+import { InstallmentStatus } from '@/features/installments/installmentsApi';
+import {
+  estadoBadge,
+  moraBadgeClasses,
+} from '@/features/loans/loanStatusDisplay';
+import { useLoan, useLoans } from '@/features/loans/useLoans';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogsForClient } from '@/features/messageLogs/useMessageLogs';
 import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
@@ -27,6 +33,8 @@ import {
   formatPhoneNumber,
 } from '@/lib/format';
 
+import type { Installment } from '@/features/installments/installmentsApi';
+import type { LoanSummary } from '@/features/loans/loansApi';
 import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
 import type {
   WhatsappInboundMessage,
@@ -238,6 +246,7 @@ export function WhatsappInboundMessagesPage() {
 
   const [search, setSearch] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(false);
 
   const { data, isLoading, isError } = useWhatsappInboundMessages({
     search: search || undefined,
@@ -297,6 +306,8 @@ export function WhatsappInboundMessagesPage() {
             <ConversationThread
               conversation={selectedConversation}
               manualReplies={manualReplies ?? []}
+              isInfoPanelOpen={isInfoPanelOpen}
+              onToggleInfoPanel={() => setIsInfoPanelOpen((open) => !open)}
             />
           ) : (
             !isLoading && (
@@ -306,6 +317,19 @@ export function WhatsappInboundMessagesPage() {
             )
           )}
         </div>
+
+        {/* Human report, 2026-09-19 — "más informativo para que el admin
+            pueda ver de manera rápida la información del cliente": a
+            client's pagarés/cuotas at a glance while chatting, without
+            leaving this page. Only for a recognized client — an
+            unrecognized number has no clientId to look loans up by. */}
+        {isInfoPanelOpen && selectedConversation?.clientId && (
+          <ClientInfoPanel
+            clientId={selectedConversation.clientId}
+            clientName={selectedConversation.displayName}
+            onClose={() => setIsInfoPanelOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
@@ -378,9 +402,13 @@ function ConversationListItem({
 function ConversationThread({
   conversation,
   manualReplies,
+  isInfoPanelOpen,
+  onToggleInfoPanel,
 }: {
   conversation: Conversation;
   manualReplies: WhatsappManualReply[];
+  isInfoPanelOpen: boolean;
+  onToggleInfoPanel: () => void;
 }) {
   const { data: currentMenu } = useConversationState(conversation.phoneNumber);
   const { data: messageLogs } = useMessageLogsForClient(conversation.clientId);
@@ -415,9 +443,16 @@ function ConversationThread({
             {formatSenderPhoneNumber(conversation.phoneNumber)}
           </p>
         </div>
-        {showCloseConversationButton && (
-          <CloseConversationButton phoneNumber={conversation.phoneNumber} />
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {conversation.clientId && (
+            <RowActionButton onClick={onToggleInfoPanel}>
+              {isInfoPanelOpen ? 'Ocultar información' : 'Ver información'}
+            </RowActionButton>
+          )}
+          {showCloseConversationButton && (
+            <CloseConversationButton phoneNumber={conversation.phoneNumber} />
+          )}
+        </div>
       </div>
 
       <div className="flex flex-1 flex-col gap-3">
@@ -683,6 +718,174 @@ function ReplyBox({ phoneNumber }: { phoneNumber: string }) {
           {replyMutation.isPending ? 'Enviando…' : 'Enviar'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+// Human report, 2026-09-19 — "un botón para abrir un side menu a la
+// derecha que muestre pagarés de la persona y cuotas, algo más
+// informativo para que el admin pueda ver de manera rápida la información
+// del cliente". Reuses the exact same list endpoint/hook as the
+// standalone "Préstamos" screen (useLoans) rather than inventing a new
+// combined loans+installments endpoint — LoanSummary already carries
+// enough at-a-glance stats (saldo, cuotas pagadas, días de mora, próxima
+// cuota) that a full installment breakdown is only fetched per pagaré,
+// on demand, when the admin actually expands one (see LoanCard).
+function ClientInfoPanel({
+  clientId,
+  clientName,
+  onClose,
+}: {
+  clientId: string;
+  clientName: string;
+  onClose: () => void;
+}) {
+  const { data, isLoading, isError } = useLoans({ clientId, limit: 100 });
+  const [expandedLoanId, setExpandedLoanId] = useState<string | null>(null);
+
+  return (
+    <div className="flex w-[320px] shrink-0 flex-col overflow-y-auto border-l border-border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <p className="text-small font-medium text-white">{clientName}</p>
+          <p className="text-meta text-muted">Pagarés y cuotas</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Cerrar información del cliente"
+          className="text-meta text-subtle hover:text-white"
+        >
+          ✕
+        </button>
+      </div>
+
+      {isLoading && <p className="text-small text-muted">Cargando…</p>}
+      {isError && (
+        <p className="text-small text-danger">
+          No se pudo cargar la información del cliente.
+        </p>
+      )}
+      {!isLoading && !isError && data?.items.length === 0 && (
+        <p className="text-small text-muted">
+          Este cliente no tiene pagarés registrados.
+        </p>
+      )}
+
+      <div className="flex flex-col gap-3">
+        {data?.items.map((loan) => (
+          <LoanCard
+            key={loan.id}
+            loan={loan}
+            expanded={expandedLoanId === loan.id}
+            onToggle={() =>
+              setExpandedLoanId((current) =>
+                current === loan.id ? null : loan.id,
+              )
+            }
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LoanCard({
+  loan,
+  expanded,
+  onToggle,
+}: {
+  loan: LoanSummary;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  // Only fetched once actually expanded — useLoan's own `enabled: Boolean(id)`
+  // skips the request entirely for the empty-string id below, same pattern
+  // useMessageLogsForClient uses to guard an optional lookup.
+  const { data: detail, isLoading: isLoadingDetail } = useLoan(
+    expanded ? loan.id : '',
+  );
+  const estado = estadoBadge(loan);
+
+  return (
+    <div className="rounded-lg border border-border">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full flex-col gap-1.5 px-3 py-2.5 text-left"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-small font-medium text-white">
+            Pagaré #{loan.promissoryNoteNumber}
+          </span>
+          <span
+            className={`rounded-[3px] border px-1.5 py-0.5 text-meta ${estado.classes}`}
+          >
+            {estado.label}
+          </span>
+        </div>
+        <p className="text-meta text-muted">
+          Saldo: {formatCurrency(loan.outstandingBalance)} · Cuotas pagadas:{' '}
+          {loan.installmentsPaid}/{loan.totalInstallments}
+        </p>
+        {loan.overdueDays > 0 && (
+          <span
+            className={`w-fit rounded-[3px] border px-1.5 py-0.5 text-meta ${moraBadgeClasses(
+              loan.overdueDays,
+            )}`}
+          >
+            {loan.overdueDays} días en mora ·{' '}
+            {formatCurrency(loan.overdueBalance)}
+          </span>
+        )}
+        {loan.nextInstallmentDueDate && (
+          <p className="text-meta text-subtle">
+            Próxima cuota: {formatDateOnly(loan.nextInstallmentDueDate)}
+          </p>
+        )}
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border px-3 py-2.5">
+          {isLoadingDetail && (
+            <p className="text-meta text-muted">Cargando cuotas…</p>
+          )}
+          {detail?.installments.map((installment) => (
+            <InstallmentRow key={installment.id} installment={installment} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InstallmentRow({ installment }: { installment: Installment }) {
+  const isPending = installment.status === InstallmentStatus.Pending;
+  const statusLabel =
+    installment.status === InstallmentStatus.Paid
+      ? 'Pagada'
+      : installment.status === InstallmentStatus.Cancelled
+        ? 'Cancelada'
+        : installment.overdueDays > 0
+          ? `${installment.overdueDays}d mora`
+          : 'Pendiente';
+
+  return (
+    <div className="flex items-center justify-between gap-2 py-1 text-meta">
+      <span className="text-muted">
+        Cuota {installment.installmentNumber} ·{' '}
+        {formatDateOnly(installment.dueDate)}
+      </span>
+      <span
+        className={
+          isPending && installment.overdueDays > 0
+            ? 'text-danger'
+            : 'text-subtle'
+        }
+      >
+        {formatCurrency(isPending ? installment.totalDue : installment.amount)}{' '}
+        · {statusLabel}
+      </span>
     </div>
   );
 }
