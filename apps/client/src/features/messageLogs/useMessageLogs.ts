@@ -19,6 +19,22 @@ export function useMessageLogItems(id: string | null) {
   });
 }
 
+// Human report, 2026-09-19 — backs the automated-message bubbles on
+// WhatsappInboundMessagesPage.tsx's conversation thread: a client tapping
+// "Ya pagué" after a reminder made no sense in the inbox without the
+// reminder itself alongside it. Disabled (not just clientId: '') for an
+// unrecognized-number conversation, which has no clientId at all — GET
+// /message-logs's clientId filter is validated as a UUID, so an empty
+// string would 400 rather than just returning nothing.
+export function useMessageLogsForClient(clientId: string | null) {
+  return useQuery({
+    queryKey: ['messageLogs', 'client', clientId],
+    queryFn: () =>
+      messageLogsApi.getAll({ clientId: clientId ?? '', limit: 100 }),
+    enabled: Boolean(clientId),
+  });
+}
+
 // Phase 18 — retrying creates a new MessageLog row and stamps retriedAt on
 // the original, so the whole list needs refetching either way.
 export function useRetryMessageLog() {

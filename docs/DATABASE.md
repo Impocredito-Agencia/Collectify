@@ -385,6 +385,8 @@ One row per reminder **actually sent to a client** — not per installment.
 
 **One-time cleanup, 2026-09-11** (human report): every existing `failed` row was deleted (migration `CleanupFailedMessageLogs`) — a backlog that had piled up while `WHATSAPP_SENDING_PAUSED` (2026-09-06) blocks every send, none of which would ever be retried while it stays that way. `sent` rows were untouched. See `ENVIRONMENT_VARIABLES.md`'s `PAYMENT_CONFIRMATION_MESSAGES_PAUSED` for the related switch that now stops `PaymentConfirmation`/`PaidInFull` from creating new `failed` rows here in the first place while historical payments are being backfilled.
 
+**One-time cleanup, 2026-09-19** (human report): every existing `failed` row was deleted again (migration `CleanupFailedTestMessageLogs`) — ~107 rows left by a failed test run, none of them a real send. `sent` rows were untouched, same as the 2026-09-11 cleanup above.
+
 ### `message_audiences` / `message_audience_clients` (retired — Phase 27)
 
 Added Phase 18 — a curated group of clients attached to one `message_template`. **Retired as of Phase 27** for `overdue`/`upcoming_due` (the only two types that ever used it — see "Message audience" in `GLOSSARY.md`): no service reads these tables anymore, and the `GET`/`PUT /message-templates/:type/audience` endpoints and `MessageAudiencesService` were removed entirely. The tables themselves are **deliberately NOT dropped** — they may still hold historical meaning, and dropping schema is its own confirmed decision, not a side effect of the Phase 27 migration. The `MessageAudience` entity class still exists (still picked up by TypeORM's glob-based entity loading, for migrations) but is no longer registered in `WhatsappModule`'s DI, since nothing injects its repository anymore.
