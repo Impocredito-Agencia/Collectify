@@ -4,6 +4,9 @@ import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { RowActionButton } from '@/components/ui/RowActionButton';
+import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
+import { useMessageLogsForClient } from '@/features/messageLogs/useMessageLogs';
+import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
 import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMessages/RegisterPaymentFromWhatsappModal';
 import {
   useCloseConversation,
@@ -24,6 +27,7 @@ import {
   formatPhoneNumber,
 } from '@/lib/format';
 
+import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
 import type {
   WhatsappInboundMessage,
   WhatsappManualReply,
@@ -48,9 +52,16 @@ import type { ReactNode } from 'react';
 // conversación" sends a generic closing message and clears that state, so
 // the client's next message gets the real menu fresh. Replaces the old
 // TEST-ONLY "client replies '1'" text-scanning hack this page used before
-// the real menu existed. A sent reply is still only kept in this page's
-// local state (lost on refresh) — replies aren't persisted as MessageLog
-// rows yet.
+// the real menu existed. A manual reply is persisted server-side and
+// pushed live to every connected admin — see useManualReplies/
+// useWhatsappInboundSocket.
+//
+// Automated messages (human report, 2026-09-19): the reminder/confirmation
+// templates a client actually received (message_logs) are merged into
+// each conversation's thread too, via useMessageLogsForClient — without
+// them, a client's "ya pagué" or a tapped "Más información" looked
+// unprompted, since the message that caused it only ever showed up on
+// the separate "Mensajes" page.
 const MESSAGE_FETCH_LIMIT = 100;
 
 const TYPE_LABELS: Record<WhatsappInboundMessageType, string> = {
@@ -92,6 +103,12 @@ const MEDIA_TYPE_FALLBACK_LABELS: Partial<
 
 interface Conversation {
   key: string; // clientId when matched, otherwise the raw phone number
+  // Human report, 2026-09-19 — same as `key` for a recognized contact, but
+  // kept separate and nullable: `key` falls back to the raw phone number
+  // for an unrecognized one, and the automated-message lookup below needs
+  // to know there's genuinely no client to query message_logs by, not
+  // treat that phone-number string as a clientId.
+  clientId: string | null;
   displayName: string;
   phoneNumber: string;
   messages: WhatsappInboundMessage[]; // chronological — oldest first
@@ -123,6 +140,7 @@ function groupIntoConversations(
     const lastMessage = groupMessages[0];
     conversations.push({
       key,
+      clientId: lastMessage.clientId,
       displayName: lastMessage.client
         ? `${lastMessage.client.firstName} ${lastMessage.client.lastName}`
         : 'Número no reconocido',
@@ -161,7 +179,8 @@ function messagePreview(message: WhatsappInboundMessage): string {
 
 type ThreadItem =
   | { direction: 'inbound'; sentAt: string; message: WhatsappInboundMessage }
-  | { direction: 'outbound'; sentAt: string; reply: WhatsappManualReply };
+  | { direction: 'outbound'; sentAt: string; reply: WhatsappManualReply }
+  | { direction: 'automated'; sentAt: string; log: MessageLog };
 
 // Human report, 2026-09-19 — manualReplies is the full flat recent window
 // (see useManualReplies), filtered down to this one conversation here.
@@ -171,9 +190,20 @@ type ThreadItem =
 // (+573001234567) while conversation.key falls back to the RAW
 // as-received-from-Meta number (573001234567) for an unrecognized
 // contact, hence the leading '+' stripped before comparing.
+//
+// messageLogs (human report, 2026-09-19) — the automated reminder/
+// confirmation templates the client actually received, so a reply like
+// "ya pagué" or a tapped "Más información" reads in context instead of
+// looking unprompted. Already scoped to this one client by
+// useMessageLogsForClient's clientId param — filtered again here only to
+// guard against a stale cache entry from a previously selected
+// conversation still being in memory. Empty (and never fetched at all)
+// for an unrecognized-number conversation, which has no clientId to
+// query message_logs by.
 function buildThreadItems(
   conversation: Conversation,
   manualReplies: WhatsappManualReply[],
+  messageLogs: MessageLog[],
 ): ThreadItem[] {
   const inbound: ThreadItem[] = conversation.messages.map((message) => ({
     direction: 'inbound',
@@ -191,7 +221,14 @@ function buildThreadItems(
       sentAt: reply.sentAt,
       reply,
     }));
-  return [...inbound, ...outbound].sort(
+  const automated: ThreadItem[] = messageLogs
+    .filter((log) => log.clientId === conversation.clientId)
+    .map((log) => ({
+      direction: 'automated',
+      sentAt: log.sentAt,
+      log,
+    }));
+  return [...inbound, ...outbound, ...automated].sort(
     (a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime(),
   );
 }
@@ -322,10 +359,15 @@ function ConversationThread({
   manualReplies: WhatsappManualReply[];
 }) {
   const { data: currentMenu } = useConversationState(conversation.phoneNumber);
+  const { data: messageLogs } = useMessageLogsForClient(conversation.clientId);
   const humanReplyEnabled =
     currentMenu === ConversationMenu.AwaitingReceipt ||
     currentMenu === ConversationMenu.HandedOffToHuman;
-  const threadItems = buildThreadItems(conversation, manualReplies);
+  const threadItems = buildThreadItems(
+    conversation,
+    manualReplies,
+    messageLogs?.items ?? [],
+  );
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -344,13 +386,17 @@ function ConversationThread({
       </div>
 
       <div className="flex flex-1 flex-col gap-3">
-        {threadItems.map((item) =>
-          item.direction === 'inbound' ? (
-            <MessageBubble key={item.message.id} message={item.message} />
-          ) : (
-            <ReplyBubble key={item.reply.id} reply={item.reply} />
-          ),
-        )}
+        {threadItems.map((item) => {
+          if (item.direction === 'inbound') {
+            return (
+              <MessageBubble key={item.message.id} message={item.message} />
+            );
+          }
+          if (item.direction === 'outbound') {
+            return <ReplyBubble key={item.reply.id} reply={item.reply} />;
+          }
+          return <AutomatedMessageBubble key={item.log.id} log={item.log} />;
+        })}
       </div>
 
       {humanReplyEnabled ? (
@@ -509,6 +555,41 @@ function ReplyBubble({ reply }: { reply: WhatsappManualReply }) {
         </span>
       </div>
       <p className="text-small text-white">{reply.messageContent}</p>
+    </div>
+  );
+}
+
+// Right-aligned like ReplyBubble (it's also something sent TO the client),
+// but visually distinct from an admin's own typed reply — labeled with
+// the template type instead of "Tú", and muted further when the send
+// actually failed (WHATSAPP_SENDING_PAUSED, a Meta API error, etc.), so
+// the admin can tell "the client never got this" from the conversation
+// itself. Human report, 2026-09-19 — without this, a client's "ya pagué"
+// or a tapped "Más información" showed up with no visible prompt, since
+// the reminder/confirmation that caused it lived only on the separate
+// "Mensajes" page.
+function AutomatedMessageBubble({ log }: { log: MessageLog }) {
+  const failed = log.status === MessageLogStatus.Failed;
+
+  return (
+    <div
+      className={`ml-auto flex max-w-[480px] flex-col gap-1 rounded-lg px-3.5 py-2.5 ${
+        failed ? 'bg-danger/10' : 'bg-white/5'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <span className="rounded-[3px] border border-border bg-surface px-1.5 py-0.5 text-meta text-muted">
+          {messageTypeLabel(log.type)}
+        </span>
+        <span className="text-meta text-subtle">
+          {new Date(log.sentAt).toLocaleString('es-CO', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+          })}
+        </span>
+        {failed && <span className="text-meta text-danger">No entregado</span>}
+      </div>
+      <p className="text-small text-white">{log.messageContent}</p>
     </div>
   );
 }
