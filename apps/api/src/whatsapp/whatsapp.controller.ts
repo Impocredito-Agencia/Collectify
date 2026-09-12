@@ -15,6 +15,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { Audit } from '../auditLog/decorators/audit.decorator';
 import { CurrentUser } from '../auth/decorators/currentUser.decorator';
 import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
@@ -163,6 +164,7 @@ export class WhatsappController {
   }
 
   @Post('cron/:family/pause')
+  @Audit('whatsappCron.pause', 'whatsappCron')
   @ApiOperation({
     summary:
       "Pause a reminder family's cron job (admin or granted the messages module)",
@@ -175,6 +177,7 @@ export class WhatsappController {
   }
 
   @Post('cron/:family/resume')
+  @Audit('whatsappCron.resume', 'whatsappCron')
   @ApiOperation({
     summary:
       "Resume a reminder family's cron job (admin or granted the messages module)",
@@ -187,6 +190,7 @@ export class WhatsappController {
   }
 
   @Patch('cron/:family/schedule')
+  @Audit('whatsappCron.reschedule', 'whatsappCron')
   @ApiOperation({
     summary:
       "Change a reminder family's cron schedule (admin or granted the messages module)",

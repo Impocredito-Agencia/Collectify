@@ -36,6 +36,20 @@ describe('formatAuditAction', () => {
     expect(formatAuditAction('payment.void')).toBe('Anuló un pago');
   });
 
+  // Human report, 2026-09-10 — the Plantillas tab's per-family cron menu
+  // (Pausar/Reanudar/Guardar horario) had never been audit-logged at all.
+  it('translates every whatsappCron action', () => {
+    expect(formatAuditAction('whatsappCron.pause')).toBe(
+      'Pausó un recordatorio automático',
+    );
+    expect(formatAuditAction('whatsappCron.resume')).toBe(
+      'Reanudó un recordatorio automático',
+    );
+    expect(formatAuditAction('whatsappCron.reschedule')).toBe(
+      'Cambió el horario de un recordatorio automático',
+    );
+  });
+
   // 2026-09-06 — the combined clients+loans Excel importer was split into
   // two endpoints (see apps/api/src/clientsImport and apps/api/src/
   // loanImport), each firing its own @Audit() call under a new action
@@ -131,6 +145,12 @@ describe('formatAuditEntityType', () => {
 
   it('translates interestConceptType, the entityType that previously fell through unlabeled', () => {
     expect(formatAuditEntityType('interestConceptType')).toBe('Tipo de cargo');
+  });
+
+  it('translates whatsappCron', () => {
+    expect(formatAuditEntityType('whatsappCron')).toBe(
+      'Recordatorio automático',
+    );
   });
 
   it('still falls back to the raw entityType when no label exists yet', () => {

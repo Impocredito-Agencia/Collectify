@@ -59,6 +59,19 @@ export function LoansListPage() {
   const meta = data?.meta;
   const rowNumberOffset = ((meta?.page ?? 1) - 1) * (meta?.limit ?? 0);
 
+  // QoL, 2026-09-10 — rendered both above and below the table (same fix
+  // as ClientsListPage.tsx) so paging doesn't require scrolling to the
+  // bottom first. Built once here rather than duplicated at both JSX
+  // spots, so the two copies can never drift out of sync.
+  const paginationBar = meta && meta.total > 0 && (
+    <div className="flex h-8 items-center justify-between">
+      <p className="text-label text-muted">
+        Mostrando {loans.length} de {meta.total} préstamos
+      </p>
+      <Pager page={page} totalPages={meta.totalPages} onPageChange={setPage} />
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-5">
       <Header title="Préstamos" subtitle="Gestión de todos los préstamos" />
@@ -116,6 +129,11 @@ export function LoansListPage() {
           </Button>
         )}
       </div>
+
+      {/* QoL, 2026-09-10 — the pager used to live only below the table;
+          same block above and below now (see the comment above
+          paginationBar) so paging doesn't require scrolling down first. */}
+      {paginationBar}
 
       {/* Style cleanup, 2026-09-06 — same table-fixed recipe as Clientes'
           list (itself copied from LoanQuotePage's schedule-preview table):
@@ -182,18 +200,7 @@ export function LoansListPage() {
         <Legend tone="danger" label="+60" />
       </div>
 
-      {meta && meta.total > 0 && (
-        <div className="flex h-8 items-center justify-between">
-          <p className="text-label text-muted">
-            Mostrando {loans.length} de {meta.total} préstamos
-          </p>
-          <Pager
-            page={page}
-            totalPages={meta.totalPages}
-            onPageChange={setPage}
-          />
-        </div>
-      )}
+      {paginationBar}
 
       {isCreating && (
         <LoanForm

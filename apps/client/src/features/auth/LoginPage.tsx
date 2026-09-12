@@ -125,7 +125,19 @@ export function LoginPage() {
             </label>
             <input
               id="email"
-              type="email"
+              // type="text" instead of "email" — human report, 2026-09-10:
+              // see @/lib/emailPattern.ts's comment. The native
+              // email-format check this used to rely on rejects
+              // ñ/accented letters outright, which would lock out anyone
+              // logging in with such an address. No extra format
+              // validation added here (unlike ClientForm.tsx/UserForm.tsx)
+              // — a malformed value just fails the same generic "Correo o
+              // contraseña incorrectos" the backend already returns for
+              // any wrong login, so there's nothing more useful to check
+              // client-side. inputMode keeps the "@"-friendly mobile
+              // keyboard the "email" type gave for free.
+              type="text"
+              inputMode="email"
               autoComplete="email"
               required
               value={email}

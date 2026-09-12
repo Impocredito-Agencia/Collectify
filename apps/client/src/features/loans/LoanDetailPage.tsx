@@ -260,8 +260,22 @@ export function LoanDetailPage() {
           </h1>
           <div className="flex items-center gap-2.5 text-small text-muted">
             <span>
-              {clientFullName} · Creado{' '}
-              {new Date(loan.createdAt).toLocaleDateString('es-CO')}
+              {/* QoL, 2026-09-10 — before this, the only way to reach the
+                  loan's own client from here was the WhatsApp note buried
+                  at the bottom of the page (see its own comment below);
+                  the codeudor already links out to their profile the same
+                  way (Phase 26), so the titular gets the same treatment. */}
+              {client ? (
+                <Link
+                  to={`/clientes/${loan.clientId}`}
+                  className="text-white hover:underline"
+                >
+                  {clientFullName}
+                </Link>
+              ) : (
+                clientFullName
+              )}{' '}
+              · Creado {new Date(loan.createdAt).toLocaleDateString('es-CO')}
             </span>
             <span
               className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${estado.classes}`}
@@ -974,13 +988,23 @@ function InstallmentsTable({
                 >
                   <Td>
                     {isPending ? (
-                      <input
-                        type="checkbox"
-                        checked={selectedInstallmentIds.has(installment.id)}
-                        onChange={() => onToggleSelected(installment.id)}
-                        aria-label={`Seleccionar cuota ${installment.installmentNumber}`}
-                        className="h-3.5 w-3.5 accent-white"
-                      />
+                      // QoL, 2026-09-10 — the checkbox itself is tiny
+                      // (h-3.5 w-3.5, ~14px); wrapping it in a <label> that
+                      // bleeds into the cell's own px-3.5 padding (via
+                      // negative margin) turns the WHOLE cell into the
+                      // clickable target instead of just the checkbox
+                      // square, without growing the checkbox visually or
+                      // spilling into neighboring cells — a <td>'s box
+                      // still stops at the column boundary either way.
+                      <label className="-mx-3.5 flex h-full w-full cursor-pointer items-center justify-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedInstallmentIds.has(installment.id)}
+                          onChange={() => onToggleSelected(installment.id)}
+                          aria-label={`Seleccionar cuota ${installment.installmentNumber}`}
+                          className="h-3.5 w-3.5 accent-white"
+                        />
+                      </label>
                     ) : null}
                   </Td>
                   <Td>

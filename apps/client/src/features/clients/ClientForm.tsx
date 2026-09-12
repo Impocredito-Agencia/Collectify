@@ -25,6 +25,7 @@ import {
   useUpdateClientReference,
 } from '@/features/clients/useClients';
 import { ApiError } from '@/lib/apiClient';
+import { EMAIL_REGEX } from '@/lib/emailPattern';
 import { calculateAge } from '@/lib/format';
 import { inputClassName } from '@/lib/formStyles';
 import { ImageUploadError, uploadDocument } from '@/lib/imageUpload';
@@ -55,6 +56,7 @@ type FieldName =
   | 'documentType'
   | 'phoneNumber'
   | 'alternatePhoneNumber'
+  | 'email'
   | 'address'
   | 'dataProcessingConsent'
   | 'references';
@@ -71,6 +73,7 @@ const FIELD_ORDER: FieldName[] = [
   'documentType',
   'phoneNumber',
   'alternatePhoneNumber',
+  'email',
   'address',
   'references',
   'dataProcessingConsent',
@@ -323,6 +326,12 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
     ) {
       errors.alternatePhoneNumber =
         'Debe ser un número colombiano válido, ej: +573001234567.';
+    }
+    // Optional, same treatment as alternatePhoneNumber above — see
+    // EMAIL_REGEX's own comment for why this replaced the old bare
+    // `type="email"` native check.
+    if (email.trim() && !EMAIL_REGEX.test(email.trim())) {
+      errors.email = 'Debe ser un correo electrónico válido.';
     }
     // Phase 26 — at least one address is required, matching
     // ClientsService.create()'s backend rule. Neither field is
@@ -840,13 +849,39 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
               />
             </Field>
           </div>
-          <Field label="Correo electrónico (opcional)">
+          <Field
+            label="Correo electrónico (opcional)"
+            error={fieldErrors.email}
+            id={fieldElementId('email')}
+          >
             <input
-              type="email"
+              // type="text" instead of "email" — see EMAIL_REGEX's own
+              // comment: the native email-format check this used to rely
+              // on rejects ñ/accented letters outright. inputMode keeps
+              // the "@"-friendly mobile keyboard the "email" type used to
+              // give for free.
+              type="text"
+              inputMode="email"
+              autoComplete="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setFieldErrors((prev) => ({ ...prev, email: undefined }));
+              }}
+              onBlur={(event) => {
+                const trimmed = event.target.value.trim();
+                if (!trimmed) {
+                  return;
+                }
+                if (!EMAIL_REGEX.test(trimmed)) {
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    email: 'Debe ser un correo electrónico válido.',
+                  }));
+                }
+              }}
               placeholder="Ej: cliente@correo.com"
-              className={inputClassName(false)}
+              className={inputClassName(Boolean(fieldErrors.email))}
             />
           </Field>
         </FormSection>
