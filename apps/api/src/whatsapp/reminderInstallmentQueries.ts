@@ -21,6 +21,14 @@ import { sumPaymentsByInstallmentId } from '../loans/installments/paymentTotals'
 
 export interface OverdueInstallmentResult {
   id: string;
+  // Human report, 2026-09-19 — lets callers (OverdueReminderService,
+  // UpcomingDueReminderService) split a client's consolidated reminder by
+  // recipient: a loan with alternateContactPhoneNumber set routes its own
+  // installments to that contact instead of the client, in a separate
+  // message scoped to just that loan — see
+  // groupInstallmentsByRecipient.ts.
+  loanId: string;
+  alternateContactPhoneNumber: string | null;
   installmentNumber: number;
   promissoryNoteNumber: string;
   amount: number;
@@ -86,6 +94,8 @@ export async function findOverdueInstallmentsForClient(
     );
     return {
       id: installment.id,
+      loanId: installment.loanId,
+      alternateContactPhoneNumber: installment.loan.alternateContactPhoneNumber,
       installmentNumber: installment.installmentNumber,
       promissoryNoteNumber: installment.loan.promissoryNoteNumber,
       amount: installment.amount,
@@ -118,6 +128,9 @@ export async function findClientIdsWithOverdueInstallments(
 
 export interface UpcomingInstallmentResult {
   id: string;
+  // See OverdueInstallmentResult's identical fields' own comment.
+  loanId: string;
+  alternateContactPhoneNumber: string | null;
   installmentNumber: number;
   promissoryNoteNumber: string;
   amount: number;
@@ -162,6 +175,8 @@ export async function findUpcomingInstallmentsForClient(
 
   return installments.map((installment) => ({
     id: installment.id,
+    loanId: installment.loanId,
+    alternateContactPhoneNumber: installment.loan.alternateContactPhoneNumber,
     installmentNumber: installment.installmentNumber,
     promissoryNoteNumber: installment.loan.promissoryNoteNumber,
     amount: installment.amount,

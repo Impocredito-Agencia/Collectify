@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -9,6 +9,7 @@ import {
   IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsPhoneNumber,
   IsPositive,
   IsString,
   IsUUID,
@@ -18,6 +19,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { normalizePhoneNumber } from '../../clients/normalizePhoneNumber';
 import { InstallmentFrequency } from '../entities/loan.entity';
 
 import { LoanConceptAssignmentDto } from './loanConceptAssignment.dto';
@@ -223,4 +225,30 @@ export class CreateLoanDto {
   @IsOptional()
   @IsBoolean()
   isNewLoan?: boolean;
+
+  // --- Optional alternate contact, human report 2026-09-19 — a rare,
+  // per-loan exception: when set, every WhatsApp message about THIS loan
+  // (reminders, confirmations, self-service replies) goes to this contact
+  // instead of the client's own number(s). Must be provided together or
+  // omitted together, same "both or neither" convention as
+  // downPaymentAmount/downPaymentDueDate above — enforced in
+  // LoansService. ---
+
+  @ApiPropertyOptional({
+    example: 'Hermana del deudor',
+    description:
+      'Name of an alternate contact who should receive every WhatsApp message about this ' +
+      'loan instead of the client. Requires alternateContactPhoneNumber. Omit for the ' +
+      'normal case (messages go to the client).',
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  alternateContactName?: string;
+
+  @ApiPropertyOptional({ example: '+573009876543' })
+  @IsOptional()
+  @Transform(({ value }) => normalizePhoneNumber(value))
+  @IsPhoneNumber('CO')
+  alternateContactPhoneNumber?: string;
 }

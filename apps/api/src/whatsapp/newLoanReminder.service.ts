@@ -119,8 +119,13 @@ export class NewLoanReminderService {
       selection.type,
     );
 
+    // Human report, 2026-09-19 — see PaymentConfirmationService's
+    // identical comment.
     const phoneNumbers =
-      options?.targetPhoneNumbers ?? getRecipientPhoneNumbers(loan.client);
+      options?.targetPhoneNumbers ??
+      (loan.alternateContactPhoneNumber
+        ? [loan.alternateContactPhoneNumber]
+        : getRecipientPhoneNumbers(loan.client));
     const savedLogs: MessageLog[] = [];
     let anySent = false;
     for (const phoneNumber of phoneNumbers) {

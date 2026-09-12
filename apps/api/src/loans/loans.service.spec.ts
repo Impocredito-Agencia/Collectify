@@ -135,6 +135,8 @@ describe('LoansService', () => {
     coDebtorClientId: null,
     coDebtorClient: null,
     coDebtorRelationship: null,
+    alternateContactName: null,
+    alternateContactPhoneNumber: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -886,6 +888,56 @@ describe('LoansService', () => {
       expect(clientsService.hasMoraBlock).not.toHaveBeenCalled();
     });
 
+    // Human report, 2026-09-19 — see Loan.alternateContactPhoneNumber's
+    // own comment.
+    describe('alternate contact', () => {
+      it('rejects when only alternateContactName is provided', async () => {
+        await expect(
+          service.create({
+            ...createDto,
+            alternateContactName: 'Hermana del deudor',
+          }),
+        ).rejects.toThrow(BadRequestException);
+        expect(loansRepository.save).not.toHaveBeenCalled();
+      });
+
+      it('rejects when only alternateContactPhoneNumber is provided', async () => {
+        await expect(
+          service.create({
+            ...createDto,
+            alternateContactPhoneNumber: '+573009876543',
+          }),
+        ).rejects.toThrow(BadRequestException);
+        expect(loansRepository.save).not.toHaveBeenCalled();
+      });
+
+      it('allows and persists both together', async () => {
+        await service.create({
+          ...createDto,
+          alternateContactName: 'Hermana del deudor',
+          alternateContactPhoneNumber: '+573009876543',
+        });
+
+        expect(loansRepository.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            alternateContactName: 'Hermana del deudor',
+            alternateContactPhoneNumber: '+573009876543',
+          }),
+        );
+      });
+
+      it('allows omitting both', async () => {
+        await service.create(createDto);
+
+        expect(loansRepository.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            alternateContactName: null,
+            alternateContactPhoneNumber: null,
+          }),
+        );
+      });
+    });
+
     // Redesign, 2026-09-03 — corrienteInterestRate/moratoryInterestRate
     // default to, and are capped at, the current usury ceiling (20% in
     // the default beforeEach mock). "Editable solo hacia abajo" —
@@ -1158,6 +1210,52 @@ describe('LoansService', () => {
           coDebtorClientId: 'co-debtor-2',
           // Untouched field still carries over from the old loan.
           coDebtorRelationship: 'Hermano del deudor',
+        }),
+      );
+    });
+
+    // Human report, 2026-09-19 — same carry-over-unless-overridden rule
+    // as the co-debtor above, for the alternate contact.
+    it("carries over the old loan's alternate contact when the refinance dto omits it", async () => {
+      loansRepository.findOneBy.mockReset();
+      loansRepository.findOneBy
+        .mockResolvedValueOnce({
+          ...mockLoan,
+          alternateContactName: 'Hermana del deudor',
+          alternateContactPhoneNumber: '+573009876543',
+        })
+        .mockResolvedValueOnce(newLoanRecord);
+
+      await service.refinance(mockLoan.id, refinanceDto);
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          alternateContactName: 'Hermana del deudor',
+          alternateContactPhoneNumber: '+573009876543',
+        }),
+      );
+    });
+
+    it('clears the alternate contact when the refinance dto explicitly sends null', async () => {
+      loansRepository.findOneBy.mockReset();
+      loansRepository.findOneBy
+        .mockResolvedValueOnce({
+          ...mockLoan,
+          alternateContactName: 'Hermana del deudor',
+          alternateContactPhoneNumber: '+573009876543',
+        })
+        .mockResolvedValueOnce(newLoanRecord);
+
+      await service.refinance(mockLoan.id, {
+        ...refinanceDto,
+        alternateContactName: null,
+        alternateContactPhoneNumber: null,
+      });
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          alternateContactName: null,
+          alternateContactPhoneNumber: null,
         }),
       );
     });
@@ -2111,6 +2209,37 @@ describe('LoansService', () => {
       });
 
       expect(result.coDebtorClientId).toBe('co-debtor-1');
+    });
+
+    // Human report, 2026-09-19 — validated against the RESULTING merged
+    // state, not just this one PATCH's own two fields — see
+    // LoansService.update's own comment.
+    describe('alternate contact', () => {
+      it('rejects setting only the phone number when no name is on file', async () => {
+        loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+
+        await expect(
+          service.update(mockLoan.id, {
+            alternateContactPhoneNumber: '+573009876543',
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('accepts setting only the phone number when a name is already on file', async () => {
+        loansRepository.findOneBy.mockResolvedValue({
+          ...mockLoan,
+          alternateContactName: 'Hermana del deudor',
+        });
+        loansRepository.save.mockImplementation((loan: Loan) =>
+          Promise.resolve(loan),
+        );
+
+        const result = await service.update(mockLoan.id, {
+          alternateContactPhoneNumber: '+573009876543',
+        });
+
+        expect(result.alternateContactPhoneNumber).toBe('+573009876543');
+      });
     });
 
     it('does not re-validate coDebtorClientId when the update omits it', async () => {

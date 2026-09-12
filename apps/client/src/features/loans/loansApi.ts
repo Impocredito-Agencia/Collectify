@@ -40,6 +40,13 @@ export interface Loan {
   // loan's relationship, not a property of the co-debtor themselves). ---
   coDebtorClientId: string | null;
   coDebtorRelationship: string | null;
+  // Human report, 2026-09-19 — an optional, per-loan alternate contact
+  // (free-form name/number, not a Client — see LoanForm's own section).
+  // When set, every WhatsApp message about THIS loan (reminders,
+  // confirmations, new-loan notice) goes to this contact instead of the
+  // client's own number(s), scoped strictly to this one loan.
+  alternateContactName: string | null;
+  alternateContactPhoneNumber: string | null;
   // Restored 2026-09-09 — whether this loan was marked as a genuinely new
   // credit event at creation (vs. a historical/backfilled one). Drives
   // whether the "new loan" WhatsApp cron sweep will ever message this
@@ -189,6 +196,12 @@ export interface CreateLoanInput {
   // with none. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
   coDebtorClientId?: string;
   coDebtorRelationship?: string;
+  // Optional alternate contact, human report 2026-09-19 — a rare, per-loan
+  // exception: when set, every WhatsApp message about this loan goes to
+  // this contact instead of the client. Must be provided together or
+  // omitted together. See Loan.alternateContactPhoneNumber.
+  alternateContactName?: string;
+  alternateContactPhoneNumber?: string;
   // Added 2026-09-06 — whether this is a genuinely new credit event that
   // should get the scheduled "new loan" WhatsApp message (sent by the
   // NewLoan cron sweep, not immediately). LoanForm.tsx has a checkbox for
@@ -288,6 +301,11 @@ export interface RefinanceQuote {
 // bearing on what's owed, so it stays the one silently-patchable field.
 export interface UpdateLoanInput {
   description?: string;
+  // Human report, 2026-09-19 — see CreateLoanInput's identical fields.
+  // Also editable post-creation (unlike the financial fields above), same
+  // "plain metadata" reasoning as the co-debtor fields.
+  alternateContactName?: string;
+  alternateContactPhoneNumber?: string;
 }
 
 // Matches apps/api/src/loans/dto/refinanceLoan.dto.ts exactly — same shape
@@ -328,6 +346,10 @@ export interface RefinanceLoanInput {
   // docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
   coDebtorClientId?: string | null;
   coDebtorRelationship?: string | null;
+  // Optional alternate contact for the new loan, human report 2026-09-19 —
+  // same omit-to-carry-over/null-to-clear rule as coDebtorClientId above.
+  alternateContactName?: string | null;
+  alternateContactPhoneNumber?: string | null;
   // Redesign, 2026-09-06 — no isNewLoan field: a refinance can only ever
   // apply to a loan already active in the system, so it's always a real,
   // live event and always gets the "new loan" WhatsApp message (via the

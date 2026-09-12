@@ -119,6 +119,39 @@ describe('PaymentConfirmationService', () => {
   });
 
   describe('sendPaymentConfirmation', () => {
+    // Human report, 2026-09-19 — a loan with alternateContactPhoneNumber
+    // set routes the confirmation to that contact instead of the
+    // client's own number(s).
+    it('sends to the alternate contact instead of the client when the loan has one', async () => {
+      installmentsRepository.findOne.mockResolvedValue({
+        id: 'inst-1',
+        loanId: 'loan-1',
+        loan: { ...loan, alternateContactPhoneNumber: '+573009876543' },
+        installmentNumber: 14,
+        amount: 300000,
+        dueDate: notYetDueDate,
+      });
+      installmentsRepository.count.mockResolvedValue(4);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 300000 },
+      ]);
+
+      await service.sendPaymentConfirmation('inst-1');
+
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        '+573009876543',
+        expect.any(String),
+        expect.any(String),
+        expect.any(Array),
+      );
+      expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalledWith(
+        client.phoneNumber,
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
     it('sends PaymentConfirmation with the remaining installment count', async () => {
       installmentsRepository.findOne.mockResolvedValue({
         id: 'inst-1',

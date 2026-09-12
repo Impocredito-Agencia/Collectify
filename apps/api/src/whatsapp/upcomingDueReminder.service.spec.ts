@@ -86,6 +86,8 @@ describe('UpcomingDueReminderService', () => {
     coDebtorClientId: null,
     coDebtorClient: null,
     coDebtorRelationship: null,
+    alternateContactName: null,
+    alternateContactPhoneNumber: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,

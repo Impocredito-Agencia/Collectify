@@ -92,6 +92,8 @@ describe('OverdueReminderService', () => {
     coDebtorClientId: null,
     coDebtorClient: null,
     coDebtorRelationship: null,
+    alternateContactName: null,
+    alternateContactPhoneNumber: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -247,6 +249,62 @@ describe('OverdueReminderService', () => {
         expect.any(Array),
       );
       expect(messageLogsRepository.save).toHaveBeenCalledTimes(2);
+    });
+
+    // Human report, 2026-09-19 — confirmed with the human: a client with
+    // one normal loan and one loan carrying an alternate contact gets TWO
+    // separate messages — their own, scoped to only the normal loan, and
+    // the contact's, scoped to only the override loan. Neither message
+    // mentions the other loan's installments.
+    it('splits into a client message and a contact message when one loan has an alternate contact', async () => {
+      const contactLoan: Loan = {
+        ...mockLoan,
+        id: 'loan-2',
+        alternateContactPhoneNumber: '+573009876543',
+      };
+      mockGathered([
+        overdueInstallment({
+          id: 'inst-normal',
+          dueDate: daysAgoDateString(3),
+        }),
+        overdueInstallment({
+          id: 'inst-contact',
+          loanId: contactLoan.id,
+          loan: contactLoan,
+          dueDate: daysAgoDateString(3),
+        }),
+      ]);
+
+      const result = await service.sendReminderForClient(mockClient.id);
+
+      expect(result).toHaveLength(2);
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        mockClient.phoneNumber,
+        expect.any(String),
+        expect.any(String),
+        expect.any(Array),
+      );
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        '+573009876543',
+        expect.any(String),
+        expect.any(String),
+        expect.any(Array),
+      );
+      // Each message's items list only its OWN loan's installment — never
+      // both — proving the two loans' installments were never merged into
+      // one message.
+      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ installmentId: 'inst-normal' }),
+      ]);
+      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ installmentId: 'inst-contact' }),
+      ]);
+      expect(messageLogItemsRepository.save).not.toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ installmentId: 'inst-normal' }),
+          expect.objectContaining({ installmentId: 'inst-contact' }),
+        ]),
+      );
     });
 
     it('sends SingleOverdueInstallment for one overdue installment within 8 days', async () => {

@@ -14,7 +14,6 @@ import { Installment } from '../loans/entities/installment.entity';
 import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
-import { getRecipientPhoneNumbers } from './clientRecipientPhoneNumbers';
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
@@ -27,6 +26,10 @@ import {
   findOverdueInstallmentsForClient,
   findUpcomingInstallmentsForClient,
 } from './reminderInstallmentQueries';
+import {
+  groupInstallmentsByRecipient,
+  restrictToTargetPhoneNumber,
+} from './reminderRecipientGrouping';
 import { selectReminderTemplate } from './reminderTemplateSelection';
 import { computeSaldoPendiente } from './saldoPendiente';
 import { WhatsAppService } from './whatsapp.service';
@@ -138,64 +141,76 @@ export class UpcomingDueReminderService {
       );
     }
 
-    const notaAdicional = await this.resolveNotaAdicional(overdue, upcoming);
-    const selection = selectReminderTemplate(
-      `${client.firstName} ${client.lastName}`,
-      overdue,
-      upcoming,
-      notaAdicional,
-    );
+    // Human report, 2026-09-19 — see OverdueReminderService's identical
+    // per-recipient grouping comment.
+    let groups = groupInstallmentsByRecipient(overdue, upcoming, client);
+    if (options?.targetPhoneNumbers) {
+      groups = restrictToTargetPhoneNumber(
+        groups,
+        options.targetPhoneNumbers[0],
+      );
+    }
 
-    const template = await this.messageTemplatesService.findByTypeOrThrow(
-      selection.type,
-    );
-
-    const phoneNumbers =
-      options?.targetPhoneNumbers ?? getRecipientPhoneNumbers(client);
     const savedLogs: MessageLog[] = [];
-    for (const phoneNumber of phoneNumbers) {
-      const { sent, whatsappMessageId } =
-        await this.whatsAppService.sendTemplateMessage(
+    for (const group of groups) {
+      const notaAdicional = await this.resolveNotaAdicional(
+        group.overdue,
+        group.upcoming,
+      );
+      const selection = selectReminderTemplate(
+        `${client.firstName} ${client.lastName}`,
+        group.overdue,
+        group.upcoming,
+        notaAdicional,
+      );
+      const template = await this.messageTemplatesService.findByTypeOrThrow(
+        selection.type,
+      );
+
+      for (const phoneNumber of group.recipientPhoneNumbers) {
+        const { sent, whatsappMessageId } =
+          await this.whatsAppService.sendTemplateMessage(
+            phoneNumber,
+            template.metaTemplateName,
+            template.metaLanguageCode,
+            selection.bodyParameters,
+          );
+
+        const messageLog = this.messageLogsRepository.create({
+          clientId,
+          type: selection.type,
           phoneNumber,
-          template.metaTemplateName,
-          template.metaLanguageCode,
-          selection.bodyParameters,
-        );
+          messageContent: selection.bodyParameters.join(' | '),
+          status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
+          sentAt: new Date(),
+          whatsappMessageId,
+        });
+        const savedLog = await this.messageLogsRepository.save(messageLog);
 
-      const messageLog = this.messageLogsRepository.create({
-        clientId,
-        type: selection.type,
-        phoneNumber,
-        messageContent: selection.bodyParameters.join(' | '),
-        status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
-        sentAt: new Date(),
-        whatsappMessageId,
-      });
-      const savedLog = await this.messageLogsRepository.save(messageLog);
-
-      const items = [
-        ...overdue.map((installment) =>
-          this.messageLogItemsRepository.create({
-            messageLogId: savedLog.id,
-            installmentId: installment.id,
-            overdueDaysSnapshot: installment.overdueDays,
-            // Bug fix, 2026-09-07 — see OverdueReminderService's identical fix
-            // and reminderInstallmentQueries.ts's OverdueInstallmentResult.
-            // interest doc comment.
-            interestSnapshot: installment.interest,
-          }),
-        ),
-        ...upcoming.map((installment) =>
-          this.messageLogItemsRepository.create({
-            messageLogId: savedLog.id,
-            installmentId: installment.id,
-            overdueDaysSnapshot: 0,
-            interestSnapshot: 0,
-          }),
-        ),
-      ];
-      await this.messageLogItemsRepository.save(items);
-      savedLogs.push(savedLog);
+        const items = [
+          ...group.overdue.map((installment) =>
+            this.messageLogItemsRepository.create({
+              messageLogId: savedLog.id,
+              installmentId: installment.id,
+              overdueDaysSnapshot: installment.overdueDays,
+              // Bug fix, 2026-09-07 — see OverdueReminderService's identical fix
+              // and reminderInstallmentQueries.ts's OverdueInstallmentResult.
+              // interest doc comment.
+              interestSnapshot: installment.interest,
+            }),
+          ),
+          ...group.upcoming.map((installment) =>
+            this.messageLogItemsRepository.create({
+              messageLogId: savedLog.id,
+              installmentId: installment.id,
+              overdueDaysSnapshot: 0,
+              interestSnapshot: 0,
+            }),
+          ),
+        ];
+        await this.messageLogItemsRepository.save(items);
+        savedLogs.push(savedLog);
+      }
     }
 
     return savedLogs;

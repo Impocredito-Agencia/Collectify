@@ -1,5 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsUUID } from 'class-validator';
+import { Transform } from 'class-transformer';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsPhoneNumber,
+  IsString,
+  IsUUID,
+} from 'class-validator';
+
+import { normalizePhoneNumber } from '../../clients/normalizePhoneNumber';
 
 // Only description and the co-debtor fields (Phase 21, updated to a client
 // link in Phase 26) are editable post-creation. Both are plain metadata
@@ -44,4 +53,19 @@ export class UpdateLoanDto {
   @IsOptional()
   @IsString()
   coDebtorRelationship?: string;
+
+  // --- Optional alternate contact, human report 2026-09-19 — see
+  // CreateLoanDto's identical fields for the full comment. ---
+
+  @ApiPropertyOptional({ example: 'Hermana del deudor' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  alternateContactName?: string;
+
+  @ApiPropertyOptional({ example: '+573009876543' })
+  @IsOptional()
+  @Transform(({ value }) => normalizePhoneNumber(value))
+  @IsPhoneNumber('CO')
+  alternateContactPhoneNumber?: string;
 }
