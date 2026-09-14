@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
+import { Modal } from '@/components/ui/Modal';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { InstallmentStatus } from '@/features/installments/installmentsApi';
 import {
@@ -36,6 +37,7 @@ import {
   formatDateOnly,
   formatPhoneNumber,
 } from '@/lib/format';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { Installment } from '@/features/installments/installmentsApi';
 import type { LoanSummary } from '@/features/loans/loansApi';
@@ -746,36 +748,101 @@ function ConversationThread({
   );
 }
 
-// Human report, 2026-09-13 — "Avisar al cliente" defaults to checked (the
-// only behavior this button had before this piece), so closing a
-// conversation still sends the generic closing message unless someone
-// deliberately unchecks it — e.g. once a ticket's 24h session window has
-// already closed and a real send would just fail, or the client was
-// already told outside WhatsApp that this is resolved.
+// Human report, 2026-09-14 — the "Avisar al cliente" checkbox used to sit
+// inline between "Ver información" and "Cerrar conversación" in the
+// header, with no context on what it actually did — easy to miss, and not
+// obvious it only applies to closing. Moved into its own confirmation
+// dialog (same Modal pattern as VoidPaymentDialog on the loan detail
+// page), where it has room for a real explanation.
 function CloseConversationButton({ phoneNumber }: { phoneNumber: string }) {
-  const closeConversation = useCloseConversation();
-  const [sendClosingMessage, setSendClosingMessage] = useState(true);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   return (
-    <div className="flex items-center gap-2">
-      <label className="flex items-center gap-1.5 text-meta text-muted">
+    <>
+      <RowActionButton onClick={() => setIsDialogOpen(true)}>
+        Cerrar conversación
+      </RowActionButton>
+      {isDialogOpen && (
+        <CloseConversationDialog
+          phoneNumber={phoneNumber}
+          onClose={() => setIsDialogOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function CloseConversationDialog({
+  phoneNumber,
+  onClose,
+}: {
+  phoneNumber: string;
+  onClose: () => void;
+}) {
+  const closeConversation = useCloseConversation();
+  // Defaults to checked — the only behavior this had before this dialog
+  // existed, so closing a conversation still sends the generic closing
+  // message unless someone deliberately unchecks it.
+  const [sendClosingMessage, setSendClosingMessage] = useState(true);
+
+  useEscapeKey(onClose);
+
+  const handleConfirm = () => {
+    closeConversation.mutate(
+      { phoneNumber, sendClosingMessage },
+      { onSuccess: onClose },
+    );
+  };
+
+  return (
+    <Modal maxWidth="max-w-[420px]">
+      <h2 className="text-[16px] font-medium text-white">
+        Cerrar conversación
+      </h2>
+      <p className="mt-2.5 text-small text-muted">
+        Marca la conversación como resuelta y borra el estado del menú de
+        autoservicio, así el próximo mensaje del cliente arranca el menú desde
+        cero.
+      </p>
+
+      <label className="mt-4 flex items-start gap-2">
         <input
           type="checkbox"
           checked={sendClosingMessage}
           onChange={(event) => setSendClosingMessage(event.target.checked)}
-          className="h-3.5 w-3.5 accent-white"
+          className="mt-0.5 h-3.5 w-3.5 accent-white"
         />
-        Avisar al cliente
+        <span className="text-small text-white">
+          Avisar al cliente
+          <span className="mt-0.5 block text-meta text-subtle">
+            Le manda un mensaje de cierre por WhatsApp. Desmárcalo si ya se le
+            avisó por otro medio, o si su ventana de 24 horas ya se cerró (el
+            envío fallaría de todas formas).
+          </span>
+        </span>
       </label>
-      <RowActionButton
-        disabled={closeConversation.isPending}
-        onClick={() =>
-          closeConversation.mutate({ phoneNumber, sendClosingMessage })
-        }
-      >
-        {closeConversation.isPending ? 'Cerrando…' : 'Cerrar conversación'}
-      </RowActionButton>
-    </div>
+
+      {closeConversation.isError && (
+        <p className="mt-3 text-small text-danger" role="alert">
+          No se pudo cerrar la conversación. Intenta de nuevo.
+        </p>
+      )}
+
+      <div className="mt-6 border-t border-border" />
+
+      <div className="mt-5 flex items-center justify-end gap-3">
+        <Button
+          variant="secondary"
+          onClick={onClose}
+          disabled={closeConversation.isPending}
+        >
+          Cancelar
+        </Button>
+        <Button onClick={handleConfirm} disabled={closeConversation.isPending}>
+          {closeConversation.isPending ? 'Cerrando…' : 'Cerrar conversación'}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
