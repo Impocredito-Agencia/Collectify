@@ -189,6 +189,10 @@ describe('SelfServiceMenuService', () => {
         client.id,
         ConversationMenu.Main,
       );
+      // Human report, 2026-09-14 — this is the client's very first message
+      // (no active state yet), before they've ever seen a menu — doesn't
+      // count as "ignoring the menu" yet, see FreeText's own comment.
+      expect(conversationTicketService.openOrReopen).not.toHaveBeenCalled();
     });
 
     // Human report, 2026-09-19 — every automated reply this menu sends
@@ -232,6 +236,13 @@ describe('SelfServiceMenuService', () => {
         client.id,
         ConversationMenu.MiCuentaSubmenu,
       );
+      // Human report, 2026-09-14 — the client already got a menu (this
+      // state wouldn't exist otherwise) and is still typing free text
+      // instead of tapping a button.
+      expect(conversationTicketService.openOrReopen).toHaveBeenCalledWith(
+        client.id,
+        WhatsappTicketTriggerKind.FreeText,
+      );
     });
 
     it('stays silent when free text arrives while awaiting a receipt', async () => {
@@ -246,6 +257,7 @@ describe('SelfServiceMenuService', () => {
         whatsAppService.sendInteractiveButtonsMessage,
       ).not.toHaveBeenCalled();
       expect(conversationStateService.upsert).not.toHaveBeenCalled();
+      expect(conversationTicketService.openOrReopen).not.toHaveBeenCalled();
     });
 
     it('stays silent when free text arrives after being handed off to a human', async () => {
@@ -260,6 +272,7 @@ describe('SelfServiceMenuService', () => {
         whatsAppService.sendInteractiveButtonsMessage,
       ).not.toHaveBeenCalled();
       expect(conversationStateService.upsert).not.toHaveBeenCalled();
+      expect(conversationTicketService.openOrReopen).not.toHaveBeenCalled();
     });
   });
 

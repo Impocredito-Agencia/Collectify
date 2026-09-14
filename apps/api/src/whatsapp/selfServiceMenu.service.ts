@@ -247,6 +247,15 @@ export class SelfServiceMenuService {
     // (2026-09-01): a stray message while a menu is active re-sends that
     // same menu rather than falling back to the main menu.
     await this.resendCurrentMenu(client, state.currentMenu);
+    // Human report, 2026-09-14 — the client already got a menu (this
+    // isn't their first message — see the `!state` branch above) and is
+    // still typing free text instead of tapping a button. Deliberately
+    // excludes a fresh/expired conversation's very first message, which
+    // is expected to be free text before anyone has seen a menu at all.
+    await this.conversationTicketService.openOrReopen(
+      client.id,
+      WhatsappTicketTriggerKind.FreeText,
+    );
   }
 
   private async handlePossibleReceipt(

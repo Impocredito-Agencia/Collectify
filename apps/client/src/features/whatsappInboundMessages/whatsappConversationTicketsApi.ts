@@ -10,6 +10,7 @@ export enum WhatsappTicketTriggerKind {
   AdvisorRequested = 'advisor_requested',
   ReceiptImage = 'receipt_image',
   ReceiptDocument = 'receipt_document',
+  FreeText = 'free_text',
 }
 
 // Human report, 2026-09-13 — one row per client (not append-only, unlike

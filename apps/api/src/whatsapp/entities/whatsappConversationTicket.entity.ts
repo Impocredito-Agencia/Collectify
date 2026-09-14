@@ -32,6 +32,14 @@ export enum WhatsappTicketTriggerKind {
   AdvisorRequested = 'advisor_requested',
   ReceiptImage = 'receipt_image',
   ReceiptDocument = 'receipt_document',
+  // Human report, 2026-09-14 — a lot of clients never touch the button
+  // menu at all, just type what they need in free text; the bot can't
+  // understand any of it, only re-send the same menu on loop. Fires only
+  // once the client has already received that menu at least once (i.e.
+  // SelfServiceMenuService.resendCurrentMenu, not the very first
+  // sendMainMenu on a fresh/expired conversation) and keeps typing free
+  // text instead of tapping a button — see handleFreeText.
+  FreeText = 'free_text',
 }
 
 // One row per client, upserted — NOT append-only, same convention as

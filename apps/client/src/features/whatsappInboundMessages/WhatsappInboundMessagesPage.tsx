@@ -189,6 +189,7 @@ const TICKET_TRIGGER_LABELS: Record<WhatsappTicketTriggerKind, string> = {
   [WhatsappTicketTriggerKind.ReceiptImage]: 'Envió un posible comprobante',
   [WhatsappTicketTriggerKind.ReceiptDocument]:
     'Envió un posible comprobante (documento)',
+  [WhatsappTicketTriggerKind.FreeText]: 'Está escribiendo sin usar el menú',
 };
 
 // Human report, 2026-09-13 — pins every Pending-ticket conversation above
