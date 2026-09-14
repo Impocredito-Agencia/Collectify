@@ -77,6 +77,20 @@ export class WhatsappInboundMessage {
   @Column({ type: 'varchar', nullable: true })
   mediaUrl!: string | null;
 
+  // Human report, 2026-09-14 — set for audio/video only. Deliberately NOT
+  // re-hosted to Cloudinary like mediaUrl above: the client doesn't want
+  // Cloudinary storage/quota spent on a voice note or a video, just the
+  // ability to listen/watch it from the inbox. This is Meta's own
+  // reference to the file instead — see extractInboundEvents.ts's
+  // parseMessage — fetched fresh from Meta's Media API on each playback
+  // (WhatsappController's inbound-messages/:id/media endpoint) rather than
+  // stored anywhere permanent. Meta's own copy is temporary, so a very old
+  // message's file can eventually 404 even with this id still on hand —
+  // acceptable, since this is for reviewing a recent message, not
+  // long-term archival.
+  @Column({ type: 'varchar', nullable: true })
+  metaMediaId!: string | null;
+
   // Human report, 2026-09-11 — set once a collector reviews this
   // message's comprobante and registers a payment from it (the "Registrar
   // pago con este comprobante" flow — see

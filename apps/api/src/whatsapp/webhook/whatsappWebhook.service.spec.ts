@@ -1,6 +1,6 @@
 import { createHmac } from 'crypto';
 
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -35,6 +35,7 @@ describe('WhatsappWebhookService', () => {
     save: jest.Mock;
     findAndCount: jest.Mock;
     find: jest.Mock;
+    findOne: jest.Mock;
     manager: { query: jest.Mock };
   };
   let clientsRepository: { findOne: jest.Mock };
@@ -53,7 +54,10 @@ describe('WhatsappWebhookService', () => {
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
   let conversationStateService: { getActive: jest.Mock; clear: jest.Mock };
   let conversationTicketService: { resolve: jest.Mock };
-  let whatsappMediaService: { downloadAndStore: jest.Mock };
+  let whatsappMediaService: {
+    downloadAndStore: jest.Mock;
+    fetchMediaBytes: jest.Mock;
+  };
 
   beforeEach(async () => {
     inboundMessagesRepository = {
@@ -61,6 +65,7 @@ describe('WhatsappWebhookService', () => {
       save: jest.fn((data: Record<string, unknown>) => Promise.resolve(data)),
       findAndCount: jest.fn(),
       find: jest.fn(),
+      findOne: jest.fn(),
       manager: { query: jest.fn() },
     };
     clientsRepository = { findOne: jest.fn() };
@@ -101,6 +106,7 @@ describe('WhatsappWebhookService', () => {
     // them).
     whatsappMediaService = {
       downloadAndStore: jest.fn().mockResolvedValue(null),
+      fetchMediaBytes: jest.fn().mockResolvedValue(null),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -412,6 +418,98 @@ describe('WhatsappWebhookService', () => {
       ).resolves.toBeUndefined();
       expect(inboundMessagesRepository.save).toHaveBeenCalledTimes(1);
       expect(whatsappInboundGateway.emitInboundMessage).toHaveBeenCalled();
+    });
+
+    // Human report, 2026-09-14 — the client does not want audio/video
+    // re-hosted to Cloudinary (unlike image/document above), just the raw
+    // Meta media id kept for on-demand playback — see
+    // WhatsappInboundMessage.metaMediaId's own comment.
+    function buildAudioPayload(from: string) {
+      return {
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  messages: [
+                    {
+                      from,
+                      timestamp: '1700000000',
+                      type: 'audio',
+                      audio: { id: 'media-9', mime_type: 'audio/ogg' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+    }
+
+    it('saves the raw Meta media id for an audio message, never calling the Cloudinary re-host', async () => {
+      await service.handleIncomingPayload(buildAudioPayload('573001234567'));
+
+      expect(whatsappMediaService.downloadAndStore).not.toHaveBeenCalled();
+      expect(inboundMessagesRepository.save).toHaveBeenLastCalledWith(
+        expect.objectContaining({ metaMediaId: 'media-9' }),
+      );
+    });
+  });
+
+  describe('getInboundMedia', () => {
+    it('returns the bytes/mimeType fetched fresh from Meta for a message with a metaMediaId', async () => {
+      inboundMessagesRepository.findOne.mockResolvedValue({
+        id: 'msg-1',
+        metaMediaId: 'media-9',
+      });
+      whatsappMediaService.fetchMediaBytes.mockResolvedValue({
+        bytes: Buffer.from('fake-audio-bytes'),
+        mimeType: 'audio/ogg',
+      });
+
+      const result = await service.getInboundMedia('msg-1');
+
+      expect(whatsappMediaService.fetchMediaBytes).toHaveBeenCalledWith(
+        'media-9',
+      );
+      expect(result).toEqual({
+        bytes: Buffer.from('fake-audio-bytes'),
+        mimeType: 'audio/ogg',
+      });
+    });
+
+    it('throws NotFoundException when the message does not exist', async () => {
+      inboundMessagesRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.getInboundMedia('missing')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(whatsappMediaService.fetchMediaBytes).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the message has no metaMediaId (e.g. an image/document/text message)', async () => {
+      inboundMessagesRepository.findOne.mockResolvedValue({
+        id: 'msg-1',
+        metaMediaId: null,
+      });
+
+      await expect(service.getInboundMedia('msg-1')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(whatsappMediaService.fetchMediaBytes).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when Meta no longer has the file', async () => {
+      inboundMessagesRepository.findOne.mockResolvedValue({
+        id: 'msg-1',
+        metaMediaId: 'media-9',
+      });
+      whatsappMediaService.fetchMediaBytes.mockResolvedValue(null);
+
+      await expect(service.getInboundMedia('msg-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 

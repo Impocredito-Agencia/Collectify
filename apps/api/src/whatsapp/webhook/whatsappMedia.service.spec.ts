@@ -188,4 +188,114 @@ describe('WhatsappMediaService', () => {
 
     await expect(service.downloadAndStore('media-1')).resolves.toBeNull();
   });
+
+  // Human report, 2026-09-14 — backs audio/video playback without ever
+  // touching Cloudinary (unlike downloadAndStore above).
+  describe('fetchMediaBytes', () => {
+    it('returns null and skips the network entirely when WhatsApp credentials are not configured', async () => {
+      configService.get.mockReturnValue({ accessToken: '' });
+
+      const result = await service.fetchMediaBytes('media-9');
+
+      expect(result).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('never touches Cloudinary — no signature is generated', async () => {
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              url: 'https://lookaside.fbsbx.com/media-9',
+              mime_type: 'audio/ogg',
+            }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)),
+        });
+
+      await service.fetchMediaBytes('media-9');
+
+      expect(uploadsService.generateSignature).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns the bytes and mime type on success', async () => {
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              url: 'https://lookaside.fbsbx.com/media-9',
+              mime_type: 'video/mp4',
+            }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)),
+        });
+
+      const result = await service.fetchMediaBytes('media-9');
+
+      expect(result).toEqual({
+        bytes: Buffer.alloc(4),
+        mimeType: 'video/mp4',
+      });
+    });
+
+    it('falls back to a generic mime type when Meta does not report one', async () => {
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({ url: 'https://lookaside.fbsbx.com/media-9' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)),
+        });
+
+      const result = await service.fetchMediaBytes('media-9');
+
+      expect(result?.mimeType).toBe('application/octet-stream');
+    });
+
+    it('returns null when Meta rejects the media id lookup', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve('Unsupported get request'),
+      });
+
+      const result = await service.fetchMediaBytes('media-9');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null when downloading the media bytes fails', async () => {
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({ url: 'https://lookaside.fbsbx.com/media-9' }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 403,
+          text: () => Promise.resolve(''),
+        });
+
+      const result = await service.fetchMediaBytes('media-9');
+
+      expect(result).toBeNull();
+    });
+
+    it('never throws — an unexpected network error resolves to null', async () => {
+      fetchMock.mockRejectedValue(new Error('network error'));
+
+      await expect(service.fetchMediaBytes('media-9')).resolves.toBeNull();
+    });
+  });
 });

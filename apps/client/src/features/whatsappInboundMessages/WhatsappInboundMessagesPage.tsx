@@ -16,6 +16,7 @@ import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogsForClient } from '@/features/messageLogs/useMessageLogs';
 import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
 import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMessages/RegisterPaymentFromWhatsappModal';
+import { whatsappInboundMediaApi } from '@/features/whatsappInboundMessages/whatsappInboundMediaApi';
 import {
   useCloseConversation,
   useConversations,
@@ -989,16 +990,89 @@ const PAYMENT_EVIDENCE_TYPES: WhatsappInboundMessageType[] = [
   WhatsappInboundMessageType.Document,
 ];
 
+// Human report, 2026-09-14 — audio/video are deliberately never re-hosted
+// to Cloudinary (the client doesn't want that quota spent on those, see
+// WhatsappInboundMessage.metaMediaId's own comment), so message.mediaUrl
+// stays null for both. Fetches the file fresh from Meta on mount instead
+// (GET /whatsapp/inbound-messages/:id/media, via whatsappInboundMediaApi)
+// and plays the resulting blob through an object URL — a plain
+// <audio src>/<video src> can't carry this endpoint's required Bearer auth
+// header. Meta's own copy is temporary, so an old enough message can fail
+// here even though it was received and logged fine — shown as a plain
+// message instead of a broken player.
+function InboundMediaPlayer({
+  messageId,
+  kind,
+}: {
+  messageId: string;
+  kind: 'audio' | 'video';
+}) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [hasFailed, setHasFailed] = useState(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+    let createdUrl: string | null = null;
+
+    whatsappInboundMediaApi
+      .getMediaBlob(messageId)
+      .then((blob) => {
+        if (isCancelled) return;
+        createdUrl = URL.createObjectURL(blob);
+        setObjectUrl(createdUrl);
+      })
+      .catch(() => {
+        if (!isCancelled) setHasFailed(true);
+      });
+
+    return () => {
+      isCancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [messageId]);
+
+  if (hasFailed) {
+    return (
+      <p className="text-small text-subtle">
+        No se pudo cargar el archivo — puede que ya no esté disponible en
+        WhatsApp.
+      </p>
+    );
+  }
+  if (!objectUrl) {
+    return <p className="text-small text-subtle">Cargando…</p>;
+  }
+  return kind === 'audio' ? (
+    <audio controls src={objectUrl} className="max-w-full">
+      Tu navegador no soporta la reproducción de audio.
+    </audio>
+  ) : (
+    <video controls src={objectUrl} className="max-h-56 rounded">
+      Tu navegador no soporta la reproducción de video.
+    </video>
+  );
+}
+
 function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
   const [isImageOpen, setIsImageOpen] = useState(false);
   const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
   const isViewableImage = VIEWABLE_IMAGE_TYPES.includes(message.type);
-  // Human report, 2026-09-14 — audio/video now re-host to Cloudinary too
-  // (see WhatsappMediaService), so they get their own inline player
-  // instead of falling into the generic "ver archivo" link below.
+  const hasInlineImage = isViewableImage && Boolean(message.mediaUrl);
+  // Human report, 2026-09-14 — audio/video get their own inline player
+  // (InboundMediaPlayer, fetched on demand — see its own comment) instead
+  // of falling into the generic "ver archivo" link below. Unlike
+  // hasInlineImage, these don't depend on message.mediaUrl — that stays
+  // null for both on purpose, so the player always attempts to load.
   const isPlayableAudio = message.type === WhatsappInboundMessageType.Audio;
   const isPlayableVideo = message.type === WhatsappInboundMessageType.Video;
-  const isInlineMedia = isViewableImage || isPlayableAudio || isPlayableVideo;
+  const rendersOwnMedia = hasInlineImage || isPlayableAudio || isPlayableVideo;
+  // The caption/fallback line below the media, or the sole line for a
+  // non-media message: shown whenever nothing else rendered (no image/
+  // player and no mediaUrl link either), or alongside an image/video's own
+  // caption (audio never has one).
+  const showsCaptionOrFallbackText =
+    (!rendersOwnMedia && !message.mediaUrl) ||
+    (rendersOwnMedia && Boolean(message.bodyText));
   const canRegisterPayment =
     !message.payment &&
     message.mediaUrl &&
@@ -1025,30 +1099,26 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
           the way through to the same type/caption-only text it always
           showed. document gets a link instead of an inline thumbnail —
           those don't render as an <img>. */}
-      {message.mediaUrl && isViewableImage && (
+      {hasInlineImage && (
         <button
           type="button"
           onClick={() => setIsImageOpen(true)}
           className="self-start"
         >
           <img
-            src={message.mediaUrl}
+            src={message.mediaUrl ?? undefined}
             alt="Imagen enviada por el cliente"
             className="max-h-56 rounded object-cover"
           />
         </button>
       )}
-      {message.mediaUrl && isPlayableAudio && (
-        <audio controls src={message.mediaUrl} className="max-w-full">
-          Tu navegador no soporta la reproducción de audio.
-        </audio>
+      {isPlayableAudio && (
+        <InboundMediaPlayer messageId={message.id} kind="audio" />
       )}
-      {message.mediaUrl && isPlayableVideo && (
-        <video controls src={message.mediaUrl} className="max-h-56 rounded">
-          Tu navegador no soporta la reproducción de video.
-        </video>
+      {isPlayableVideo && (
+        <InboundMediaPlayer messageId={message.id} kind="video" />
       )}
-      {message.mediaUrl && !isInlineMedia && (
+      {message.mediaUrl && !rendersOwnMedia && (
         <a
           href={message.mediaUrl}
           target="_blank"
@@ -1058,7 +1128,7 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
           {messagePreview(message)}
         </a>
       )}
-      {(!message.mediaUrl || (isInlineMedia && message.bodyText)) && (
+      {showsCaptionOrFallbackText && (
         <p className="text-small text-white">{messagePreview(message)}</p>
       )}
       {/* Human report, 2026-09-11 — set once "Registrar pago con este
