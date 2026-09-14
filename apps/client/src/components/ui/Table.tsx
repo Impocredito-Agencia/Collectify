@@ -41,6 +41,13 @@ interface TdProps {
   // the cell itself only shows the aggregate. Plain pass-through to the
   // underlying <td>.
   title?: string;
+  // Same escape hatch as Th's own `style` (see that prop's comment) — an
+  // inline style always wins over a class-based utility regardless of
+  // Tailwind's own stylesheet source order. LoanDetailPage's checkbox
+  // column uses this to zero out the default px-3.5 reliably (a
+  // conflicting className like `p-0` isn't guaranteed to win the cascade
+  // over `px-3.5` just by appearing later in the class list).
+  style?: CSSProperties;
 }
 
 // Table cells (style cleanup, 2026-09-02) — every list/detail table in the
@@ -106,6 +113,7 @@ export function Td({
   muted = false,
   compact = false,
   title,
+  style,
 }: TdProps) {
   const height = compact ? 'h-8' : 'h-11';
   return (
@@ -115,6 +123,7 @@ export function Td({
           ? `${height} px-3.5 text-small text-muted ${className}`
           : `${height} px-3.5 text-small font-medium text-strong ${className}`
       }
+      style={style}
       title={title}
     >
       {children}
