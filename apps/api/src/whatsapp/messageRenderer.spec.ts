@@ -269,8 +269,9 @@ describe('messageRenderer', () => {
         '2️⃣ Cuota No. 4 por $300.000 vence en 10 días.',
       );
       expect(message).toContain('3️⃣ Cuota No. 5 por $300.000 vence hoy.');
-      // 520800 + 300000 + 300000 = 1120800
-      expect(message).toContain('Total: $1.120.800');
+      // Only cuota 3 (overdue) and cuota 5 (due today) count toward "hoy" —
+      // cuota 4 isn't due for another 10 days: 520800 + 300000 = 820800.
+      expect(message).toContain('Total: $820.800');
     });
 
     // Bug fix, 2026-09-03 (human report): installments from different
@@ -415,7 +416,7 @@ describe('messageRenderer', () => {
   });
 
   describe('calculateAccountSummaryTotal', () => {
-    it('sums totalDue across every included installment', () => {
+    it('sums totalDue across every overdue or due-today installment', () => {
       const installments: AccountSummaryInstallmentForMessage[] = [
         {
           installmentNumber: 1,
@@ -429,11 +430,42 @@ describe('messageRenderer', () => {
           promissoryNoteNumber: '743',
           totalDue: 300000,
           overdueDays: 0,
-          daysUntilDue: 10,
+          daysUntilDue: 0,
         },
       ];
 
       expect(calculateAccountSummaryTotal(installments)).toBe(820800);
+    });
+
+    // Bug fix, 2026-09-14 (human report) — "Estado de cuenta" folded every
+    // future (not-yet-due) cuota into "El valor total a pagar hoy", not
+    // just what's actually payable today.
+    it('excludes future (not-yet-due) installments from the total', () => {
+      const installments: AccountSummaryInstallmentForMessage[] = [
+        {
+          installmentNumber: 5,
+          promissoryNoteNumber: '1080',
+          totalDue: 162339,
+          overdueDays: 9,
+          daysUntilDue: 0,
+        },
+        {
+          installmentNumber: 6,
+          promissoryNoteNumber: '1080',
+          totalDue: 159000,
+          overdueDays: 0,
+          daysUntilDue: 21,
+        },
+        {
+          installmentNumber: 7,
+          promissoryNoteNumber: '1080',
+          totalDue: 159000,
+          overdueDays: 0,
+          daysUntilDue: 52,
+        },
+      ];
+
+      expect(calculateAccountSummaryTotal(installments)).toBe(162339);
     });
 
     it('returns 0 for an empty list', () => {

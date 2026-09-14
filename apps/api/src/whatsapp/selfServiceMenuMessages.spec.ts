@@ -87,10 +87,13 @@ describe('renderBreakdownMessage', () => {
       '1️⃣ Cuota No. 3 por $520.800 (recargos incluidos) venció hace 45 días.',
     );
     expect(message).toContain('2️⃣ Cuota No. 4 por $300.000 vence en 10 días.');
-    // 520800 + 300000 = 820800. Bug fix, 2026-09-08 (human report): "El
-    // valor total a pagar hoy" instead of "El valor a pagar hoy", for
-    // clarity that it's the sum across every listed cuota.
-    expect(message).toContain('El valor total a pagar hoy es $820.800 🚨');
+    // Bug fix, 2026-09-08 (human report): "El valor total a pagar hoy"
+    // instead of "El valor a pagar hoy", for clarity that it's a sum.
+    //
+    // Bug fix, 2026-09-14 (human report): that sum must only cover what's
+    // actually overdue/due today (cuota 3's $520.800) — cuota 4 isn't due
+    // for another 10 days, so its $300.000 doesn't belong in "hoy".
+    expect(message).toContain('El valor total a pagar hoy es $520.800 🚨');
     expect(message).toContain('Quedamos atentos a cualquier consulta.');
   });
 
