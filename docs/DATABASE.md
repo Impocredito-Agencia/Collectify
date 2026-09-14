@@ -545,6 +545,8 @@ Added 2026-09-13 (human report) — cobradores had no way to tell which WhatsApp
 
 **Audit:** `POST .../close-conversation` is now decorated `@Audit('whatsappTicket.resolve', 'whatsappTicket')` — closes another item off the 2026-09-03 coverage sweep noted above (`whatsappCron`'s own note). Its response carries no client, so the audit label is resolved by looking the client up from the submitted `phoneNumber` (matching either their primary or alternate number), not from the response.
 
+**Added, 2026-09-13 — `whatsapp_manual_replies.self_service_reply_kind`:** `WhatsappOutboundLogService.log()` covers both the self-service menu's own automated replies AND `closeConversation`'s closing message, told apart only by `sentByUserId: null` for both — this nullable enum column (`main_menu`, `mi_cuenta_submenu`, `breakdown`, `payment_history`, `receipt_request`, `receipt_received_ack`, `advisor_handoff`, `volver_al_menu_follow_up`) further tags WHICH self-service action produced a reply, set only by `SelfServiceMenuService`'s `sendText`/`sendInteractive` wrappers — null for an admin's own typed reply or the closing message, same as before this column existed. Not yet surfaced in `apps/client`'s UI (still shown generically as "Automático") — that's a follow-up, not built here.
+
 ## Refinancing
 
 When a loan is refinanced:

@@ -12,6 +12,7 @@ import { WhatsappTicketTriggerKind } from './entities/whatsappConversationTicket
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { WhatsappInboundMessageType } from './entities/whatsappInboundMessage.entity';
+import { SelfServiceReplyKind } from './entities/whatsappManualReply.entity';
 import { SelfServiceMenuService } from './selfServiceMenu.service';
 import {
   SelfServiceMenuButtonId,
@@ -205,6 +206,7 @@ describe('SelfServiceMenuService', () => {
           phoneNumber: client.phoneNumber,
           sentByUserId: null,
           sent: true,
+          selfServiceReplyKind: SelfServiceReplyKind.MainMenu,
         }),
       );
     });
@@ -392,6 +394,7 @@ describe('SelfServiceMenuService', () => {
             messageContent: expect.stringContaining('Juan Pérez') as unknown,
             sentByUserId: null,
             sent: true,
+            selfServiceReplyKind: SelfServiceReplyKind.Breakdown,
           }),
         );
       },

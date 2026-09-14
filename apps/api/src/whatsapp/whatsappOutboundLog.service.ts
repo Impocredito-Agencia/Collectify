@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import {
+  SelfServiceReplyKind,
   WhatsappManualReply,
   WhatsappManualReplyStatus,
 } from './entities/whatsappManualReply.entity';
@@ -33,6 +34,10 @@ export class WhatsappOutboundLogService {
     messageContent: string;
     sentByUserId: string | null;
     sent: boolean;
+    // Human report, 2026-09-13 — set only by SelfServiceMenuService's
+    // sendText/sendInteractive wrappers; every other caller (an admin's
+    // manual reply, the closing message) leaves this null.
+    selfServiceReplyKind?: SelfServiceReplyKind | null;
   }): Promise<WhatsappManualReply> {
     const reply = this.manualRepliesRepository.create({
       clientId: params.clientId,
@@ -42,6 +47,7 @@ export class WhatsappOutboundLogService {
       status: params.sent
         ? WhatsappManualReplyStatus.Sent
         : WhatsappManualReplyStatus.Failed,
+      selfServiceReplyKind: params.selfServiceReplyKind ?? null,
       sentAt: new Date(),
     });
     const saved = await this.manualRepliesRepository.save(reply);

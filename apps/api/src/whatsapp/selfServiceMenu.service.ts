@@ -18,6 +18,7 @@ import { WhatsappTicketTriggerKind } from './entities/whatsappConversationTicket
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { WhatsappInboundMessageType } from './entities/whatsappInboundMessage.entity';
+import { SelfServiceReplyKind } from './entities/whatsappManualReply.entity';
 import { AccountSummaryInstallmentForMessage } from './messageRenderer';
 import {
   ADVISOR_HANDOFF_MESSAGE,
@@ -84,7 +85,15 @@ export class SelfServiceMenuService {
   // it. Every sendTextMessage/sendInteractiveButtonsMessage call in this
   // class goes through one of these two wrappers instead of calling
   // whatsAppService directly.
-  private async sendText(client: Client, message: string): Promise<boolean> {
+  // kind (human report, 2026-09-13) — every call site in this class is a
+  // distinct self-service action; tagging which one lets the inbox
+  // eventually show more than just "Automático" for the bot's own
+  // replies. See SelfServiceReplyKind's own comment.
+  private async sendText(
+    client: Client,
+    message: string,
+    kind: SelfServiceReplyKind,
+  ): Promise<boolean> {
     const sent = await this.whatsAppService.sendTextMessage(
       client.phoneNumber,
       message,
@@ -95,6 +104,7 @@ export class SelfServiceMenuService {
       messageContent: message,
       sentByUserId: null,
       sent,
+      selfServiceReplyKind: kind,
     });
     return sent;
   }
@@ -103,6 +113,7 @@ export class SelfServiceMenuService {
     client: Client,
     bodyText: string,
     buttons: WhatsAppInteractiveButton[],
+    kind: SelfServiceReplyKind,
   ): Promise<boolean> {
     const sent = await this.whatsAppService.sendInteractiveButtonsMessage(
       client.phoneNumber,
@@ -115,6 +126,7 @@ export class SelfServiceMenuService {
       messageContent: bodyText,
       sentByUserId: null,
       sent,
+      selfServiceReplyKind: kind,
     });
     return sent;
   }
@@ -252,7 +264,11 @@ export class SelfServiceMenuService {
       const body = isWithinBusinessHours()
         ? RECEIPT_RECEIVED_MESSAGE
         : RECEIPT_RECEIVED_OUT_OF_HOURS_MESSAGE;
-      await this.sendText(client, body);
+      await this.sendText(
+        client,
+        body,
+        SelfServiceReplyKind.ReceiptReceivedAck,
+      );
       // Hands off to a human for review — see the ConversationMenu doc
       // comment. No further automated replies fire for this number until
       // an admin closes the conversation.
@@ -308,7 +324,12 @@ export class SelfServiceMenuService {
   }
 
   private async sendMainMenu(client: Client): Promise<void> {
-    await this.sendInteractive(client, MAIN_MENU_BODY, MAIN_MENU_BUTTONS);
+    await this.sendInteractive(
+      client,
+      MAIN_MENU_BODY,
+      MAIN_MENU_BUTTONS,
+      SelfServiceReplyKind.MainMenu,
+    );
     await this.conversationStateService.upsert(
       client.phoneNumber,
       client.id,
@@ -321,6 +342,7 @@ export class SelfServiceMenuService {
       client,
       MI_CUENTA_SUBMENU_BODY,
       MI_CUENTA_SUBMENU_BUTTONS,
+      SelfServiceReplyKind.MiCuentaSubmenu,
     );
     await this.conversationStateService.upsert(
       client.phoneNumber,
@@ -330,7 +352,11 @@ export class SelfServiceMenuService {
   }
 
   private async startReceiptFlow(client: Client): Promise<void> {
-    await this.sendText(client, RECEIPT_REQUEST_MESSAGE);
+    await this.sendText(
+      client,
+      RECEIPT_REQUEST_MESSAGE,
+      SelfServiceReplyKind.ReceiptRequest,
+    );
     await this.conversationStateService.upsert(
       client.phoneNumber,
       client.id,
@@ -350,7 +376,7 @@ export class SelfServiceMenuService {
     const body = isWithinBusinessHours()
       ? ADVISOR_HANDOFF_MESSAGE
       : ADVISOR_HANDOFF_OUT_OF_HOURS_MESSAGE;
-    await this.sendText(client, body);
+    await this.sendText(client, body, SelfServiceReplyKind.AdvisorHandoff);
     // Hands off to a human — see the ConversationMenu doc comment. No
     // further automated replies fire for this number until an admin closes
     // the conversation.
@@ -377,6 +403,7 @@ export class SelfServiceMenuService {
     await this.sendText(
       client,
       renderBreakdownMessage(clientFullName, installments),
+      SelfServiceReplyKind.Breakdown,
     );
     await this.sendVolverAlMenuFollowUp(client);
   }
@@ -414,6 +441,7 @@ export class SelfServiceMenuService {
       renderBreakdownMessage(clientFullName, scoped, {
         alwaysShowBreakdown: true,
       }),
+      SelfServiceReplyKind.Breakdown,
     );
     await this.sendVolverAlMenuFollowUp(client);
   }
@@ -454,6 +482,7 @@ export class SelfServiceMenuService {
     await this.sendText(
       client,
       renderPaymentHistoryMessage(clientFullName, payments),
+      SelfServiceReplyKind.PaymentHistory,
     );
     await this.sendVolverAlMenuFollowUp(client);
   }
@@ -463,6 +492,7 @@ export class SelfServiceMenuService {
       client,
       VOLVER_FOLLOW_UP_BODY,
       VOLVER_AL_MENU_BUTTONS,
+      SelfServiceReplyKind.VolverAlMenuFollowUp,
     );
     // A breakdown/history view isn't itself a "screen" with its own
     // currentMenu — clearing state here means a stray text after it falls

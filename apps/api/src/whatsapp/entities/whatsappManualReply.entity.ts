@@ -16,6 +16,22 @@ export enum WhatsappManualReplyStatus {
   Failed = 'failed',
 }
 
+// Which self-service action produced this reply, when it was one — see
+// SelfServiceMenuService's sendText/sendInteractive wrappers for where
+// each one is sent from. Null for an admin's own typed reply or
+// WhatsappWebhookService.closeConversation's closing message — neither
+// comes from the self-service menu.
+export enum SelfServiceReplyKind {
+  MainMenu = 'main_menu',
+  MiCuentaSubmenu = 'mi_cuenta_submenu',
+  Breakdown = 'breakdown',
+  PaymentHistory = 'payment_history',
+  ReceiptRequest = 'receipt_request',
+  ReceiptReceivedAck = 'receipt_received_ack',
+  AdvisorHandoff = 'advisor_handoff',
+  VolverAlMenuFollowUp = 'volver_al_menu_follow_up',
+}
+
 // Human report, 2026-09-19 — an admin's free-form "Responder" reply
 // (WhatsappWebhookService.sendManualReply) used to only exist as local
 // React state on WhatsappInboundMessagesPage.tsx: it disappeared on
@@ -67,6 +83,10 @@ export class WhatsappManualReply {
 
   @Column({ type: 'enum', enum: WhatsappManualReplyStatus })
   status!: WhatsappManualReplyStatus;
+
+  // Human report, 2026-09-13 — see SelfServiceReplyKind's own comment.
+  @Column({ type: 'enum', enum: SelfServiceReplyKind, nullable: true })
+  selfServiceReplyKind!: SelfServiceReplyKind | null;
 
   @Column({ type: 'timestamptz' })
   sentAt!: Date;

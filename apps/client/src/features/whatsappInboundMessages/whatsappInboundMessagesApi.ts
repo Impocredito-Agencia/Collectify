@@ -28,6 +28,19 @@ export enum WhatsappInboundMessageType {
 // left no trace here. sentByUserId is how the two are told apart: null
 // means the bot composed and sent it, not an admin — see
 // WhatsappInboundMessagesPage.tsx's ReplyBubble.
+// Matches apps/api's SelfServiceReplyKind — set only when
+// selfServiceReplyKind's sentByUserId is null AND the send came from the
+// self-service menu (not the "Cerrar conversación" closing message).
+export type SelfServiceReplyKind =
+  | 'main_menu'
+  | 'mi_cuenta_submenu'
+  | 'breakdown'
+  | 'payment_history'
+  | 'receipt_request'
+  | 'receipt_received_ack'
+  | 'advisor_handoff'
+  | 'volver_al_menu_follow_up';
+
 export interface WhatsappManualReply {
   id: string;
   clientId: string | null;
@@ -35,6 +48,7 @@ export interface WhatsappManualReply {
   messageContent: string;
   sentByUserId: string | null;
   status: 'sent' | 'failed';
+  selfServiceReplyKind: SelfServiceReplyKind | null;
   sentAt: string;
   createdAt: string;
 }
