@@ -1381,7 +1381,16 @@ function LoanCard({
       >
         <div className="flex items-center justify-between gap-2">
           <span className="text-small font-medium text-white">
-            Pagaré #{loan.promissoryNoteNumber}
+            {/* Human report, 2026-09-14 (bug fix) — a hardcoded "#" here
+                doubled up into "##1041" for any loan created since
+                2026-09-03, whose promissoryNoteNumber already stores the
+                "#" as part of the value itself (see
+                apps/api/src/common/promissoryNoteLabel.ts's own comment
+                on the two coexisting shapes). Every other place in this
+                app that displays promissoryNoteNumber (LoanRow,
+                LoanDetailPage, ClientDetailPage, etc.) already renders it
+                raw, with no prefix — this is the one that didn't match. */}
+            Pagaré {loan.promissoryNoteNumber}
           </span>
           <span
             className={`rounded-[3px] border px-1.5 py-0.5 text-meta ${estado.classes}`}
