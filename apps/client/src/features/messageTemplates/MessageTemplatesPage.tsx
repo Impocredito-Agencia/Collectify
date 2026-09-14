@@ -121,9 +121,22 @@ export function MessageTemplatesPage() {
           <span className="text-card-title font-medium text-white">
             Recordatorios automáticos
           </span>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {/* Human report, 2026-09-14 — the 3 cards look uneven in height
+              since each family lists a different number of template
+              badges (2/4/5), wrapping into a different number of rows.
+              items-stretch (grid's own default, made explicit) forces all
+              3 to match the tallest row's height; h-full + flex flex-col
+              on the card itself, plus FamilyCronControl's own flex-1 +
+              mt-auto on its schedule form below, pin "Recordatorios
+              semanales"/"Guardar horario" to the same bottom edge across
+              all 3 regardless of how many badge rows sit above it — not
+              just equal height, but genuinely aligned. */}
+          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3">
             {Object.values(ReminderFamily).map((family) => (
-              <div key={family} className="rounded border border-border p-3.5">
+              <div
+                key={family}
+                className="flex h-full flex-col rounded border border-border p-3.5"
+              >
                 <span className="mb-2 block text-small font-medium text-white">
                   {FAMILY_LABELS[family]}
                 </span>
@@ -265,7 +278,7 @@ function FamilyCronControl({
   };
 
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex flex-1 flex-col gap-2.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span
@@ -302,7 +315,10 @@ function FamilyCronControl({
         ))}
       </div>
 
-      <form onSubmit={handleSaveSchedule} className="flex flex-col gap-2">
+      <form
+        onSubmit={handleSaveSchedule}
+        className="mt-auto flex flex-col gap-2"
+      >
         <span className="text-meta text-muted">Recordatorios semanales</span>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex flex-wrap gap-1">
