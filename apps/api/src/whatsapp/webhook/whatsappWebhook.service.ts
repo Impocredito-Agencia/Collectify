@@ -35,6 +35,11 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_CONVERSATIONS_PAGE_SIZE = 20;
 
+interface ConversationRow {
+  id: string;
+  message_count: string;
+}
+
 @Injectable()
 export class WhatsappWebhookService {
   private readonly logger = new Logger(WhatsappWebhookService.name);
@@ -194,6 +199,15 @@ export class WhatsappWebhookService {
   async findConversations(
     query: QueryWhatsappConversationsDto,
   ): Promise<PaginatedResult<WhatsappConversationSummary>> {
+    // Human report, 2026-09-14 — the "Esperando asesor" queue needs the
+    // exact conversation summary for every PENDING ticket's client, not
+    // whatever happens to fall on a recency-paginated page: a client who's
+    // gone quiet while their ticket sits unresolved must still show up.
+    // See the DTO's own comment.
+    if (query.clientIds && query.clientIds.length > 0) {
+      return this.findConversationsForClientIds(query.clientIds);
+    }
+
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_CONVERSATIONS_PAGE_SIZE;
     const search = query.search ? `%${query.search}%` : null;
@@ -206,11 +220,9 @@ export class WhatsappWebhookService {
     // Postgres-specific queries. Parameterized ($1/$2/$3), never string-
     // interpolated. message_count comes along for free from the same
     // window-function pass, no second per-conversation query needed.
-    const rows: Array<{
-      id: string;
-      message_count: string;
-    }> = await this.inboundMessagesRepository.manager.query(
-      `
+    const rows: ConversationRow[] =
+      await this.inboundMessagesRepository.manager.query(
+        `
       SELECT id, message_count FROM (
         SELECT
           m.id,
@@ -228,8 +240,8 @@ export class WhatsappWebhookService {
       ORDER BY received_at DESC
       LIMIT $2 OFFSET $3
       `,
-      [search, limit, (page - 1) * limit],
-    );
+        [search, limit, (page - 1) * limit],
+      );
 
     const [{ total: totalRaw }]: [{ total: string }] =
       await this.inboundMessagesRepository.manager.query(
@@ -243,6 +255,54 @@ export class WhatsappWebhookService {
       );
     const total = Number(totalRaw);
 
+    return {
+      items: await this.hydrateConversationRows(rows),
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  // Same DISTINCT ON aggregation as findConversations above, scoped to an
+  // exact set of known clientIds and never paginated — see the DTO's own
+  // comment on clientIds for why. Unmatched-number conversations are
+  // deliberately unreachable here: a ticket only ever exists for a
+  // resolved client (see WhatsappConversationTicket), so there's nothing
+  // to look up by phone number for this queue.
+  private async findConversationsForClientIds(
+    clientIds: string[],
+  ): Promise<PaginatedResult<WhatsappConversationSummary>> {
+    const rows: ConversationRow[] =
+      await this.inboundMessagesRepository.manager.query(
+        `
+      SELECT id, message_count FROM (
+        SELECT
+          m.id,
+          m.received_at,
+          COUNT(*) OVER (PARTITION BY m.client_id) AS message_count,
+          ROW_NUMBER() OVER (PARTITION BY m.client_id ORDER BY m.received_at DESC) AS rn
+        FROM whatsapp_inbound_messages m
+        WHERE m.client_id = ANY($1::uuid[])
+      ) latest
+      WHERE rn = 1
+      ORDER BY received_at DESC
+      `,
+        [clientIds],
+      );
+
+    const items = await this.hydrateConversationRows(rows);
+    return {
+      items,
+      meta: {
+        page: 1,
+        limit: items.length,
+        total: items.length,
+        totalPages: 1,
+      },
+    };
+  }
+
+  private async hydrateConversationRows(
+    rows: ConversationRow[],
+  ): Promise<WhatsappConversationSummary[]> {
     const messageCountById = new Map(
       rows.map((row) => [row.id, Number(row.message_count)]),
     );
@@ -257,7 +317,7 @@ export class WhatsappWebhookService {
       messages.map((message) => [message.id, message]),
     );
 
-    const items: WhatsappConversationSummary[] = rows
+    return rows
       .map((row) => messageById.get(row.id))
       .filter((message): message is WhatsappInboundMessage => Boolean(message))
       .map((lastMessage) => ({
@@ -267,11 +327,6 @@ export class WhatsappWebhookService {
         lastMessage,
         messageCount: messageCountById.get(lastMessage.id) ?? 1,
       }));
-
-    return {
-      items,
-      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
-    };
   }
 
   private async persistEvent(event: ParsedInboundEvent): Promise<void> {

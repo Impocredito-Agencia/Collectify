@@ -712,6 +712,45 @@ describe('WhatsappWebhookService', () => {
         ['%Juana%'],
       );
     });
+
+    // Human report, 2026-09-14 — the "Esperando asesor" queue's exact-set
+    // lookup: unpaginated, one query instead of two (no separate count
+    // needed — the result set IS the full set), scoped by client_id alone
+    // (no unrecognized-number conversation can ever have a ticket).
+    it('bypasses search/pagination and returns every requested client, unpaginated', async () => {
+      inboundMessagesRepository.manager.query.mockResolvedValueOnce([
+        { id: 'msg-1', message_count: '2' },
+      ]);
+      inboundMessagesRepository.find.mockResolvedValue([
+        {
+          id: 'msg-1',
+          clientId: 'client-1',
+          fromPhoneNumber: '+573001111111',
+          receivedAt: new Date('2026-09-10'),
+        },
+      ]);
+
+      const result = await service.findConversations({
+        clientIds: ['client-1', 'client-2'],
+        search: 'ignored',
+        page: 5,
+      });
+
+      expect(inboundMessagesRepository.manager.query).toHaveBeenCalledTimes(1);
+      expect(inboundMessagesRepository.manager.query).toHaveBeenCalledWith(
+        expect.any(String),
+        [['client-1', 'client-2']],
+      );
+      expect(result.items).toEqual([
+        expect.objectContaining({ key: 'client-1', messageCount: 2 }),
+      ]);
+      expect(result.meta).toEqual({
+        page: 1,
+        limit: 1,
+        total: 1,
+        totalPages: 1,
+      });
+    });
   });
 
   describe('getConversationState', () => {
