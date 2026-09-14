@@ -57,9 +57,31 @@ export const RECEIPT_REQUEST_MESSAGE =
 export const RECEIPT_RECEIVED_MESSAGE =
   'Recibimos tu comprobante, un asesor lo revisará en breve.';
 
+// Confirmed with the human, 2026-09-13 — see businessHours.ts's own
+// comment for why there's no festivos check.
+const BUSINESS_HOURS_LABEL = 'lunes a viernes 9am–7pm, sábados 9am–4pm';
+
+// Human report, 2026-09-13 — sent instead of RECEIPT_RECEIVED_MESSAGE when
+// the receipt arrives outside business hours (see businessHours.ts). A
+// plain session message, not a Meta template — the client's own inbound
+// message just reopened the 24h window, so this can go out instantly
+// regardless of the hour, same as the message it replaces.
+export const RECEIPT_RECEIVED_OUT_OF_HOURS_MESSAGE =
+  '🌙 Recibimos tu comprobante. En este momento estamos fuera de nuestro ' +
+  'horario de atención — un asesor lo revisará tan pronto estemos ' +
+  `disponibles.\n\n📍 Horario: ${BUSINESS_HOURS_LABEL}.`;
+
 // ── Human handoff ("Hablar con asesor") ──────────────────────────────────
 
 export const ADVISOR_HANDOFF_MESSAGE = 'En un momento un asesor te contactará.';
+
+// Human report, 2026-09-13 — sent instead of ADVISOR_HANDOFF_MESSAGE
+// outside business hours, same reasoning as
+// RECEIPT_RECEIVED_OUT_OF_HOURS_MESSAGE above.
+export const ADVISOR_HANDOFF_OUT_OF_HOURS_MESSAGE =
+  '🌙 ¡Gracias por escribirnos! En este momento estamos fuera de nuestro ' +
+  'horario de atención. Un asesor te contactará tan pronto estemos ' +
+  `disponibles.\n\n📍 Horario: ${BUSINESS_HOURS_LABEL}.`;
 
 // ── Closing a hand-off ──────────────────────────────────────────────────
 // Sent by WhatsappWebhookService.closeConversation when an admin explicitly

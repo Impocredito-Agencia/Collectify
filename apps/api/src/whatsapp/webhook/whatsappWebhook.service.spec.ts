@@ -13,6 +13,7 @@ import {
 import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
+import { WhatsappConversationTicketService } from '../whatsappConversationTicket.service';
 import { WhatsAppService } from '../whatsapp.service';
 import { WhatsappOutboundLogService } from '../whatsappOutboundLog.service';
 
@@ -33,6 +34,8 @@ describe('WhatsappWebhookService', () => {
     create: jest.Mock;
     save: jest.Mock;
     findAndCount: jest.Mock;
+    find: jest.Mock;
+    manager: { query: jest.Mock };
   };
   let clientsRepository: { findOne: jest.Mock };
   let configGet: jest.Mock;
@@ -49,6 +52,7 @@ describe('WhatsappWebhookService', () => {
   let whatsappOutboundLogService: { log: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
   let conversationStateService: { getActive: jest.Mock; clear: jest.Mock };
+  let conversationTicketService: { resolve: jest.Mock };
   let whatsappMediaService: { downloadAndStore: jest.Mock };
 
   beforeEach(async () => {
@@ -56,6 +60,8 @@ describe('WhatsappWebhookService', () => {
       create: jest.fn((data: Record<string, unknown>) => data),
       save: jest.fn((data: Record<string, unknown>) => Promise.resolve(data)),
       findAndCount: jest.fn(),
+      find: jest.fn(),
+      manager: { query: jest.fn() },
     };
     clientsRepository = { findOne: jest.fn() };
     configGet = jest.fn().mockReturnValue({
@@ -85,6 +91,9 @@ describe('WhatsappWebhookService', () => {
     conversationStateService = {
       getActive: jest.fn().mockResolvedValue(null),
       clear: jest.fn().mockResolvedValue(undefined),
+    };
+    conversationTicketService = {
+      resolve: jest.fn().mockResolvedValue(null),
     };
     // Defaults to "nothing to attach" — most tests below don't involve a
     // media message at all (mediaId stays null out of extractInboundEvents
@@ -120,6 +129,10 @@ describe('WhatsappWebhookService', () => {
         {
           provide: WhatsappConversationStateService,
           useValue: conversationStateService,
+        },
+        {
+          provide: WhatsappConversationTicketService,
+          useValue: conversationTicketService,
         },
         { provide: WhatsappMediaService, useValue: whatsappMediaService },
       ],
@@ -443,6 +456,31 @@ describe('WhatsappWebhookService', () => {
       );
     });
 
+    it('filters by fromPhoneNumber for an unrecognized-number conversation', async () => {
+      inboundMessagesRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({ fromPhoneNumber: '573009999999' });
+
+      expect(inboundMessagesRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { fromPhoneNumber: '573009999999' },
+        }),
+      );
+    });
+
+    it('ignores fromPhoneNumber when clientId is also set', async () => {
+      inboundMessagesRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({
+        clientId: 'client-1',
+        fromPhoneNumber: '573009999999',
+      });
+
+      expect(inboundMessagesRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { clientId: 'client-1' } }),
+      );
+    });
+
     it("builds an OR search across the matched client's first/last name", async () => {
       inboundMessagesRepository.findAndCount.mockResolvedValue([[], 0]);
 
@@ -560,15 +598,158 @@ describe('WhatsappWebhookService', () => {
   });
 
   describe('getManualReplies', () => {
-    it('returns the most recent manual replies', async () => {
+    it('returns every reply, unscoped, when called with no filter', async () => {
       manualRepliesRepository.find.mockResolvedValue([{ id: 'reply-1' }]);
 
       const result = await service.getManualReplies();
 
       expect(result).toEqual([{ id: 'reply-1' }]);
       expect(manualRepliesRepository.find).toHaveBeenCalledWith(
-        expect.objectContaining({ order: { sentAt: 'DESC' } }),
+        expect.objectContaining({
+          where: undefined,
+          order: { sentAt: 'DESC' },
+        }),
       );
+    });
+
+    it('scopes to one client by clientId', async () => {
+      manualRepliesRepository.find.mockResolvedValue([]);
+
+      await service.getManualReplies({ clientId: 'client-1' });
+
+      expect(manualRepliesRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { clientId: 'client-1' } }),
+      );
+    });
+
+    it('scopes to one unrecognized-number conversation by fromPhoneNumber, normalized', async () => {
+      manualRepliesRepository.find.mockResolvedValue([]);
+
+      await service.getManualReplies({ fromPhoneNumber: '573009999999' });
+
+      expect(manualRepliesRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { phoneNumber: '+573009999999' } }),
+      );
+    });
+  });
+
+  describe('findConversations', () => {
+    it('returns one summary per conversation, hydrated and reordered by receivedAt', async () => {
+      inboundMessagesRepository.manager.query
+        .mockResolvedValueOnce([
+          { id: 'msg-2', message_count: '3' },
+          { id: 'msg-1', message_count: '1' },
+        ])
+        .mockResolvedValueOnce([{ total: '2' }]);
+      // Hydration order deliberately reversed from the raw-query order
+      // above — findConversations must re-sort by the id list, not trust
+      // In()'s own result order.
+      inboundMessagesRepository.find.mockResolvedValue([
+        {
+          id: 'msg-1',
+          clientId: 'client-1',
+          fromPhoneNumber: '+573001111111',
+          receivedAt: new Date('2026-09-10'),
+        },
+        {
+          id: 'msg-2',
+          clientId: null,
+          fromPhoneNumber: '573002222222',
+          receivedAt: new Date('2026-09-14'),
+        },
+      ]);
+
+      const result = await service.findConversations({});
+
+      expect(result.items).toEqual([
+        expect.objectContaining({
+          key: '573002222222',
+          clientId: null,
+          messageCount: 3,
+        }),
+        expect.objectContaining({
+          key: 'client-1',
+          clientId: 'client-1',
+          messageCount: 1,
+        }),
+      ]);
+      expect(result.meta).toEqual({
+        page: 1,
+        limit: 20,
+        total: 2,
+        totalPages: 1,
+      });
+    });
+
+    it('passes a null search parameter, not undefined, so Postgres can short-circuit the filter', async () => {
+      inboundMessagesRepository.manager.query
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ total: '0' }]);
+      inboundMessagesRepository.find.mockResolvedValue([]);
+
+      await service.findConversations({});
+
+      expect(inboundMessagesRepository.manager.query).toHaveBeenCalledWith(
+        expect.any(String),
+        [null, 20, 0],
+      );
+    });
+
+    it('wraps the search term in wildcards when provided', async () => {
+      inboundMessagesRepository.manager.query
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ total: '0' }]);
+      inboundMessagesRepository.find.mockResolvedValue([]);
+
+      await service.findConversations({ search: 'Juana', page: 2, limit: 10 });
+
+      expect(inboundMessagesRepository.manager.query).toHaveBeenCalledWith(
+        expect.any(String),
+        ['%Juana%', 10, 10],
+      );
+      expect(inboundMessagesRepository.manager.query).toHaveBeenCalledWith(
+        expect.any(String),
+        ['%Juana%'],
+      );
+    });
+
+    // Human report, 2026-09-14 — the "Esperando asesor" queue's exact-set
+    // lookup: unpaginated, one query instead of two (no separate count
+    // needed — the result set IS the full set), scoped by client_id alone
+    // (no unrecognized-number conversation can ever have a ticket).
+    it('bypasses search/pagination and returns every requested client, unpaginated', async () => {
+      inboundMessagesRepository.manager.query.mockResolvedValueOnce([
+        { id: 'msg-1', message_count: '2' },
+      ]);
+      inboundMessagesRepository.find.mockResolvedValue([
+        {
+          id: 'msg-1',
+          clientId: 'client-1',
+          fromPhoneNumber: '+573001111111',
+          receivedAt: new Date('2026-09-10'),
+        },
+      ]);
+
+      const result = await service.findConversations({
+        clientIds: ['client-1', 'client-2'],
+        search: 'ignored',
+        page: 5,
+      });
+
+      expect(inboundMessagesRepository.manager.query).toHaveBeenCalledTimes(1);
+      expect(inboundMessagesRepository.manager.query).toHaveBeenCalledWith(
+        expect.any(String),
+        [['client-1', 'client-2']],
+      );
+      expect(result.items).toEqual([
+        expect.objectContaining({ key: 'client-1', messageCount: 2 }),
+      ]);
+      expect(result.meta).toEqual({
+        page: 1,
+        limit: 1,
+        total: 1,
+        totalPages: 1,
+      });
     });
   });
 
@@ -637,6 +818,72 @@ describe('WhatsappWebhookService', () => {
         messageContent: expect.stringContaining('Gracias') as unknown,
         sentByUserId: null,
         sent: true,
+      });
+    });
+
+    // Human report, 2026-09-13 — closing IS resolving: an admin explicitly
+    // closing the conversation clears the client's pending ticket, if any.
+    it('resolves the pending ticket for the matched client', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+      await service.closeConversation('573001234567');
+
+      expect(conversationTicketService.resolve).toHaveBeenCalledWith(
+        'client-1',
+      );
+    });
+
+    it('still resolves the ticket even when the closing message fails to send', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(false);
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+      await service.closeConversation('573001234567');
+
+      expect(conversationTicketService.resolve).toHaveBeenCalledWith(
+        'client-1',
+      );
+    });
+
+    it('does not try to resolve a ticket when the phone number matches no client', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      clientsRepository.findOne.mockResolvedValue(null);
+
+      await service.closeConversation('573001234567');
+
+      expect(conversationTicketService.resolve).not.toHaveBeenCalled();
+    });
+
+    // Human report, 2026-09-13 — resolving a ticket doesn't require the
+    // client-facing message, e.g. once the 24h session window has already
+    // closed and a real send would just fail outright.
+    describe('sendClosingMessage: false', () => {
+      it('skips sending the closing message entirely', async () => {
+        const result = await service.closeConversation('573001234567', false);
+
+        expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+        expect(result).toBe(false);
+      });
+
+      it('still clears state and resolves the ticket', async () => {
+        clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+        await service.closeConversation('573001234567', false);
+
+        expect(conversationStateService.clear).toHaveBeenCalledWith(
+          '+573001234567',
+        );
+        expect(conversationTicketService.resolve).toHaveBeenCalledWith(
+          'client-1',
+        );
+      });
+
+      it('does not log a phantom closing-message send', async () => {
+        clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+        await service.closeConversation('573001234567', false);
+
+        expect(whatsappOutboundLogService.log).not.toHaveBeenCalled();
       });
     });
   });

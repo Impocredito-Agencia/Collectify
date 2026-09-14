@@ -6,10 +6,13 @@ import { Installment } from '../loans/entities/installment.entity';
 import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
+import { isWithinBusinessHours } from './businessHours';
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
+import { WhatsappTicketTriggerKind } from './entities/whatsappConversationTicket.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { WhatsappInboundMessageType } from './entities/whatsappInboundMessage.entity';
+import { SelfServiceReplyKind } from './entities/whatsappManualReply.entity';
 import { SelfServiceMenuService } from './selfServiceMenu.service';
 import {
   SelfServiceMenuButtonId,
@@ -17,8 +20,17 @@ import {
 } from './selfServiceMenuPayloads';
 import { ParsedInboundEvent } from './webhook/extractInboundEvents';
 import { WhatsappConversationStateService } from './whatsappConversationState.service';
+import { WhatsappConversationTicketService } from './whatsappConversationTicket.service';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
+
+// Human report, 2026-09-13 — handOffToAdvisor/handlePossibleReceipt now
+// pick their message body based on isWithinBusinessHours(), which reads
+// the real system clock by default. Auto-mocked so every test below runs
+// deterministically regardless of when it's actually executed.
+jest.mock('./businessHours');
+
+const mockIsWithinBusinessHours = isWithinBusinessHours as jest.Mock;
 
 describe('SelfServiceMenuService', () => {
   let service: SelfServiceMenuService;
@@ -37,6 +49,7 @@ describe('SelfServiceMenuService', () => {
     sendInteractiveButtonsMessage: jest.Mock;
   };
   let whatsappOutboundLogService: { log: jest.Mock };
+  let conversationTicketService: { openOrReopen: jest.Mock };
 
   const client: Client = {
     id: 'client-1',
@@ -74,10 +87,12 @@ describe('SelfServiceMenuService', () => {
     };
   }
 
-  function otherEvent(): ParsedInboundEvent {
+  function otherEvent(
+    type: WhatsappInboundMessageType = WhatsappInboundMessageType.Other,
+  ): ParsedInboundEvent {
     return {
       fromPhoneNumber: client.phoneNumber,
-      type: WhatsappInboundMessageType.Other,
+      type,
       buttonPayload: null,
       bodyText: null,
       contextMessageId: null,
@@ -88,6 +103,11 @@ describe('SelfServiceMenuService', () => {
   }
 
   beforeEach(async () => {
+    // Default to "within business hours" so every pre-existing test's
+    // message-content assertions (e.g. expect.stringContaining('asesor'))
+    // keep matching the normal-hours copy without having to touch them —
+    // only the new tests below explicitly flip this to test the other copy.
+    mockIsWithinBusinessHours.mockReturnValue(true);
     installmentsRepository = { find: jest.fn().mockResolvedValue([]) };
     paymentsRepository = { find: jest.fn().mockResolvedValue([]) };
     // Bug fix, 2026-09-08 — see breakdownQueries.ts's own comment.
@@ -107,6 +127,9 @@ describe('SelfServiceMenuService', () => {
     };
     whatsappOutboundLogService = {
       log: jest.fn().mockResolvedValue(undefined),
+    };
+    conversationTicketService = {
+      openOrReopen: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -132,6 +155,10 @@ describe('SelfServiceMenuService', () => {
         {
           provide: WhatsappConversationStateService,
           useValue: conversationStateService,
+        },
+        {
+          provide: WhatsappConversationTicketService,
+          useValue: conversationTicketService,
         },
         { provide: WhatsAppService, useValue: whatsAppService },
         {
@@ -162,6 +189,10 @@ describe('SelfServiceMenuService', () => {
         client.id,
         ConversationMenu.Main,
       );
+      // Human report, 2026-09-14 — this is the client's very first message
+      // (no active state yet), before they've ever seen a menu — doesn't
+      // count as "ignoring the menu" yet, see FreeText's own comment.
+      expect(conversationTicketService.openOrReopen).not.toHaveBeenCalled();
     });
 
     // Human report, 2026-09-19 — every automated reply this menu sends
@@ -179,6 +210,7 @@ describe('SelfServiceMenuService', () => {
           phoneNumber: client.phoneNumber,
           sentByUserId: null,
           sent: true,
+          selfServiceReplyKind: SelfServiceReplyKind.MainMenu,
         }),
       );
     });
@@ -204,6 +236,13 @@ describe('SelfServiceMenuService', () => {
         client.id,
         ConversationMenu.MiCuentaSubmenu,
       );
+      // Human report, 2026-09-14 — the client already got a menu (this
+      // state wouldn't exist otherwise) and is still typing free text
+      // instead of tapping a button.
+      expect(conversationTicketService.openOrReopen).toHaveBeenCalledWith(
+        client.id,
+        WhatsappTicketTriggerKind.FreeText,
+      );
     });
 
     it('stays silent when free text arrives while awaiting a receipt', async () => {
@@ -218,6 +257,7 @@ describe('SelfServiceMenuService', () => {
         whatsAppService.sendInteractiveButtonsMessage,
       ).not.toHaveBeenCalled();
       expect(conversationStateService.upsert).not.toHaveBeenCalled();
+      expect(conversationTicketService.openOrReopen).not.toHaveBeenCalled();
     });
 
     it('stays silent when free text arrives after being handed off to a human', async () => {
@@ -232,6 +272,7 @@ describe('SelfServiceMenuService', () => {
         whatsAppService.sendInteractiveButtonsMessage,
       ).not.toHaveBeenCalled();
       expect(conversationStateService.upsert).not.toHaveBeenCalled();
+      expect(conversationTicketService.openOrReopen).not.toHaveBeenCalled();
     });
   });
 
@@ -299,6 +340,32 @@ describe('SelfServiceMenuService', () => {
         client.id,
         ConversationMenu.HandedOffToHuman,
       );
+      expect(conversationTicketService.openOrReopen).toHaveBeenCalledWith(
+        client.id,
+        WhatsappTicketTriggerKind.AdvisorRequested,
+      );
+    });
+
+    // Human report, 2026-09-13 — see businessHours.ts.
+    it('sends the out-of-hours copy on Hablar con asesor outside business hours', async () => {
+      mockIsWithinBusinessHours.mockReturnValue(false);
+
+      await service.handleInboundEvent(
+        buttonEvent(SelfServiceMenuButtonId.HablarAsesor),
+        client,
+      );
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        client.phoneNumber,
+        expect.stringContaining('fuera de nuestro horario de atención'),
+      );
+      // Still hands off exactly the same as within business hours — only
+      // the copy changes.
+      expect(conversationStateService.upsert).toHaveBeenCalledWith(
+        client.phoneNumber,
+        client.id,
+        ConversationMenu.HandedOffToHuman,
+      );
     });
 
     it.each([
@@ -340,6 +407,7 @@ describe('SelfServiceMenuService', () => {
             messageContent: expect.stringContaining('Juan Pérez') as unknown,
             sentByUserId: null,
             sent: true,
+            selfServiceReplyKind: SelfServiceReplyKind.Breakdown,
           }),
         );
       },
@@ -477,12 +545,43 @@ describe('SelfServiceMenuService', () => {
         currentMenu: ConversationMenu.AwaitingReceipt,
       });
 
-      await service.handleInboundEvent(otherEvent(), client);
+      await service.handleInboundEvent(
+        otherEvent(WhatsappInboundMessageType.Image),
+        client,
+      );
 
       expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
         client.phoneNumber,
         expect.stringContaining('Recibimos tu comprobante'),
       );
+      expect(conversationStateService.upsert).toHaveBeenCalledWith(
+        client.phoneNumber,
+        client.id,
+        ConversationMenu.HandedOffToHuman,
+      );
+      expect(conversationTicketService.openOrReopen).toHaveBeenCalledWith(
+        client.id,
+        WhatsappTicketTriggerKind.ReceiptImage,
+      );
+    });
+
+    // Human report, 2026-09-13 — see businessHours.ts.
+    it('sends the out-of-hours copy when a receipt arrives outside business hours', async () => {
+      mockIsWithinBusinessHours.mockReturnValue(false);
+      conversationStateService.getActive.mockResolvedValue({
+        currentMenu: ConversationMenu.AwaitingReceipt,
+      });
+
+      await service.handleInboundEvent(
+        otherEvent(WhatsappInboundMessageType.Image),
+        client,
+      );
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        client.phoneNumber,
+        expect.stringContaining('fuera de nuestro horario de atención'),
+      );
+      // Still hands off exactly the same as within business hours.
       expect(conversationStateService.upsert).toHaveBeenCalledWith(
         client.phoneNumber,
         client.id,
@@ -494,6 +593,7 @@ describe('SelfServiceMenuService', () => {
       await service.handleInboundEvent(otherEvent(), client);
 
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+      expect(conversationTicketService.openOrReopen).not.toHaveBeenCalled();
     });
 
     it('does nothing when media arrives while on a different menu', async () => {
@@ -515,6 +615,41 @@ describe('SelfServiceMenuService', () => {
 
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
       expect(conversationStateService.upsert).not.toHaveBeenCalled();
+    });
+
+    // Human report, 2026-09-13 — an image/document the client sends
+    // WITHOUT going through "Reportar un pago" first still flags a ticket,
+    // silently (no automated reply, no menu-state change).
+    it.each([
+      [
+        WhatsappInboundMessageType.Image,
+        WhatsappTicketTriggerKind.ReceiptImage,
+      ],
+      [
+        WhatsappInboundMessageType.Document,
+        WhatsappTicketTriggerKind.ReceiptDocument,
+      ],
+    ])(
+      'silently opens a ticket for an unprompted %s with no active state',
+      async (type, expectedTriggerKind) => {
+        await service.handleInboundEvent(otherEvent(type), client);
+
+        expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+        expect(conversationStateService.upsert).not.toHaveBeenCalled();
+        expect(conversationTicketService.openOrReopen).toHaveBeenCalledWith(
+          client.id,
+          expectedTriggerKind,
+        );
+      },
+    );
+
+    it('does not open a ticket for an unprompted media type outside image/document', async () => {
+      await service.handleInboundEvent(
+        otherEvent(WhatsappInboundMessageType.Audio),
+        client,
+      );
+
+      expect(conversationTicketService.openOrReopen).not.toHaveBeenCalled();
     });
   });
 });

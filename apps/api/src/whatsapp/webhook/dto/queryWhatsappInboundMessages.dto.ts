@@ -18,6 +18,14 @@ export class QueryWhatsappInboundMessagesDto {
   clientId?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Scope to one unrecognized-number conversation (clientId is null) — the raw as-received-from-Meta number, exactly as whatsapp_inbound_messages.from_phone_number stores it. Ignored if clientId is also set.',
+  })
+  @IsOptional()
+  @IsString()
+  fromPhoneNumber?: string;
+
+  @ApiPropertyOptional({
     description: "Matches against the matched client's first/last name",
   })
   @IsOptional()

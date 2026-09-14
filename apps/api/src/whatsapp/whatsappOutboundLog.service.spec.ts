@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import {
+  SelfServiceReplyKind,
   WhatsappManualReply,
   WhatsappManualReplyStatus,
 } from './entities/whatsappManualReply.entity';
@@ -92,6 +93,39 @@ describe('WhatsappOutboundLogService', () => {
 
     expect(manualRepliesRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({ sentByUserId: 'user-1' }),
+    );
+  });
+
+  // Human report, 2026-09-13 — tags which self-service action produced
+  // the reply, when it was one — see SelfServiceReplyKind's own comment.
+  it('forwards selfServiceReplyKind when the caller passes one', async () => {
+    await service.log({
+      clientId: 'client-1',
+      phoneNumber: '+573001234567',
+      messageContent: 'Aquí tienes el menú principal.',
+      sentByUserId: null,
+      sent: true,
+      selfServiceReplyKind: SelfServiceReplyKind.MainMenu,
+    });
+
+    expect(manualRepliesRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selfServiceReplyKind: SelfServiceReplyKind.MainMenu,
+      }),
+    );
+  });
+
+  it('defaults selfServiceReplyKind to null when the caller omits it', async () => {
+    await service.log({
+      clientId: 'client-1',
+      phoneNumber: '+573001234567',
+      messageContent: 'Un admin escribió esto.',
+      sentByUserId: 'user-1',
+      sent: true,
+    });
+
+    expect(manualRepliesRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ selfServiceReplyKind: null }),
     );
   });
 });

@@ -23,6 +23,7 @@ import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import { UpdateCronScheduleDto } from './dto/updateCronSchedule.dto';
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
+import { WhatsappConversationTicket } from './entities/whatsappConversationTicket.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
 import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
@@ -30,10 +31,15 @@ import { WhatsappManualReply } from './entities/whatsappManualReply.entity';
 import { OverdueReminderService } from './overdueReminder.service';
 import { ReminderFamily } from './reminderFamily';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
+import { CloseConversationDto } from './webhook/dto/closeConversation.dto';
 import { PhoneNumberDto } from './webhook/dto/phoneNumber.dto';
+import { QueryWhatsappConversationsDto } from './webhook/dto/queryWhatsappConversations.dto';
 import { QueryWhatsappInboundMessagesDto } from './webhook/dto/queryWhatsappInboundMessages.dto';
+import { QueryWhatsappManualRepliesDto } from './webhook/dto/queryWhatsappManualReplies.dto';
 import { ReplyToInboundMessageDto } from './webhook/dto/replyToInboundMessage.dto';
+import { WhatsappConversationSummary } from './webhook/interfaces/whatsappConversationSummary.interface';
 import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
+import { WhatsappConversationTicketService } from './whatsappConversationTicket.service';
 import { WhatsappCronService } from './whatsappCron.service';
 
 import type { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
@@ -51,6 +57,7 @@ export class WhatsappController {
     private readonly upcomingDueReminderService: UpcomingDueReminderService,
     private readonly whatsappCronService: WhatsappCronService,
     private readonly whatsappWebhookService: WhatsappWebhookService,
+    private readonly whatsappConversationTicketService: WhatsappConversationTicketService,
   ) {}
 
   @Get('inbound-messages')
@@ -68,6 +75,28 @@ export class WhatsappController {
     @Query() query: QueryWhatsappInboundMessagesDto,
   ): Promise<PaginatedResult<WhatsappInboundMessage>> {
     return this.whatsappWebhookService.findAll(query);
+  }
+
+  // Human report, 2026-09-14 (critical bug) — drives the inbox's
+  // conversation list instead of findInboundMessages above: paginated by
+  // CONVERSATION (one row per contact, aggregated server-side), not by raw
+  // message, so a chatty client can no longer crowd others out of the
+  // list. See WhatsappWebhookService.findConversations's own comment.
+  @Get('conversations')
+  @ApiOperation({
+    summary:
+      'List WhatsApp conversations, one per contact (admin or granted the messages module)',
+    description:
+      "Paginated by conversation, not by message — each item is the latest message plus a total count for that contact. search matches the matched client's first/last name. Fetch a conversation's own full history separately via GET /whatsapp/inbound-messages?clientId=/fromPhoneNumber=.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns a page of conversation summaries.',
+  })
+  findConversations(
+    @Query() query: QueryWhatsappConversationsDto,
+  ): Promise<PaginatedResult<WhatsappConversationSummary>> {
+    return this.whatsappWebhookService.findConversations(query);
   }
 
   @Post('inbound-messages/reply')
@@ -93,20 +122,23 @@ export class WhatsappController {
     return { sent };
   }
 
-  // Human report, 2026-09-19 — a flat recent window, merged client-side
-  // into each conversation by WhatsappInboundMessagesPage.tsx, same
-  // convention as findInboundMessages above.
+  // Human report, 2026-09-14 — scoped to one conversation (clientId or
+  // fromPhoneNumber) since findConversations replaced the old flat,
+  // globally-capped fetch this used to back — see getManualReplies' own
+  // comment.
   @Get('inbound-messages/manual-replies')
   @ApiOperation({
     summary:
-      "An admin's own manual replies, recent window (admin or granted the messages module)",
+      "A conversation's manual/automated replies, recent window (admin or granted the messages module)",
   })
   @ApiResponse({
     status: 200,
     description: 'Returns the most recent manual replies.',
   })
-  findManualReplies(): Promise<WhatsappManualReply[]> {
-    return this.whatsappWebhookService.getManualReplies();
+  findManualReplies(
+    @Query() query: QueryWhatsappManualRepliesDto,
+  ): Promise<WhatsappManualReply[]> {
+    return this.whatsappWebhookService.getManualReplies(query);
   }
 
   @Get('inbound-messages/conversation-state')
@@ -130,23 +162,41 @@ export class WhatsappController {
   }
 
   @Post('inbound-messages/close-conversation')
+  @Audit('whatsappTicket.resolve', 'whatsappTicket')
   @ApiOperation({
     summary:
       'Close a hand-off conversation (admin or granted the messages module)',
     description:
-      "Sends a generic closing message and clears the self-service-menu state, so the client's next message gets the menu fresh instead of the bot staying silent — see docs/phases/PHASE_34_INTERACTIVE_MENU.md.",
+      "Clears the self-service-menu state, so the client's next message gets the menu fresh instead of the bot staying silent — see docs/phases/PHASE_34_INTERACTIVE_MENU.md. Also resolves that client's WhatsappConversationTicket, if any. Sends the generic closing message unless sendClosingMessage is explicitly false — e.g. a conversation resolved outside WhatsApp, or one whose 24h session window already closed.",
   })
   @ApiResponse({
     status: 201,
-    description: 'Returns whether the closing message actually sent.',
+    description:
+      'Returns whether the closing message actually sent (always false when sendClosingMessage was false).',
   })
   async closeConversation(
-    @Body() dto: PhoneNumberDto,
+    @Body() dto: CloseConversationDto,
   ): Promise<{ sent: boolean }> {
     const sent = await this.whatsappWebhookService.closeConversation(
       dto.phoneNumber,
+      dto.sendClosingMessage,
     );
     return { sent };
+  }
+
+  // Human report, 2026-09-13 — backs the inbox's pending-tickets badge,
+  // filter, and pinning. Flat list, no pagination — see
+  // WhatsappConversationTicketService.findAll's own comment.
+  @Get('tickets')
+  @ApiOperation({
+    summary:
+      'List every WhatsApp conversation ticket (admin or granted the messages module)',
+    description:
+      'One row per client that has ever needed a human (Pending or Resolved), oldest-pending-first.',
+  })
+  @ApiResponse({ status: 200, description: 'Returns every ticket.' })
+  findTickets(): Promise<WhatsappConversationTicket[]> {
+    return this.whatsappConversationTicketService.findAll();
   }
 
   @Get('cron/:family/status')

@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { whatsappConversationTicketsApi } from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
+import { whatsappConversationsApi } from '@/features/whatsappInboundMessages/whatsappConversationsApi';
 import { whatsappInboundMessagesApi } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 
+import type { WhatsappConversationsQueryParams } from '@/features/whatsappInboundMessages/whatsappConversationsApi';
 import type { WhatsappInboundMessagesQueryParams } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 
 export function useWhatsappInboundMessages(
@@ -10,6 +13,29 @@ export function useWhatsappInboundMessages(
   return useQuery({
     queryKey: ['whatsappInboundMessages', params],
     queryFn: () => whatsappInboundMessagesApi.getAll(params),
+  });
+}
+
+// Human report, 2026-09-14 (critical bug) — drives the inbox's "Todos" tab.
+// Paginated by CONVERSATION server-side (see whatsappConversationsApi's own
+// comment), replacing the old client-side grouping of a flat, globally-
+// capped message fetch.
+export function useConversations(params: WhatsappConversationsQueryParams) {
+  return useQuery({
+    queryKey: ['whatsappConversations', params],
+    queryFn: () => whatsappConversationsApi.getAll(params),
+  });
+}
+
+// Backs the "Esperando asesor" tab — exactly the pending tickets' own
+// conversations, regardless of how long ago they last messaged. `enabled`
+// guards against firing with an empty array (nothing to fetch) or before
+// the ticket list itself has loaded.
+export function useConversationsForClientIds(clientIds: string[]) {
+  return useQuery({
+    queryKey: ['whatsappConversations', 'byClientIds', clientIds],
+    queryFn: () => whatsappConversationsApi.getForClientIds(clientIds),
+    enabled: clientIds.length > 0,
   });
 }
 
@@ -32,10 +58,24 @@ export function useReplyToInboundMessage() {
   });
 }
 
-export function useManualReplies() {
+// Human report, 2026-09-14 (critical bug) — scoped to one conversation now
+// (clientId, or fromPhoneNumber for an unrecognized number), same "shared
+// global budget" bug fix as useConversations above: a busy conversation's
+// own replies used to be able to push another conversation's replies out
+// of one flat, cross-conversation window. `enabled` guards against firing
+// before a conversation is selected.
+export function useManualReplies(params: {
+  clientId: string | null;
+  fromPhoneNumber: string;
+}) {
   return useQuery({
-    queryKey: ['whatsappManualReplies'],
-    queryFn: whatsappInboundMessagesApi.getManualReplies,
+    queryKey: ['whatsappManualReplies', params],
+    queryFn: () =>
+      whatsappInboundMessagesApi.getManualReplies(
+        params.clientId
+          ? { clientId: params.clientId }
+          : { fromPhoneNumber: params.fromPhoneNumber },
+      ),
   });
 }
 
@@ -54,11 +94,41 @@ export function useConversationState(phoneNumber: string) {
 export function useCloseConversation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (phoneNumber: string) =>
-      whatsappInboundMessagesApi.closeConversation(phoneNumber),
-    onSuccess: (_data, phoneNumber) =>
+    mutationFn: ({
+      phoneNumber,
+      sendClosingMessage,
+    }: {
+      phoneNumber: string;
+      sendClosingMessage?: boolean;
+    }) =>
+      whatsappInboundMessagesApi.closeConversation(
+        phoneNumber,
+        sendClosingMessage,
+      ),
+    onSuccess: (_data, { phoneNumber }) => {
       queryClient.invalidateQueries({
         queryKey: ['whatsappConversationState', phoneNumber],
-      }),
+      });
+      // Human report, 2026-09-13 — closing IS resolving a ticket too; same
+      // "don't wait on the socket round trip" reasoning as
+      // useReplyToInboundMessage above.
+      queryClient.invalidateQueries({
+        queryKey: ['whatsappConversationTickets'],
+      });
+    },
+  });
+}
+
+// Human report, 2026-09-13 — backs the "Mensajes entrantes" sidebar badge,
+// the "Esperando asesor" filter, and the FIFO pinning in the inbox's
+// conversation list. `enabled` defaults to true — pass false from a
+// component (like Sidebar/AppLayout) that renders for every route,
+// regardless of whether the current user was even granted the "messages"
+// module, to avoid a pointless 403 on every page load.
+export function useConversationTickets(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['whatsappConversationTickets'],
+    queryFn: () => whatsappConversationTicketsApi.getAll(),
+    enabled: options?.enabled ?? true,
   });
 }

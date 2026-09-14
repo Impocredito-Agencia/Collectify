@@ -113,6 +113,23 @@ describe('apiClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3); // original (401) + refresh + retry
   });
 
+  it('serializes an array param as repeated query keys', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ success: true, data: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.get('/whatsapp/conversations', {
+      clientIds: ['client-1', 'client-2'],
+    });
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(new URL(url).searchParams.getAll('clientIds')).toEqual([
+      'client-1',
+      'client-2',
+    ]);
+  });
+
   it('clears tokens and calls the unauthorized handler when refresh fails', async () => {
     tokenStore.setAccessToken('expired-token');
     tokenStore.setRefreshToken('a-refresh-token');

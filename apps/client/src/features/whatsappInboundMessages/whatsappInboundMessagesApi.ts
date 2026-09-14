@@ -28,6 +28,19 @@ export enum WhatsappInboundMessageType {
 // left no trace here. sentByUserId is how the two are told apart: null
 // means the bot composed and sent it, not an admin — see
 // WhatsappInboundMessagesPage.tsx's ReplyBubble.
+// Matches apps/api's SelfServiceReplyKind — set only when
+// selfServiceReplyKind's sentByUserId is null AND the send came from the
+// self-service menu (not the "Cerrar conversación" closing message).
+export type SelfServiceReplyKind =
+  | 'main_menu'
+  | 'mi_cuenta_submenu'
+  | 'breakdown'
+  | 'payment_history'
+  | 'receipt_request'
+  | 'receipt_received_ack'
+  | 'advisor_handoff'
+  | 'volver_al_menu_follow_up';
+
 export interface WhatsappManualReply {
   id: string;
   clientId: string | null;
@@ -35,6 +48,7 @@ export interface WhatsappManualReply {
   messageContent: string;
   sentByUserId: string | null;
   status: 'sent' | 'failed';
+  selfServiceReplyKind: SelfServiceReplyKind | null;
   sentAt: string;
   createdAt: string;
 }
@@ -97,6 +111,10 @@ export enum ConversationMenu {
 
 export interface WhatsappInboundMessagesQueryParams {
   clientId?: string;
+  // Human report, 2026-09-14 — scopes to one unrecognized-number
+  // conversation (clientId is null); ignored when clientId is also set.
+  // See ConversationThread's own comment.
+  fromPhoneNumber?: string;
   type?: WhatsappInboundMessageType;
   search?: string;
   page?: number;
@@ -121,6 +139,7 @@ export const whatsappInboundMessagesApi = {
       '/whatsapp/inbound-messages',
       {
         clientId: params.clientId,
+        fromPhoneNumber: params.fromPhoneNumber,
         type: params.type,
         search: params.search,
         page: params.page,
@@ -144,11 +163,17 @@ export const whatsappInboundMessagesApi = {
     return data.sent;
   },
 
-  // A flat recent window, merged client-side into each conversation —
-  // same pattern as getAll above.
-  getManualReplies: async (): Promise<WhatsappManualReply[]> => {
+  // Human report, 2026-09-14 (critical bug) — scoped to one conversation
+  // (clientId, or fromPhoneNumber for an unrecognized number) instead of a
+  // flat window shared across every conversation's replies — see
+  // useManualReplies' own comment.
+  getManualReplies: async (params: {
+    clientId?: string;
+    fromPhoneNumber?: string;
+  }): Promise<WhatsappManualReply[]> => {
     const { data } = await apiClient.get<WhatsappManualReply[]>(
       '/whatsapp/inbound-messages/manual-replies',
+      { clientId: params.clientId, fromPhoneNumber: params.fromPhoneNumber },
     );
     return data;
   },
@@ -164,13 +189,19 @@ export const whatsappInboundMessagesApi = {
     return data.currentMenu;
   },
 
-  // Admin-triggered: sends a generic closing message and clears the
-  // self-service-menu state, so the client's next message gets the real
-  // menu fresh instead of the bot staying silent.
-  closeConversation: async (phoneNumber: string): Promise<boolean> => {
+  // Admin-triggered: clears the self-service-menu state (and resolves the
+  // client's WhatsappConversationTicket) so the client's next message gets
+  // the real menu fresh instead of the bot staying silent. Sends the
+  // generic closing message unless sendClosingMessage is explicitly false
+  // (human report, 2026-09-13) — see CloseConversationButton's "Avisar al
+  // cliente" checkbox.
+  closeConversation: async (
+    phoneNumber: string,
+    sendClosingMessage = true,
+  ): Promise<boolean> => {
     const { data } = await apiClient.post<{ sent: boolean }>(
       '/whatsapp/inbound-messages/close-conversation',
-      { phoneNumber },
+      { phoneNumber, sendClosingMessage },
     );
     return data.sent;
   },

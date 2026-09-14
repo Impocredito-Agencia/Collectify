@@ -986,17 +986,33 @@ function InstallmentsTable({
                   key={installment.id}
                   className={`border-t border-border ${isCancelled ? 'opacity-50' : ''}`}
                 >
-                  <Td>
+                  <Td style={{ padding: 0 }}>
                     {isPending ? (
-                      // QoL, 2026-09-10 — the checkbox itself is tiny
-                      // (h-3.5 w-3.5, ~14px); wrapping it in a <label> that
-                      // bleeds into the cell's own px-3.5 padding (via
-                      // negative margin) turns the WHOLE cell into the
-                      // clickable target instead of just the checkbox
-                      // square, without growing the checkbox visually or
-                      // spilling into neighboring cells — a <td>'s box
-                      // still stops at the column boundary either way.
-                      <label className="-mx-3.5 flex h-full w-full cursor-pointer items-center justify-center">
+                      // QoL, 2026-09-10, bug fix 2026-09-14 — the checkbox
+                      // itself is tiny (h-3.5 w-3.5, ~14px); the goal is
+                      // the WHOLE cell clickable, not just the checkbox
+                      // square. The original attempt zeroed the <td>'s own
+                      // px-3.5 via a NEGATIVE margin on this label instead
+                      // — inside a <table>, the auto layout algorithm that
+                      // sizes columns doesn't reliably account for
+                      // negative margins when computing a cell's preferred
+                      // width, so the column could end up narrower than
+                      // what the label visually needed, clipping the
+                      // checkbox (the truncated squares the human
+                      // reported). Fixed the other way around instead: the
+                      // <td> itself now has NO padding (style={{padding:
+                      // 0}} — an inline style, so it reliably wins over
+                      // the Td component's default px-3.5 className
+                      // regardless of Tailwind's own class-generation
+                      // order, same reasoning as Th's own `style` escape
+                      // hatch), and this label supplies that same px-3.5
+                      // back as ordinary, POSITIVE padding while filling
+                      // the cell completely (h-full w-full). Every
+                      // dimension here is additive — nothing for the
+                      // table's layout algorithm to miscompute — and the
+                      // visual result is identical: same checkbox size,
+                      // same spacing, whole cell clickable.
+                      <label className="flex h-full w-full cursor-pointer items-center justify-center px-3.5">
                         <input
                           type="checkbox"
                           checked={selectedInstallmentIds.has(installment.id)}

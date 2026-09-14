@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
@@ -14,14 +14,18 @@ import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 import { CONVERSATION_CLOSED_MESSAGE } from '../selfServiceMenuMessages';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
+import { WhatsappConversationTicketService } from '../whatsappConversationTicket.service';
 import { WhatsAppService } from '../whatsapp.service';
 import { WhatsappOutboundLogService } from '../whatsappOutboundLog.service';
 
+import { QueryWhatsappConversationsDto } from './dto/queryWhatsappConversations.dto';
 import { QueryWhatsappInboundMessagesDto } from './dto/queryWhatsappInboundMessages.dto';
+import { QueryWhatsappManualRepliesDto } from './dto/queryWhatsappManualReplies.dto';
 import {
   extractInboundEvents,
   ParsedInboundEvent,
 } from './extractInboundEvents';
+import { WhatsappConversationSummary } from './interfaces/whatsappConversationSummary.interface';
 import { normalizeIncomingPhoneNumber } from './normalizeIncomingPhoneNumber';
 import { WhatsappInboundGateway } from './whatsappInbound.gateway';
 import { WhatsappMediaService } from './whatsappMedia.service';
@@ -29,6 +33,12 @@ import { WhatsappMediaService } from './whatsappMedia.service';
 const HUB_SUBSCRIBE_MODE = 'subscribe';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_CONVERSATIONS_PAGE_SIZE = 20;
+
+interface ConversationRow {
+  id: string;
+  message_count: string;
+}
 
 @Injectable()
 export class WhatsappWebhookService {
@@ -46,6 +56,7 @@ export class WhatsappWebhookService {
     private readonly whatsAppService: WhatsAppService,
     private readonly selfServiceMenuService: SelfServiceMenuService,
     private readonly conversationStateService: WhatsappConversationStateService,
+    private readonly conversationTicketService: WhatsappConversationTicketService,
     private readonly whatsappMediaService: WhatsappMediaService,
     private readonly whatsappOutboundLogService: WhatsappOutboundLogService,
   ) {}
@@ -128,6 +139,12 @@ export class WhatsappWebhookService {
     const base: FindOptionsWhere<WhatsappInboundMessage> = {};
     if (query.clientId) {
       base.clientId = query.clientId;
+    } else if (query.fromPhoneNumber) {
+      // Human report, 2026-09-14 — scopes a single conversation's history
+      // for an unrecognized number, which has no clientId to filter by.
+      // Only meaningful when clientId isn't set — a real client's messages
+      // are already scoped precisely enough by clientId alone.
+      base.fromPhoneNumber = query.fromPhoneNumber;
     }
     if (query.type) {
       base.type = query.type;
@@ -164,6 +181,152 @@ export class WhatsappWebhookService {
       items,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  // Human report, 2026-09-14 (critical bug) — the inbox used to build its
+  // conversation list by grouping findAll()'s own flat, globally-limited
+  // message fetch client-side (see groupIntoConversations's old comment on
+  // WhatsappInboundMessagesPage.tsx). That budget is shared across EVERY
+  // client's messages combined, not per conversation: one chatty client
+  // can crowd the other 99 slots out of the page entirely, hiding a
+  // conversation from the list (and from being closeable) even though its
+  // WhatsappConversationTicket still counts toward the pending badge. This
+  // aggregates one row per conversation (latest message + a total count)
+  // directly in Postgres, so pagination is over CONVERSATIONS, not raw
+  // events — a busy client is one page-item like everyone else. The
+  // conversation's own full history is fetched separately, on demand, once
+  // opened — see findAll's clientId/fromPhoneNumber filters above.
+  async findConversations(
+    query: QueryWhatsappConversationsDto,
+  ): Promise<PaginatedResult<WhatsappConversationSummary>> {
+    // Human report, 2026-09-14 — the "Esperando asesor" queue needs the
+    // exact conversation summary for every PENDING ticket's client, not
+    // whatever happens to fall on a recency-paginated page: a client who's
+    // gone quiet while their ticket sits unresolved must still show up.
+    // See the DTO's own comment.
+    if (query.clientIds && query.clientIds.length > 0) {
+      return this.findConversationsForClientIds(query.clientIds);
+    }
+
+    const page = query.page ?? DEFAULT_PAGE;
+    const limit = query.limit ?? DEFAULT_CONVERSATIONS_PAGE_SIZE;
+    const search = query.search ? `%${query.search}%` : null;
+
+    // DISTINCT ON isn't reachable through TypeORM's QueryBuilder once the
+    // result also needs re-sorting/paginating by something other than the
+    // DISTINCT ON expression itself (Postgres requires ORDER BY to lead
+    // with it) — raw SQL here, same as this project's migrations and
+    // apps/api/src/database/*.ts scripts already do for
+    // Postgres-specific queries. Parameterized ($1/$2/$3), never string-
+    // interpolated. message_count comes along for free from the same
+    // window-function pass, no second per-conversation query needed.
+    const rows: ConversationRow[] =
+      await this.inboundMessagesRepository.manager.query(
+        `
+      SELECT id, message_count FROM (
+        SELECT
+          m.id,
+          m.received_at,
+          COUNT(*) OVER (PARTITION BY COALESCE(m.client_id::text, m.from_phone_number)) AS message_count,
+          ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(m.client_id::text, m.from_phone_number)
+            ORDER BY m.received_at DESC
+          ) AS rn
+        FROM whatsapp_inbound_messages m
+        LEFT JOIN clients c ON c.id = m.client_id AND c.deleted_at IS NULL
+        WHERE $1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1
+      ) latest
+      WHERE rn = 1
+      ORDER BY received_at DESC
+      LIMIT $2 OFFSET $3
+      `,
+        [search, limit, (page - 1) * limit],
+      );
+
+    const [{ total: totalRaw }]: [{ total: string }] =
+      await this.inboundMessagesRepository.manager.query(
+        `
+        SELECT COUNT(DISTINCT COALESCE(m.client_id::text, m.from_phone_number)) AS total
+        FROM whatsapp_inbound_messages m
+        LEFT JOIN clients c ON c.id = m.client_id AND c.deleted_at IS NULL
+        WHERE $1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1
+        `,
+        [search],
+      );
+    const total = Number(totalRaw);
+
+    return {
+      items: await this.hydrateConversationRows(rows),
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  // Same DISTINCT ON aggregation as findConversations above, scoped to an
+  // exact set of known clientIds and never paginated — see the DTO's own
+  // comment on clientIds for why. Unmatched-number conversations are
+  // deliberately unreachable here: a ticket only ever exists for a
+  // resolved client (see WhatsappConversationTicket), so there's nothing
+  // to look up by phone number for this queue.
+  private async findConversationsForClientIds(
+    clientIds: string[],
+  ): Promise<PaginatedResult<WhatsappConversationSummary>> {
+    const rows: ConversationRow[] =
+      await this.inboundMessagesRepository.manager.query(
+        `
+      SELECT id, message_count FROM (
+        SELECT
+          m.id,
+          m.received_at,
+          COUNT(*) OVER (PARTITION BY m.client_id) AS message_count,
+          ROW_NUMBER() OVER (PARTITION BY m.client_id ORDER BY m.received_at DESC) AS rn
+        FROM whatsapp_inbound_messages m
+        WHERE m.client_id = ANY($1::uuid[])
+      ) latest
+      WHERE rn = 1
+      ORDER BY received_at DESC
+      `,
+        [clientIds],
+      );
+
+    const items = await this.hydrateConversationRows(rows);
+    return {
+      items,
+      meta: {
+        page: 1,
+        limit: items.length,
+        total: items.length,
+        totalPages: 1,
+      },
+    };
+  }
+
+  private async hydrateConversationRows(
+    rows: ConversationRow[],
+  ): Promise<WhatsappConversationSummary[]> {
+    const messageCountById = new Map(
+      rows.map((row) => [row.id, Number(row.message_count)]),
+    );
+    // In() doesn't preserve input order — messages re-sorted back into the
+    // same receivedAt DESC order `rows` already came back in, so the page
+    // renders newest-conversation-first regardless of hydration order.
+    const messages = await this.inboundMessagesRepository.find({
+      where: { id: In(rows.map((row) => row.id)) },
+      relations: { client: true },
+    });
+    const messageById = new Map(
+      messages.map((message) => [message.id, message]),
+    );
+
+    return rows
+      .map((row) => messageById.get(row.id))
+      .filter((message): message is WhatsappInboundMessage => Boolean(message))
+      .map((lastMessage) => ({
+        key: lastMessage.clientId ?? lastMessage.fromPhoneNumber,
+        clientId: lastMessage.clientId,
+        fromPhoneNumber: lastMessage.fromPhoneNumber,
+        lastMessage,
+        messageCount: messageCountById.get(lastMessage.id) ?? 1,
+      }));
   }
 
   private async persistEvent(event: ParsedInboundEvent): Promise<void> {
@@ -299,11 +462,28 @@ export class WhatsappWebhookService {
     return sent;
   }
 
-  // Backs the inbox's thread — a flat recent window merged client-side
-  // into each conversation, same "no per-conversation pagination yet"
-  // convention as whatsapp_self_service_replies.
-  async getManualReplies(): Promise<WhatsappManualReply[]> {
+  // Backs the inbox's thread. Human report, 2026-09-14 (critical bug) —
+  // used to be a flat recent window across EVERY conversation's replies
+  // combined, the exact same "shared global budget" bug findConversations'
+  // own comment describes for inbound messages: a busy conversation's own
+  // replies could push another conversation's replies out of the window
+  // entirely. Now scoped to one conversation (clientId, or fromPhoneNumber
+  // for an unrecognized number) — unscoped only for a caller that
+  // genuinely wants the old flat cross-conversation window (none do
+  // anymore; kept optional rather than required so this stays a additive,
+  // backward-compatible change).
+  async getManualReplies(
+    query: QueryWhatsappManualRepliesDto = {},
+  ): Promise<WhatsappManualReply[]> {
+    const where: FindOptionsWhere<WhatsappManualReply> = {};
+    if (query.clientId) {
+      where.clientId = query.clientId;
+    } else if (query.fromPhoneNumber) {
+      where.phoneNumber = normalizeIncomingPhoneNumber(query.fromPhoneNumber);
+    }
+
     return this.manualRepliesRepository.find({
+      where: Object.keys(where).length > 0 ? where : undefined,
       order: { sentAt: 'DESC' },
       take: DEFAULT_PAGE_SIZE * 10,
     });
@@ -330,29 +510,51 @@ export class WhatsappWebhookService {
   // that: sends a generic closing message and clears the conversation
   // state, so the client's next message gets the self-service menu fresh,
   // same as a brand-new conversation.
-  async closeConversation(rawPhoneNumber: string): Promise<boolean> {
+  // sendClosingMessage (human report, 2026-09-13) — defaults to true, the
+  // only behavior this had before. false skips the generic closing
+  // message entirely (e.g. a conversation resolved outside WhatsApp, or
+  // one whose 24h session window has already closed) while still clearing
+  // state and resolving the ticket below.
+  async closeConversation(
+    rawPhoneNumber: string,
+    sendClosingMessage = true,
+  ): Promise<boolean> {
     const phoneNumber = normalizeIncomingPhoneNumber(rawPhoneNumber);
-    const sent = await this.whatsAppService.sendTextMessage(
-      phoneNumber,
-      CONVERSATION_CLOSED_MESSAGE,
-    );
+    const sent = sendClosingMessage
+      ? await this.whatsAppService.sendTextMessage(
+          phoneNumber,
+          CONVERSATION_CLOSED_MESSAGE,
+        )
+      : false;
     // Human report, 2026-09-19 — same "every outbound message needs a
     // record" reasoning as WhatsappOutboundLogService's own comment: this
     // closing message used to leave no trace in the conversation thread.
     // sentByUserId null since the admin only triggered it, they didn't
     // type this fixed message themselves. Matches either known number —
-    // see sendManualReply's identical comment.
+    // see sendManualReply's identical comment. Skipped entirely (not
+    // logged as a failed send) when sendClosingMessage is false — nothing
+    // was actually attempted, so there's nothing real to show in the
+    // thread.
     const client = await this.clientsRepository.findOne({
       where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
     });
-    await this.whatsappOutboundLogService.log({
-      clientId: client?.id ?? null,
-      phoneNumber,
-      messageContent: CONVERSATION_CLOSED_MESSAGE,
-      sentByUserId: null,
-      sent,
-    });
+    if (sendClosingMessage) {
+      await this.whatsappOutboundLogService.log({
+        clientId: client?.id ?? null,
+        phoneNumber,
+        messageContent: CONVERSATION_CLOSED_MESSAGE,
+        sentByUserId: null,
+        sent,
+      });
+    }
     await this.conversationStateService.clear(phoneNumber);
+    // Human report, 2026-09-13 — closing IS resolving: an admin explicitly
+    // closing the conversation is what clears the pending-ticket badge,
+    // regardless of whether the closing message itself actually sent (the
+    // client's 24h session window may already be closed).
+    if (client) {
+      await this.conversationTicketService.resolve(client.id);
+    }
     return sent;
   }
 }

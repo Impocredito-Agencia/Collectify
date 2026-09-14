@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Collectify</title>
+    <!-- Human report, 2026-09-14 — the browser tab showed only its own
+         generic default icon; this is the same mark as CollectifyMark.tsx
+         (Sidebar header/LoginPage), on the app's own --color-surface dark
+         tile so it reads correctly against a light OR dark browser theme.
+         WhatsappTicketWatcher.tsx swaps this SAME element's href to a
+         version with a red dot while a ticket is pending, and back to
+         this exact URL once resolved — see that file's own comment on
+         why it mutates href in place instead of adding/removing a
+         second <link>. id is load-bearing: that's how it finds this
+         element again. -->
+    <link id="app-favicon" rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!-- Inter, per the Figma library (see DESIGN_TOKENS.md) — without this
          the app was silently falling back to the OS default font, which
          reads noticeably thinner/less "filled" than Inter at the light and

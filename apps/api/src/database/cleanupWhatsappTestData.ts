@@ -7,9 +7,9 @@ import { AppDataSource } from './dataSource';
 // One-off CLI utility — the paired teardown for seedWhatsappTestData.ts.
 // Permanently (hard) deletes every row created for the two WhatsApp
 // template-testing client profiles: message logs/items, inbound messages,
-// conversation state, audit log entries, payments, installments, loans,
-// references, message-frequency overrides, and finally the client rows
-// themselves. A real SQL DELETE, not TypeORM's soft-delete — this is
+// conversation state, conversation tickets, audit log entries, payments,
+// installments, loans, references, message-frequency overrides, and
+// finally the client rows themselves. A real SQL DELETE, not TypeORM's soft-delete — this is
 // disposable test data, not real business history (see docs/DATABASE.md's
 // "no hard deletes" convention, which this script is a deliberate,
 // narrowly-scoped exception to).
@@ -169,6 +169,14 @@ async function main(): Promise<void> {
         `SELECT COUNT(*) FROM whatsapp_conversation_states WHERE client_id = ANY($1)`,
         [clientIds],
       ),
+      // Human report, 2026-09-13 — this table's client_id is ON DELETE
+      // RESTRICT (see the entity's own comment), so leaving it out here
+      // would fail the final `DELETE FROM clients` below with a foreign
+      // key violation for any test client who ever triggered a ticket.
+      whatsapp_conversation_tickets: await countRows(
+        `SELECT COUNT(*) FROM whatsapp_conversation_tickets WHERE client_id = ANY($1)`,
+        [clientIds],
+      ),
       audit_logs: await countRows(
         `SELECT COUNT(*) FROM audit_logs WHERE
            (entity_type = 'client' AND entity_id = ANY($1)) OR
@@ -229,6 +237,10 @@ async function main(): Promise<void> {
       );
       await queryRunner.query(
         `DELETE FROM whatsapp_conversation_states WHERE client_id = ANY($1)`,
+        [clientIds],
+      );
+      await queryRunner.query(
+        `DELETE FROM whatsapp_conversation_tickets WHERE client_id = ANY($1)`,
         [clientIds],
       );
       await queryRunner.query(

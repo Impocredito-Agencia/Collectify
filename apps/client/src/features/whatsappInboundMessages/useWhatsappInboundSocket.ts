@@ -18,6 +18,13 @@ export function useWhatsappInboundSocket(): void {
       void queryClient.invalidateQueries({
         queryKey: ['whatsappInboundMessages'],
       });
+      // Human report, 2026-09-14 — a new inbound event changes which
+      // conversation is most recent (and its preview/count), so the
+      // conversations list needs to refetch too, not just an already-open
+      // thread.
+      void queryClient.invalidateQueries({
+        queryKey: ['whatsappConversations'],
+      });
       // A new inbound event can flip a phone number's self-service-menu
       // state (e.g. a receipt arriving moves it to handed_off_to_human) —
       // keep the "Responder"/"Cerrar conversación" gating live too.
@@ -32,6 +39,16 @@ export function useWhatsappInboundSocket(): void {
     socket.on('manual-reply', () => {
       void queryClient.invalidateQueries({
         queryKey: ['whatsappManualReplies'],
+      });
+    });
+
+    // Human report, 2026-09-13 — a ticket can open/reopen/resolve outside
+    // an inbound event too (closing a conversation resolves it), so this
+    // gets its own event rather than piggybacking on 'inbound-message' —
+    // keeps the "Mensajes entrantes" sidebar badge/filter/pinning live.
+    socket.on('ticket-update', () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['whatsappConversationTickets'],
       });
     });
 
