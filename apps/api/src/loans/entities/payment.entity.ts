@@ -68,6 +68,16 @@ export class Payment {
   @Column({ type: 'text', nullable: true })
   voidReason!: string | null;
 
+  // Human report, 2026-09-14 — set when this payment was created by
+  // applying a client's saldo a favor (ClientCreditLedgerEntry, type
+  // `applied`) rather than an actual cash/transfer amount received. Shown
+  // as a badge in the payment history so it reads differently from a real
+  // collection, without needing its own separate history view — it's a
+  // real Payment in every other respect (closes the installment, counts
+  // toward totalPaid, etc.).
+  @Column({ default: false })
+  fundedByCredit!: boolean;
+
   @DeleteDateColumn()
   deletedAt!: Date | null;
 }

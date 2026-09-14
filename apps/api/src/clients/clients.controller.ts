@@ -236,6 +236,28 @@ export class ClientsController {
     return this.clientsService.clearMessageFrequency(id);
   }
 
+  // Human report, 2026-09-14 — saldo a favor: a client-level credit
+  // generated when a payment exceeds what its installment owed (see
+  // ClientCreditLedgerEntry's own comment), applicable — by explicit
+  // operator action, POST /installments/:id/apply-credit — to any pending
+  // installment of any of the client's loans.
+  @Get(':id/credit-balance')
+  @RequireModule(AppModule.Clients)
+  @ApiOperation({
+    summary:
+      "View a client's saldo a favor (admin or granted the clients module)",
+    description:
+      'The credit currently available to apply to any pending installment of any of ' +
+      "this client's loans — see docs/DATABASE.md's client_credit_ledger_entries note.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Returns the client's current available credit balance.",
+  })
+  getCreditBalance(@Param('id') id: string): Promise<{ balance: number }> {
+    return this.clientsService.getCreditBalance(id);
+  }
+
   @Delete(':id')
   @RequireModule(AppModule.Clients)
   @HttpCode(HttpStatus.NO_CONTENT)

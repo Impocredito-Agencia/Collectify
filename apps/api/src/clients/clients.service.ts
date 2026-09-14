@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, ILike, In, IsNull, Not, Repository } from 'typeorm';
 
+import { ClientCreditBalanceService } from './clientCreditBalance.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import {
   Installment,
@@ -115,7 +116,17 @@ export class ClientsService {
     private readonly clientReferencesRepository: Repository<ClientReference>,
     @InjectRepository(ClientMessageFrequency)
     private readonly clientMessageFrequenciesRepository: Repository<ClientMessageFrequency>,
+    private readonly clientCreditBalanceService: ClientCreditBalanceService,
   ) {}
+
+  // Human report, 2026-09-14 — thin passthrough so ClientsController stays
+  // consistent with every other endpoint here (injects only ClientsService,
+  // never a second service directly). See ClientCreditBalanceService's own
+  // comment for why the balance itself is computed there, not here.
+  async getCreditBalance(clientId: string): Promise<{ balance: number }> {
+    const balance = await this.clientCreditBalanceService.getBalance(clientId);
+    return { balance };
+  }
 
   // requireConsent/requireDocumentType both default to true (the
   // interactive ClientsController.create path) — ClientLoanImportService

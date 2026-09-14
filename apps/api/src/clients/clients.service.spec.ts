@@ -18,6 +18,7 @@ import { Loan, LoanStatus } from '../loans/entities/loan.entity';
 import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
+import { ClientCreditBalanceService } from './clientCreditBalance.service';
 import { ClientsService } from './clients.service';
 import { Client, DocumentType } from './entities/client.entity';
 import { ClientMessageFrequency } from './entities/clientMessageFrequency.entity';
@@ -54,6 +55,7 @@ describe('ClientsService', () => {
     findOneBy: jest.Mock;
     delete: jest.Mock;
   };
+  let clientCreditBalanceService: { getBalance: jest.Mock };
 
   const mockClient: Client = {
     id: 'client-1',
@@ -153,6 +155,9 @@ describe('ClientsService', () => {
       findOneBy: jest.fn().mockResolvedValue(null),
       delete: jest.fn(),
     };
+    clientCreditBalanceService = {
+      getBalance: jest.fn().mockResolvedValue(0),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -178,6 +183,10 @@ describe('ClientsService', () => {
         {
           provide: getRepositoryToken(ClientMessageFrequency),
           useValue: clientMessageFrequenciesRepository,
+        },
+        {
+          provide: ClientCreditBalanceService,
+          useValue: clientCreditBalanceService,
         },
       ],
     }).compile();

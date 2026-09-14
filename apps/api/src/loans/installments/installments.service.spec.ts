@@ -13,6 +13,7 @@ import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entit
 import { Payment } from '../entities/payment.entity';
 import { PaymentImage } from '../entities/paymentImage.entity';
 
+import { ClientCreditBalanceService } from '../../clients/clientCreditBalance.service';
 import { WhatsappInboundMessage } from '../../whatsapp/entities/whatsappInboundMessage.entity';
 import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
 
@@ -41,6 +42,12 @@ describe('InstallmentsService', () => {
   let paymentConfirmationService: {
     sendPaymentConfirmation: jest.Mock;
     sendPaidInFull: jest.Mock;
+  };
+  let clientCreditBalanceService: {
+    getBalance: jest.Mock;
+    recordExcess: jest.Mock;
+    recordApplication: jest.Mock;
+    assertCanApply: jest.Mock;
   };
 
   // loan is typed `as never` (Installment.loan is a required relation, but
@@ -146,6 +153,12 @@ describe('InstallmentsService', () => {
       sendPaymentConfirmation: jest.fn().mockResolvedValue(undefined),
       sendPaidInFull: jest.fn().mockResolvedValue(undefined),
     };
+    clientCreditBalanceService = {
+      getBalance: jest.fn().mockResolvedValue(0),
+      recordExcess: jest.fn().mockResolvedValue(undefined),
+      recordApplication: jest.fn().mockResolvedValue(undefined),
+      assertCanApply: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -172,6 +185,10 @@ describe('InstallmentsService', () => {
         {
           provide: PaymentConfirmationService,
           useValue: paymentConfirmationService,
+        },
+        {
+          provide: ClientCreditBalanceService,
+          useValue: clientCreditBalanceService,
         },
       ],
     }).compile();
@@ -524,7 +541,14 @@ describe('InstallmentsService', () => {
     // money that was never actually owed. A future dueDate keeps mora at
     // exactly 0 here, so the ceiling is deterministic ($50.000) regardless
     // of when this test runs.
-    it("rejects a payment that exceeds the installment's real remaining balance after a prior partial payment", async () => {
+    //
+    // Bug fix, 2026-09-14 (human decision) — rejecting the excess outright
+    // is no longer the fix: it's capped out of THIS installment's own
+    // Payment row (must never exceed what it truly owed) and recorded as a
+    // client-level credit instead — see ClientCreditLedgerEntry's own
+    // comment. Renamed and rewritten from "rejects a payment that
+    // exceeds..." to reflect the new confirmed behavior.
+    it("caps the payment at the installment's real remaining balance and records the excess as a client credit", async () => {
       const notOverdueInstallment: Installment = {
         ...mockInstallment,
         dueDate: '2099-01-01',
@@ -532,15 +556,22 @@ describe('InstallmentsService', () => {
       installmentsRepository.findOne.mockResolvedValue(notOverdueInstallment);
       paymentsRepository.find.mockResolvedValueOnce([{ amountPaid: 150000 }]);
       mockInstallmentsFind();
+      loansRepository.findOne.mockResolvedValue({
+        isNewLoan: false,
+        clientId: 'client-1',
+      });
 
-      await expect(
-        service.registerPayment(notOverdueInstallment.id, {
-          amountPaid: 100000,
-          paidAt: '2026-01-05',
-        }),
-      ).rejects.toThrow(BadRequestException);
-      expect(paymentsRepository.create).not.toHaveBeenCalled();
-      expect(paymentsRepository.save).not.toHaveBeenCalled();
+      const result = await service.registerPayment(notOverdueInstallment.id, {
+        amountPaid: 100000,
+        paidAt: '2026-01-05',
+      });
+
+      expect(result).toMatchObject({ amountPaid: 50000 });
+      expect(clientCreditBalanceService.recordExcess).toHaveBeenCalledWith(
+        'client-1',
+        result.id,
+        50000,
+      );
     });
 
     it('accepts a payment that exactly matches the real remaining balance', async () => {
@@ -572,21 +603,37 @@ describe('InstallmentsService', () => {
     // service's doc comment on the balance-ceiling check): an installment
     // that's already Paid or Cancelled has a remaining balance of 0 (see
     // enrichInstallment's non-Pending short-circuit), so it can no longer
-    // silently accept an extra payment record either — it's rejected by the
-    // same ceiling check, before ever reaching the sequential-payment rule
-    // (which only applies to Pending installments in the first place).
-    it('rejects any new payment against an already-paid installment, without running the sequential-payment check', async () => {
+    // silently accept an extra payment record either — before ever
+    // reaching the sequential-payment rule (which only applies to Pending
+    // installments in the first place).
+    //
+    // Bug fix, 2026-09-14 (human decision) — routes into credit instead of
+    // rejecting, same as the test above. The ENTIRE amount becomes credit
+    // here (the installment's own remaining balance is 0), not just a
+    // slice of it.
+    it('routes the entire amount into a client credit for an already-paid installment, without running the sequential-payment check', async () => {
       installmentsRepository.findOne.mockResolvedValue({
         ...mockInstallment,
         status: InstallmentStatus.Paid,
       });
+      loansRepository.findOne.mockResolvedValue({
+        isNewLoan: false,
+        clientId: 'client-1',
+      });
 
-      await expect(
-        service.registerPayment(mockInstallment.id, paymentDto),
-      ).rejects.toThrow(BadRequestException);
+      const result = await service.registerPayment(
+        mockInstallment.id,
+        paymentDto,
+      );
+
       expect(installmentsRepository.find).not.toHaveBeenCalled();
-      expect(paymentsRepository.create).not.toHaveBeenCalled();
       expect(installmentsRepository.update).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ amountPaid: 0 });
+      expect(clientCreditBalanceService.recordExcess).toHaveBeenCalledWith(
+        'client-1',
+        result.id,
+        paymentDto.amountPaid,
+      );
     });
 
     it('throws NotFoundException when the installment does not exist', async () => {
@@ -718,6 +765,92 @@ describe('InstallmentsService', () => {
           sourceWhatsappMessageId: 'wa-msg-1',
         }),
       ).resolves.toMatchObject(paymentDto);
+    });
+  });
+
+  // Human report, 2026-09-14 — the explicit, operator-initiated half of
+  // saldo a favor. Delegates to registerPayment (fundedByCredit: true)
+  // rather than duplicating its close/cascade/confirmation logic.
+  describe('applyCreditToInstallment', () => {
+    it('validates via ClientCreditBalanceService before touching anything', async () => {
+      clientCreditBalanceService.assertCanApply.mockRejectedValue(
+        new BadRequestException(
+          'El saldo a favor disponible ($0) es menor al monto solicitado ($50000).',
+        ),
+      );
+
+      await expect(
+        service.applyCreditToInstallment('client-1', mockInstallment.id, 50000),
+      ).rejects.toThrow(BadRequestException);
+      expect(installmentsRepository.findOne).not.toHaveBeenCalled();
+      expect(
+        clientCreditBalanceService.recordApplication,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('registers the payment as fundedByCredit and records the application', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find.mockResolvedValue([]);
+      installmentsRepository.find.mockImplementation(
+        ({ where }: { where?: Record<string, unknown> } = {}) =>
+          Promise.resolve(where?.installmentNumber ? [] : []),
+      );
+
+      const result = await service.applyCreditToInstallment(
+        'client-1',
+        mockInstallment.id,
+        200000,
+      );
+
+      expect(clientCreditBalanceService.assertCanApply).toHaveBeenCalledWith(
+        'client-1',
+        mockInstallment.id,
+        200000,
+      );
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amountPaid: 200000,
+          fundedByCredit: true,
+        }),
+      );
+      expect(clientCreditBalanceService.recordApplication).toHaveBeenCalledWith(
+        'client-1',
+        result.id,
+        200000,
+      );
+      // The installment owed exactly 200000 — no leftover to recycle back
+      // into a fresh credit.
+      expect(clientCreditBalanceService.recordExcess).not.toHaveBeenCalled();
+    });
+
+    it('recycles any leftover back into a fresh credit when the applied amount exceeds what the installment needed', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      paymentsRepository.find.mockResolvedValue([]);
+      installmentsRepository.find.mockResolvedValue([]);
+      loansRepository.findOne.mockResolvedValue({
+        isNewLoan: false,
+        clientId: 'client-1',
+      });
+
+      const result = await service.applyCreditToInstallment(
+        'client-1',
+        mockInstallment.id,
+        250000,
+      );
+
+      // Capped at what the installment actually owed (200000) — never
+      // records more against a single installment than it truly owed.
+      expect(result).toMatchObject({ amountPaid: 200000 });
+      expect(clientCreditBalanceService.recordExcess).toHaveBeenCalledWith(
+        'client-1',
+        result.id,
+        50000,
+      );
+      expect(clientCreditBalanceService.recordApplication).toHaveBeenCalledWith(
+        'client-1',
+        result.id,
+        250000,
+      );
     });
   });
 
@@ -1106,6 +1239,7 @@ describe('InstallmentsService', () => {
         updatedAt: new Date(),
         deletedAt: null,
         voidReason: null,
+        fundedByCredit: false,
         installment: paidInstallment,
       };
     }
