@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -43,6 +44,7 @@ import { WhatsappConversationTicketService } from './whatsappConversationTicket.
 import { WhatsappCronService } from './whatsappCron.service';
 
 import type { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
+import type { Response } from 'express';
 
 @ApiTags('whatsapp')
 @ApiBearerAuth()
@@ -97,6 +99,38 @@ export class WhatsappController {
     @Query() query: QueryWhatsappConversationsDto,
   ): Promise<PaginatedResult<WhatsappConversationSummary>> {
     return this.whatsappWebhookService.findConversations(query);
+  }
+
+  // Human report, 2026-09-14 — an audio/video message must never be
+  // re-hosted to Cloudinary (unlike image/document, see
+  // WhatsappInboundMessage.mediaUrl's own comment), but a cobrador still
+  // needs to listen/watch it from the inbox. Streams the file fetched
+  // fresh from Meta on every request instead — @Res() bypasses the global
+  // {success, data} envelope entirely, same pattern
+  // ClientsImportController's file downloads use, since the response body
+  // here is raw bytes an <audio>/<video> element consumes directly, not
+  // JSON.
+  @Get('inbound-messages/:id/media')
+  @ApiOperation({
+    summary:
+      "Stream an inbound message's original audio/video file straight from Meta (admin or granted the messages module)",
+    description:
+      "Never persisted anywhere (not Cloudinary, not this API) — fetched fresh from Meta on every call. Meta only keeps a message's media temporarily, so an old enough message can 404 here even though it was received and logged successfully.",
+  })
+  @ApiResponse({ status: 200, description: 'Streams the raw media bytes.' })
+  @ApiResponse({
+    status: 404,
+    description:
+      'This message has no audio/video attached, or Meta no longer has it.',
+  })
+  async streamInboundMedia(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { bytes, mimeType } =
+      await this.whatsappWebhookService.getInboundMedia(id);
+    res.set({ 'Content-Type': mimeType });
+    res.send(bytes);
   }
 
   @Post('inbound-messages/reply')

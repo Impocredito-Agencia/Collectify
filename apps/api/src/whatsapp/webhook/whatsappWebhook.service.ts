@@ -1,6 +1,11 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
@@ -9,7 +14,10 @@ import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Configuration } from '../../config/configuration';
 import { ConversationMenu } from '../entities/whatsappConversationState.entity';
-import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
+import {
+  WhatsappInboundMessage,
+  WhatsappInboundMessageType,
+} from '../entities/whatsappInboundMessage.entity';
 import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 import { CONVERSATION_CLOSED_MESSAGE } from '../selfServiceMenuMessages';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
@@ -123,6 +131,35 @@ export class WhatsappWebhookService {
     for (const event of events) {
       await this.persistEvent(event);
     }
+  }
+
+  // Human report, 2026-09-14 — backs WhatsappController's
+  // inbound-messages/:id/media endpoint. Fetches straight from Meta on
+  // every call rather than caching/persisting anywhere (see
+  // WhatsappMediaService.fetchMediaBytes's own comment on why) — this is
+  // the audio/video counterpart to mediaUrl, which is already-persisted
+  // and served directly by the frontend without touching the API.
+  async getInboundMedia(
+    messageId: string,
+  ): Promise<{ bytes: Buffer; mimeType: string }> {
+    const message = await this.inboundMessagesRepository.findOne({
+      where: { id: messageId },
+    });
+    if (!message || !message.metaMediaId) {
+      throw new NotFoundException(
+        'No hay un archivo de audio/video disponible para este mensaje.',
+      );
+    }
+
+    const media = await this.whatsappMediaService.fetchMediaBytes(
+      message.metaMediaId,
+    );
+    if (!media) {
+      throw new NotFoundException(
+        'El archivo ya no está disponible en WhatsApp.',
+      );
+    }
+    return media;
   }
 
   // Admin-facing list — see docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md's
@@ -368,7 +405,21 @@ export class WhatsappWebhookService {
     // never break the "every inbound event is durably logged" guarantee
     // this method already provides, the same principle the self-service
     // dispatch below already follows.
-    if (event.mediaId) {
+    //
+    // Human report, 2026-09-14 — audio/video branch off here instead:
+    // event.mediaId is just saved as-is onto metaMediaId, no Cloudinary
+    // call at all (the client doesn't want that quota spent on those), see
+    // WhatsappInboundMessage.metaMediaId's own comment.
+    if (
+      event.mediaId &&
+      (event.type === WhatsappInboundMessageType.Audio ||
+        event.type === WhatsappInboundMessageType.Video)
+    ) {
+      saved = await this.inboundMessagesRepository.save({
+        ...saved,
+        metaMediaId: event.mediaId,
+      });
+    } else if (event.mediaId) {
       try {
         const mediaUrl = await this.whatsappMediaService.downloadAndStore(
           event.mediaId,

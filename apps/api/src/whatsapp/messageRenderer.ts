@@ -279,10 +279,18 @@ function groupByPromissoryNote(
   return groups;
 }
 
+// Bug fix, 2026-09-14 (human report) — this used to sum totalDue across
+// EVERY listed installment, overdue or not, so a client with several
+// future (not-yet-due) cuotas saw them folded into "El valor total a pagar
+// hoy" alongside whatever was actually due. Only what's overdue or due
+// today is actually payable "hoy" — a future cuota still belongs in the
+// list (informational), just not in this total.
 export function calculateAccountSummaryTotal(
   installments: AccountSummaryInstallmentForMessage[],
 ): number {
-  return installments.reduce((sum, item) => sum + item.totalDue, 0);
+  return installments
+    .filter((item) => item.overdueDays > 0 || item.daysUntilDue === 0)
+    .reduce((sum, item) => sum + item.totalDue, 0);
 }
 
 export function renderAccountSummaryMessage(

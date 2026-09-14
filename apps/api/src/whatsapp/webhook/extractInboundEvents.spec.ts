@@ -353,13 +353,16 @@ describe('extractInboundEvents', () => {
   });
 
   // Human report, 2026-09-11 — added alongside WhatsappMediaService, which
-  // needs this id to actually fetch the file from Meta. Every media type
-  // parsed above (image/document/audio/video/sticker) must carry it;
-  // nothing else (text, button, location, other) has a file to fetch.
-  it('extracts the media id for image/document only', () => {
+  // needs this id to actually fetch the file from Meta. Widened to
+  // audio/video 2026-09-14 (human report — a voice note/video should be
+  // playable from the inbox, not just logged). Sticker is deliberately not
+  // included — see parseMessage's own comment.
+  it('extracts the media id for image/document/audio/video', () => {
     const mediaTypes: [string, Record<string, unknown>][] = [
       ['image', { image: { id: 'media-1', mime_type: 'image/jpeg' } }],
       ['document', { document: { id: 'media-2', filename: 'a.pdf' } }],
+      ['audio', { audio: { id: 'media-3', mime_type: 'audio/ogg' } }],
+      ['video', { video: { id: 'media-5' } }],
     ];
 
     for (const [type, fields] of mediaTypes) {
@@ -372,15 +375,14 @@ describe('extractInboundEvents', () => {
     }
   });
 
-  // Human report, 2026-09-11 — image/document are the only kinds relevant
-  // as payment evidence for this business; audio/video/sticker keep their
-  // own recognized type (still logged, never dropped, see
-  // WhatsappInboundMessageType) but never re-host to Cloudinary, so their
-  // mediaId stays null on purpose — see parseMessage's own comment.
-  it('leaves the media id null for audio, video, sticker, text, button, location, and other events', () => {
+  // Human report, 2026-09-11 — sticker is the one media type that keeps
+  // its own recognized type (still logged, never dropped, see
+  // WhatsappInboundMessageType) but never re-hosts to Cloudinary — a
+  // sticker is a tiny reusable emoji-like image, never something a
+  // cobrador needs to review. Everything else here just has no file to
+  // fetch at all.
+  it('leaves the media id null for sticker, text, button, location, and other events', () => {
     const nonMediaPayloads: Record<string, unknown>[] = [
-      { type: 'audio', audio: { id: 'media-3', mime_type: 'audio/ogg' } },
-      { type: 'video', video: { id: 'media-5' } },
       {
         type: 'sticker',
         sticker: { id: 'media-4', mime_type: 'image/webp' },

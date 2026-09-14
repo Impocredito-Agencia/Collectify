@@ -11,9 +11,20 @@ export interface ParsedInboundEvent {
   // from, see SelfServiceMenuService.sendBreakdownForContext. Bug fix,
   // 2026-09-03.
   contextMessageId: string | null;
-  // Set for image/document/audio/video/sticker — Meta's own reference to
-  // the actual file, needed to fetch and re-host it (see
-  // WhatsappMediaService). Human report, 2026-09-11.
+  // Set for image/document/audio/video — Meta's own reference to the
+  // actual file. Human report, 2026-09-11; widened to audio/video
+  // 2026-09-14 (human report — the client wants to listen to a voice note
+  // and watch a video right from the inbox, not just see that one
+  // arrived). WhatsappWebhookService.persistEvent does different things
+  // with it depending on type: image/document get downloaded and
+  // re-hosted to Cloudinary permanently (WhatsappMediaService.
+  // downloadAndStore, writing WhatsappInboundMessage.mediaUrl); audio/video
+  // deliberately do NOT — the client doesn't want Cloudinary storage spent
+  // on those, so this id is kept as-is (WhatsappInboundMessage.
+  // metaMediaId) and the file is instead fetched fresh from Meta on each
+  // playback. Left null for sticker — a tiny reusable emoji-like image the
+  // client picked from Meta's own sticker packs, never something a
+  // cobrador needs to review.
   mediaId: string | null;
   receivedAt: Date;
   rawPayload: Record<string, unknown>;
@@ -100,12 +111,16 @@ function parseMessage(message: Record<string, unknown>): {
   // caption when present so a client's real words (e.g. "aquí está el
   // comprobante") still show, not just the media's presence. mediaId
   // (added alongside WhatsappMediaService, same date) is Meta's own
-  // reference to the file itself — needed to actually fetch it. Only set
-  // for image/document, since those are the only kinds relevant as
-  // payment evidence for this business — audio/video/sticker keep their
-  // own recognized `type` (still logged, never dropped) but leave mediaId
-  // null so WhatsappMediaService never spends Cloudinary quota re-hosting
-  // something nobody needs to review as a comprobante.
+  // reference to the file itself — needed to actually fetch it.
+  //
+  // Originally only set for image/document, the two kinds relevant as
+  // payment evidence for this business, to avoid spending Cloudinary quota
+  // on audio/video nobody needed to review as a comprobante. Widened to
+  // also cover audio/video, 2026-09-14 (human report) — the client wants a
+  // voice note playable and a video watchable right in the inbox. Still
+  // never re-hosted to Cloudinary though — see ParsedInboundEvent's own
+  // comment on mediaId above for how audio/video's id is used instead.
+  // Sticker stays excluded entirely.
   if (messageType === 'image' && isRecord(message.image)) {
     return {
       type: WhatsappInboundMessageType.Image,
@@ -133,7 +148,7 @@ function parseMessage(message: Record<string, unknown>): {
       type: WhatsappInboundMessageType.Audio,
       buttonPayload: null,
       bodyText: null,
-      mediaId: null,
+      mediaId: asString(message.audio.id),
     };
   }
 
@@ -142,7 +157,7 @@ function parseMessage(message: Record<string, unknown>): {
       type: WhatsappInboundMessageType.Video,
       buttonPayload: null,
       bodyText: asString(message.video.caption),
-      mediaId: null,
+      mediaId: asString(message.video.id),
     };
   }
 
