@@ -14,6 +14,7 @@ import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 import { CONVERSATION_CLOSED_MESSAGE } from '../selfServiceMenuMessages';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
+import { WhatsappConversationTicketService } from '../whatsappConversationTicket.service';
 import { WhatsAppService } from '../whatsapp.service';
 import { WhatsappOutboundLogService } from '../whatsappOutboundLog.service';
 
@@ -46,6 +47,7 @@ export class WhatsappWebhookService {
     private readonly whatsAppService: WhatsAppService,
     private readonly selfServiceMenuService: SelfServiceMenuService,
     private readonly conversationStateService: WhatsappConversationStateService,
+    private readonly conversationTicketService: WhatsappConversationTicketService,
     private readonly whatsappMediaService: WhatsappMediaService,
     private readonly whatsappOutboundLogService: WhatsappOutboundLogService,
   ) {}
@@ -353,6 +355,13 @@ export class WhatsappWebhookService {
       sent,
     });
     await this.conversationStateService.clear(phoneNumber);
+    // Human report, 2026-09-13 — closing IS resolving: an admin explicitly
+    // closing the conversation is what clears the pending-ticket badge,
+    // regardless of whether the closing message itself actually sent (the
+    // client's 24h session window may already be closed).
+    if (client) {
+      await this.conversationTicketService.resolve(client.id);
+    }
     return sent;
   }
 }

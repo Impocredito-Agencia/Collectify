@@ -7,6 +7,7 @@ import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept
 import { Payment } from '../loans/entities/payment.entity';
 
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
+import { WhatsappTicketTriggerKind } from './entities/whatsappConversationTicket.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { WhatsappInboundMessageType } from './entities/whatsappInboundMessage.entity';
@@ -17,6 +18,7 @@ import {
 } from './selfServiceMenuPayloads';
 import { ParsedInboundEvent } from './webhook/extractInboundEvents';
 import { WhatsappConversationStateService } from './whatsappConversationState.service';
+import { WhatsappConversationTicketService } from './whatsappConversationTicket.service';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
 
@@ -37,6 +39,7 @@ describe('SelfServiceMenuService', () => {
     sendInteractiveButtonsMessage: jest.Mock;
   };
   let whatsappOutboundLogService: { log: jest.Mock };
+  let conversationTicketService: { openOrReopen: jest.Mock };
 
   const client: Client = {
     id: 'client-1',
@@ -74,10 +77,12 @@ describe('SelfServiceMenuService', () => {
     };
   }
 
-  function otherEvent(): ParsedInboundEvent {
+  function otherEvent(
+    type: WhatsappInboundMessageType = WhatsappInboundMessageType.Other,
+  ): ParsedInboundEvent {
     return {
       fromPhoneNumber: client.phoneNumber,
-      type: WhatsappInboundMessageType.Other,
+      type,
       buttonPayload: null,
       bodyText: null,
       contextMessageId: null,
@@ -108,6 +113,9 @@ describe('SelfServiceMenuService', () => {
     whatsappOutboundLogService = {
       log: jest.fn().mockResolvedValue(undefined),
     };
+    conversationTicketService = {
+      openOrReopen: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -132,6 +140,10 @@ describe('SelfServiceMenuService', () => {
         {
           provide: WhatsappConversationStateService,
           useValue: conversationStateService,
+        },
+        {
+          provide: WhatsappConversationTicketService,
+          useValue: conversationTicketService,
         },
         { provide: WhatsAppService, useValue: whatsAppService },
         {
@@ -298,6 +310,10 @@ describe('SelfServiceMenuService', () => {
         client.phoneNumber,
         client.id,
         ConversationMenu.HandedOffToHuman,
+      );
+      expect(conversationTicketService.openOrReopen).toHaveBeenCalledWith(
+        client.id,
+        WhatsappTicketTriggerKind.AdvisorRequested,
       );
     });
 
@@ -477,7 +493,10 @@ describe('SelfServiceMenuService', () => {
         currentMenu: ConversationMenu.AwaitingReceipt,
       });
 
-      await service.handleInboundEvent(otherEvent(), client);
+      await service.handleInboundEvent(
+        otherEvent(WhatsappInboundMessageType.Image),
+        client,
+      );
 
       expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
         client.phoneNumber,
@@ -488,12 +507,17 @@ describe('SelfServiceMenuService', () => {
         client.id,
         ConversationMenu.HandedOffToHuman,
       );
+      expect(conversationTicketService.openOrReopen).toHaveBeenCalledWith(
+        client.id,
+        WhatsappTicketTriggerKind.ReceiptImage,
+      );
     });
 
     it('does nothing when media arrives with no active receipt-flow state', async () => {
       await service.handleInboundEvent(otherEvent(), client);
 
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+      expect(conversationTicketService.openOrReopen).not.toHaveBeenCalled();
     });
 
     it('does nothing when media arrives while on a different menu', async () => {
@@ -515,6 +539,41 @@ describe('SelfServiceMenuService', () => {
 
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
       expect(conversationStateService.upsert).not.toHaveBeenCalled();
+    });
+
+    // Human report, 2026-09-13 — an image/document the client sends
+    // WITHOUT going through "Reportar un pago" first still flags a ticket,
+    // silently (no automated reply, no menu-state change).
+    it.each([
+      [
+        WhatsappInboundMessageType.Image,
+        WhatsappTicketTriggerKind.ReceiptImage,
+      ],
+      [
+        WhatsappInboundMessageType.Document,
+        WhatsappTicketTriggerKind.ReceiptDocument,
+      ],
+    ])(
+      'silently opens a ticket for an unprompted %s with no active state',
+      async (type, expectedTriggerKind) => {
+        await service.handleInboundEvent(otherEvent(type), client);
+
+        expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+        expect(conversationStateService.upsert).not.toHaveBeenCalled();
+        expect(conversationTicketService.openOrReopen).toHaveBeenCalledWith(
+          client.id,
+          expectedTriggerKind,
+        );
+      },
+    );
+
+    it('does not open a ticket for an unprompted media type outside image/document', async () => {
+      await service.handleInboundEvent(
+        otherEvent(WhatsappInboundMessageType.Audio),
+        client,
+      );
+
+      expect(conversationTicketService.openOrReopen).not.toHaveBeenCalled();
     });
   });
 });

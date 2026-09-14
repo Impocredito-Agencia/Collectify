@@ -50,6 +50,14 @@ describe('formatAuditAction', () => {
     );
   });
 
+  // Human report, 2026-09-13 — close-conversation had never been
+  // audit-logged either, same coverage sweep as whatsappCron above.
+  it('translates whatsappTicket.resolve', () => {
+    expect(formatAuditAction('whatsappTicket.resolve')).toBe(
+      'Cerró una conversación de WhatsApp',
+    );
+  });
+
   // 2026-09-06 — the combined clients+loans Excel importer was split into
   // two endpoints (see apps/api/src/clientsImport and apps/api/src/
   // loanImport), each firing its own @Audit() call under a new action
@@ -150,6 +158,12 @@ describe('formatAuditEntityType', () => {
   it('translates whatsappCron', () => {
     expect(formatAuditEntityType('whatsappCron')).toBe(
       'Recordatorio automático',
+    );
+  });
+
+  it('translates whatsappTicket', () => {
+    expect(formatAuditEntityType('whatsappTicket')).toBe(
+      'Conversación de WhatsApp',
     );
   });
 

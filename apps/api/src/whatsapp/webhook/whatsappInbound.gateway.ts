@@ -13,6 +13,7 @@ import { JwtPayload } from '../../auth/interfaces/jwtPayload.interface';
 import { Configuration } from '../../config/configuration';
 import { UserRole } from '../../users/entities/user.entity';
 import { UsersService } from '../../users/users.service';
+import { WhatsappConversationTicket } from '../entities/whatsappConversationTicket.entity';
 import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
 import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 
@@ -91,5 +92,12 @@ export class WhatsappInboundGateway
   // connected admin immediately, not just locally in the sender's own tab.
   emitManualReply(reply: WhatsappManualReply): void {
     this.server.emit('manual-reply', reply);
+  }
+
+  // Human report, 2026-09-13 — the pending-tickets badge/filter needs to
+  // stay current for every connected admin the moment one opens, reopens,
+  // or resolves, not just in the tab where it happened.
+  emitTicketUpdate(ticket: WhatsappConversationTicket): void {
+    this.server.emit('ticket-update', ticket);
   }
 }

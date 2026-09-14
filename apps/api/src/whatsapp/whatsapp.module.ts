@@ -15,6 +15,7 @@ import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
 import { WhatsappConversationState } from './entities/whatsappConversationState.entity';
+import { WhatsappConversationTicket } from './entities/whatsappConversationTicket.entity';
 import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
 import { WhatsappManualReply } from './entities/whatsappManualReply.entity';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
@@ -33,6 +34,7 @@ import { WhatsappWebhookController } from './webhook/whatsappWebhook.controller'
 import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
 import { WhatsappConversationStateService } from './whatsappConversationState.service';
 import { WhatsappController } from './whatsapp.controller';
+import { WhatsappConversationTicketService } from './whatsappConversationTicket.service';
 import { WhatsappCronService } from './whatsappCron.service';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
@@ -56,6 +58,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
       WhatsappInboundMessage,
       WhatsappManualReply,
       WhatsappConversationState,
+      WhatsappConversationTicket,
       Client,
       ClientMessageFrequency,
       Installment,
@@ -98,6 +101,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     WhatsappMediaService,
     WhatsappInboundGateway,
     WhatsappConversationStateService,
+    WhatsappConversationTicketService,
     SelfServiceMenuService,
     WhatsappOutboundLogService,
   ],

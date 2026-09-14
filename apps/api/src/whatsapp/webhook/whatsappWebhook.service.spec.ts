@@ -13,6 +13,7 @@ import {
 import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
+import { WhatsappConversationTicketService } from '../whatsappConversationTicket.service';
 import { WhatsAppService } from '../whatsapp.service';
 import { WhatsappOutboundLogService } from '../whatsappOutboundLog.service';
 
@@ -49,6 +50,7 @@ describe('WhatsappWebhookService', () => {
   let whatsappOutboundLogService: { log: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
   let conversationStateService: { getActive: jest.Mock; clear: jest.Mock };
+  let conversationTicketService: { resolve: jest.Mock };
   let whatsappMediaService: { downloadAndStore: jest.Mock };
 
   beforeEach(async () => {
@@ -86,6 +88,9 @@ describe('WhatsappWebhookService', () => {
       getActive: jest.fn().mockResolvedValue(null),
       clear: jest.fn().mockResolvedValue(undefined),
     };
+    conversationTicketService = {
+      resolve: jest.fn().mockResolvedValue(null),
+    };
     // Defaults to "nothing to attach" — most tests below don't involve a
     // media message at all (mediaId stays null out of extractInboundEvents
     // for text/button/location/other, so this is never even called for
@@ -120,6 +125,10 @@ describe('WhatsappWebhookService', () => {
         {
           provide: WhatsappConversationStateService,
           useValue: conversationStateService,
+        },
+        {
+          provide: WhatsappConversationTicketService,
+          useValue: conversationTicketService,
         },
         { provide: WhatsappMediaService, useValue: whatsappMediaService },
       ],
@@ -638,6 +647,39 @@ describe('WhatsappWebhookService', () => {
         sentByUserId: null,
         sent: true,
       });
+    });
+
+    // Human report, 2026-09-13 — closing IS resolving: an admin explicitly
+    // closing the conversation clears the client's pending ticket, if any.
+    it('resolves the pending ticket for the matched client', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+      await service.closeConversation('573001234567');
+
+      expect(conversationTicketService.resolve).toHaveBeenCalledWith(
+        'client-1',
+      );
+    });
+
+    it('still resolves the ticket even when the closing message fails to send', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(false);
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+      await service.closeConversation('573001234567');
+
+      expect(conversationTicketService.resolve).toHaveBeenCalledWith(
+        'client-1',
+      );
+    });
+
+    it('does not try to resolve a ticket when the phone number matches no client', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      clientsRepository.findOne.mockResolvedValue(null);
+
+      await service.closeConversation('573001234567');
+
+      expect(conversationTicketService.resolve).not.toHaveBeenCalled();
     });
   });
 });

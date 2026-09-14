@@ -23,6 +23,7 @@ import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import { UpdateCronScheduleDto } from './dto/updateCronSchedule.dto';
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
+import { WhatsappConversationTicket } from './entities/whatsappConversationTicket.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
 import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
@@ -34,6 +35,7 @@ import { PhoneNumberDto } from './webhook/dto/phoneNumber.dto';
 import { QueryWhatsappInboundMessagesDto } from './webhook/dto/queryWhatsappInboundMessages.dto';
 import { ReplyToInboundMessageDto } from './webhook/dto/replyToInboundMessage.dto';
 import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
+import { WhatsappConversationTicketService } from './whatsappConversationTicket.service';
 import { WhatsappCronService } from './whatsappCron.service';
 
 import type { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
@@ -51,6 +53,7 @@ export class WhatsappController {
     private readonly upcomingDueReminderService: UpcomingDueReminderService,
     private readonly whatsappCronService: WhatsappCronService,
     private readonly whatsappWebhookService: WhatsappWebhookService,
+    private readonly whatsappConversationTicketService: WhatsappConversationTicketService,
   ) {}
 
   @Get('inbound-messages')
@@ -130,11 +133,12 @@ export class WhatsappController {
   }
 
   @Post('inbound-messages/close-conversation')
+  @Audit('whatsappTicket.resolve', 'whatsappTicket')
   @ApiOperation({
     summary:
       'Close a hand-off conversation (admin or granted the messages module)',
     description:
-      "Sends a generic closing message and clears the self-service-menu state, so the client's next message gets the menu fresh instead of the bot staying silent — see docs/phases/PHASE_34_INTERACTIVE_MENU.md.",
+      "Sends a generic closing message, clears the self-service-menu state, and resolves the client's pending ticket (if any) — see docs/phases/PHASE_34_INTERACTIVE_MENU.md.",
   })
   @ApiResponse({
     status: 201,
@@ -147,6 +151,21 @@ export class WhatsappController {
       dto.phoneNumber,
     );
     return { sent };
+  }
+
+  // Human report, 2026-09-13 — backs the inbox's pending-tickets badge,
+  // filter, and pinning. Flat list, no pagination — see
+  // WhatsappConversationTicketService.findAll's own comment.
+  @Get('tickets')
+  @ApiOperation({
+    summary:
+      'List every WhatsApp conversation ticket (admin or granted the messages module)',
+    description:
+      'One row per client that has ever needed a human (Pending or Resolved), oldest-pending-first.',
+  })
+  @ApiResponse({ status: 200, description: 'Returns every ticket.' })
+  findTickets(): Promise<WhatsappConversationTicket[]> {
+    return this.whatsappConversationTicketService.findAll();
   }
 
   @Get('cron/:family/status')

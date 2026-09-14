@@ -13,6 +13,7 @@ import {
   findPendingInstallmentsBreakdown,
 } from './breakdownQueries';
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
+import { WhatsappTicketTriggerKind } from './entities/whatsappConversationTicket.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { WhatsappInboundMessageType } from './entities/whatsappInboundMessage.entity';
@@ -36,6 +37,7 @@ import {
 } from './selfServiceMenuPayloads';
 import { ParsedInboundEvent } from './webhook/extractInboundEvents';
 import { WhatsappConversationStateService } from './whatsappConversationState.service';
+import { WhatsappConversationTicketService } from './whatsappConversationTicket.service';
 import { WhatsAppService, WhatsAppInteractiveButton } from './whatsapp.service';
 import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
 
@@ -63,6 +65,7 @@ export class SelfServiceMenuService {
     @InjectRepository(MessageLogItem)
     private readonly messageLogItemsRepository: Repository<MessageLogItem>,
     private readonly conversationStateService: WhatsappConversationStateService,
+    private readonly conversationTicketService: WhatsappConversationTicketService,
     private readonly whatsAppService: WhatsAppService,
     private readonly whatsappOutboundLogService: WhatsappOutboundLogService,
   ) {}
@@ -130,9 +133,11 @@ export class SelfServiceMenuService {
       return;
     }
 
-    // Other (image/document/etc.) — the only thing this menu reacts to is
-    // a receipt arriving while the client was asked for one.
-    await this.handlePossibleReceipt(client);
+    // Other (image/document/etc.) — handlePossibleReceipt reacts both to a
+    // receipt arriving while the client was asked for one, and (human
+    // report, 2026-09-13) to an unprompted image/document even outside
+    // that guided flow.
+    await this.handlePossibleReceipt(client, event);
   }
 
   // Keyed by payload string rather than a switch/case: SelfServiceMenuButtonId
@@ -229,24 +234,54 @@ export class SelfServiceMenuService {
     await this.resendCurrentMenu(client, state.currentMenu);
   }
 
-  private async handlePossibleReceipt(client: Client): Promise<void> {
+  private async handlePossibleReceipt(
+    client: Client,
+    event: ParsedInboundEvent,
+  ): Promise<void> {
     const state = await this.conversationStateService.getActive(
       client.phoneNumber,
     );
 
-    if (state?.currentMenu !== ConversationMenu.AwaitingReceipt) {
+    if (state?.currentMenu === ConversationMenu.AwaitingReceipt) {
+      await this.sendText(client, RECEIPT_RECEIVED_MESSAGE);
+      // Hands off to a human for review — see the ConversationMenu doc
+      // comment. No further automated replies fire for this number until
+      // an admin closes the conversation.
+      await this.conversationStateService.upsert(
+        client.phoneNumber,
+        client.id,
+        ConversationMenu.HandedOffToHuman,
+      );
+      await this.conversationTicketService.openOrReopen(
+        client.id,
+        this.receiptTriggerKindFor(event),
+      );
       return;
     }
 
-    await this.sendText(client, RECEIPT_RECEIVED_MESSAGE);
-    // Hands off to a human for review — see the ConversationMenu doc
-    // comment. No further automated replies fire for this number until an
-    // admin closes the conversation.
-    await this.conversationStateService.upsert(
-      client.phoneNumber,
-      client.id,
-      ConversationMenu.HandedOffToHuman,
-    );
+    // Human report, 2026-09-13 — an image/document the client sends
+    // WITHOUT going through "Reportar un pago" first is still a possible
+    // comprobante. Deliberately silent (no automated reply, no menu-state
+    // change) — this only flags it for a cobrador via the ticket, it
+    // doesn't change anything the client sees. Scoped to image/document
+    // only, not audio/video/sticker/location/other.
+    if (
+      event.type === WhatsappInboundMessageType.Image ||
+      event.type === WhatsappInboundMessageType.Document
+    ) {
+      await this.conversationTicketService.openOrReopen(
+        client.id,
+        this.receiptTriggerKindFor(event),
+      );
+    }
+  }
+
+  private receiptTriggerKindFor(
+    event: ParsedInboundEvent,
+  ): WhatsappTicketTriggerKind {
+    return event.type === WhatsappInboundMessageType.Document
+      ? WhatsappTicketTriggerKind.ReceiptDocument
+      : WhatsappTicketTriggerKind.ReceiptImage;
   }
 
   private async resendCurrentMenu(
@@ -294,11 +329,9 @@ export class SelfServiceMenuService {
     );
   }
 
-  // TODO(docs/phases/PHASE_34_INTERACTIVE_MENU.md open question): admin
-  // notification for "Hablar con asesor" is, for now, "visible in the
-  // existing inbound inbox, no separate channel" — the inbound event that
-  // triggered this is already pushed live via WhatsappInboundGateway
-  // (Phase 22). Revisit if the human wants a dedicated alert instead.
+  // Resolved (2026-09-13) — admin notification for "Hablar con asesor" is
+  // now the WhatsappConversationTicket this opens below, badged/filtered/
+  // pinned in the inbox — not a separate channel like email/SMS.
   private async handOffToAdvisor(client: Client): Promise<void> {
     await this.sendText(client, ADVISOR_HANDOFF_MESSAGE);
     // Hands off to a human — see the ConversationMenu doc comment. No
@@ -308,6 +341,10 @@ export class SelfServiceMenuService {
       client.phoneNumber,
       client.id,
       ConversationMenu.HandedOffToHuman,
+    );
+    await this.conversationTicketService.openOrReopen(
+      client.id,
+      WhatsappTicketTriggerKind.AdvisorRequested,
     );
   }
 

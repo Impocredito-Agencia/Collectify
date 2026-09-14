@@ -48,6 +48,9 @@ export const ACTION_LABELS: Record<string, string> = {
   'whatsappCron.pause': 'Pausó un recordatorio automático',
   'whatsappCron.resume': 'Reanudó un recordatorio automático',
   'whatsappCron.reschedule': 'Cambió el horario de un recordatorio automático',
+  // Human report, 2026-09-13 — same coverage sweep as 'whatsappCron.pause'
+  // above, closes the "close-conversation" item off that same list.
+  'whatsappTicket.resolve': 'Cerró una conversación de WhatsApp',
   'user.create': 'Creó un usuario',
   'user.deactivate': 'Desactivó un usuario',
   'user.reactivate': 'Reactivó un usuario',
@@ -102,6 +105,8 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   payment: 'Pago',
   // Human report, 2026-09-10 — see 'whatsappCron.pause' above.
   whatsappCron: 'Recordatorio automático',
+  // Human report, 2026-09-13 — see 'whatsappTicket.resolve' above.
+  whatsappTicket: 'Conversación de WhatsApp',
   user: 'Usuario',
   usuryRate: 'Tasa de usura',
   // Phase 32 — same sync gap as ACTION_LABELS above. Kept for historical

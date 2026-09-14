@@ -162,6 +162,7 @@ export class AuditLogInterceptor implements NestInterceptor {
             response,
             preFetchedUser,
             preFetchedInterestConceptType,
+            request.body,
           );
           await this.auditLogService.record({
             actorUserId: request.user?.id ?? null,
@@ -188,15 +189,17 @@ export class AuditLogInterceptor implements NestInterceptor {
   // see that column's comment for why this is resolved once here rather
   // than left for the frontend to re-derive from a live record. Reads
   // straight off the handler's own response wherever possible (no extra
-  // query); only client.addReference/updateReference/removeReference fall
-  // through to a lookup, since their response is the ClientReference row,
-  // which carries no client name.
+  // query); client.addReference/updateReference/removeReference (response
+  // is the ClientReference row, no client name) and whatsappTicket.resolve
+  // (response is just `{ sent: boolean }`, no client at all) fall through
+  // to a lookup instead.
   private async resolveEntityLabel(
     entityType: string,
     params: Record<string, string>,
     response: unknown,
     preFetchedUser: User | null,
     preFetchedInterestConceptType: InterestConceptType | null,
+    requestBody: unknown,
   ): Promise<string | null> {
     const entity = this.unwrapEntity(response);
 
@@ -303,7 +306,9 @@ export class AuditLogInterceptor implements NestInterceptor {
       // sweep had already flagged "cron pause/resume/reschedule" as
       // missing @Audit() entirely; this closes that specific gap (the
       // rest of that sweep's list — reply/close-conversation/manual
-      // send-reminder/send-upcoming-due/message_logs.retry — stays open).
+      // send-reminder/send-upcoming-due/message_logs.retry — stayed open,
+      // close-conversation itself closed 2026-09-13, see 'whatsappTicket'
+      // below).
       // Distinguishes pause vs. resume vs. reschedule off the response
       // shape alone, same convention as the 'payment' case above
       // (register vs. void) rather than branching on `entityType` +
@@ -323,6 +328,32 @@ export class AuditLogInterceptor implements NestInterceptor {
           return `${familyLabel} — nuevo horario: ${entity.cronExpression}`;
         }
         return family ? familyLabel : null;
+      }
+      // Human report, 2026-09-13 — closes another item off the same
+      // 2026-09-03 coverage sweep as 'whatsappCron' above:
+      // close-conversation had no @Audit() at all. Its response is just
+      // `{ sent: boolean }` (no client), so — unlike every case above,
+      // which reads off the response — this looks the client up by the
+      // phoneNumber the admin submitted, matching either their primary or
+      // alternate number (same dual-match WhatsappWebhookService.
+      // closeConversation itself uses).
+      case 'whatsappTicket': {
+        const phoneNumber =
+          requestBody &&
+          typeof requestBody === 'object' &&
+          'phoneNumber' in requestBody &&
+          typeof requestBody.phoneNumber === 'string'
+            ? (requestBody as { phoneNumber: string }).phoneNumber
+            : null;
+        if (!phoneNumber) {
+          return null;
+        }
+        const client = await this.clientsRepository.findOne({
+          where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
+        });
+        return client
+          ? this.formatClientLabel(client as unknown as Record<string, unknown>)
+          : phoneNumber;
       }
       case 'interestConceptType': {
         if (entity && typeof entity.name === 'string') {

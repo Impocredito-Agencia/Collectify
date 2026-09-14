@@ -1071,6 +1071,63 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
+    // Human report, 2026-09-13 — closes another item off the same
+    // 2026-09-03 coverage sweep as whatsappCron above: close-conversation
+    // had no @Audit() at all. Its response (`{ sent: boolean }`) carries
+    // no client, so this looks the client up by the phoneNumber submitted
+    // in the request body instead of reading it off the response.
+    it('labels a resolved ticket by the client found from the submitted phone number', async () => {
+      reflector.get.mockReturnValue({
+        action: 'whatsappTicket.resolve',
+        entityType: 'whatsappTicket',
+      });
+      clientsRepository.findOne.mockResolvedValue({
+        firstName: 'Ana',
+        lastName: 'Gómez',
+        documentNumber: '123456',
+      });
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        body: { phoneNumber: '+573001234567' },
+      });
+      const handler = buildCallHandler(of({ sent: true }));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(clientsRepository.findOne).toHaveBeenCalledWith({
+        where: [
+          { phoneNumber: '+573001234567' },
+          { alternatePhoneNumber: '+573001234567' },
+        ],
+      });
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: 'Ana Gómez (CC 123456)',
+        }),
+      );
+    });
+
+    it('falls back to the raw phone number when no client matches it', async () => {
+      reflector.get.mockReturnValue({
+        action: 'whatsappTicket.resolve',
+        entityType: 'whatsappTicket',
+      });
+      clientsRepository.findOne.mockResolvedValue(null);
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        body: { phoneNumber: '+573001234567' },
+      });
+      const handler = buildCallHandler(of({ sent: false }));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ entityLabel: '+573001234567' }),
+      );
+    });
+
     it('resolves a null entityLabel for an entityType with no labeling rule', async () => {
       reflector.get.mockReturnValue({
         action: 'something.new',

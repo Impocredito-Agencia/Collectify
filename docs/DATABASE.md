@@ -517,6 +517,28 @@ Added Phase 34 — one row per phone number currently mid-conversation with the 
 
 **Cleanup:** expired rows are simply ignored by `WhatsappConversationStateService.getActive()` rather than deleted by a scheduled job — the simplest option, revisit if row volume ever becomes a real concern.
 
+### `whatsapp_conversation_tickets`
+
+Added 2026-09-13 (human report) — cobradores had no way to tell which WhatsApp conversations actually need a human vs. a client just clicking through the self-service menu. One row per client, upserted (not append-only, unlike `whatsapp_inbound_messages`) — unlike `whatsapp_conversation_states`, this never expires on its own: it tracks whether a HUMAN has resolved the client's request, which can legitimately take longer than 24h (a comprobante sent Saturday night might not get reviewed until Monday).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `client_id` | UUID, unique | FK → `clients.id`, `ON DELETE RESTRICT` — live operational state a cobrador acts on, not a historical record that should go blank under a deleted client. Every trigger below only ever runs for a resolved `Client`, so this is never null. |
+| `status` | ENUM (`pending`, `resolved`) | Deliberately just 2 states, not a 3-state pending/in-progress/resolved model: a middle state that stops counting toward the pending badge the moment someone opens the chat would let a conversation someone opened but got distracted from silently fall off the radar. |
+| `trigger_kind` | ENUM (`advisor_requested`, `receipt_image`, `receipt_document`) | What most recently (re)opened this ticket — purely informational, shown in the inbox list so a cobrador knows why without opening the chat. |
+| `pending_since` | TIMESTAMPTZ | Refreshed every time `status` (re)becomes `pending` — drives FIFO ordering (oldest-waiting-first) in the inbox, not `created_at`, since a reopened ticket jumps back to "just started waiting". |
+| `resolved_at` | TIMESTAMPTZ, nullable | |
+| `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+**Opened/reopened by:** `SelfServiceMenuService.handOffToAdvisor` (`advisor_requested`), the guided receipt flow completing (`handlePossibleReceipt`, `receipt_image`/`receipt_document` off the inbound event's own `type`), and — 2026-09-13 — an unprompted image/document the client sends without going through "Reportar un pago" first (same handler, silently: no automated reply, no menu-state change). Scoped to `image`/`document` only, not `audio`/`video`/`sticker`/`location`/`other`.
+
+**Resolved by:** the existing close-conversation action (`WhatsappWebhookService.closeConversation`, `POST /whatsapp/inbound-messages/close-conversation`) — closing IS resolving, regardless of whether the closing message itself actually sent. A no-op when the client has no ticket at all.
+
+**Reading it from the panel:** `GET /whatsapp/tickets` — a flat list, no pagination (row volume is inherently small: one row per client that has ever needed a human), backing the inbox's pending badge/filter/pinning. Live-pushed via the same `WhatsappInboundGateway` other inbox events use (`ticket-update`).
+
+**Audit:** `POST .../close-conversation` is now decorated `@Audit('whatsappTicket.resolve', 'whatsappTicket')` — closes another item off the 2026-09-03 coverage sweep noted above (`whatsappCron`'s own note). Its response carries no client, so the audit label is resolved by looking the client up from the submitted `phoneNumber` (matching either their primary or alternate number), not from the response.
+
 ## Refinancing
 
 When a loan is refinanced:
