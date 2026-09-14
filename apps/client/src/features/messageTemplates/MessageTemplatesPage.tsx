@@ -135,9 +135,17 @@ export function MessageTemplatesPage() {
             {Object.values(ReminderFamily).map((family) => (
               <div
                 key={family}
-                className="flex h-full flex-col rounded border border-border p-3.5"
+                className="flex h-full flex-col gap-3 rounded border border-border p-3.5"
               >
-                <span className="mb-2 block text-small font-medium text-white">
+                {/* Human report, 2026-09-14 — this used to be text-small,
+                    the exact same size/weight as "Envío automático" one
+                    level below it inside FamilyCronControl, so the two
+                    read as peers instead of title→status. text-card-title
+                    is the same token "Recordatorios automáticos" (the
+                    section title above this grid) and each template
+                    card's own name already use — this card's title now
+                    unambiguously outranks everything inside it. */}
+                <span className="text-card-title font-medium text-white">
                   {FAMILY_LABELS[family]}
                 </span>
                 <FamilyCronControl
@@ -278,29 +286,36 @@ function FamilyCronControl({
   };
 
   return (
-    <div className="flex flex-1 flex-col gap-2.5">
+    <div className="flex flex-1 flex-col gap-3">
+      {/* Human report, 2026-09-14 — status/Pausar demoted from a
+          full-size Button + text-small row (the same weight as the card
+          title above) down to text-meta + a plain text toggle. This is
+          metadata about the card, not a second heading competing with
+          it, and Pausar is an occasional toggle, not the card's main
+          action — it shouldn't outweigh "Guardar horario" below. */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <span
-            className={`size-2 shrink-0 rounded-full ${
+            className={`size-1.5 shrink-0 rounded-full ${
               cronStatus?.running ? 'bg-success' : 'bg-warning'
             }`}
           />
-          <span className="text-small font-medium text-white">
+          <span className="text-meta text-muted">
             Envío automático —{' '}
             {cronStatus ? (cronStatus.running ? 'Activo' : 'Pausado') : '—'}
           </span>
         </div>
         {cronStatus && (
-          <Button
-            variant="secondary"
+          <button
+            type="button"
             onClick={() =>
               cronStatus.running ? pauseCron.mutate() : resumeCron.mutate()
             }
             disabled={isTogglePending}
+            className="text-meta text-muted underline-offset-2 hover:text-white hover:underline disabled:cursor-not-allowed disabled:opacity-60"
           >
             {cronStatus.running ? 'Pausar' : 'Reanudar'}
-          </Button>
+          </button>
         )}
       </div>
 
@@ -315,33 +330,40 @@ function FamilyCronControl({
         ))}
       </div>
 
+      {/* border-t (human report, 2026-09-14) — separates "what this
+          family does + its current status" above from "when it fires"
+          below, instead of one undifferentiated stack. Days get their
+          own row now; time + Guardar horario share a row with the button
+          pinned to the right, instead of everything (days, time, button)
+          crammed into a single flex-wrap row that wrapped unpredictably
+          depending on how many days were selected. */}
       <form
         onSubmit={handleSaveSchedule}
-        className="mt-auto flex flex-col gap-2"
+        className="mt-auto flex flex-col gap-2 border-t border-border pt-3"
       >
         <span className="text-meta text-muted">Recordatorios semanales</span>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-1">
-            {DAY_OF_WEEK_OPTIONS.map((option) => {
-              const isSelected = config.daysOfWeek.includes(option.value);
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={isSelected}
-                  onClick={() => toggleDayOfWeek(option.value)}
-                  className={`h-9 rounded border px-2.5 text-meta ${
-                    isSelected
-                      ? 'border-accent bg-accent text-white'
-                      : 'border-border bg-input text-muted hover:text-white'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
+        <div className="flex flex-wrap gap-1">
+          {DAY_OF_WEEK_OPTIONS.map((option) => {
+            const isSelected = config.daysOfWeek.includes(option.value);
+            return (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => toggleDayOfWeek(option.value)}
+                className={`h-9 rounded border px-2.5 text-meta ${
+                  isSelected
+                    ? 'border-accent bg-accent text-white'
+                    : 'border-border bg-input text-muted hover:text-white'
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
 
+        <div className="flex items-center justify-between gap-2">
           <input
             type="time"
             value={`${pad2(config.hour)}:${pad2(config.minute)}`}
@@ -352,9 +374,15 @@ function FamilyCronControl({
             className="h-9 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
           />
 
+          {/* variant="primary" (human report, 2026-09-14) — was
+              "secondary", the same washed-out neutral look as the Pausar
+              toggle above, which read as unconvincing for what's
+              actually this form's real commit action. Every other
+              "Guardar" button in the app is accent/primary (see
+              Button.tsx's own doc comment) — this now matches. */}
           <Button
             type="submit"
-            variant="secondary"
+            variant="primary"
             disabled={!isDirty || hasNoDaysSelected || updateSchedule.isPending}
             className="shrink-0"
           >
