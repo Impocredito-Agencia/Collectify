@@ -16,31 +16,28 @@ export function WhatsappTicketWatcher() {
   return null;
 }
 
-const FAVICON_LINK_ID = 'whatsapp-pending-ticket-favicon';
+const FAVICON_LINK_ID = 'app-favicon'; // matches index.html's <link>
 
-// Human report, 2026-09-14 — index.html now always sets a real favicon
-// (public/favicon.svg, the same CollectifyMark used in the Sidebar/
-// LoginPage). This only ever INJECTS an override that draws a small red
-// dot ON TOP of that same mark while something's pending, and removes the
-// override otherwise — falling back to index.html's plain mark, never to
-// a blank tab icon.
+// Human report, 2026-09-14 (bug fix) — used to ADD a second, separate
+// <link rel="icon"> while pending and REMOVE it once resolved, expecting
+// the browser to fall back to index.html's original favicon link once
+// the override was gone. In practice browsers (Chrome in particular)
+// don't reliably re-scan the DOM for a favicon just because a link
+// element disappeared — the tab kept showing the last icon it actually
+// loaded until a full page reload forced it to re-evaluate <head> from
+// scratch, which is exactly the bug: a resolved ticket left the red dot
+// stuck. Fixed by never adding/removing a link element at all — there is
+// exactly ONE <link id="app-favicon"> (declared in index.html), and this
+// only ever mutates its href. A real href change is what reliably makes
+// every browser redraw the tab icon; toggling the element's presence is
+// not.
 function setPendingFavicon(pending: boolean): void {
-  const existing = document.getElementById(
+  const link = document.getElementById(
     FAVICON_LINK_ID,
   ) as HTMLLinkElement | null;
+  if (!link) return;
 
-  if (!pending) {
-    existing?.remove();
-    return;
-  }
-
-  const link = existing ?? document.createElement('link');
-  link.id = FAVICON_LINK_ID;
-  link.rel = 'icon';
-  link.href = buildPendingFaviconDataUrl();
-  if (!existing) {
-    document.head.appendChild(link);
-  }
+  link.href = pending ? buildPendingFaviconDataUrl() : '/favicon.svg';
 }
 
 // Redraws the same mark as public/favicon.svg/CollectifyMark.tsx (as
