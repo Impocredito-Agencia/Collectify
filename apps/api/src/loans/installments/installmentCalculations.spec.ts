@@ -305,25 +305,67 @@ describe('installmentCalculations', () => {
     it('returns an empty array when no moratory concepts are assigned', () => {
       expect(calculateMoratoryCharges(210000, 30, [])).toEqual([]);
     });
+
+    // Bug fix, 2026-09-14 (human report, préstamo #1170) — this division
+    // chain almost never lands on a whole peso; left unrounded, that
+    // fraction made it impossible to fully close a cuota with a whole-peso
+    // payment (all this app's currency inputs/displays are whole pesos
+    // only). 205000 * 0.06 / 30 * 8 = 328 exactly, so use a day count that
+    // doesn't divide evenly instead.
+    it('rounds a percentage concept to the nearest whole peso', () => {
+      // 205000 * 0.055 / 30 * 7 = 2630.8333... → rounds to 2631.
+      const [charge] = calculateMoratoryCharges(205000, 7, [
+        {
+          name: 'Interés moratorio',
+          calculationType: ConceptCalculationType.Percentage,
+          value: 5.5,
+        },
+      ]);
+      expect(charge.amount).toBe(2631);
+      expect(Number.isInteger(charge.amount)).toBe(true);
+    });
   });
 
-  describe('calculateTotalDue — verified fixtures from real spreadsheet data', () => {
+  // Bug fix, 2026-09-14 (human report, préstamo #1170; human decision on
+  // the exact rounding rule) — this used to assert the raw, unrounded
+  // spreadsheet sum ($520.000 + $503.360 = $1.023.360, etc.). A cuota's
+  // real totalDue (capital + accrued mora) almost never lands on a whole
+  // peso, but every other figure in this app — what's shown, what
+  // CurrencyInput even lets a cobrador type — is whole pesos only, so a
+  // payment for the exact amount shown everywhere could never actually
+  // close the cuota, leaving it Pending with a phantom balance ("saldo
+  // pendiente de $1"). Confirmed with the human: round the combined total
+  // to the nearest $100, same convention generateSchedule.ts's cuotaFinal
+  // already uses for the cuota's original scheduled amount — accepting
+  // that a small accrued mora (under $50) can round away to $0 rather than
+  // being charged, the same tradeoff that feature already made.
+  describe('calculateTotalDue — rounds capital + mora to the nearest $100', () => {
     it.each([
       [210000, 310800, 520800],
-      [520000, 503360, 1023360],
-      [547000, 447446, 994446],
+      [520000, 503360, 1023400],
+      [547000, 447446, 994400],
     ])(
-      'amount=%d interest=%d -> totalDue=%d',
+      'amount=%d interest=%d -> totalDue=%d (nearest $100)',
       (installmentAmount, interest, expectedTotal) => {
-        expect(calculateTotalDue(installmentAmount, interest)).toBeCloseTo(
+        expect(calculateTotalDue(installmentAmount, interest)).toBe(
           expectedTotal,
-          6,
         );
       },
     );
 
     it('equals the installment amount when there is no interest', () => {
       expect(calculateTotalDue(210000, 0)).toBe(210000);
+    });
+
+    it('can round a small accrued mora away to $0 rather than charging it', () => {
+      // installmentAmount is already a clean $100 multiple (see
+      // generateSchedule.ts) — a $34 mora added on top rounds right back
+      // down to the installment amount alone.
+      expect(calculateTotalDue(393000, 34)).toBe(393000);
+    });
+
+    it('rounds a larger accrued mora up to the next $100', () => {
+      expect(calculateTotalDue(393000, 67)).toBe(393100);
     });
   });
 });

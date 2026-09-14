@@ -913,6 +913,21 @@ Human report: a worker registered a payment as the cuota's full remaining balanc
 
 **Bulk payments were deliberately left as a single-step save**, not given the same two-step confirmation dialog content-wise — `registerBulkPayments()` requires every entry to fully settle its installment (no partial case exists there, per Phase 28), so there's no "PAGADA COMPLETA vs. saldo pendiente" branch to summarize; its own confirmation dialog instead just recaps the entry count and total before sending, with the same WhatsApp-send disclaimer. Voiding a payment that was part of a bulk batch works exactly the same as voiding any other single payment — the batch has no shared record beyond the individual `Payment` rows it created.
 
+## Bug fix, 2026-09-14 — a cuota could get stuck "$1 pendiente" even after paying the exact amount shown
+
+Human report, préstamo #1170: a worker registered a payment for exactly the amount `RegisterPaymentDialog` showed as the cuota's balance, and the confirmation summary still said it would leave "un saldo pendiente de $1". Root cause: `calculateMoratoryCharges`'s percentage formula (see `GLOSSARY.md` → "Interest / Interés") is a raw division chain that almost never lands on a whole peso (e.g. `$34,58`) — but every other figure in this app, including what `CurrencyInput` even lets someone type, is whole pesos only. A cuota whose `totalDue` carried that leftover fraction could never actually be zeroed out by a whole-peso payment.
+
+**Fix**, confirmed with the human across two decisions (which rounding rule, and where to apply it — both asked via clarifying question rather than guessed, since this changes an actual money calculation):
+
+1. Each moratory concept's own `amount` (`calculateMoratoryCharges`, `installmentCalculations.ts`) now rounds to the nearest whole peso via `Math.round`.
+2. `calculateTotalDue` (installment amount + total interest) rounds the combined figure to the nearest **$100** — reusing `roundToNearestHundred`, moved here from `generateSchedule.ts` (both now import the one copy) so the live mora recalculation and the schedule smoothed at loan creation ("Changed, 2026-09-08" above) use the exact same rule.
+
+**Confirmed tradeoff:** a small accrued mora (under $50) can round away to $0 rather than being charged — the human explicitly chose this over rounding to the nearest peso instead (which would never erase mora, at the cost of less "round" numbers), the same tradeoff the original cuota-smoothing feature already made at a larger scale.
+
+**Test fixtures updated, not just added:** `installmentCalculations.spec.ts` had a `calculateTotalDue` block explicitly marked "verified against real spreadsheet data, do not modify without re-verifying" — its fixtures asserted the *unrounded* combined total (e.g. `520000 + 503360 = 1023360`). The human confirmed rounding inside `calculateTotalDue` itself (not just one layer up, in `enrichInstallment`) was the intended fix, so those fixtures were updated to the new nearest-$100 expectations rather than left describing behavior that no longer exists. `clients.service.spec.ts`'s `getCreditUsage` mora test also needed its fixture amounts bumped from a toy `300` scale to a realistic loan scale, since `303` rounding to `300` would have silently erased the entire effect that test exists to check for.
+
+**Nothing changed in `apps/client`** — `RegisterPaymentDialog.tsx`/`BulkRegisterPaymentDialog.tsx`'s own `Math.ceil(installment.totalDue)` calls were the original symptom, but `totalDue` is now always an exact multiple of $100 by construction, so `Math.ceil` on it is a no-op — no frontend change needed.
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above

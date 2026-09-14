@@ -2,6 +2,7 @@ import {
   ConceptCalculationType,
   FixedAmountDistribution,
 } from '../../interestConceptTypes/entities/interestConceptType.entity';
+import { roundToNearestHundred } from '../installments/installmentCalculations';
 
 export interface ConceptAssignment {
   // Null for the system-generated corriente/moratorio interest concept
@@ -265,10 +266,6 @@ function resolveAnchorConceptIndex(concepts: ConceptAssignment[]): number {
   return concepts.findIndex(
     (concept) => concept.calculationType === ConceptCalculationType.Percentage,
   );
-}
-
-function roundToNearestHundred(value: number): number {
-  return Math.round(value / 100) * 100;
 }
 
 function roundCurrency(value: number): number {
