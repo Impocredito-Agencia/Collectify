@@ -16,12 +16,15 @@ interface MetaMediaMetadata {
 // client's photo/document evidence of a payment ("comprobante") sent over
 // WhatsApp lives on Meta's servers only temporarily; after that window
 // closes, the media id this class is handed stops resolving to anything,
-// permanently. Only ever called for image/document — see
-// extractInboundEvents.ts's parseMessage, which leaves mediaId null for
-// audio/video/sticker on purpose, since none of those are useful as
+// permanently. Originally only ever called for image/document — see
+// extractInboundEvents.ts's parseMessage, which used to leave mediaId null
+// for audio/video/sticker on purpose, since none of those are useful as
 // payment evidence and re-hosting them would just spend Cloudinary quota
-// nobody needs. This downloads the file the moment the webhook event
-// arrives and re-hosts it on Cloudinary — the server-side counterpart to
+// nobody needs. Widened to also cover audio/video, 2026-09-14 (human
+// report) — the client wants a voice note playable and a video watchable
+// right in the inbox, which needs the same re-host; sticker stays
+// excluded. This downloads the file the moment the webhook event arrives
+// and re-hosts it on Cloudinary — the server-side counterpart to
 // apps/client/src/lib/imageUpload.ts's browser-initiated uploads. Both
 // paths sign through the same UploadsService (see its own comment) rather
 // than each carrying their own copy of Cloudinary's signing algorithm;
@@ -133,9 +136,11 @@ export class WhatsappMediaService {
   }
 
   // resource_type "auto" (not "image") the same way uploadDocument() does
-  // client-side — the attachment here is an image or a PDF document, and
-  // "auto" detects which rather than assuming it's always a photo the way
-  // uploadPaymentReceipt()'s narrower "image" endpoint does.
+  // client-side — the attachment here can be an image, a PDF document, an
+  // audio file, or a video, and "auto" detects which rather than assuming
+  // it's always a photo the way uploadPaymentReceipt()'s narrower "image"
+  // endpoint does. Cloudinary serves both audio and video back through its
+  // "video" resource type, so no branching is needed here either way.
   private async uploadToCloudinary(
     bytes: Buffer,
     signature: ReturnType<UploadsService['generateSignature']>,

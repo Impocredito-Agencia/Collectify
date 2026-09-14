@@ -974,9 +974,10 @@ function CloseConversationDialog({
 }
 
 // Only image ever populates mediaUrl for an inline thumbnail — document
-// gets a "ver archivo" link instead (see MessageBubble below). audio/
-// video/sticker never re-host at all (see WhatsappMediaService), so they
-// never reach either branch.
+// gets a "ver archivo" link instead (see MessageBubble below). sticker
+// never re-hosts at all (see WhatsappMediaService), so it never reaches
+// any of these branches. audio/video get their own inline player, see
+// MessageBubble's isPlayableAudio/isPlayableVideo below.
 const VIEWABLE_IMAGE_TYPES: WhatsappInboundMessageType[] = [
   WhatsappInboundMessageType.Image,
 ];
@@ -992,6 +993,12 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
   const [isImageOpen, setIsImageOpen] = useState(false);
   const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
   const isViewableImage = VIEWABLE_IMAGE_TYPES.includes(message.type);
+  // Human report, 2026-09-14 — audio/video now re-host to Cloudinary too
+  // (see WhatsappMediaService), so they get their own inline player
+  // instead of falling into the generic "ver archivo" link below.
+  const isPlayableAudio = message.type === WhatsappInboundMessageType.Audio;
+  const isPlayableVideo = message.type === WhatsappInboundMessageType.Video;
+  const isInlineMedia = isViewableImage || isPlayableAudio || isPlayableVideo;
   const canRegisterPayment =
     !message.payment &&
     message.mediaUrl &&
@@ -1031,7 +1038,17 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
           />
         </button>
       )}
-      {message.mediaUrl && !isViewableImage && (
+      {message.mediaUrl && isPlayableAudio && (
+        <audio controls src={message.mediaUrl} className="max-w-full">
+          Tu navegador no soporta la reproducción de audio.
+        </audio>
+      )}
+      {message.mediaUrl && isPlayableVideo && (
+        <video controls src={message.mediaUrl} className="max-h-56 rounded">
+          Tu navegador no soporta la reproducción de video.
+        </video>
+      )}
+      {message.mediaUrl && !isInlineMedia && (
         <a
           href={message.mediaUrl}
           target="_blank"
@@ -1041,7 +1058,7 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
           {messagePreview(message)}
         </a>
       )}
-      {(!message.mediaUrl || (isViewableImage && message.bodyText)) && (
+      {(!message.mediaUrl || (isInlineMedia && message.bodyText)) && (
         <p className="text-small text-white">{messagePreview(message)}</p>
       )}
       {/* Human report, 2026-09-11 — set once "Registrar pago con este
