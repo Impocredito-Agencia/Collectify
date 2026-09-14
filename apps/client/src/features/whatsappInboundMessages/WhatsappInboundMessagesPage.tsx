@@ -247,7 +247,76 @@ function messagePreview(message: WhatsappInboundMessage): string {
 type ThreadItem =
   | { direction: 'inbound'; sentAt: string; message: WhatsappInboundMessage }
   | { direction: 'outbound'; sentAt: string; reply: WhatsappManualReply }
-  | { direction: 'automated'; sentAt: string; log: MessageLog };
+  | { direction: 'automated'; sentAt: string; log: MessageLog }
+  // Human report, 2026-09-13 — see groupRoutineNavigation's own comment.
+  | {
+      direction: 'navigation';
+      sentAt: string;
+      messages: WhatsappInboundMessage[];
+    };
+
+// Mirrors apps/api/src/whatsapp/selfServiceMenuPayloads.ts's
+// SelfServiceMenuButtonId — only the ones that are PURE navigation, where
+// the bot already fully answered on its own and nobody needs to act.
+// Deliberately excludes menu_reportar_pago and menu_hablar_asesor (the
+// two that hand the conversation off to a human — see
+// docs/DATABASE.md's `whatsapp_conversation_states` note) and the two
+// quick-reply buttons attached to reminder templates ("Ya pagué", "Más
+// información" — a client claiming they already paid, or asking for more
+// detail on a specific overdue reminder, is exactly the kind of signal
+// that must never end up buried inside a collapsed group).
+const ROUTINE_NAVIGATION_PAYLOADS = new Set([
+  'menu_mi_cuenta',
+  'menu_estado_cuenta',
+  'menu_cuotas_pendientes',
+  'menu_historial_pagos',
+  'menu_volver',
+]);
+
+function isRoutineNavigationTap(message: WhatsappInboundMessage): boolean {
+  return (
+    message.type === WhatsappInboundMessageType.Button &&
+    message.buttonPayload !== null &&
+    ROUTINE_NAVIGATION_PAYLOADS.has(message.buttonPayload)
+  );
+}
+
+// Human report, 2026-09-13 — every menu tap (even pure navigation like
+// "Mi cuenta" → "Estado de cuenta" → "Volver al menú") rendered exactly
+// like a real message the client typed and sent, which read as noise once
+// a client clicked through a few menu screens. Collapses any RUN of
+// consecutive routine-navigation taps — broken by anything else at all
+// (free text, media, a signal button, the admin's own reply, or an
+// automated template) — into one compact, expandable entry (see
+// NavigationGroupBubble). A run of exactly one tap still becomes its own
+// compact entry, for one consistent visual treatment regardless of how
+// many taps happened in a row.
+function groupRoutineNavigation(items: ThreadItem[]): ThreadItem[] {
+  const result: ThreadItem[] = [];
+  let currentRun: WhatsappInboundMessage[] = [];
+
+  const flushRun = () => {
+    if (currentRun.length === 0) return;
+    result.push({
+      direction: 'navigation',
+      sentAt: currentRun[0].receivedAt,
+      messages: currentRun,
+    });
+    currentRun = [];
+  };
+
+  for (const item of items) {
+    if (item.direction === 'inbound' && isRoutineNavigationTap(item.message)) {
+      currentRun.push(item.message);
+    } else {
+      flushRun();
+      result.push(item);
+    }
+  }
+  flushRun();
+
+  return result;
+}
 
 // Human report, 2026-09-19 — manualReplies is the full flat recent window
 // (see useManualReplies), filtered down to this one conversation here.
@@ -295,9 +364,10 @@ function buildThreadItems(
       sentAt: log.sentAt,
       log,
     }));
-  return [...inbound, ...outbound, ...automated].sort(
+  const merged = [...inbound, ...outbound, ...automated].sort(
     (a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime(),
   );
+  return groupRoutineNavigation(merged);
 }
 
 type TicketFilter = 'all' | 'pending';
@@ -629,6 +699,14 @@ function ConversationThread({
           if (item.direction === 'outbound') {
             return <ReplyBubble key={item.reply.id} reply={item.reply} />;
           }
+          if (item.direction === 'navigation') {
+            return (
+              <NavigationGroupBubble
+                key={item.messages[0].id}
+                messages={item.messages}
+              />
+            );
+          }
           return <AutomatedMessageBubble key={item.log.id} log={item.log} />;
         })}
       </div>
@@ -783,6 +861,62 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
         />
       )}
     </div>
+  );
+}
+
+function formatTimeOnly(receivedAt: string): string {
+  return new Date(receivedAt).toLocaleString('es-CO', { timeStyle: 'short' });
+}
+
+// Human report, 2026-09-13 — see groupRoutineNavigation's own comment.
+// Collapsed by default as a small centered pill (distinct from both the
+// client's left-aligned bubbles and the admin's right-aligned ones — this
+// isn't a message either side "said", it's the bot's own menu handling
+// noted for the record) so a run of routine menu taps takes one compact
+// line instead of one full bubble each; expands in place to the same
+// MessageBubble treatment every other inbound message gets, for anyone
+// who actually needs to trace exactly what was tapped and when.
+function NavigationGroupBubble({
+  messages,
+}: {
+  messages: WhatsappInboundMessage[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (expanded) {
+    return (
+      <div className="flex flex-col gap-2">
+        {messages.map((message) => (
+          <MessageBubble key={message.id} message={message} />
+        ))}
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="self-center text-meta text-subtle hover:text-muted"
+        >
+          Ocultar detalle ▲
+        </button>
+      </div>
+    );
+  }
+
+  const timeRange =
+    messages.length > 1
+      ? `${formatTimeOnly(messages[0].receivedAt)}–${formatTimeOnly(messages[messages.length - 1].receivedAt)}`
+      : formatTimeOnly(messages[0].receivedAt);
+  const label =
+    messages.length === 1
+      ? '1 interacción de menú'
+      : `${messages.length} interacciones de menú`;
+
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded(true)}
+      className="mx-auto flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-meta text-subtle hover:text-muted"
+    >
+      🔘 {label} · {timeRange} ▾
+    </button>
   );
 }
 
