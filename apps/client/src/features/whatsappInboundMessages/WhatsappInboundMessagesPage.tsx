@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
@@ -231,6 +231,19 @@ function formatSenderPhoneNumber(fromPhoneNumber: string): string {
   return formatPhoneNumber(withPlus);
 }
 
+// Human report, 2026-09-13 — the conversation list only ever showed the
+// date (día/mes), never the time, so two messages from the same day were
+// indistinguishable at a glance. Matches how WhatsApp itself does it:
+// just the time for anything received today, the date otherwise — keeps
+// this compact enough for the list's own narrow column.
+function formatConversationTimestamp(receivedAt: string): string {
+  const date = new Date(receivedAt);
+  const isToday = date.toDateString() === new Date().toDateString();
+  return isToday
+    ? formatTimeOnly(receivedAt)
+    : date.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit' });
+}
+
 function messagePreview(message: WhatsappInboundMessage): string {
   if (message.bodyText) {
     // A caption on a photo/documento/video — prefix with its icon so it
@@ -441,7 +454,7 @@ export function WhatsappInboundMessagesPage() {
     null;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex h-full flex-col gap-5">
       <Header
         title="Mensajes entrantes"
         subtitle="Botones tocados y mensajes de texto que los clientes enviaron — se actualiza en vivo"
@@ -473,7 +486,7 @@ export function WhatsappInboundMessagesPage() {
         </div>
       </div>
 
-      <div className="flex h-[70vh] overflow-hidden rounded-lg bg-surface">
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-lg bg-surface">
         <div className="flex w-[300px] shrink-0 flex-col overflow-y-auto border-r border-border">
           {isLoading && <SidebarMessage>Cargando…</SidebarMessage>}
           {isError && (
@@ -499,7 +512,7 @@ export function WhatsappInboundMessagesPage() {
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex min-h-0 flex-1 flex-col p-5">
           {selectedConversation ? (
             <ConversationThread
               conversation={selectedConversation}
@@ -610,10 +623,7 @@ function ConversationListItem({
           {conversation.displayName}
         </span>
         <span className="shrink-0 text-meta text-subtle">
-          {new Date(conversation.lastMessage.receivedAt).toLocaleDateString(
-            'es-CO',
-            { day: '2-digit', month: '2-digit' },
-          )}
+          {formatConversationTimestamp(conversation.lastMessage.receivedAt)}
         </span>
       </div>
       {isPending && ticket && (
@@ -662,6 +672,20 @@ function ConversationThread({
     messageLogs?.items ?? [],
   );
 
+  // Human report, 2026-09-13 — opening a conversation (or a new message
+  // arriving in the one already open) used to leave the view wherever it
+  // last was, which for a long thread meant landing on the OLDEST message
+  // instead of the most recent one. Scrolls the message list (not the
+  // whole thread column — the header/reply box stay put) to the bottom on
+  // both: a conversation switch (conversation.key) and thread growth
+  // (threadItems.length).
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, [conversation.key, threadItems.length]);
+
   return (
     <div
       className={`flex h-full flex-col gap-4 rounded-lg border-l-4 pl-4 ${attentionBorderClass(
@@ -689,7 +713,10 @@ function ConversationThread({
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-3">
+      <div
+        ref={messagesContainerRef}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
+      >
         {threadItems.map((item) => {
           if (item.direction === 'inbound') {
             return (
