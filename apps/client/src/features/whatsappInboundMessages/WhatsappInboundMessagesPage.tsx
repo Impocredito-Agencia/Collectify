@@ -4,6 +4,7 @@ import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { Modal } from '@/components/ui/Modal';
+import { Pager } from '@/components/ui/Pager';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { InstallmentStatus } from '@/features/installments/installmentsApi';
 import {
@@ -17,6 +18,8 @@ import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesAp
 import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMessages/RegisterPaymentFromWhatsappModal';
 import {
   useCloseConversation,
+  useConversations,
+  useConversationsForClientIds,
   useConversationState,
   useConversationTickets,
   useManualReplies,
@@ -42,6 +45,7 @@ import { useEscapeKey } from '@/lib/useEscapeKey';
 import type { Installment } from '@/features/installments/installmentsApi';
 import type { LoanSummary } from '@/features/loans/loansApi';
 import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
+import type { WhatsappConversationSummary } from '@/features/whatsappInboundMessages/whatsappConversationsApi';
 import type { WhatsappConversationTicket } from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
 import type {
   SelfServiceReplyKind,
@@ -60,12 +64,20 @@ import type { ReactNode } from 'react';
 // in AppLayout (moved there 2026-09-13 so the ticket badge works from any
 // page, not just this one) instead of needing a manual refresh.
 //
-// Ticket badge/filter/pinning (human report, 2026-09-13): a
+// Ticket badge/filter (human report, 2026-09-13, restructured 2026-09-14 —
+// see the critical-bug comment on useConversations): a
 // WhatsappConversationTicket (Pending/Resolved — see its own entity
 // comment) tracks whether a human still needs to act, separately from the
-// bot's own ConversationMenu state below. Pending conversations are pinned
-// above the rest, oldest-waiting-first; "Esperando asesor" filters the
-// list down to just those.
+// bot's own ConversationMenu state below. "Todos" is the recency-ordered,
+// server-paginated conversation list; "Esperando asesor" is now a
+// SEPARATE data source entirely — the pending tickets themselves, oldest-
+// waiting-first, each resolved to its own conversation summary via
+// useConversationsForClientIds — rather than a client-side pin/reorder of
+// whatever page of "Todos" happened to be loaded. A pinned-within-
+// pagination design doesn't compose: a pending ticket's own client might
+// not be recently active enough to be on the currently loaded page at
+// all, which is exactly the kind of gap this whole restructuring exists
+// to close.
 //
 // Manual reply / "Cerrar conversación" gating (Phase 34, fixed 2026-09-02):
 // enabled while the backend's self-service-menu state for that phone
@@ -86,7 +98,15 @@ import type { ReactNode } from 'react';
 // them, a client's "ya pagué" or a tapped "Más información" looked
 // unprompted, since the message that caused it only ever showed up on
 // the separate "Mensajes" page.
-const MESSAGE_FETCH_LIMIT = 100;
+const CONVERSATIONS_PAGE_SIZE = 20;
+
+// Human report, 2026-09-14 — how many of a conversation's own messages
+// load initially once it's opened; "Cargar mensajes anteriores" bumps this
+// (see ConversationThread) rather than fetching disjoint pages, so it
+// stays one simple growing window instead of merging separate page
+// results.
+const INITIAL_THREAD_MESSAGE_LIMIT = 50;
+const THREAD_MESSAGE_LOAD_MORE_STEP = 50;
 
 const TYPE_LABELS: Record<WhatsappInboundMessageType, string> = {
   [WhatsappInboundMessageType.Button]: 'Botón',
@@ -125,7 +145,11 @@ const MEDIA_TYPE_FALLBACK_LABELS: Partial<
   [WhatsappInboundMessageType.Location]: '📍 Ubicación',
 };
 
-interface Conversation {
+// One entry in the sidebar list — either tab (see useConversations vs.
+// useConversationsForClientIds below). Deliberately carries no message
+// history of its own: opening a conversation fetches its thread
+// separately, scoped and on demand — see ConversationThread.
+interface ConversationSummaryEntry {
   key: string; // clientId when matched, otherwise the raw phone number
   // Human report, 2026-09-19 — same as `key` for a recognized contact, but
   // kept separate and nullable: `key` falls back to the raw phone number
@@ -135,50 +159,23 @@ interface Conversation {
   clientId: string | null;
   displayName: string;
   phoneNumber: string;
-  messages: WhatsappInboundMessage[]; // chronological — oldest first
   lastMessage: WhatsappInboundMessage;
+  messageCount: number;
 }
 
-// Groups the flat, newest-first message list into one conversation per
-// contact. Purely client-side for now: with MESSAGE_FETCH_LIMIT covering
-// every message received so far, a dedicated backend "conversations"
-// aggregation endpoint isn't justified yet — revisit once volume actually
-// requires server-side pagination per conversation, not per message.
-function groupIntoConversations(
-  messages: WhatsappInboundMessage[],
-): Conversation[] {
-  const byKey = new Map<string, WhatsappInboundMessage[]>();
-
-  for (const message of messages) {
-    const key = message.clientId ?? message.fromPhoneNumber;
-    const existing = byKey.get(key);
-    if (existing) {
-      existing.push(message);
-    } else {
-      byKey.set(key, [message]);
-    }
-  }
-
-  const conversations: Conversation[] = [];
-  for (const [key, groupMessages] of byKey) {
-    const lastMessage = groupMessages[0];
-    conversations.push({
-      key,
-      clientId: lastMessage.clientId,
-      displayName: lastMessage.client
-        ? `${lastMessage.client.firstName} ${lastMessage.client.lastName}`
-        : 'Número no reconocido',
-      phoneNumber: lastMessage.fromPhoneNumber,
-      messages: [...groupMessages].reverse(),
-      lastMessage,
-    });
-  }
-
-  return conversations.sort(
-    (a, b) =>
-      new Date(b.lastMessage.receivedAt).getTime() -
-      new Date(a.lastMessage.receivedAt).getTime(),
-  );
+function toConversationSummaryEntry(
+  summary: WhatsappConversationSummary,
+): ConversationSummaryEntry {
+  return {
+    key: summary.key,
+    clientId: summary.clientId,
+    displayName: summary.lastMessage.client
+      ? `${summary.lastMessage.client.firstName} ${summary.lastMessage.client.lastName}`
+      : 'Número no reconocido',
+    phoneNumber: summary.fromPhoneNumber,
+    lastMessage: summary.lastMessage,
+    messageCount: summary.messageCount,
+  };
 }
 
 // Human report, 2026-09-13 — short label for why a conversation is
@@ -191,42 +188,6 @@ const TICKET_TRIGGER_LABELS: Record<WhatsappTicketTriggerKind, string> = {
     'Envió un posible comprobante (documento)',
   [WhatsappTicketTriggerKind.FreeText]: 'Está escribiendo sin usar el menú',
 };
-
-// Human report, 2026-09-13 — pins every Pending-ticket conversation above
-// the rest, oldest-waiting-first (a FIFO queue, not newest-first — a
-// client waiting 2 days shouldn't get buried under one who just wrote in),
-// leaving every other conversation in its existing most-recent-first
-// order. Array.prototype.sort is a stable sort (guaranteed since ES2019),
-// so returning 0 for two non-pending conversations preserves the order
-// groupIntoConversations already gave them, rather than needing to
-// re-derive it here.
-function orderConversations(
-  conversations: Conversation[],
-  ticketByClientId: Map<string, WhatsappConversationTicket>,
-): Conversation[] {
-  return [...conversations].sort((a, b) => {
-    const aPendingSince = pendingSinceFor(a, ticketByClientId);
-    const bPendingSince = pendingSinceFor(b, ticketByClientId);
-
-    if (aPendingSince !== null && bPendingSince !== null) {
-      return aPendingSince - bPendingSince;
-    }
-    if ((aPendingSince !== null) !== (bPendingSince !== null)) {
-      return aPendingSince !== null ? -1 : 1;
-    }
-    return 0;
-  });
-}
-
-function pendingSinceFor(
-  conversation: Conversation,
-  ticketByClientId: Map<string, WhatsappConversationTicket>,
-): number | null {
-  const ticket = ticketByClientId.get(conversation.key);
-  return ticket?.status === WhatsappTicketStatus.Pending
-    ? new Date(ticket.pendingSince).getTime()
-    : null;
-}
 
 function formatSenderPhoneNumber(fromPhoneNumber: string): string {
   const withPlus = fromPhoneNumber.startsWith('+')
@@ -386,14 +347,10 @@ function groupRoutineNavigation(items: ThreadItem[]): ThreadItem[] {
   return result;
 }
 
-// Human report, 2026-09-19 — manualReplies is the full flat recent window
-// (see useManualReplies), filtered down to this one conversation here.
-// Matched the same way groupIntoConversations keys a conversation:
-// clientId when the reply resolved to a known client, otherwise the raw
-// phone number — reply.phoneNumber is E.164-normalized
-// (+573001234567) while conversation.key falls back to the RAW
-// as-received-from-Meta number (573001234567) for an unrecognized
-// contact, hence the leading '+' stripped before comparing.
+// Human report, 2026-09-14 — messages/manualReplies are now each fetched
+// already scoped to this one conversation (see ConversationThread), not
+// filtered down from a flat cross-conversation window — this just merges
+// the three already-scoped sources into one sorted thread.
 //
 // messageLogs (human report, 2026-09-19) — the automated reminder/
 // confirmation templates the client actually received, so a reply like
@@ -405,28 +362,23 @@ function groupRoutineNavigation(items: ThreadItem[]): ThreadItem[] {
 // for an unrecognized-number conversation, which has no clientId to
 // query message_logs by.
 function buildThreadItems(
-  conversation: Conversation,
+  clientId: string | null,
+  messages: WhatsappInboundMessage[], // chronological — oldest first
   manualReplies: WhatsappManualReply[],
   messageLogs: MessageLog[],
 ): ThreadItem[] {
-  const inbound: ThreadItem[] = conversation.messages.map((message) => ({
+  const inbound: ThreadItem[] = messages.map((message) => ({
     direction: 'inbound',
     sentAt: message.receivedAt,
     message,
   }));
-  const outbound: ThreadItem[] = manualReplies
-    .filter(
-      (reply) =>
-        (reply.clientId ?? reply.phoneNumber.replace('+', '')) ===
-        conversation.key,
-    )
-    .map((reply) => ({
-      direction: 'outbound',
-      sentAt: reply.sentAt,
-      reply,
-    }));
+  const outbound: ThreadItem[] = manualReplies.map((reply) => ({
+    direction: 'outbound',
+    sentAt: reply.sentAt,
+    reply,
+  }));
   const automated: ThreadItem[] = messageLogs
-    .filter((log) => log.clientId === conversation.clientId)
+    .filter((log) => log.clientId === clientId)
     .map((log) => ({
       direction: 'automated',
       sentAt: log.sentAt,
@@ -446,15 +398,28 @@ export function WhatsappInboundMessagesPage() {
   // keeps invalidated.
 
   const [search, setSearch] = useState('');
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  // Holds the full entry, not just a key — see the comment on
+  // selectedConversation below for why.
+  const [selectedConversation, setSelectedConversation] =
+    useState<ConversationSummaryEntry | null>(null);
   const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(false);
   const [ticketFilter, setTicketFilter] = useState<TicketFilter>('all');
 
-  const { data, isLoading, isError } = useWhatsappInboundMessages({
+  // Human report, 2026-09-14 (critical bug) — paginated by conversation
+  // server-side now (see useConversations' own comment), replacing the old
+  // client-side grouping of a flat, globally-capped message fetch. Reset
+  // to page 1 whenever the search term changes, same convention
+  // ClientsListPage/LoansListPage already use.
+  const {
+    data: allConversationsPage,
+    isLoading,
+    isError,
+  } = useConversations({
     search: search || undefined,
-    limit: MESSAGE_FETCH_LIMIT,
+    page,
+    limit: CONVERSATIONS_PAGE_SIZE,
   });
-  const { data: manualReplies } = useManualReplies();
   const { data: tickets } = useConversationTickets();
 
   const ticketByClientId = useMemo(() => {
@@ -465,48 +430,59 @@ export function WhatsappInboundMessagesPage() {
     return map;
   }, [tickets]);
 
-  const pendingTicketsCount = useMemo(
+  const pendingTickets = useMemo(
     () =>
-      (tickets ?? []).filter(
-        (ticket) => ticket.status === WhatsappTicketStatus.Pending,
-      ).length,
+      (tickets ?? [])
+        .filter((ticket) => ticket.status === WhatsappTicketStatus.Pending)
+        // FIFO — a client waiting 2 days shouldn't get buried under one
+        // who just wrote in.
+        .sort(
+          (a, b) =>
+            new Date(a.pendingSince).getTime() -
+            new Date(b.pendingSince).getTime(),
+        ),
     [tickets],
   );
 
-  const conversations = useMemo(
-    () =>
-      orderConversations(
-        groupIntoConversations(data?.items ?? []),
-        ticketByClientId,
-      ),
-    [data, ticketByClientId],
+  // Human report, 2026-09-14 (critical bug) — a SEPARATE data source from
+  // "Todos", not a client-side filter of whatever page happens to be
+  // loaded: see the module comment above for why pinning-within-pagination
+  // doesn't compose. Only fetched while this tab is actually active.
+  const { data: pendingConversationSummaries } = useConversationsForClientIds(
+    ticketFilter === 'pending' ? pendingTickets.map((t) => t.clientId) : [],
   );
 
-  // Filtering narrows what's LISTED, not what can stay open — switching to
-  // "Esperando asesor" while looking at an already-resolved conversation
-  // shouldn't yank the open thread out from under whoever's reading it, so
-  // selectedConversation is looked up against the full list, not
-  // visibleConversations below.
-  const visibleConversations = useMemo(
-    () =>
-      ticketFilter === 'pending'
-        ? conversations.filter(
-            (conversation) =>
-              ticketByClientId.get(conversation.key)?.status ===
-              WhatsappTicketStatus.Pending,
-          )
-        : conversations,
-    [conversations, ticketByClientId, ticketFilter],
-  );
+  const visibleConversations = useMemo(() => {
+    if (ticketFilter === 'pending') {
+      const summaryByClientId = new Map(
+        (pendingConversationSummaries ?? []).map((summary) => [
+          summary.clientId,
+          summary,
+        ]),
+      );
+      return pendingTickets
+        .map((ticket) => summaryByClientId.get(ticket.clientId))
+        .filter((summary): summary is WhatsappConversationSummary =>
+          Boolean(summary),
+        )
+        .map(toConversationSummaryEntry);
+    }
+    return (allConversationsPage?.items ?? []).map(toConversationSummaryEntry);
+  }, [
+    ticketFilter,
+    pendingTickets,
+    pendingConversationSummaries,
+    allConversationsPage,
+  ]);
 
-  // Falls back to the first VISIBLE (filtered) conversation so the initial
-  // view matches whatever filter is active, but only once nothing has been
-  // explicitly clicked yet — see the comment on visibleConversations above.
-  const selectedConversation =
-    conversations.find((conversation) => conversation.key === selectedKey) ??
-    visibleConversations[0] ??
-    conversations[0] ??
-    null;
+  // Falls back to the first visible conversation only once nothing has
+  // been explicitly clicked yet. Holds onto the clicked entry directly
+  // (not just its key looked back up in visibleConversations) so switching
+  // the "Todos"/"Esperando asesor" tab never yanks an already-open thread
+  // out from under whoever's reading it, even though the two tabs are now
+  // genuinely separate data sources that don't always overlap in memory.
+  const effectiveSelectedConversation =
+    selectedConversation ?? visibleConversations[0] ?? null;
 
   return (
     <div className="flex h-full flex-col gap-5">
@@ -519,7 +495,10 @@ export function WhatsappInboundMessagesPage() {
         <div className="flex h-[38px] w-[280px] items-center gap-2 rounded bg-input px-3">
           <input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
             placeholder="Buscar cliente…"
             className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
           />
@@ -536,15 +515,17 @@ export function WhatsappInboundMessagesPage() {
             onClick={() => setTicketFilter('pending')}
           >
             Esperando asesor
-            {pendingTicketsCount > 0 ? ` (${pendingTicketsCount})` : ''}
+            {pendingTickets.length > 0 ? ` (${pendingTickets.length})` : ''}
           </TicketFilterTab>
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-lg bg-surface">
         <div className="flex w-[300px] shrink-0 flex-col overflow-y-auto border-r border-border">
-          {isLoading && <SidebarMessage>Cargando…</SidebarMessage>}
-          {isError && (
+          {isLoading && ticketFilter === 'all' && (
+            <SidebarMessage>Cargando…</SidebarMessage>
+          )}
+          {isError && ticketFilter === 'all' && (
             <SidebarMessage tone="error">
               No se pudieron cargar los mensajes entrantes.
             </SidebarMessage>
@@ -556,23 +537,39 @@ export function WhatsappInboundMessagesPage() {
                 : 'No hay mensajes entrantes todavía.'}
             </SidebarMessage>
           )}
-          {visibleConversations.map((conversation) => (
-            <ConversationListItem
-              key={conversation.key}
-              conversation={conversation}
-              ticket={ticketByClientId.get(conversation.key) ?? null}
-              isActive={conversation.key === selectedConversation?.key}
-              onClick={() => setSelectedKey(conversation.key)}
-            />
-          ))}
+          <div className="flex flex-1 flex-col">
+            {visibleConversations.map((conversation) => (
+              <ConversationListItem
+                key={conversation.key}
+                conversation={conversation}
+                ticket={ticketByClientId.get(conversation.key) ?? null}
+                isActive={
+                  conversation.key === effectiveSelectedConversation?.key
+                }
+                onClick={() => setSelectedConversation(conversation)}
+              />
+            ))}
+          </div>
+          {ticketFilter === 'all' &&
+            allConversationsPage &&
+            allConversationsPage.meta.totalPages > 1 && (
+              <div className="flex justify-center border-t border-border p-3">
+                <Pager
+                  page={page}
+                  totalPages={allConversationsPage.meta.totalPages}
+                  onPageChange={setPage}
+                />
+              </div>
+            )}
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col p-5">
-          {selectedConversation ? (
+          {effectiveSelectedConversation ? (
             <ConversationThread
-              conversation={selectedConversation}
-              ticket={ticketByClientId.get(selectedConversation.key) ?? null}
-              manualReplies={manualReplies ?? []}
+              conversation={effectiveSelectedConversation}
+              ticket={
+                ticketByClientId.get(effectiveSelectedConversation.key) ?? null
+              }
               isInfoPanelOpen={isInfoPanelOpen}
               onToggleInfoPanel={() => setIsInfoPanelOpen((open) => !open)}
             />
@@ -590,10 +587,10 @@ export function WhatsappInboundMessagesPage() {
             client's pagarés/cuotas at a glance while chatting, without
             leaving this page. Only for a recognized client — an
             unrecognized number has no clientId to look loans up by. */}
-        {isInfoPanelOpen && selectedConversation?.clientId && (
+        {isInfoPanelOpen && effectiveSelectedConversation?.clientId && (
           <ClientInfoPanel
-            clientId={selectedConversation.clientId}
-            clientName={selectedConversation.displayName}
+            clientId={effectiveSelectedConversation.clientId}
+            clientName={effectiveSelectedConversation.displayName}
             onClose={() => setIsInfoPanelOpen(false)}
           />
         )}
@@ -670,7 +667,7 @@ function ConversationListItem({
   isActive,
   onClick,
 }: {
-  conversation: Conversation;
+  conversation: ConversationSummaryEntry;
   ticket: WhatsappConversationTicket | null;
   isActive: boolean;
   onClick: () => void;
@@ -706,9 +703,9 @@ function ConversationListItem({
       <span className="truncate text-meta text-muted">
         {messagePreview(conversation.lastMessage)}
       </span>
-      {conversation.messages.length > 1 && (
+      {conversation.messageCount > 1 && (
         <span className="text-meta text-subtle">
-          {conversation.messages.length} mensajes
+          {conversation.messageCount} mensajes
         </span>
       )}
     </button>
@@ -718,16 +715,41 @@ function ConversationListItem({
 function ConversationThread({
   conversation,
   ticket,
-  manualReplies,
   isInfoPanelOpen,
   onToggleInfoPanel,
 }: {
-  conversation: Conversation;
+  conversation: ConversationSummaryEntry;
   ticket: WhatsappConversationTicket | null;
-  manualReplies: WhatsappManualReply[];
   isInfoPanelOpen: boolean;
   onToggleInfoPanel: () => void;
 }) {
+  // Human report, 2026-09-14 (critical bug) — this conversation's own
+  // history, fetched scoped to it alone (clientId, or fromPhoneNumber for
+  // an unrecognized number) instead of grouped out of a flat, globally-
+  // capped fetch shared with every other conversation. Starts with the
+  // most recent INITIAL_THREAD_MESSAGE_LIMIT messages; "Cargar mensajes
+  // anteriores" grows the window rather than fetching a disjoint page, so
+  // there's one simple list to merge, not pages to stitch together. Reset
+  // to the initial window on every conversation switch — otherwise a
+  // long-expanded window from a PREVIOUS conversation would carry over.
+  const [threadMessageLimit, setThreadMessageLimit] = useState(
+    INITIAL_THREAD_MESSAGE_LIMIT,
+  );
+  useEffect(() => {
+    setThreadMessageLimit(INITIAL_THREAD_MESSAGE_LIMIT);
+  }, [conversation.key]);
+
+  const { data: messagesPage } = useWhatsappInboundMessages({
+    clientId: conversation.clientId ?? undefined,
+    fromPhoneNumber: conversation.clientId
+      ? undefined
+      : conversation.phoneNumber,
+    limit: threadMessageLimit,
+  });
+  const { data: manualReplies } = useManualReplies({
+    clientId: conversation.clientId,
+    fromPhoneNumber: conversation.phoneNumber,
+  });
   const { data: currentMenu } = useConversationState(conversation.phoneNumber);
   const { data: messageLogs } = useMessageLogsForClient(conversation.clientId);
   const attention = conversationAttention(ticket);
@@ -740,9 +762,14 @@ function ConversationThread({
   // advisor) — it still needs a way to bail out of the wait.
   const showCloseConversationButton =
     currentMenu === ConversationMenu.AwaitingReceipt || attention === 'pending';
+  // findAll (and so messagesPage) comes back newest-first — reversed here
+  // to chronological order, same as the old groupIntoConversations did.
+  const messages = [...(messagesPage?.items ?? [])].reverse();
+  const hasOlderMessages = (messagesPage?.meta.total ?? 0) > messages.length;
   const threadItems = buildThreadItems(
-    conversation,
-    manualReplies,
+    conversation.clientId,
+    messages,
+    manualReplies ?? [],
     messageLogs?.items ?? [],
   );
 
@@ -752,11 +779,19 @@ function ConversationThread({
   // instead of the most recent one. Scrolls the message list (not the
   // whole thread column — the header/reply box stay put) to the bottom on
   // both: a conversation switch (conversation.key) and thread growth
-  // (threadItems.length).
+  // (threadItems.length). Human report, 2026-09-14 — EXCEPT when that
+  // growth came from "Cargar mensajes anteriores": jumping back to the
+  // bottom right after loading older history would undo the very thing
+  // that button was just clicked for.
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const skipNextAutoScrollRef = useRef(false);
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
+    if (skipNextAutoScrollRef.current) {
+      skipNextAutoScrollRef.current = false;
+      return;
+    }
     container.scrollTop = container.scrollHeight;
   }, [conversation.key, threadItems.length]);
 
@@ -796,6 +831,20 @@ function ConversationThread({
         ref={messagesContainerRef}
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
       >
+        {hasOlderMessages && (
+          <button
+            type="button"
+            onClick={() => {
+              skipNextAutoScrollRef.current = true;
+              setThreadMessageLimit(
+                (limit) => limit + THREAD_MESSAGE_LOAD_MORE_STEP,
+              );
+            }}
+            className="mx-auto rounded-full border border-border px-3 py-1 text-meta text-subtle hover:text-muted"
+          >
+            Cargar mensajes anteriores
+          </button>
+        )}
         {threadItems.map((item) => {
           if (item.direction === 'inbound') {
             return (

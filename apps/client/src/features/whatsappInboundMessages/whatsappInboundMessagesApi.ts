@@ -111,6 +111,10 @@ export enum ConversationMenu {
 
 export interface WhatsappInboundMessagesQueryParams {
   clientId?: string;
+  // Human report, 2026-09-14 — scopes to one unrecognized-number
+  // conversation (clientId is null); ignored when clientId is also set.
+  // See ConversationThread's own comment.
+  fromPhoneNumber?: string;
   type?: WhatsappInboundMessageType;
   search?: string;
   page?: number;
@@ -135,6 +139,7 @@ export const whatsappInboundMessagesApi = {
       '/whatsapp/inbound-messages',
       {
         clientId: params.clientId,
+        fromPhoneNumber: params.fromPhoneNumber,
         type: params.type,
         search: params.search,
         page: params.page,
@@ -158,11 +163,17 @@ export const whatsappInboundMessagesApi = {
     return data.sent;
   },
 
-  // A flat recent window, merged client-side into each conversation —
-  // same pattern as getAll above.
-  getManualReplies: async (): Promise<WhatsappManualReply[]> => {
+  // Human report, 2026-09-14 (critical bug) — scoped to one conversation
+  // (clientId, or fromPhoneNumber for an unrecognized number) instead of a
+  // flat window shared across every conversation's replies — see
+  // useManualReplies' own comment.
+  getManualReplies: async (params: {
+    clientId?: string;
+    fromPhoneNumber?: string;
+  }): Promise<WhatsappManualReply[]> => {
     const { data } = await apiClient.get<WhatsappManualReply[]>(
       '/whatsapp/inbound-messages/manual-replies',
+      { clientId: params.clientId, fromPhoneNumber: params.fromPhoneNumber },
     );
     return data;
   },
