@@ -18,6 +18,7 @@ import { InterestConceptType } from '../interestConceptTypes/entities/interestCo
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
 import { User } from '../users/entities/user.entity';
+import { formatCronScheduleLabel } from '../whatsapp/formatCronScheduleLabel';
 import { ReminderFamily } from '../whatsapp/reminderFamily';
 
 import { AuditLogService } from './auditLog.service';
@@ -325,7 +326,10 @@ export class AuditLogInterceptor implements NestInterceptor {
           return `${familyLabel} — ${entity.paused ? 'pausado' : 'reanudado'}`;
         }
         if (entity && typeof entity.cronExpression === 'string') {
-          return `${familyLabel} — nuevo horario: ${entity.cronExpression}`;
+          // Human report, 2026-09-14 — the raw cron expression ("0 9 * *
+          // 1,3,6") was unreadable in the audit log; see
+          // formatCronScheduleLabel's own comment.
+          return `${familyLabel} — nuevo horario: ${formatCronScheduleLabel(entity.cronExpression)}`;
         }
         return family ? familyLabel : null;
       }

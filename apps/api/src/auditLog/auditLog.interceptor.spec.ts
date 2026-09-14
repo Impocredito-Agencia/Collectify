@@ -1026,7 +1026,11 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
-    it('labels a rescheduled reminder family with its new cron expression', async () => {
+    // Human report, 2026-09-14 — the raw cron expression used to be
+    // shown verbatim, unreadable in the audit log. See
+    // formatCronScheduleLabel's own tests for every day/time-shape case;
+    // this just confirms the interceptor actually calls through it.
+    it('labels a rescheduled reminder family with a human-readable schedule', async () => {
       reflector.get.mockReturnValue({
         action: 'whatsappCron.reschedule',
         entityType: 'whatsappCron',
@@ -1045,7 +1049,7 @@ describe('AuditLogInterceptor', () => {
       expect(auditLogService.record).toHaveBeenCalledWith(
         expect.objectContaining({
           entityLabel:
-            'Nuevo pagaré / Refinanciación — nuevo horario: 0 8 * * 1',
+            'Nuevo pagaré / Refinanciación — nuevo horario: Lun a las 8:00 a. m.',
         }),
       );
     });
