@@ -12,6 +12,7 @@ import {
   findPaymentHistoryForClient,
   findPendingInstallmentsBreakdown,
 } from './breakdownQueries';
+import { isWithinBusinessHours } from './businessHours';
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
 import { WhatsappTicketTriggerKind } from './entities/whatsappConversationTicket.entity';
 import { MessageLog } from './entities/messageLog.entity';
@@ -20,11 +21,13 @@ import { WhatsappInboundMessageType } from './entities/whatsappInboundMessage.en
 import { AccountSummaryInstallmentForMessage } from './messageRenderer';
 import {
   ADVISOR_HANDOFF_MESSAGE,
+  ADVISOR_HANDOFF_OUT_OF_HOURS_MESSAGE,
   MAIN_MENU_BODY,
   MAIN_MENU_BUTTONS,
   MI_CUENTA_SUBMENU_BODY,
   MI_CUENTA_SUBMENU_BUTTONS,
   RECEIPT_RECEIVED_MESSAGE,
+  RECEIPT_RECEIVED_OUT_OF_HOURS_MESSAGE,
   RECEIPT_REQUEST_MESSAGE,
   VOLVER_AL_MENU_BUTTONS,
   VOLVER_FOLLOW_UP_BODY,
@@ -243,7 +246,13 @@ export class SelfServiceMenuService {
     );
 
     if (state?.currentMenu === ConversationMenu.AwaitingReceipt) {
-      await this.sendText(client, RECEIPT_RECEIVED_MESSAGE);
+      // Human report, 2026-09-13 — see businessHours.ts. A plain session
+      // message either way, so the hour never blocks the send itself —
+      // only the copy changes.
+      const body = isWithinBusinessHours()
+        ? RECEIPT_RECEIVED_MESSAGE
+        : RECEIPT_RECEIVED_OUT_OF_HOURS_MESSAGE;
+      await this.sendText(client, body);
       // Hands off to a human for review — see the ConversationMenu doc
       // comment. No further automated replies fire for this number until
       // an admin closes the conversation.
@@ -331,9 +340,17 @@ export class SelfServiceMenuService {
 
   // Resolved (2026-09-13) — admin notification for "Hablar con asesor" is
   // now the WhatsappConversationTicket this opens below, badged/filtered/
-  // pinned in the inbox — not a separate channel like email/SMS.
+  // pinned in the inbox and surfaced via sound + tab title — not a
+  // separate channel like email/SMS.
   private async handOffToAdvisor(client: Client): Promise<void> {
-    await this.sendText(client, ADVISOR_HANDOFF_MESSAGE);
+    // Human report, 2026-09-13 — see businessHours.ts. Still an instant,
+    // plain session reply either way — the client's own inbound message
+    // just reopened the 24h window, so there's no "wait until we're open"
+    // technical requirement here, only a copy difference.
+    const body = isWithinBusinessHours()
+      ? ADVISOR_HANDOFF_MESSAGE
+      : ADVISOR_HANDOFF_OUT_OF_HOURS_MESSAGE;
+    await this.sendText(client, body);
     // Hands off to a human — see the ConversationMenu doc comment. No
     // further automated replies fire for this number until an admin closes
     // the conversation.

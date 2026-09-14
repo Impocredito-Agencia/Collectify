@@ -6,6 +6,7 @@ import { Installment } from '../loans/entities/installment.entity';
 import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
+import { isWithinBusinessHours } from './businessHours';
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
 import { WhatsappTicketTriggerKind } from './entities/whatsappConversationTicket.entity';
 import { MessageLog } from './entities/messageLog.entity';
@@ -21,6 +22,14 @@ import { WhatsappConversationStateService } from './whatsappConversationState.se
 import { WhatsappConversationTicketService } from './whatsappConversationTicket.service';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
+
+// Human report, 2026-09-13 — handOffToAdvisor/handlePossibleReceipt now
+// pick their message body based on isWithinBusinessHours(), which reads
+// the real system clock by default. Auto-mocked so every test below runs
+// deterministically regardless of when it's actually executed.
+jest.mock('./businessHours');
+
+const mockIsWithinBusinessHours = isWithinBusinessHours as jest.Mock;
 
 describe('SelfServiceMenuService', () => {
   let service: SelfServiceMenuService;
@@ -93,6 +102,11 @@ describe('SelfServiceMenuService', () => {
   }
 
   beforeEach(async () => {
+    // Default to "within business hours" so every pre-existing test's
+    // message-content assertions (e.g. expect.stringContaining('asesor'))
+    // keep matching the normal-hours copy without having to touch them —
+    // only the new tests below explicitly flip this to test the other copy.
+    mockIsWithinBusinessHours.mockReturnValue(true);
     installmentsRepository = { find: jest.fn().mockResolvedValue([]) };
     paymentsRepository = { find: jest.fn().mockResolvedValue([]) };
     // Bug fix, 2026-09-08 — see breakdownQueries.ts's own comment.
@@ -317,6 +331,28 @@ describe('SelfServiceMenuService', () => {
       );
     });
 
+    // Human report, 2026-09-13 — see businessHours.ts.
+    it('sends the out-of-hours copy on Hablar con asesor outside business hours', async () => {
+      mockIsWithinBusinessHours.mockReturnValue(false);
+
+      await service.handleInboundEvent(
+        buttonEvent(SelfServiceMenuButtonId.HablarAsesor),
+        client,
+      );
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        client.phoneNumber,
+        expect.stringContaining('fuera de nuestro horario de atención'),
+      );
+      // Still hands off exactly the same as within business hours — only
+      // the copy changes.
+      expect(conversationStateService.upsert).toHaveBeenCalledWith(
+        client.phoneNumber,
+        client.id,
+        ConversationMenu.HandedOffToHuman,
+      );
+    });
+
     it.each([
       SelfServiceMenuButtonId.EstadoCuenta,
       SelfServiceMenuButtonId.CuotasPendientes,
@@ -510,6 +546,30 @@ describe('SelfServiceMenuService', () => {
       expect(conversationTicketService.openOrReopen).toHaveBeenCalledWith(
         client.id,
         WhatsappTicketTriggerKind.ReceiptImage,
+      );
+    });
+
+    // Human report, 2026-09-13 — see businessHours.ts.
+    it('sends the out-of-hours copy when a receipt arrives outside business hours', async () => {
+      mockIsWithinBusinessHours.mockReturnValue(false);
+      conversationStateService.getActive.mockResolvedValue({
+        currentMenu: ConversationMenu.AwaitingReceipt,
+      });
+
+      await service.handleInboundEvent(
+        otherEvent(WhatsappInboundMessageType.Image),
+        client,
+      );
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        client.phoneNumber,
+        expect.stringContaining('fuera de nuestro horario de atención'),
+      );
+      // Still hands off exactly the same as within business hours.
+      expect(conversationStateService.upsert).toHaveBeenCalledWith(
+        client.phoneNumber,
+        client.id,
+        ConversationMenu.HandedOffToHuman,
       );
     });
 
