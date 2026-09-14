@@ -570,6 +570,7 @@ export function WhatsappInboundMessagesPage() {
           {selectedConversation ? (
             <ConversationThread
               conversation={selectedConversation}
+              ticket={ticketByClientId.get(selectedConversation.key) ?? null}
               manualReplies={manualReplies ?? []}
               isInfoPanelOpen={isInfoPanelOpen}
               onToggleInfoPanel={() => setIsInfoPanelOpen((open) => !open)}
@@ -600,25 +601,38 @@ export function WhatsappInboundMessagesPage() {
   );
 }
 
-// Human report, 2026-09-19 — the client's only way to explicitly ask for a
-// human is the self-service menu's "Hablar con asesor" button
-// (HandedOffToHuman). AwaitingReceipt (tapped "Reportar un pago", still
-// waiting on the photo) is deliberately NOT counted here — that's the bot
-// still doing its job, not a client waiting on a person.
-function hasRequestedAdvisor(
-  currentMenu: ConversationMenu | null | undefined,
-): boolean {
-  return currentMenu === ConversationMenu.HandedOffToHuman;
+type ConversationAttention = 'pending' | 'resolved' | 'none';
+
+// Human report, 2026-09-14 (bug fix) — this used to key off `currentMenu
+// === HandedOffToHuman`, which had two real gaps a cobrador ran into:
+// (1) closing a conversation just clears that state, so it fell straight
+// back to "red", indistinguishable from a conversation that never needed
+// anyone; (2) an unprompted comprobante (no "Reportar un pago" first)
+// never sets HandedOffToHuman at all, so that conversation stayed red
+// forever with no way to tell it had already been flagged. The
+// WhatsappConversationTicket this client may have covers both cases
+// directly — it's the actual "does a human still need to act" source of
+// truth now, not a side effect of the bot's own menu state.
+function conversationAttention(
+  ticket: WhatsappConversationTicket | null,
+): ConversationAttention {
+  if (!ticket) return 'none';
+  return ticket.status === WhatsappTicketStatus.Pending
+    ? 'pending'
+    : 'resolved';
 }
 
 // Left-border accent so an admin scanning the list (or the open thread)
 // can tell at a glance which conversations need a person, without opening
-// each one — red by default (the bot is still handling it, or nobody's
-// asked for anything), green once the client explicitly asked to talk to
-// an advisor. Purely a status signal: every conversation can always be
-// replied to manually regardless of color (see ReplyBox below).
-function attentionBorderClass(requestedAdvisor: boolean): string {
-  return requestedAdvisor ? 'border-l-success' : 'border-l-danger';
+// each one — red while a ticket is pending, green once it's been closed
+// (see conversationAttention above), neutral for a conversation that
+// never needed a human at all. Purely a status signal: every conversation
+// can always be replied to manually regardless of color (see ReplyBox
+// below).
+function attentionBorderClass(attention: ConversationAttention): string {
+  if (attention === 'pending') return 'border-l-danger';
+  if (attention === 'resolved') return 'border-l-success';
+  return 'border-l-border';
 }
 
 // Human report, 2026-09-13 — small pill tabs matching the same active-state
@@ -660,16 +674,14 @@ function ConversationListItem({
   isActive: boolean;
   onClick: () => void;
 }) {
-  const { data: currentMenu } = useConversationState(conversation.phoneNumber);
-  const requestedAdvisor = hasRequestedAdvisor(currentMenu);
-  const isPending = ticket?.status === WhatsappTicketStatus.Pending;
+  const attention = conversationAttention(ticket);
 
   return (
     <button
       type="button"
       onClick={onClick}
       className={`flex flex-col gap-1 border-b border-border border-l-4 px-4 py-3 text-left ${attentionBorderClass(
-        requestedAdvisor,
+        attention,
       )} ${isActive ? 'bg-input' : 'hover:bg-input/50'}`}
     >
       <div className="flex items-center justify-between gap-2">
@@ -680,9 +692,14 @@ function ConversationListItem({
           {formatConversationTimestamp(conversation.lastMessage.receivedAt)}
         </span>
       </div>
-      {isPending && ticket && (
+      {attention === 'pending' && ticket && (
         <span className="flex items-center gap-1.5 text-meta text-danger">
           🔴 {TICKET_TRIGGER_LABELS[ticket.triggerKind]}
+        </span>
+      )}
+      {attention === 'resolved' && (
+        <span className="flex items-center gap-1.5 text-meta text-success">
+          ✅ Conversación cerrada
         </span>
       )}
       <span className="truncate text-meta text-muted">
@@ -699,27 +716,29 @@ function ConversationListItem({
 
 function ConversationThread({
   conversation,
+  ticket,
   manualReplies,
   isInfoPanelOpen,
   onToggleInfoPanel,
 }: {
   conversation: Conversation;
+  ticket: WhatsappConversationTicket | null;
   manualReplies: WhatsappManualReply[];
   isInfoPanelOpen: boolean;
   onToggleInfoPanel: () => void;
 }) {
   const { data: currentMenu } = useConversationState(conversation.phoneNumber);
   const { data: messageLogs } = useMessageLogsForClient(conversation.clientId);
-  const requestedAdvisor = hasRequestedAdvisor(currentMenu);
-  // Human report, 2026-09-19 — "Cerrar conversación" only means something
-  // while the bot is actually paused waiting on this client (AwaitingReceipt)
-  // or handed off (HandedOffToHuman); unlike the reply box below, this one
-  // stays conditional. Kept as its own check rather than reusing
-  // requestedAdvisor (which is HandedOffToHuman only) — AwaitingReceipt
-  // still needs a way to bail out of the wait.
+  const attention = conversationAttention(ticket);
+  // Human report, 2026-09-14 (bug fix) — used to gate on `currentMenu ===
+  // HandedOffToHuman`, which an unprompted comprobante never sets at all
+  // (see conversationAttention's own comment) — that conversation had a
+  // pending ticket with no way to close it. AwaitingReceipt is kept as
+  // its own OR'd condition since a ticket doesn't exist yet at that point
+  // (only once the receipt actually arrives, or the client asks for an
+  // advisor) — it still needs a way to bail out of the wait.
   const showCloseConversationButton =
-    currentMenu === ConversationMenu.AwaitingReceipt ||
-    currentMenu === ConversationMenu.HandedOffToHuman;
+    currentMenu === ConversationMenu.AwaitingReceipt || attention === 'pending';
   const threadItems = buildThreadItems(
     conversation,
     manualReplies,
@@ -743,7 +762,7 @@ function ConversationThread({
   return (
     <div
       className={`flex h-full flex-col gap-4 rounded-lg border-l-4 pl-4 ${attentionBorderClass(
-        requestedAdvisor,
+        attention,
       )}`}
     >
       <div className="flex items-center justify-between gap-2 border-b border-border pb-3">
@@ -754,6 +773,11 @@ function ConversationThread({
           <p className="text-meta text-muted">
             {formatSenderPhoneNumber(conversation.phoneNumber)}
           </p>
+          {attention === 'resolved' && (
+            <p className="mt-1 flex items-center gap-1.5 text-meta text-success">
+              ✅ Conversación cerrada
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {conversation.clientId && (
