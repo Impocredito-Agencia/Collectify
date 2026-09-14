@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { whatsappConversationTicketsApi } from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
 import { whatsappInboundMessagesApi } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 
 import type { WhatsappInboundMessagesQueryParams } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
@@ -56,9 +57,30 @@ export function useCloseConversation() {
   return useMutation({
     mutationFn: (phoneNumber: string) =>
       whatsappInboundMessagesApi.closeConversation(phoneNumber),
-    onSuccess: (_data, phoneNumber) =>
+    onSuccess: (_data, phoneNumber) => {
       queryClient.invalidateQueries({
         queryKey: ['whatsappConversationState', phoneNumber],
-      }),
+      });
+      // Human report, 2026-09-13 — closing IS resolving a ticket too; same
+      // "don't wait on the socket round trip" reasoning as
+      // useReplyToInboundMessage above.
+      queryClient.invalidateQueries({
+        queryKey: ['whatsappConversationTickets'],
+      });
+    },
+  });
+}
+
+// Human report, 2026-09-13 — backs the "Mensajes entrantes" sidebar badge,
+// the "Esperando asesor" filter, and the FIFO pinning in the inbox's
+// conversation list. `enabled` defaults to true — pass false from a
+// component (like Sidebar/AppLayout) that renders for every route,
+// regardless of whether the current user was even granted the "messages"
+// module, to avoid a pointless 403 on every page load.
+export function useConversationTickets(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['whatsappConversationTickets'],
+    queryFn: () => whatsappConversationTicketsApi.getAll(),
+    enabled: options?.enabled ?? true,
   });
 }

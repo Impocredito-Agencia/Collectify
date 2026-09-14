@@ -17,11 +17,15 @@ import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMess
 import {
   useCloseConversation,
   useConversationState,
+  useConversationTickets,
   useManualReplies,
   useReplyToInboundMessage,
   useWhatsappInboundMessages,
 } from '@/features/whatsappInboundMessages/useWhatsappInboundMessages';
-import { useWhatsappInboundSocket } from '@/features/whatsappInboundMessages/useWhatsappInboundSocket';
+import {
+  WhatsappTicketStatus,
+  WhatsappTicketTriggerKind,
+} from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
 import {
   ConversationMenu,
   WhatsappInboundMessageType,
@@ -36,6 +40,7 @@ import {
 import type { Installment } from '@/features/installments/installmentsApi';
 import type { LoanSummary } from '@/features/loans/loansApi';
 import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
+import type { WhatsappConversationTicket } from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
 import type {
   WhatsappInboundMessage,
   WhatsappManualReply,
@@ -48,8 +53,16 @@ import type { ReactNode } from 'react';
 // contact, opened into a chat-style thread — matching how every real
 // messaging inbox does this (WhatsApp itself, Intercom, Chatwoot, Front):
 // nobody wants a table that grows one row per event from the same person.
-// Updates live via useWhatsappInboundSocket instead of needing a manual
-// refresh.
+// Updates live via the socket connection WhatsappTicketWatcher establishes
+// in AppLayout (moved there 2026-09-13 so the ticket badge works from any
+// page, not just this one) instead of needing a manual refresh.
+//
+// Ticket badge/filter/pinning (human report, 2026-09-13): a
+// WhatsappConversationTicket (Pending/Resolved — see its own entity
+// comment) tracks whether a human still needs to act, separately from the
+// bot's own ConversationMenu state below. Pending conversations are pinned
+// above the rest, oldest-waiting-first; "Esperando asesor" filters the
+// list down to just those.
 //
 // Manual reply / "Cerrar conversación" gating (Phase 34, fixed 2026-09-02):
 // enabled while the backend's self-service-menu state for that phone
@@ -165,6 +178,52 @@ function groupIntoConversations(
   );
 }
 
+// Human report, 2026-09-13 — short label for why a conversation is
+// pending, shown in the conversation list so a cobrador knows without
+// opening it. Mirrors apps/api's WhatsappTicketTriggerKind.
+const TICKET_TRIGGER_LABELS: Record<WhatsappTicketTriggerKind, string> = {
+  [WhatsappTicketTriggerKind.AdvisorRequested]: 'Pidió hablar con un asesor',
+  [WhatsappTicketTriggerKind.ReceiptImage]: 'Envió un posible comprobante',
+  [WhatsappTicketTriggerKind.ReceiptDocument]:
+    'Envió un posible comprobante (documento)',
+};
+
+// Human report, 2026-09-13 — pins every Pending-ticket conversation above
+// the rest, oldest-waiting-first (a FIFO queue, not newest-first — a
+// client waiting 2 days shouldn't get buried under one who just wrote in),
+// leaving every other conversation in its existing most-recent-first
+// order. Array.prototype.sort is a stable sort (guaranteed since ES2019),
+// so returning 0 for two non-pending conversations preserves the order
+// groupIntoConversations already gave them, rather than needing to
+// re-derive it here.
+function orderConversations(
+  conversations: Conversation[],
+  ticketByClientId: Map<string, WhatsappConversationTicket>,
+): Conversation[] {
+  return [...conversations].sort((a, b) => {
+    const aPendingSince = pendingSinceFor(a, ticketByClientId);
+    const bPendingSince = pendingSinceFor(b, ticketByClientId);
+
+    if (aPendingSince !== null && bPendingSince !== null) {
+      return aPendingSince - bPendingSince;
+    }
+    if ((aPendingSince !== null) !== (bPendingSince !== null)) {
+      return aPendingSince !== null ? -1 : 1;
+    }
+    return 0;
+  });
+}
+
+function pendingSinceFor(
+  conversation: Conversation,
+  ticketByClientId: Map<string, WhatsappConversationTicket>,
+): number | null {
+  const ticket = ticketByClientId.get(conversation.key);
+  return ticket?.status === WhatsappTicketStatus.Pending
+    ? new Date(ticket.pendingSince).getTime()
+    : null;
+}
+
 function formatSenderPhoneNumber(fromPhoneNumber: string): string {
   const withPlus = fromPhoneNumber.startsWith('+')
     ? fromPhoneNumber
@@ -241,26 +300,73 @@ function buildThreadItems(
   );
 }
 
+type TicketFilter = 'all' | 'pending';
+
 export function WhatsappInboundMessagesPage() {
-  useWhatsappInboundSocket();
+  // The live socket connection lives in AppLayout's WhatsappTicketWatcher
+  // now (2026-09-13) — this page just reads the same react-query cache it
+  // keeps invalidated.
 
   const [search, setSearch] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(false);
+  const [ticketFilter, setTicketFilter] = useState<TicketFilter>('all');
 
   const { data, isLoading, isError } = useWhatsappInboundMessages({
     search: search || undefined,
     limit: MESSAGE_FETCH_LIMIT,
   });
   const { data: manualReplies } = useManualReplies();
+  const { data: tickets } = useConversationTickets();
 
-  const conversations = useMemo(
-    () => groupIntoConversations(data?.items ?? []),
-    [data],
+  const ticketByClientId = useMemo(() => {
+    const map = new Map<string, WhatsappConversationTicket>();
+    for (const ticket of tickets ?? []) {
+      map.set(ticket.clientId, ticket);
+    }
+    return map;
+  }, [tickets]);
+
+  const pendingTicketsCount = useMemo(
+    () =>
+      (tickets ?? []).filter(
+        (ticket) => ticket.status === WhatsappTicketStatus.Pending,
+      ).length,
+    [tickets],
   );
 
+  const conversations = useMemo(
+    () =>
+      orderConversations(
+        groupIntoConversations(data?.items ?? []),
+        ticketByClientId,
+      ),
+    [data, ticketByClientId],
+  );
+
+  // Filtering narrows what's LISTED, not what can stay open — switching to
+  // "Esperando asesor" while looking at an already-resolved conversation
+  // shouldn't yank the open thread out from under whoever's reading it, so
+  // selectedConversation is looked up against the full list, not
+  // visibleConversations below.
+  const visibleConversations = useMemo(
+    () =>
+      ticketFilter === 'pending'
+        ? conversations.filter(
+            (conversation) =>
+              ticketByClientId.get(conversation.key)?.status ===
+              WhatsappTicketStatus.Pending,
+          )
+        : conversations,
+    [conversations, ticketByClientId, ticketFilter],
+  );
+
+  // Falls back to the first VISIBLE (filtered) conversation so the initial
+  // view matches whatever filter is active, but only once nothing has been
+  // explicitly clicked yet — see the comment on visibleConversations above.
   const selectedConversation =
     conversations.find((conversation) => conversation.key === selectedKey) ??
+    visibleConversations[0] ??
     conversations[0] ??
     null;
 
@@ -271,13 +377,30 @@ export function WhatsappInboundMessagesPage() {
         subtitle="Botones tocados y mensajes de texto que los clientes enviaron — se actualiza en vivo"
       />
 
-      <div className="flex h-[38px] w-[280px] items-center gap-2 rounded bg-input px-3">
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Buscar cliente…"
-          className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
-        />
+      <div className="flex items-center gap-3">
+        <div className="flex h-[38px] w-[280px] items-center gap-2 rounded bg-input px-3">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Buscar cliente…"
+            className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <TicketFilterTab
+            active={ticketFilter === 'all'}
+            onClick={() => setTicketFilter('all')}
+          >
+            Todos
+          </TicketFilterTab>
+          <TicketFilterTab
+            active={ticketFilter === 'pending'}
+            onClick={() => setTicketFilter('pending')}
+          >
+            Esperando asesor
+            {pendingTicketsCount > 0 ? ` (${pendingTicketsCount})` : ''}
+          </TicketFilterTab>
+        </div>
       </div>
 
       <div className="flex h-[70vh] overflow-hidden rounded-lg bg-surface">
@@ -288,13 +411,18 @@ export function WhatsappInboundMessagesPage() {
               No se pudieron cargar los mensajes entrantes.
             </SidebarMessage>
           )}
-          {!isLoading && !isError && conversations.length === 0 && (
-            <SidebarMessage>No hay mensajes entrantes todavía.</SidebarMessage>
+          {!isLoading && !isError && visibleConversations.length === 0 && (
+            <SidebarMessage>
+              {ticketFilter === 'pending'
+                ? 'No hay conversaciones esperando asesor.'
+                : 'No hay mensajes entrantes todavía.'}
+            </SidebarMessage>
           )}
-          {conversations.map((conversation) => (
+          {visibleConversations.map((conversation) => (
             <ConversationListItem
               key={conversation.key}
               conversation={conversation}
+              ticket={ticketByClientId.get(conversation.key) ?? null}
               isActive={conversation.key === selectedConversation?.key}
               onClick={() => setSelectedKey(conversation.key)}
             />
@@ -356,17 +484,48 @@ function attentionBorderClass(requestedAdvisor: boolean): string {
   return requestedAdvisor ? 'border-l-success' : 'border-l-danger';
 }
 
+// Human report, 2026-09-13 — small pill tabs matching the same active-state
+// treatment Sidebar's own nav items use (bg-accent/15 + white text), so
+// this reads as the same visual language as the rest of the app rather
+// than a one-off control.
+function TicketFilterTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1.5 text-small ${
+        active
+          ? 'border-transparent bg-accent/15 font-medium text-white'
+          : 'border-border text-muted hover:text-white'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function ConversationListItem({
   conversation,
+  ticket,
   isActive,
   onClick,
 }: {
   conversation: Conversation;
+  ticket: WhatsappConversationTicket | null;
   isActive: boolean;
   onClick: () => void;
 }) {
   const { data: currentMenu } = useConversationState(conversation.phoneNumber);
   const requestedAdvisor = hasRequestedAdvisor(currentMenu);
+  const isPending = ticket?.status === WhatsappTicketStatus.Pending;
 
   return (
     <button
@@ -387,6 +546,11 @@ function ConversationListItem({
           )}
         </span>
       </div>
+      {isPending && ticket && (
+        <span className="flex items-center gap-1.5 text-meta text-danger">
+          🔴 {TICKET_TRIGGER_LABELS[ticket.triggerKind]}
+        </span>
+      )}
       <span className="truncate text-meta text-muted">
         {messagePreview(conversation.lastMessage)}
       </span>

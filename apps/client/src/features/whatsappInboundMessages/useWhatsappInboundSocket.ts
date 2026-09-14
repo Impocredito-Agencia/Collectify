@@ -35,6 +35,16 @@ export function useWhatsappInboundSocket(): void {
       });
     });
 
+    // Human report, 2026-09-13 — a ticket can open/reopen/resolve outside
+    // an inbound event too (closing a conversation resolves it), so this
+    // gets its own event rather than piggybacking on 'inbound-message' —
+    // keeps the "Mensajes entrantes" sidebar badge/filter/pinning live.
+    socket.on('ticket-update', () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['whatsappConversationTickets'],
+      });
+    });
+
     return () => {
       socket.disconnect();
     };

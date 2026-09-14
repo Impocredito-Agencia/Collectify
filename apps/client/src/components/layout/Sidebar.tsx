@@ -3,6 +3,8 @@ import { NavLink } from 'react-router-dom';
 import { CollectifyMark } from '@/components/ui/CollectifyMark';
 import { useAuth } from '@/features/auth/useAuth';
 import { USER_ROLE_LABELS } from '@/features/users/usersApi';
+import { useConversationTickets } from '@/features/whatsappInboundMessages/useWhatsappInboundMessages';
+import { WhatsappTicketStatus } from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
 import { formatSidebarName, getInitials } from '@/lib/format';
 
 import type { AppModule, UserRole } from '@/features/auth/authApi';
@@ -239,6 +241,11 @@ function LogoutIcon() {
 // groups carry a `groupLabel` — a visible header for the grouping described
 // above, matching how Stripe's and Linear's sidebars label their non-top
 // sections (see the icon components above this array).
+// Human report, 2026-09-13 — "Mensajes entrantes" is the one nav item that
+// carries a live count, matching how Intercom/WhatsApp Business badge
+// their own inbox nav entry.
+const MESSAGES_NAV_PATH = '/mensajes-entrantes';
+
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/', icon: <DashboardIcon /> },
   { label: 'Clientes', to: '/clientes', icon: <ClientsIcon /> },
@@ -328,6 +335,19 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Sidebar() {
   const { user, logout } = useAuth();
+  const hasMessagesAccess = Boolean(
+    user && (user.role === 'admin' || user.modules.includes('messages')),
+  );
+  // enabled: false for a user with no "messages" access — same reasoning
+  // as AppLayout's WhatsappTicketWatcher gate, so this doesn't fire a
+  // pointless 403 on every page load for a cobrador who was never granted
+  // this module.
+  const { data: tickets } = useConversationTickets({
+    enabled: hasMessagesAccess,
+  });
+  const pendingTicketsCount = (tickets ?? []).filter(
+    (ticket) => ticket.status === WhatsappTicketStatus.Pending,
+  ).length;
 
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (item.roles) {
@@ -455,6 +475,11 @@ export function Sidebar() {
             >
               {item.icon}
               {item.label}
+              {item.to === MESSAGES_NAV_PATH && pendingTicketsCount > 0 && (
+                <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-medium text-white">
+                  {pendingTicketsCount}
+                </span>
+              )}
             </NavLink>
           </div>
         ))}
