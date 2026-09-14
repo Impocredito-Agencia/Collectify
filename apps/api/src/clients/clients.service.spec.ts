@@ -786,7 +786,7 @@ describe('ClientsService', () => {
     it('adds accrued interest for overdue pending installments', async () => {
       repository.findOneBy.mockResolvedValue({
         ...mockClient,
-        creditLimit: 1000,
+        creditLimit: 1000000,
       });
       loansRepository.find.mockResolvedValue([
         { id: 'loan-1', clientId: mockClient.id },
@@ -795,7 +795,12 @@ describe('ClientsService', () => {
         {
           id: 'inst-1',
           loanId: 'loan-1',
-          amount: 300,
+          // Bug fix, 2026-09-14 — bumped from 300 to a realistic loan scale
+          // (see calculateTotalDue's own comment): totalDue now rounds to
+          // the nearest $100, which would have silently erased the whole
+          // $3 of accrued interest this test exists to check for at the
+          // old scale, making it pass for the wrong reason.
+          amount: 300000,
           dueDate: daysAgo(10),
           status: InstallmentStatus.Pending,
         },
@@ -812,9 +817,13 @@ describe('ClientsService', () => {
 
       const result = await service.getCreditUsage(mockClient.id);
 
-      // 300 + (300 * 0.03 / 30) * 10 = 300 + 3 = 303
-      expect(result.creditUsed).toBeCloseTo(303);
-      expect(result.creditAvailable).toBeCloseTo(697);
+      // 300000 + (300000 * 0.03 / 30) * 10 = 300000 + 3000 = 303000
+      // (already an exact multiple of $100, so the rounding above is a
+      // no-op here — the point of this test is the interest being added
+      // at all, not the rounding itself, which installmentCalculations.spec.ts
+      // covers directly).
+      expect(result.creditUsed).toBe(303000);
+      expect(result.creditAvailable).toBe(697000);
     });
 
     it('ignores paid and cancelled installments', async () => {

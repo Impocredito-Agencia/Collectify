@@ -136,7 +136,22 @@ export function calculateMoratoryCharges(
       overdueDays <= MORA_GRACE_PERIOD_DAYS
         ? 0
         : concept.calculationType === ConceptCalculationType.Percentage
-          ? ((installmentAmount * (concept.value / 100)) / 30) * overdueDays
+          ? // Bug fix, 2026-09-14 (human report, préstamo #1170) — this
+            // division chain almost never lands on a whole peso (e.g.
+            // $34,58), and every other figure in this app — what's shown,
+            // what CurrencyInput even lets a cobrador type — is whole
+            // pesos only. Left unrounded, a cuota's real totalDue carried
+            // that fraction forever: paying the exact whole-peso amount
+            // shown everywhere could never actually zero it out, leaving
+            // it Pending with a phantom balance that displayed as "$1"
+            // pendiente. Rounded here, at the source, rather than only at
+            // calculateTotalDue below, so every consumer of a single
+            // concept's own amount (the loan detail breakdown, this
+            // function's own callers in calculatePayoff.ts) sees a clean
+            // peso too, not just the aggregate total.
+            Math.round(
+              ((installmentAmount * (concept.value / 100)) / 30) * overdueDays,
+            )
           : concept.value,
     calculationType: concept.calculationType,
     value: concept.value,
@@ -147,5 +162,26 @@ export function calculateTotalDue(
   installmentAmount: number,
   interest: number,
 ): number {
-  return installmentAmount + interest;
+  // Bug fix, 2026-09-14 (human report, préstamo #1170; human decision on
+  // the exact rounding rule) — rounds the FULL amount currently owed
+  // (capital + accrued mora, before subtracting any prior payment) to the
+  // nearest $100, same convention generateSchedule.ts's cuotaFinal already
+  // uses for the installment's original scheduled amount (see that file's
+  // own comment — confirmed there via AskUserQuestion, 2026-09-04, and
+  // shared here via roundToNearestHundred). Confirmed with the human that
+  // this can round a small accrued mora (under $50) away to $0 rather than
+  // charging it — accepted as simpler than the alternative (round to the
+  // nearest peso instead, which never erases mora but leaves less "round"
+  // numbers), same tradeoff the original cuota-smoothing feature already
+  // made for a much larger amount.
+  return roundToNearestHundred(installmentAmount + interest);
+}
+
+// Shared with generateSchedule.ts's cuotaFinal smoothing — moved here
+// 2026-09-14 so both the schedule generated at loan creation and the mora
+// recalculated live on every read use the exact same rounding rule,
+// instead of two separately-maintained copies that could quietly drift
+// apart.
+export function roundToNearestHundred(value: number): number {
+  return Math.round(value / 100) * 100;
 }
