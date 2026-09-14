@@ -33,8 +33,11 @@ import { ReminderFamily } from './reminderFamily';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
 import { CloseConversationDto } from './webhook/dto/closeConversation.dto';
 import { PhoneNumberDto } from './webhook/dto/phoneNumber.dto';
+import { QueryWhatsappConversationsDto } from './webhook/dto/queryWhatsappConversations.dto';
 import { QueryWhatsappInboundMessagesDto } from './webhook/dto/queryWhatsappInboundMessages.dto';
+import { QueryWhatsappManualRepliesDto } from './webhook/dto/queryWhatsappManualReplies.dto';
 import { ReplyToInboundMessageDto } from './webhook/dto/replyToInboundMessage.dto';
+import { WhatsappConversationSummary } from './webhook/interfaces/whatsappConversationSummary.interface';
 import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
 import { WhatsappConversationTicketService } from './whatsappConversationTicket.service';
 import { WhatsappCronService } from './whatsappCron.service';
@@ -74,6 +77,28 @@ export class WhatsappController {
     return this.whatsappWebhookService.findAll(query);
   }
 
+  // Human report, 2026-09-14 (critical bug) — drives the inbox's
+  // conversation list instead of findInboundMessages above: paginated by
+  // CONVERSATION (one row per contact, aggregated server-side), not by raw
+  // message, so a chatty client can no longer crowd others out of the
+  // list. See WhatsappWebhookService.findConversations's own comment.
+  @Get('conversations')
+  @ApiOperation({
+    summary:
+      'List WhatsApp conversations, one per contact (admin or granted the messages module)',
+    description:
+      "Paginated by conversation, not by message — each item is the latest message plus a total count for that contact. search matches the matched client's first/last name. Fetch a conversation's own full history separately via GET /whatsapp/inbound-messages?clientId=/fromPhoneNumber=.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns a page of conversation summaries.',
+  })
+  findConversations(
+    @Query() query: QueryWhatsappConversationsDto,
+  ): Promise<PaginatedResult<WhatsappConversationSummary>> {
+    return this.whatsappWebhookService.findConversations(query);
+  }
+
   @Post('inbound-messages/reply')
   @ApiOperation({
     summary:
@@ -97,20 +122,23 @@ export class WhatsappController {
     return { sent };
   }
 
-  // Human report, 2026-09-19 — a flat recent window, merged client-side
-  // into each conversation by WhatsappInboundMessagesPage.tsx, same
-  // convention as findInboundMessages above.
+  // Human report, 2026-09-14 — scoped to one conversation (clientId or
+  // fromPhoneNumber) since findConversations replaced the old flat,
+  // globally-capped fetch this used to back — see getManualReplies' own
+  // comment.
   @Get('inbound-messages/manual-replies')
   @ApiOperation({
     summary:
-      "An admin's own manual replies, recent window (admin or granted the messages module)",
+      "A conversation's manual/automated replies, recent window (admin or granted the messages module)",
   })
   @ApiResponse({
     status: 200,
     description: 'Returns the most recent manual replies.',
   })
-  findManualReplies(): Promise<WhatsappManualReply[]> {
-    return this.whatsappWebhookService.getManualReplies();
+  findManualReplies(
+    @Query() query: QueryWhatsappManualRepliesDto,
+  ): Promise<WhatsappManualReply[]> {
+    return this.whatsappWebhookService.getManualReplies(query);
   }
 
   @Get('inbound-messages/conversation-state')

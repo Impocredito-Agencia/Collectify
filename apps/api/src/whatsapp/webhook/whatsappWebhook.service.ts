@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
@@ -18,11 +18,14 @@ import { WhatsappConversationTicketService } from '../whatsappConversationTicket
 import { WhatsAppService } from '../whatsapp.service';
 import { WhatsappOutboundLogService } from '../whatsappOutboundLog.service';
 
+import { QueryWhatsappConversationsDto } from './dto/queryWhatsappConversations.dto';
 import { QueryWhatsappInboundMessagesDto } from './dto/queryWhatsappInboundMessages.dto';
+import { QueryWhatsappManualRepliesDto } from './dto/queryWhatsappManualReplies.dto';
 import {
   extractInboundEvents,
   ParsedInboundEvent,
 } from './extractInboundEvents';
+import { WhatsappConversationSummary } from './interfaces/whatsappConversationSummary.interface';
 import { normalizeIncomingPhoneNumber } from './normalizeIncomingPhoneNumber';
 import { WhatsappInboundGateway } from './whatsappInbound.gateway';
 import { WhatsappMediaService } from './whatsappMedia.service';
@@ -30,6 +33,7 @@ import { WhatsappMediaService } from './whatsappMedia.service';
 const HUB_SUBSCRIBE_MODE = 'subscribe';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_CONVERSATIONS_PAGE_SIZE = 20;
 
 @Injectable()
 export class WhatsappWebhookService {
@@ -130,6 +134,12 @@ export class WhatsappWebhookService {
     const base: FindOptionsWhere<WhatsappInboundMessage> = {};
     if (query.clientId) {
       base.clientId = query.clientId;
+    } else if (query.fromPhoneNumber) {
+      // Human report, 2026-09-14 — scopes a single conversation's history
+      // for an unrecognized number, which has no clientId to filter by.
+      // Only meaningful when clientId isn't set — a real client's messages
+      // are already scoped precisely enough by clientId alone.
+      base.fromPhoneNumber = query.fromPhoneNumber;
     }
     if (query.type) {
       base.type = query.type;
@@ -161,6 +171,102 @@ export class WhatsappWebhookService {
       skip: (page - 1) * limit,
       take: limit,
     });
+
+    return {
+      items,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  // Human report, 2026-09-14 (critical bug) — the inbox used to build its
+  // conversation list by grouping findAll()'s own flat, globally-limited
+  // message fetch client-side (see groupIntoConversations's old comment on
+  // WhatsappInboundMessagesPage.tsx). That budget is shared across EVERY
+  // client's messages combined, not per conversation: one chatty client
+  // can crowd the other 99 slots out of the page entirely, hiding a
+  // conversation from the list (and from being closeable) even though its
+  // WhatsappConversationTicket still counts toward the pending badge. This
+  // aggregates one row per conversation (latest message + a total count)
+  // directly in Postgres, so pagination is over CONVERSATIONS, not raw
+  // events — a busy client is one page-item like everyone else. The
+  // conversation's own full history is fetched separately, on demand, once
+  // opened — see findAll's clientId/fromPhoneNumber filters above.
+  async findConversations(
+    query: QueryWhatsappConversationsDto,
+  ): Promise<PaginatedResult<WhatsappConversationSummary>> {
+    const page = query.page ?? DEFAULT_PAGE;
+    const limit = query.limit ?? DEFAULT_CONVERSATIONS_PAGE_SIZE;
+    const search = query.search ? `%${query.search}%` : null;
+
+    // DISTINCT ON isn't reachable through TypeORM's QueryBuilder once the
+    // result also needs re-sorting/paginating by something other than the
+    // DISTINCT ON expression itself (Postgres requires ORDER BY to lead
+    // with it) — raw SQL here, same as this project's migrations and
+    // apps/api/src/database/*.ts scripts already do for
+    // Postgres-specific queries. Parameterized ($1/$2/$3), never string-
+    // interpolated. message_count comes along for free from the same
+    // window-function pass, no second per-conversation query needed.
+    const rows: Array<{
+      id: string;
+      message_count: string;
+    }> = await this.inboundMessagesRepository.manager.query(
+      `
+      SELECT id, message_count FROM (
+        SELECT
+          m.id,
+          m.received_at,
+          COUNT(*) OVER (PARTITION BY COALESCE(m.client_id::text, m.from_phone_number)) AS message_count,
+          ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(m.client_id::text, m.from_phone_number)
+            ORDER BY m.received_at DESC
+          ) AS rn
+        FROM whatsapp_inbound_messages m
+        LEFT JOIN clients c ON c.id = m.client_id AND c.deleted_at IS NULL
+        WHERE $1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1
+      ) latest
+      WHERE rn = 1
+      ORDER BY received_at DESC
+      LIMIT $2 OFFSET $3
+      `,
+      [search, limit, (page - 1) * limit],
+    );
+
+    const [{ total: totalRaw }]: [{ total: string }] =
+      await this.inboundMessagesRepository.manager.query(
+        `
+        SELECT COUNT(DISTINCT COALESCE(m.client_id::text, m.from_phone_number)) AS total
+        FROM whatsapp_inbound_messages m
+        LEFT JOIN clients c ON c.id = m.client_id AND c.deleted_at IS NULL
+        WHERE $1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1
+        `,
+        [search],
+      );
+    const total = Number(totalRaw);
+
+    const messageCountById = new Map(
+      rows.map((row) => [row.id, Number(row.message_count)]),
+    );
+    // In() doesn't preserve input order — messages re-sorted back into the
+    // same receivedAt DESC order `rows` already came back in, so the page
+    // renders newest-conversation-first regardless of hydration order.
+    const messages = await this.inboundMessagesRepository.find({
+      where: { id: In(rows.map((row) => row.id)) },
+      relations: { client: true },
+    });
+    const messageById = new Map(
+      messages.map((message) => [message.id, message]),
+    );
+
+    const items: WhatsappConversationSummary[] = rows
+      .map((row) => messageById.get(row.id))
+      .filter((message): message is WhatsappInboundMessage => Boolean(message))
+      .map((lastMessage) => ({
+        key: lastMessage.clientId ?? lastMessage.fromPhoneNumber,
+        clientId: lastMessage.clientId,
+        fromPhoneNumber: lastMessage.fromPhoneNumber,
+        lastMessage,
+        messageCount: messageCountById.get(lastMessage.id) ?? 1,
+      }));
 
     return {
       items,
@@ -301,11 +407,28 @@ export class WhatsappWebhookService {
     return sent;
   }
 
-  // Backs the inbox's thread — a flat recent window merged client-side
-  // into each conversation, same "no per-conversation pagination yet"
-  // convention as whatsapp_self_service_replies.
-  async getManualReplies(): Promise<WhatsappManualReply[]> {
+  // Backs the inbox's thread. Human report, 2026-09-14 (critical bug) —
+  // used to be a flat recent window across EVERY conversation's replies
+  // combined, the exact same "shared global budget" bug findConversations'
+  // own comment describes for inbound messages: a busy conversation's own
+  // replies could push another conversation's replies out of the window
+  // entirely. Now scoped to one conversation (clientId, or fromPhoneNumber
+  // for an unrecognized number) — unscoped only for a caller that
+  // genuinely wants the old flat cross-conversation window (none do
+  // anymore; kept optional rather than required so this stays a additive,
+  // backward-compatible change).
+  async getManualReplies(
+    query: QueryWhatsappManualRepliesDto = {},
+  ): Promise<WhatsappManualReply[]> {
+    const where: FindOptionsWhere<WhatsappManualReply> = {};
+    if (query.clientId) {
+      where.clientId = query.clientId;
+    } else if (query.fromPhoneNumber) {
+      where.phoneNumber = normalizeIncomingPhoneNumber(query.fromPhoneNumber);
+    }
+
     return this.manualRepliesRepository.find({
+      where: Object.keys(where).length > 0 ? where : undefined,
       order: { sentAt: 'DESC' },
       take: DEFAULT_PAGE_SIZE * 10,
     });
