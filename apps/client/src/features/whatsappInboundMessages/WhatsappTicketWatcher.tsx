@@ -18,12 +18,12 @@ export function WhatsappTicketWatcher() {
 
 const FAVICON_LINK_ID = 'whatsapp-pending-ticket-favicon';
 
-// index.html sets no <link rel="icon"> at all today (the browser just
-// shows its own blank/default tab icon), so there's no existing favicon to
-// draw a badge over — this only ever INJECTS a favicon while there's
-// something pending, and removes it entirely otherwise, restoring exactly
-// today's "no custom favicon" look rather than inventing a permanent app
-// icon nobody asked for.
+// Human report, 2026-09-14 — index.html now always sets a real favicon
+// (public/favicon.svg, the same CollectifyMark used in the Sidebar/
+// LoginPage). This only ever INJECTS an override that draws a small red
+// dot ON TOP of that same mark while something's pending, and removes the
+// override otherwise — falling back to index.html's plain mark, never to
+// a blank tab icon.
 function setPendingFavicon(pending: boolean): void {
   const existing = document.getElementById(
     FAVICON_LINK_ID,
@@ -43,8 +43,11 @@ function setPendingFavicon(pending: boolean): void {
   }
 }
 
-// A plain red dot, same tone as --color-danger — matches the 🔴 marker the
-// inbox's own conversation list already uses for a pending ticket.
+// Redraws the same mark as public/favicon.svg/CollectifyMark.tsx (as
+// canvas paths, not by loading the SVG file — keeps this synchronous, no
+// image-load race) plus a small red dot badge in the corner, same tone as
+// --color-danger and the 🔴 marker the inbox's own conversation list
+// already uses for a pending ticket.
 function buildPendingFaviconDataUrl(): string {
   const canvas = document.createElement('canvas');
   canvas.width = 32;
@@ -52,21 +55,99 @@ function buildPendingFaviconDataUrl(): string {
   const context = canvas.getContext('2d');
   if (!context) return '';
 
+  context.fillStyle = '#0f1011';
   context.beginPath();
-  context.arc(16, 16, 14, 0, Math.PI * 2);
+  context.roundRect(0, 0, 32, 32, 7);
+  context.fill();
+
+  context.fillStyle = '#f7f8f8';
+  const facets: Array<{ path: [number, number][]; opacity: number }> = [
+    {
+      path: [
+        [12, 2],
+        [22, 12],
+        [12, 22],
+        [2, 12],
+      ],
+      opacity: 0.22,
+    },
+    {
+      path: [
+        [12, 2],
+        [22, 12],
+        [12, 12],
+      ],
+      opacity: 0.95,
+    },
+    {
+      path: [
+        [12, 12],
+        [22, 12],
+        [12, 22],
+      ],
+      opacity: 0.55,
+    },
+    {
+      path: [
+        [2, 12],
+        [12, 12],
+        [12, 22],
+      ],
+      opacity: 0.75,
+    },
+  ];
+  for (const facet of facets) {
+    context.globalAlpha = facet.opacity;
+    context.beginPath();
+    facet.path.forEach(([x, y], index) => {
+      // +4 — same translate(4 4) offset as favicon.svg, centering the
+      // mark's 24x24 viewBox inside this 32x32 canvas.
+      if (index === 0) context.moveTo(x + 4, y + 4);
+      else context.lineTo(x + 4, y + 4);
+    });
+    context.closePath();
+    context.fill();
+  }
+  context.globalAlpha = 1;
+
+  context.beginPath();
+  context.arc(25, 7, 6, 0, Math.PI * 2);
   context.fillStyle = '#ef4444';
   context.fill();
+
   return canvas.toDataURL('image/png');
 }
 
-// Two short sine-wave tones (a classic "ding-dong" notification shape),
-// synthesized with the Web Audio API rather than shipping an audio asset —
-// nothing to source/license/bundle. Never throws outward: browsers block
-// audio from playing until the page has had at least one real user
-// gesture in this session (an unavoidable autoplay restriction, not a bug
-// here), and older browsers may lack AudioContext entirely — either way,
-// this silently no-ops and the title/favicon alerts above still work.
+// Human report, 2026-09-14 — the synthesized "ding-dong" below (kept as
+// the fallback) didn't sound right; human wants to pick a real sound
+// file. Drop it at public/notification-sound.mp3 (any browser-playable
+// format works — .mp3/.ogg/.wav — just keep this exact filename, or
+// update NOTIFICATION_SOUND_URL below to match) and it starts playing
+// automatically, no other code changes needed. Until that file exists,
+// the browser's own 404 makes this silently fall through to the
+// synthesized tones, so today's behavior is unchanged.
+const NOTIFICATION_SOUND_URL = '/notification-sound.mp3';
+
 function playNotificationSound(): void {
+  const audio = new Audio(NOTIFICATION_SOUND_URL);
+  audio.volume = 0.5;
+  audio.play().catch(() => {
+    // Missing file (404), blocked autoplay, or an unsupported format —
+    // either way, fall back to the synthesized tones rather than staying
+    // silent.
+    playSynthesizedNotificationSound();
+  });
+}
+
+// Two short sine-wave tones (a classic "ding-dong" notification shape),
+// synthesized with the Web Audio API — the fallback for when no real
+// sound file is present yet (see playNotificationSound above). Never
+// throws outward: browsers block audio from playing until the page has
+// had at least one real user gesture in this session (an unavoidable
+// autoplay restriction, not a bug here), and older browsers may lack
+// AudioContext entirely — either way, this silently no-ops and the
+// title/favicon alerts above still work.
+function playSynthesizedNotificationSound(): void {
   try {
     const AudioContextClass =
       window.AudioContext ??

@@ -474,7 +474,18 @@ export function Sidebar() {
               }
             >
               {item.icon}
-              {item.label}
+              {/* Human report, 2026-09-14 (bug fix) — this used to be a
+                  bare text node, which as a flex item shrinks by WORD
+                  (its min-content width, not its full-line width) once the
+                  pending badge below claims space via ml-auto — that made
+                  "Mensajes entrantes" wrap onto two lines the moment a
+                  ticket went pending. min-w-0 lets this item actually
+                  shrink instead of overflowing the row, and truncate
+                  (same safety-net pattern as the user-name NavLink below)
+                  ellipsizes rather than wraps if it's ever genuinely too
+                  tight — in practice there's always room, so this just
+                  reads as "stays on one line". */}
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
               {item.to === MESSAGES_NAV_PATH && pendingTicketsCount > 0 && (
                 <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-medium text-white">
                   {pendingTicketsCount}

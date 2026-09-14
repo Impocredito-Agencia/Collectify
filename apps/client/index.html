@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Collectify</title>
+    <!-- Human report, 2026-09-14 — the browser tab showed only its own
+         generic default icon; this is the same mark as CollectifyMark.tsx
+         (Sidebar header/LoginPage), on the app's own --color-surface dark
+         tile so it reads correctly against a light OR dark browser theme.
+         WhatsappTicketWatcher.tsx overlays a small red dot on TOP of this
+         same mark (not a replacement for it) while a ticket is pending. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!-- Inter, per the Figma library (see DESIGN_TOKENS.md) — without this
          the app was silently falling back to the OS default font, which
          reads noticeably thinner/less "filled" than Inter at the light and
