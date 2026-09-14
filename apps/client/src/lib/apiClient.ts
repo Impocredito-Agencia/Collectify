@@ -56,7 +56,7 @@ export class ApiError extends Error {
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
-  params?: Record<string, string | number | boolean | undefined>;
+  params?: Record<string, string | number | boolean | string[] | undefined>;
 }
 
 // Set once by AuthProvider on mount. A plain callback (rather than importing
@@ -72,7 +72,15 @@ function buildUrl(path: string, params?: RequestOptions['params']): string {
   const url = new URL(`${API_URL}${path}`);
   if (params) {
     for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined) {
+      if (value === undefined) continue;
+      // Repeated keys (?key=a&key=b) — matches Nest/Express's default
+      // array query parsing, e.g. QueryWhatsappConversationsDto's
+      // clientIds.
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          url.searchParams.append(key, item);
+        }
+      } else {
         url.searchParams.set(key, String(value));
       }
     }
