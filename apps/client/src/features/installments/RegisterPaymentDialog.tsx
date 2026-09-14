@@ -429,11 +429,16 @@ function ConfirmRegisterPaymentDialog({
   // Math.ceil to match the exact figure this dialog's own field used to
   // pre-fill as "the amount that fully closes this cuota" — see
   // amountPaid's own comment above.
-  const remainingAfter = Math.max(
-    0,
-    Math.ceil(installment.totalDue) - amountPaid,
-  );
+  const totalDue = Math.ceil(installment.totalDue);
+  const remainingAfter = Math.max(0, totalDue - amountPaid);
   const willCloseCuota = remainingAfter === 0;
+  // Human report, 2026-09-14 — a payment exceeding what this cuota owes is
+  // no longer rejected: the backend caps this installment's own Payment at
+  // totalDue and routes the rest into the client's saldo a favor
+  // automatically (InstallmentsService.registerPayment). This is the one
+  // place that has to say so before the fact — the backend never asks for
+  // a second confirmation.
+  const excess = Math.max(0, amountPaid - totalDue);
 
   return (
     <Modal maxWidth="max-w-[420px]">
@@ -463,6 +468,14 @@ function ConfirmRegisterPaymentDialog({
         <p className="mt-2.5 text-small text-muted">
           Al confirmar, se le enviará automáticamente al cliente un mensaje de
           WhatsApp confirmando el pago.
+        </p>
+      )}
+      {excess > 0 && (
+        <p className="mt-2.5 text-small text-muted">
+          El excedente de{' '}
+          <strong className="text-white">{formatCurrency(excess)}</strong>{' '}
+          quedará como saldo a favor del cliente, disponible para aplicar a
+          cualquiera de sus cuotas.
         </p>
       )}
 
