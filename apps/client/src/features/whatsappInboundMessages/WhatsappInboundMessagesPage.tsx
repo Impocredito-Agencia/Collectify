@@ -44,6 +44,7 @@ import type { LoanSummary } from '@/features/loans/loansApi';
 import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
 import type { WhatsappConversationTicket } from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
 import type {
+  SelfServiceReplyKind,
   WhatsappInboundMessage,
   WhatsappManualReply,
 } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
@@ -264,10 +265,15 @@ type ThreadItem =
   | { direction: 'outbound'; sentAt: string; reply: WhatsappManualReply }
   | { direction: 'automated'; sentAt: string; log: MessageLog }
   // Human report, 2026-09-13 — see groupRoutineNavigation's own comment.
+  // Carries both sides of the run: the client's own taps (messages) and
+  // the bot's own routine replies to them (replies) — kept as two arrays
+  // rather than one merged/typed list so NavigationGroupBubble can still
+  // hand each to the same MessageBubble/ReplyBubble every other item uses.
   | {
       direction: 'navigation';
       sentAt: string;
       messages: WhatsappInboundMessage[];
+      replies: WhatsappManualReply[];
     };
 
 // Mirrors apps/api/src/whatsapp/selfServiceMenuPayloads.ts's
@@ -296,37 +302,83 @@ function isRoutineNavigationTap(message: WhatsappInboundMessage): boolean {
   );
 }
 
+// Human report, 2026-09-14 — mirrors apps/api's SelfServiceReplyKind:
+// every routine reply the self-service menu sends of its own accord, as
+// opposed to the three kinds that matter (a receipt request/ack, or the
+// advisor hand-off message) — those must never end up hidden inside a
+// collapsed group either.
+const ROUTINE_SELF_SERVICE_REPLY_KINDS = new Set<SelfServiceReplyKind>([
+  'main_menu',
+  'mi_cuenta_submenu',
+  'breakdown',
+  'payment_history',
+  'volver_al_menu_follow_up',
+]);
+
+function isRoutineBotReply(reply: WhatsappManualReply): boolean {
+  return (
+    reply.sentByUserId === null &&
+    reply.selfServiceReplyKind !== null &&
+    ROUTINE_SELF_SERVICE_REPLY_KINDS.has(reply.selfServiceReplyKind)
+  );
+}
+
+// Human report, 2026-09-14 (bug fix) — every routine tap is answered
+// immediately by the bot's own reply (merged into this same thread since
+// 2026-09-19's "automated messages" work), which used to unconditionally
+// break the run right after a single tap: in practice NO run ever
+// collapsed more than one message, defeating the whole point below. The
+// bot's own ROUTINE replies (main menu, submenu, breakdown, payment
+// history, the "¿algo más?" follow-up) now extend the run instead of
+// breaking it — everything else (free text, media, a signal button, the
+// admin's own reply, an automated template, or a receipt-request/-ack/
+// advisor-handoff reply) still breaks it.
+//
 // Human report, 2026-09-13 — every menu tap (even pure navigation like
 // "Mi cuenta" → "Estado de cuenta" → "Volver al menú") rendered exactly
 // like a real message the client typed and sent, which read as noise once
 // a client clicked through a few menu screens. Collapses any RUN of
-// consecutive routine-navigation taps — broken by anything else at all
-// (free text, media, a signal button, the admin's own reply, or an
-// automated template) — into one compact, expandable entry (see
-// NavigationGroupBubble). A run of exactly one tap still becomes its own
-// compact entry, for one consistent visual treatment regardless of how
-// many taps happened in a row.
+// consecutive routine-navigation taps (and the bot's own routine replies
+// to them) into one compact, expandable entry (see NavigationGroupBubble).
+// A run of exactly one tap still becomes its own compact entry, for one
+// consistent visual treatment regardless of how many taps happened in a
+// row.
 function groupRoutineNavigation(items: ThreadItem[]): ThreadItem[] {
   const result: ThreadItem[] = [];
-  let currentRun: WhatsappInboundMessage[] = [];
+  let currentTaps: WhatsappInboundMessage[] = [];
+  let currentReplies: WhatsappManualReply[] = [];
 
   const flushRun = () => {
-    if (currentRun.length === 0) return;
+    if (currentTaps.length === 0) return;
     result.push({
       direction: 'navigation',
-      sentAt: currentRun[0].receivedAt,
-      messages: currentRun,
+      sentAt: currentTaps[0].receivedAt,
+      messages: currentTaps,
+      replies: currentReplies,
     });
-    currentRun = [];
+    currentTaps = [];
+    currentReplies = [];
   };
 
   for (const item of items) {
     if (item.direction === 'inbound' && isRoutineNavigationTap(item.message)) {
-      currentRun.push(item.message);
-    } else {
-      flushRun();
-      result.push(item);
+      currentTaps.push(item.message);
+      continue;
     }
+    // Only folds into an ALREADY-open run — a routine reply with no
+    // active run (shouldn't happen in practice; the bot only ever replies
+    // to something) still renders on its own rather than starting a
+    // "group" out of nothing.
+    if (
+      item.direction === 'outbound' &&
+      isRoutineBotReply(item.reply) &&
+      currentTaps.length > 0
+    ) {
+      currentReplies.push(item.reply);
+      continue;
+    }
+    flushRun();
+    result.push(item);
   }
   flushRun();
 
@@ -733,6 +785,7 @@ function ConversationThread({
               <NavigationGroupBubble
                 key={item.messages[0].id}
                 messages={item.messages}
+                replies={item.replies}
               />
             );
           }
@@ -962,27 +1015,53 @@ function formatTimeOnly(receivedAt: string): string {
   return new Date(receivedAt).toLocaleString('es-CO', { timeStyle: 'short' });
 }
 
+type NavigationDetailItem =
+  | { kind: 'tap'; sentAt: string; message: WhatsappInboundMessage }
+  | { kind: 'reply'; sentAt: string; reply: WhatsappManualReply };
+
 // Human report, 2026-09-13 — see groupRoutineNavigation's own comment.
 // Collapsed by default as a small centered pill (distinct from both the
 // client's left-aligned bubbles and the admin's right-aligned ones — this
 // isn't a message either side "said", it's the bot's own menu handling
 // noted for the record) so a run of routine menu taps takes one compact
 // line instead of one full bubble each; expands in place to the same
-// MessageBubble treatment every other inbound message gets, for anyone
-// who actually needs to trace exactly what was tapped and when.
+// MessageBubble/ReplyBubble treatment every other item gets, for anyone
+// who actually needs to trace exactly what was tapped, and what the bot
+// answered, and when.
 function NavigationGroupBubble({
   messages,
+  replies,
 }: {
   messages: WhatsappInboundMessage[];
+  replies: WhatsappManualReply[];
 }) {
   const [expanded, setExpanded] = useState(false);
 
   if (expanded) {
+    const detailItems: NavigationDetailItem[] = [
+      ...messages.map((message) => ({
+        kind: 'tap' as const,
+        sentAt: message.receivedAt,
+        message,
+      })),
+      ...replies.map((reply) => ({
+        kind: 'reply' as const,
+        sentAt: reply.sentAt,
+        reply,
+      })),
+    ].sort(
+      (a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime(),
+    );
+
     return (
       <div className="flex flex-col gap-2">
-        {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
-        ))}
+        {detailItems.map((item) =>
+          item.kind === 'tap' ? (
+            <MessageBubble key={item.message.id} message={item.message} />
+          ) : (
+            <ReplyBubble key={item.reply.id} reply={item.reply} />
+          ),
+        )}
         <button
           type="button"
           onClick={() => setExpanded(false)}
