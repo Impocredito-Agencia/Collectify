@@ -641,16 +641,36 @@ function ConversationThread({
   );
 }
 
+// Human report, 2026-09-13 — "Avisar al cliente" defaults to checked (the
+// only behavior this button had before this piece), so closing a
+// conversation still sends the generic closing message unless someone
+// deliberately unchecks it — e.g. once a ticket's 24h session window has
+// already closed and a real send would just fail, or the client was
+// already told outside WhatsApp that this is resolved.
 function CloseConversationButton({ phoneNumber }: { phoneNumber: string }) {
   const closeConversation = useCloseConversation();
+  const [sendClosingMessage, setSendClosingMessage] = useState(true);
 
   return (
-    <RowActionButton
-      disabled={closeConversation.isPending}
-      onClick={() => closeConversation.mutate(phoneNumber)}
-    >
-      {closeConversation.isPending ? 'Cerrando…' : 'Cerrar conversación'}
-    </RowActionButton>
+    <div className="flex items-center gap-2">
+      <label className="flex items-center gap-1.5 text-meta text-muted">
+        <input
+          type="checkbox"
+          checked={sendClosingMessage}
+          onChange={(event) => setSendClosingMessage(event.target.checked)}
+          className="h-3.5 w-3.5 accent-white"
+        />
+        Avisar al cliente
+      </label>
+      <RowActionButton
+        disabled={closeConversation.isPending}
+        onClick={() =>
+          closeConversation.mutate({ phoneNumber, sendClosingMessage })
+        }
+      >
+        {closeConversation.isPending ? 'Cerrando…' : 'Cerrar conversación'}
+      </RowActionButton>
+    </div>
   );
 }
 

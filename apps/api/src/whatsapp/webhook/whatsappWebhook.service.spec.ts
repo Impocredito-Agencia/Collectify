@@ -681,5 +681,38 @@ describe('WhatsappWebhookService', () => {
 
       expect(conversationTicketService.resolve).not.toHaveBeenCalled();
     });
+
+    // Human report, 2026-09-13 — resolving a ticket doesn't require the
+    // client-facing message, e.g. once the 24h session window has already
+    // closed and a real send would just fail outright.
+    describe('sendClosingMessage: false', () => {
+      it('skips sending the closing message entirely', async () => {
+        const result = await service.closeConversation('573001234567', false);
+
+        expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+        expect(result).toBe(false);
+      });
+
+      it('still clears state and resolves the ticket', async () => {
+        clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+        await service.closeConversation('573001234567', false);
+
+        expect(conversationStateService.clear).toHaveBeenCalledWith(
+          '+573001234567',
+        );
+        expect(conversationTicketService.resolve).toHaveBeenCalledWith(
+          'client-1',
+        );
+      });
+
+      it('does not log a phantom closing-message send', async () => {
+        clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+        await service.closeConversation('573001234567', false);
+
+        expect(whatsappOutboundLogService.log).not.toHaveBeenCalled();
+      });
+    });
   });
 });

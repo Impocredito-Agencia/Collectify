@@ -164,13 +164,19 @@ export const whatsappInboundMessagesApi = {
     return data.currentMenu;
   },
 
-  // Admin-triggered: sends a generic closing message and clears the
-  // self-service-menu state, so the client's next message gets the real
-  // menu fresh instead of the bot staying silent.
-  closeConversation: async (phoneNumber: string): Promise<boolean> => {
+  // Admin-triggered: clears the self-service-menu state (and resolves the
+  // client's WhatsappConversationTicket) so the client's next message gets
+  // the real menu fresh instead of the bot staying silent. Sends the
+  // generic closing message unless sendClosingMessage is explicitly false
+  // (human report, 2026-09-13) — see CloseConversationButton's "Avisar al
+  // cliente" checkbox.
+  closeConversation: async (
+    phoneNumber: string,
+    sendClosingMessage = true,
+  ): Promise<boolean> => {
     const { data } = await apiClient.post<{ sent: boolean }>(
       '/whatsapp/inbound-messages/close-conversation',
-      { phoneNumber },
+      { phoneNumber, sendClosingMessage },
     );
     return data.sent;
   },

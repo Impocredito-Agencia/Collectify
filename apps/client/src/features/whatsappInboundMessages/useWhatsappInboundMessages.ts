@@ -55,9 +55,18 @@ export function useConversationState(phoneNumber: string) {
 export function useCloseConversation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (phoneNumber: string) =>
-      whatsappInboundMessagesApi.closeConversation(phoneNumber),
-    onSuccess: (_data, phoneNumber) => {
+    mutationFn: ({
+      phoneNumber,
+      sendClosingMessage,
+    }: {
+      phoneNumber: string;
+      sendClosingMessage?: boolean;
+    }) =>
+      whatsappInboundMessagesApi.closeConversation(
+        phoneNumber,
+        sendClosingMessage,
+      ),
+    onSuccess: (_data, { phoneNumber }) => {
       queryClient.invalidateQueries({
         queryKey: ['whatsappConversationState', phoneNumber],
       });

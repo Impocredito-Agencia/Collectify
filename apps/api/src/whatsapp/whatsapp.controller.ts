@@ -31,6 +31,7 @@ import { WhatsappManualReply } from './entities/whatsappManualReply.entity';
 import { OverdueReminderService } from './overdueReminder.service';
 import { ReminderFamily } from './reminderFamily';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
+import { CloseConversationDto } from './webhook/dto/closeConversation.dto';
 import { PhoneNumberDto } from './webhook/dto/phoneNumber.dto';
 import { QueryWhatsappInboundMessagesDto } from './webhook/dto/queryWhatsappInboundMessages.dto';
 import { ReplyToInboundMessageDto } from './webhook/dto/replyToInboundMessage.dto';
@@ -138,17 +139,19 @@ export class WhatsappController {
     summary:
       'Close a hand-off conversation (admin or granted the messages module)',
     description:
-      "Sends a generic closing message, clears the self-service-menu state, and resolves the client's pending ticket (if any) — see docs/phases/PHASE_34_INTERACTIVE_MENU.md.",
+      "Clears the self-service-menu state, so the client's next message gets the menu fresh instead of the bot staying silent — see docs/phases/PHASE_34_INTERACTIVE_MENU.md. Also resolves that client's WhatsappConversationTicket, if any. Sends the generic closing message unless sendClosingMessage is explicitly false — e.g. a conversation resolved outside WhatsApp, or one whose 24h session window already closed.",
   })
   @ApiResponse({
     status: 201,
-    description: 'Returns whether the closing message actually sent.',
+    description:
+      'Returns whether the closing message actually sent (always false when sendClosingMessage was false).',
   })
   async closeConversation(
-    @Body() dto: PhoneNumberDto,
+    @Body() dto: CloseConversationDto,
   ): Promise<{ sent: boolean }> {
     const sent = await this.whatsappWebhookService.closeConversation(
       dto.phoneNumber,
+      dto.sendClosingMessage,
     );
     return { sent };
   }

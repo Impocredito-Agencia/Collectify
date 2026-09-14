@@ -332,28 +332,43 @@ export class WhatsappWebhookService {
   // that: sends a generic closing message and clears the conversation
   // state, so the client's next message gets the self-service menu fresh,
   // same as a brand-new conversation.
-  async closeConversation(rawPhoneNumber: string): Promise<boolean> {
+  // sendClosingMessage (human report, 2026-09-13) — defaults to true, the
+  // only behavior this had before. false skips the generic closing
+  // message entirely (e.g. a conversation resolved outside WhatsApp, or
+  // one whose 24h session window has already closed) while still clearing
+  // state and resolving the ticket below.
+  async closeConversation(
+    rawPhoneNumber: string,
+    sendClosingMessage = true,
+  ): Promise<boolean> {
     const phoneNumber = normalizeIncomingPhoneNumber(rawPhoneNumber);
-    const sent = await this.whatsAppService.sendTextMessage(
-      phoneNumber,
-      CONVERSATION_CLOSED_MESSAGE,
-    );
+    const sent = sendClosingMessage
+      ? await this.whatsAppService.sendTextMessage(
+          phoneNumber,
+          CONVERSATION_CLOSED_MESSAGE,
+        )
+      : false;
     // Human report, 2026-09-19 — same "every outbound message needs a
     // record" reasoning as WhatsappOutboundLogService's own comment: this
     // closing message used to leave no trace in the conversation thread.
     // sentByUserId null since the admin only triggered it, they didn't
     // type this fixed message themselves. Matches either known number —
-    // see sendManualReply's identical comment.
+    // see sendManualReply's identical comment. Skipped entirely (not
+    // logged as a failed send) when sendClosingMessage is false — nothing
+    // was actually attempted, so there's nothing real to show in the
+    // thread.
     const client = await this.clientsRepository.findOne({
       where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
     });
-    await this.whatsappOutboundLogService.log({
-      clientId: client?.id ?? null,
-      phoneNumber,
-      messageContent: CONVERSATION_CLOSED_MESSAGE,
-      sentByUserId: null,
-      sent,
-    });
+    if (sendClosingMessage) {
+      await this.whatsappOutboundLogService.log({
+        clientId: client?.id ?? null,
+        phoneNumber,
+        messageContent: CONVERSATION_CLOSED_MESSAGE,
+        sentByUserId: null,
+        sent,
+      });
+    }
     await this.conversationStateService.clear(phoneNumber);
     // Human report, 2026-09-13 — closing IS resolving: an admin explicitly
     // closing the conversation is what clears the pending-ticket badge,
