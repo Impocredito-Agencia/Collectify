@@ -14,6 +14,7 @@ import { buildDataSourceOptions } from './database/typeOrmConfig';
 import { HealthModule } from './health/health.module';
 import { InterestConceptTypesModule } from './interestConceptTypes/interestConceptTypes.module';
 import { LoansModule } from './loans/loans.module';
+import { OverdueInstallmentsReportModule } from './overdueInstallmentsReport/overdueInstallmentsReport.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { UsersModule } from './users/users.module';
 import { UsuryRatesModule } from './usuryRates/usuryRates.module';
@@ -43,6 +44,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     UsuryRatesModule,
     WhatsappModule,
     DashboardModule,
+    OverdueInstallmentsReportModule,
     UploadsModule,
   ],
 })
