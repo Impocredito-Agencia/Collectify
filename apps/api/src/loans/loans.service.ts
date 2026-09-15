@@ -52,6 +52,10 @@ import {
   PayoffInstallmentInput,
   PayoffQuote,
 } from './payoff/calculatePayoff';
+import {
+  comparePromissoryNoteNumbers,
+  extractNumericPart,
+} from './promissoryNoteNumberSort';
 
 const DEFAULT_PAGE = 1;
 // 50, matching clients.service.ts's DEFAULT_PAGE_SIZE — see the same note
@@ -1670,36 +1674,12 @@ function toPayoffInstallmentInput(
   };
 }
 
-// Mirrors NULLIF(regexp_replace(promissory_note_number, '\D', '', 'g'),
-// '')::bigint from the previous SQL-level sort: strip everything but
-// digits, null when nothing's left. BigInt (not parseInt) to match
-// Postgres's bigint precision for unusually long numbers.
-function extractNumericPart(promissoryNoteNumber: string): bigint | null {
-  const digits = promissoryNoteNumber.replace(/\D/g, '');
-  return digits === '' ? null : BigInt(digits);
-}
-
-// NULLS LAST for the numeric part, then a plain text compare as the
-// tiebreaker — same two-level ORDER BY as the previous query builder.
+// Moved to promissoryNoteNumberSort.ts (2026-09-15) so the overdue-
+// installments Excel report can reuse the identical numeric-aware sort —
+// same two-level ORDER BY as the previous query builder, unchanged.
 function compareLoansByPromissoryNoteNumber(a: Loan, b: Loan): number {
-  const numericA = extractNumericPart(a.promissoryNoteNumber);
-  const numericB = extractNumericPart(b.promissoryNoteNumber);
-
-  if (numericA === null && numericB !== null) {
-    return 1;
-  }
-  if (numericA !== null && numericB === null) {
-    return -1;
-  }
-  if (numericA !== null && numericB !== null && numericA !== numericB) {
-    return numericA < numericB ? -1 : 1;
-  }
-
-  if (a.promissoryNoteNumber < b.promissoryNoteNumber) {
-    return -1;
-  }
-  if (a.promissoryNoteNumber > b.promissoryNoteNumber) {
-    return 1;
-  }
-  return 0;
+  return comparePromissoryNoteNumbers(
+    a.promissoryNoteNumber,
+    b.promissoryNoteNumber,
+  );
 }
