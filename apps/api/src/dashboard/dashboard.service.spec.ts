@@ -554,6 +554,47 @@ describe('DashboardService', () => {
     });
   });
 
+  describe('getOverdueInstallmentDetails', () => {
+    it('returns the full per-installment detail the report needs', async () => {
+      const client = makeClient({
+        id: 'client-1',
+        documentNumber: '9988776655',
+        phoneNumber: '+573001112233',
+      });
+      const loan = makeLoan(client, {
+        promissoryNoteNumber: '#0800',
+        alternateContactPhoneNumber: '+573009876543',
+      });
+      const installment = makeInstallment(loan, {
+        id: 'inst-1',
+        installmentNumber: 4,
+        amount: 210000,
+        dueDate: '2024-01-01',
+      });
+      installmentsRepository.find.mockResolvedValue([installment]);
+
+      const [result] = await service.getOverdueInstallmentDetails();
+
+      expect(result).toMatchObject({
+        clientId: 'client-1',
+        clientFirstName: 'Juana',
+        clientLastName: 'Pérez',
+        clientDocumentNumber: '9988776655',
+        clientPhoneNumber: '+573001112233',
+        promissoryNoteNumber: '#0800',
+        alternateContactPhoneNumber: '+573009876543',
+        installmentNumber: 4,
+        dueDate: '2024-01-01',
+        amount: 210000,
+      });
+      // No moratory concepts assigned in this fixture (default mock) —
+      // interest/totalDue reduce to plain capital, only overdueDays moves.
+      expect(result.interest).toBe(0);
+      expect(result.totalDue).toBe(210000);
+      expect(result.overdueDays).toBeGreaterThan(0);
+    });
+  });
+
   describe('getMonthlyReport', () => {
     it('scopes new loans and payments to the given month/year boundaries', async () => {
       loansRepository.count.mockResolvedValue(3);

@@ -92,6 +92,30 @@ export interface MonthlyReport {
   messagesSent: number;
 }
 
+// One row per overdue installment — the full detail getSummary/
+// getOverdueClients don't need (they only ever aggregate), but the
+// overdue-installments Excel report does (see overdueInstallmentsReport/).
+export interface OverdueInstallmentDetail {
+  clientId: string;
+  clientFirstName: string;
+  clientLastName: string;
+  clientDocumentNumber: string;
+  clientPhoneNumber: string;
+  promissoryNoteNumber: string;
+  alternateContactPhoneNumber: string | null;
+  installmentNumber: number;
+  dueDate: string;
+  // Cuota amount before mora — installment.amount, same field
+  // enrichInstallment() itself takes as its base.
+  amount: number;
+  // Accrued moratory interest — enrichInstallment()'s `interest`.
+  interest: number;
+  // amount + interest, net of any payment already made — what's actually
+  // owed today.
+  totalDue: number;
+  overdueDays: number;
+}
+
 @Injectable()
 export class DashboardService {
   constructor(
@@ -238,13 +262,7 @@ export class DashboardService {
   // day early — inconsistent with enrichInstallment's own overdueDays
   // calculation just below, which was always correctly Bogotá-aware.
   private async gatherOverdueInstallments(): Promise<
-    Array<{
-      clientId: string;
-      clientFirstName: string;
-      clientLastName: string;
-      totalDue: number;
-      overdueDays: number;
-    }>
+    OverdueInstallmentDetail[]
   > {
     const today = todayDateString();
 
@@ -285,10 +303,28 @@ export class DashboardService {
         clientId: installment.loan.clientId,
         clientFirstName: installment.loan.client.firstName,
         clientLastName: installment.loan.client.lastName,
+        clientDocumentNumber: installment.loan.client.documentNumber,
+        clientPhoneNumber: installment.loan.client.phoneNumber,
+        promissoryNoteNumber: installment.loan.promissoryNoteNumber,
+        alternateContactPhoneNumber:
+          installment.loan.alternateContactPhoneNumber,
+        installmentNumber: installment.installmentNumber,
+        dueDate: installment.dueDate,
+        amount: installment.amount,
+        interest: enriched.interest,
         totalDue: enriched.totalDue,
         overdueDays: enriched.overdueDays,
       };
     });
+  }
+
+  // Public entry point for the overdue-installments Excel report
+  // (overdueInstallmentsReport/) — same fetch as getSummary/getOverdueClients
+  // above, just exposed with the full per-installment detail those two
+  // never needed (contact info, loan/cuota identifiers), so the report can
+  // never drift from what the Dashboard itself already shows as overdue.
+  getOverdueInstallmentDetails(): Promise<OverdueInstallmentDetail[]> {
+    return this.gatherOverdueInstallments();
   }
 
   // Continuous [today, today+5] window, not the specific 5/3/1 reminder

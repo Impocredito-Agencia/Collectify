@@ -968,6 +968,20 @@ Human report, préstamo #1170: a worker registered a payment for exactly the amo
 
 **Nothing changed in `apps/client`** — `RegisterPaymentDialog.tsx`/`BulkRegisterPaymentDialog.tsx`'s own `Math.ceil(installment.totalDue)` calls were the original symptom, but `totalDue` is now always an exact multiple of $100 by construction, so `Math.ceil` on it is a no-op — no frontend change needed.
 
+## Feature, 2026-09-15 — downloadable Excel report of overdue installments
+
+Human request: the client used to build this by hand from their paper records. `GET /clients/reports/overdue-installments` (`apps/api/src/overdueInstallmentsReport/`, its own module so it can import `DashboardModule` without adding a new dependency onto it from `ClientsModule`) streams an `.xlsx` file, one row per overdue installment — never aggregated by client, unlike `GET /dashboard/overdue-clients`.
+
+**Bug fix, 2026-09-15 (human report — clicking the button crashed with `invalid input syntax for type uuid`):** first shipped as `GET /clients/overdue-installments-report`. `ClientsController` already has `GET /clients/:id`, and Nest/Express match routes in registration order, not by specificity — that one-segment literal path collided with `:id` (matched as though "id" were literally the string `"overdue-installments-report"`, crashing `ClientsService`'s UUID lookup). Nested under an extra `reports` segment instead of reordering module imports to "win" the race, which would only be one future merge away from silently breaking the same way again — two segments after `/clients/` can never match the single-segment `:id` pattern, regardless of controller registration order.
+
+No new schema: `DashboardService.getOverdueInstallmentDetails()` (a thin public wrapper around the already-private `gatherOverdueInstallments()` used by `getSummary`/`getOverdueClients`) exposes the same fetch with the additional per-installment fields (`clientDocumentNumber`, `clientPhoneNumber`, `promissoryNoteNumber`, `alternateContactPhoneNumber`, `installmentNumber`, `dueDate`, `amount`, `interest`) those two never needed — so this report can never drift from what the Dashboard itself already counts as overdue.
+
+**Sort order, confirmed with the human:** by pagaré (numeric-aware — a plain text sort would put `"#101"` before `"#2"`), then by cuota number as a tiebreaker — matching how the client tracked this manually before, not by urgency. `extractNumericPart`/`comparePromissoryNoteNumbers` were extracted from `loans.service.ts` (unchanged behavior, same bigint-based null-handling) into `apps/api/src/loans/promissoryNoteNumberSort.ts` so both the "Préstamos" list and this report share the identical comparator.
+
+**Formatting, confirmed with the human** (their own client is described as a slow learner — the sheet needed to read as plainly as possible): a plain-language summary sentence (date generated, cuota count, total overdue amount) on row 1, header frozen through row 3 so it and the summary stay visible while scrolling, currency columns as real formatted numbers (`"$"#,##0`) rather than pre-formatted text, and a cuota 30+ days overdue highlighted in red — reusing the existing "mora block" threshold (`GLOSSARY.md` → "Cupo (credit limit)") rather than an unrelated number invented just for this.
+
+Gated the same way `clientsImport`'s downloads are (`@RequireModule(AppModule.Clients)`) since the button lives on the Clientes page — not Dashboard, which has no module gate at all (see `AppModule`'s own comment on why).
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above
