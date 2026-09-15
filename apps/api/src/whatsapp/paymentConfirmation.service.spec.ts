@@ -3,14 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
-import {
-  ConceptCalculationType,
-  ConceptCategory,
-} from '../interestConceptTypes/entities/interestConceptType.entity';
+import { ClientCreditBalanceService } from '../clients/clientCreditBalance.service';
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
-import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
-import { Payment } from '../loans/entities/payment.entity';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
@@ -27,13 +22,12 @@ describe('PaymentConfirmationService', () => {
     count: jest.Mock;
   };
   let loansRepository: { findOne: jest.Mock };
-  let paymentsRepository: { find: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
-  let loanInstallmentConceptsRepository: { find: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
   let whatsAppService: { sendTemplateMessage: jest.Mock };
   let configService: { get: jest.Mock };
+  let clientCreditBalanceService: { getBalance: jest.Mock };
 
   const client = {
     id: 'client-1',
@@ -59,7 +53,6 @@ describe('PaymentConfirmationService', () => {
       count: jest.fn(),
     };
     loansRepository = { findOne: jest.fn() };
-    paymentsRepository = { find: jest.fn() };
     messageLogsRepository = {
       create: jest.fn((dto: Partial<MessageLog>) => dto),
       save: jest.fn((log: Partial<MessageLog>) =>
@@ -70,14 +63,14 @@ describe('PaymentConfirmationService', () => {
       create: jest.fn((dto: Partial<MessageLogItem>) => dto),
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
-    loanInstallmentConceptsRepository = {
-      find: jest.fn().mockResolvedValue([]),
-    };
     messageTemplatesService = { findByTypeOrThrow: jest.fn() };
     whatsAppService = { sendTemplateMessage: jest.fn() };
     configService = {
       get: jest.fn().mockReturnValue({ paymentConfirmationPaused: false }),
     };
+    // Default: no unclaimed credit — most tests don't care about saldo a
+    // favor.
+    clientCreditBalanceService = { getBalance: jest.fn().mockResolvedValue(0) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -87,7 +80,6 @@ describe('PaymentConfirmationService', () => {
           useValue: installmentsRepository,
         },
         { provide: getRepositoryToken(Loan), useValue: loansRepository },
-        { provide: getRepositoryToken(Payment), useValue: paymentsRepository },
         {
           provide: getRepositoryToken(MessageLog),
           useValue: messageLogsRepository,
@@ -96,13 +88,13 @@ describe('PaymentConfirmationService', () => {
           provide: getRepositoryToken(MessageLogItem),
           useValue: messageLogItemsRepository,
         },
-        {
-          provide: getRepositoryToken(LoanInstallmentConcept),
-          useValue: loanInstallmentConceptsRepository,
-        },
         { provide: MessageTemplatesService, useValue: messageTemplatesService },
         { provide: WhatsAppService, useValue: whatsAppService },
         { provide: ConfigService, useValue: configService },
+        {
+          provide: ClientCreditBalanceService,
+          useValue: clientCreditBalanceService,
+        },
       ],
     }).compile();
 
@@ -132,9 +124,6 @@ describe('PaymentConfirmationService', () => {
         dueDate: notYetDueDate,
       });
       installmentsRepository.count.mockResolvedValue(4);
-      paymentsRepository.find.mockResolvedValue([
-        { installmentId: 'inst-1', amountPaid: 300000 },
-      ]);
 
       await service.sendPaymentConfirmation('inst-1');
 
@@ -162,9 +151,6 @@ describe('PaymentConfirmationService', () => {
         dueDate: notYetDueDate,
       });
       installmentsRepository.count.mockResolvedValue(4);
-      paymentsRepository.find.mockResolvedValue([
-        { installmentId: 'inst-1', amountPaid: 300000 },
-      ]);
 
       const [result] = await service.sendPaymentConfirmation('inst-1');
 
@@ -174,7 +160,13 @@ describe('PaymentConfirmationService', () => {
       expect(result?.status).toBe(MessageLogStatus.Sent);
     });
 
-    it('reports an overpayment as saldo a favor', async () => {
+    // Human report, 2026-09-14 — this used to be derived narrowly from
+    // this one installment's totalPaid vs totalOwed (see git history for
+    // that calculation and its own "does not report accrued mora paid off
+    // as saldo a favor" regression test, now covered instead by
+    // ClientCreditBalanceService/InstallmentsService's own tests, which own
+    // that math). It now just reads the real ledger balance.
+    it("reports the client's saldo a favor from the credit ledger", async () => {
       installmentsRepository.findOne.mockResolvedValue({
         id: 'inst-1',
         loanId: 'loan-1',
@@ -184,49 +176,37 @@ describe('PaymentConfirmationService', () => {
         dueDate: notYetDueDate,
       });
       installmentsRepository.count.mockResolvedValue(0);
-      paymentsRepository.find.mockResolvedValue([
-        { installmentId: 'inst-1', amountPaid: 320000 },
-      ]);
+      clientCreditBalanceService.getBalance.mockResolvedValue(20000);
 
       await service.sendPaymentConfirmation('inst-1');
 
+      expect(clientCreditBalanceService.getBalance).toHaveBeenCalledWith(
+        loan.clientId,
+      );
       const [, , , params] = whatsAppService.sendTemplateMessage.mock
         .calls[0] as [string, string, string, string[]];
       expect(params.at(-1)).toContain('saldo a favor de $20.000');
     });
 
-    // Bug fix, 2026-09-08 (human report) — a cuota that was overdue and
-    // required paying capital + accrued mora to close (per the same-day
-    // closing-rule fix) had that mora misreported as "saldo a favor" once
-    // the payment cleared, since overpayment used to be derived from
-    // `amountPaid - installment.amount` alone. Real numbers from the report:
-    // a $205.000 cuota with $119.584 of accrued mora, paid in full for
-    // $324.584 — must NOT be reported as an overpayment.
-    it('does not report accrued mora paid off as saldo a favor', async () => {
+    // Confirmed with the human, 2026-09-14 — the ledger balance is
+    // client-wide, but a loan's alternate contact is scoped to just that
+    // one loan, so it must never learn about credit the client may have
+    // earned on a different loan of theirs.
+    it('never reports saldo a favor to a loan alternate contact', async () => {
       installmentsRepository.findOne.mockResolvedValue({
         id: 'inst-1',
         loanId: 'loan-1',
-        loan,
-        installmentNumber: 1,
-        amount: 205000,
-        dueDate: '2020-01-01',
+        loan: { ...loan, alternateContactPhoneNumber: '+573009876543' },
+        installmentNumber: 14,
+        amount: 300000,
+        dueDate: notYetDueDate,
       });
-      installmentsRepository.count.mockResolvedValue(11);
-      paymentsRepository.find.mockResolvedValue([
-        { installmentId: 'inst-1', amountPaid: 324584 },
-      ]);
-      loanInstallmentConceptsRepository.find.mockResolvedValue([
-        {
-          installmentId: 'inst-1',
-          nameSnapshot: 'Intereses moratorios',
-          category: ConceptCategory.Moratorio,
-          calculationType: ConceptCalculationType.FixedAmount,
-          value: 119584,
-        },
-      ]);
+      installmentsRepository.count.mockResolvedValue(0);
+      clientCreditBalanceService.getBalance.mockResolvedValue(20000);
 
       await service.sendPaymentConfirmation('inst-1');
 
+      expect(clientCreditBalanceService.getBalance).not.toHaveBeenCalled();
       const [, , , params] = whatsAppService.sendTemplateMessage.mock
         .calls[0] as [string, string, string, string[]];
       expect(params.at(-1)).not.toContain('saldo a favor');
@@ -265,9 +245,6 @@ describe('PaymentConfirmationService', () => {
         dueDate: notYetDueDate,
       });
       installmentsRepository.count.mockResolvedValue(4);
-      paymentsRepository.find.mockResolvedValue([
-        { installmentId: 'inst-1', amountPaid: 300000 },
-      ]);
 
       const [result] = await service.sendPaymentConfirmation('inst-1', {
         bypassPause: true,
@@ -285,10 +262,6 @@ describe('PaymentConfirmationService', () => {
         { id: 'inst-1', amount: 300000, dueDate: notYetDueDate },
         { id: 'inst-2', amount: 300000, dueDate: notYetDueDate },
       ]);
-      paymentsRepository.find.mockResolvedValue([
-        { installmentId: 'inst-1', amountPaid: 300000 },
-        { installmentId: 'inst-2', amountPaid: 300000 },
-      ]);
 
       const [result] = await service.sendPaidInFull('loan-1');
 
@@ -296,6 +269,42 @@ describe('PaymentConfirmationService', () => {
         MessageType.PaidInFull,
       );
       expect(result?.status).toBe(MessageLogStatus.Sent);
+    });
+
+    it("reports the client's saldo a favor from the credit ledger", async () => {
+      loansRepository.findOne.mockResolvedValue(loan);
+      installmentsRepository.find.mockResolvedValue([
+        { id: 'inst-1', amount: 300000, dueDate: notYetDueDate },
+      ]);
+      clientCreditBalanceService.getBalance.mockResolvedValue(15000);
+
+      await service.sendPaidInFull('loan-1');
+
+      expect(clientCreditBalanceService.getBalance).toHaveBeenCalledWith(
+        loan.clientId,
+      );
+      const [, , , params] = whatsAppService.sendTemplateMessage.mock
+        .calls[0] as [string, string, string, string[]];
+      expect(params.at(-1)).toContain('saldo a favor de $15.000');
+    });
+
+    // See sendPaymentConfirmation's identical test/comment.
+    it('never reports saldo a favor to a loan alternate contact', async () => {
+      loansRepository.findOne.mockResolvedValue({
+        ...loan,
+        alternateContactPhoneNumber: '+573009876543',
+      });
+      installmentsRepository.find.mockResolvedValue([
+        { id: 'inst-1', amount: 300000, dueDate: notYetDueDate },
+      ]);
+      clientCreditBalanceService.getBalance.mockResolvedValue(15000);
+
+      await service.sendPaidInFull('loan-1');
+
+      expect(clientCreditBalanceService.getBalance).not.toHaveBeenCalled();
+      const [, , , params] = whatsAppService.sendTemplateMessage.mock
+        .calls[0] as [string, string, string, string[]];
+      expect(params.at(-1)).not.toContain('saldo a favor');
     });
 
     it('throws NotFoundException when the loan does not exist', async () => {
@@ -322,9 +331,6 @@ describe('PaymentConfirmationService', () => {
       loansRepository.findOne.mockResolvedValue(loan);
       installmentsRepository.find.mockResolvedValue([
         { id: 'inst-1', amount: 300000, dueDate: notYetDueDate },
-      ]);
-      paymentsRepository.find.mockResolvedValue([
-        { installmentId: 'inst-1', amountPaid: 300000 },
       ]);
 
       const [result] = await service.sendPaidInFull('loan-1', {

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { ClientCreditBalanceService } from '../clients/clientCreditBalance.service';
 import { Client } from '../clients/entities/client.entity';
 import {
   Installment,
@@ -19,6 +20,7 @@ import { Payment } from '../loans/entities/payment.entity';
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
+import { formatCurrency } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { UPCOMING_FAMILY_TYPES } from './reminderFamily';
@@ -36,6 +38,7 @@ describe('UpcomingDueReminderService', () => {
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
   let messageFrequencyThrottleService: { filterOutThrottledClients: jest.Mock };
   let whatsAppService: { sendTemplateMessage: jest.Mock };
+  let clientCreditBalanceService: { getBalance: jest.Mock };
 
   const mockClient: Client = {
     id: 'client-1',
@@ -158,6 +161,11 @@ describe('UpcomingDueReminderService', () => {
         .fn()
         .mockResolvedValue({ sent: true, whatsappMessageId: 'wamid.TEST' }),
     };
+    // Default: no unclaimed credit — see OverdueReminderService's identical
+    // mock and its own comment.
+    clientCreditBalanceService = {
+      getBalance: jest.fn().mockResolvedValue(0),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -191,6 +199,10 @@ describe('UpcomingDueReminderService', () => {
           useValue: {
             get: jest.fn().mockReturnValue({ upcomingDueReminderDays: 5 }),
           },
+        },
+        {
+          provide: ClientCreditBalanceService,
+          useValue: clientCreditBalanceService,
         },
       ],
     }).compile();
@@ -249,6 +261,58 @@ describe('UpcomingDueReminderService', () => {
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.UpcomingAndOverdueMixed,
       );
+    });
+
+    // Human report, 2026-09-14 — see OverdueReminderService's identical
+    // saldo a favor / priority-order / contact-group tests.
+    it('includes the saldo a favor note when the client has an unclaimed credit and no saldo pendiente', async () => {
+      mockGathered([upcomingInstallment()]);
+      clientCreditBalanceService.getBalance.mockResolvedValue(45000);
+
+      await service.sendReminderForClient(mockClient.id);
+
+      expect(clientCreditBalanceService.getBalance).toHaveBeenCalledWith(
+        mockClient.id,
+      );
+      const [, , , params] = whatsAppService.sendTemplateMessage.mock
+        .calls[0] as [string, string, string, string[]];
+      expect(params.at(-1)).toContain(
+        `saldo a favor de $${formatCurrency(45000)}`,
+      );
+    });
+
+    it('reports saldo pendiente instead of saldo a favor when both apply', async () => {
+      mockGathered(
+        [upcomingInstallment()],
+        [upcomingInstallment({ id: 'inst-2', dueDate: daysAgoDateString(3) })],
+      );
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-2', amountPaid: 50000 },
+      ]);
+      clientCreditBalanceService.getBalance.mockResolvedValue(45000);
+
+      await service.sendReminderForClient(mockClient.id);
+
+      const [, , , params] = whatsAppService.sendTemplateMessage.mock
+        .calls[0] as [string, string, string, string[]];
+      expect(params.at(-1)).toContain('saldo pendiente');
+      expect(params.at(-1)).not.toContain('saldo a favor');
+    });
+
+    it('never reports saldo a favor to a loan alternate contact', async () => {
+      mockGathered([
+        upcomingInstallment({
+          loan: { ...mockLoan, alternateContactPhoneNumber: '+573009876543' },
+        }),
+      ]);
+      clientCreditBalanceService.getBalance.mockResolvedValue(45000);
+
+      await service.sendReminderForClient(mockClient.id);
+
+      expect(clientCreditBalanceService.getBalance).not.toHaveBeenCalled();
+      const [, , , params] = whatsAppService.sendTemplateMessage.mock
+        .calls[0] as [string, string, string, string[]];
+      expect(params.at(-1)).not.toContain('saldo a favor');
     });
 
     it('logs the message as failed when WhatsAppService could not send it', async () => {

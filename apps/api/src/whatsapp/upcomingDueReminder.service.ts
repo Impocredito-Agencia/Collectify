@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
+import { ClientCreditBalanceService } from '../clients/clientCreditBalance.service';
 import { Client } from '../clients/entities/client.entity';
 import { Configuration } from '../config/configuration';
 import { Installment } from '../loans/entities/installment.entity';
@@ -70,6 +71,7 @@ export class UpcomingDueReminderService {
     private readonly messageFrequencyThrottleService: MessageFrequencyThrottleService,
     private readonly whatsAppService: WhatsAppService,
     private readonly configService: ConfigService<Configuration, true>,
+    private readonly clientCreditBalanceService: ClientCreditBalanceService,
   ) {}
 
   async runDailyReminder(): Promise<void> {
@@ -154,6 +156,7 @@ export class UpcomingDueReminderService {
     const savedLogs: MessageLog[] = [];
     for (const group of groups) {
       const notaAdicional = await this.resolveNotaAdicional(
+        clientId,
         group.overdue,
         group.upcoming,
       );
@@ -222,23 +225,50 @@ export class UpcomingDueReminderService {
   // when present instead of re-deriving `amount - paid`, which silently
   // ignored accrued mora — see saldoPendiente.ts's own doc comment on this
   // date.
+  //
+  // Human report, 2026-09-14 — see OverdueReminderService's identical
+  // saldo a favor / priority-order / contact-group comment.
   private async resolveNotaAdicional(
-    overdue: { id: string; amount: number; totalDue?: number }[],
-    upcoming: { id: string; amount: number }[],
+    clientId: string,
+    overdue: {
+      id: string;
+      amount: number;
+      totalDue?: number;
+      alternateContactPhoneNumber?: string | null;
+    }[],
+    upcoming: {
+      id: string;
+      amount: number;
+      alternateContactPhoneNumber?: string | null;
+    }[],
   ): Promise<NotaAdicionalInput> {
-    const installmentIds = [...overdue, ...upcoming].map((i) => i.id);
+    const combined = [...overdue, ...upcoming];
+    const installmentIds = combined.map((i) => i.id);
     if (installmentIds.length === 0) {
       return { state: NotaAdicionalState.Normal };
     }
     const payments = await this.paymentsRepository.find({
       where: { installmentId: In(installmentIds) },
     });
-    const saldoPendiente = computeSaldoPendiente(
-      [...overdue, ...upcoming],
-      payments,
+    const saldoPendiente = computeSaldoPendiente(combined, payments);
+    if (saldoPendiente > 0) {
+      return {
+        state: NotaAdicionalState.SaldoPendiente,
+        amount: saldoPendiente,
+      };
+    }
+
+    const isContactGroup = combined.some(
+      (installment) => installment.alternateContactPhoneNumber,
     );
-    return saldoPendiente > 0
-      ? { state: NotaAdicionalState.SaldoPendiente, amount: saldoPendiente }
+    if (isContactGroup) {
+      return { state: NotaAdicionalState.Normal };
+    }
+
+    const saldoAFavor =
+      await this.clientCreditBalanceService.getBalance(clientId);
+    return saldoAFavor > 0
+      ? { state: NotaAdicionalState.SaldoAFavor, amount: saldoAFavor }
       : { state: NotaAdicionalState.Normal };
   }
 

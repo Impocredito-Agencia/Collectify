@@ -6,9 +6,10 @@
 // mechanism). Derived directly from existing Payment rows — nothing new is
 // stored. "Saldo a favor" is NOT computed here — an overpayment marks its
 // installment Paid immediately (installments.service.ts), so it never
-// shows up among the Pending installments a reminder is about; detecting a
-// lingering unclaimed credit would need its own design and is left as
-// Normal for now, see the phase doc.
+// shows up among the Pending installments a reminder is about; that case
+// is detected separately, by OverdueReminderService/UpcomingDueReminderService
+// reading ClientCreditBalanceService's ledger once this comes back empty
+// (human report, 2026-09-14) — see those services' resolveNotaAdicional.
 export interface InstallmentForSaldoPendiente {
   id: string;
   amount: number;

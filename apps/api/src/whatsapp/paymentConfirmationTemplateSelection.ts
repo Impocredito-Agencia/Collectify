@@ -12,11 +12,10 @@ export interface SelectPaymentConfirmationInput {
   // Pending installments still left on this loan AFTER this one — not
   // counting this one, which just became Paid.
   remainingInstallments: number;
-  // Overpayment excess on the payment that just completed this
-  // installment (totalPaid - installment.amount, floored at 0 by the
-  // caller) — see saldoPendiente.ts's doc comment on why this is the
-  // deliberately narrow, directly-derivable definition used here, not a
-  // running client-level credit balance.
+  // The client's current saldo a favor (ClientCreditBalanceService's
+  // ledger balance), 0 when the message is routed to a loan's alternate
+  // contact instead of the client — see PaymentConfirmationService's own
+  // comment on both points.
   overpaymentAmount: number;
 }
 

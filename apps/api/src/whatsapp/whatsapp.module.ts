@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuthModule } from '../auth/auth.module';
+import { ClientsModule } from '../clients/clients.module';
 import { Client } from '../clients/entities/client.entity';
 import { ClientMessageFrequency } from '../clients/entities/clientMessageFrequency.entity';
 import { Installment } from '../loans/entities/installment.entity';
@@ -80,6 +81,11 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     // UploadsService rather than duplicating that algorithm — see
     // UploadsModule's own comment on why it's exported.
     UploadsModule,
+    // Human report, 2026-09-14 — PaymentConfirmationService,
+    // OverdueReminderService and UpcomingDueReminderService read a
+    // client's saldo a favor via ClientCreditBalanceService, which this
+    // exports. One-directional: ClientsModule doesn't import WhatsappModule.
+    ClientsModule,
   ],
   controllers: [
     WhatsappController,

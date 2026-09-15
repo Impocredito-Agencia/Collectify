@@ -1,25 +1,17 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 
+import { ClientCreditBalanceService } from '../clients/clientCreditBalance.service';
 import { Configuration } from '../config/configuration';
-import { ConceptCategory } from '../interestConceptTypes/entities/interestConceptType.entity';
 import {
   Installment,
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
-import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
-import { Payment } from '../loans/entities/payment.entity';
-import { findConceptsByInstallmentId } from '../loans/installments/conceptsByInstallmentId';
 
 import { getRecipientPhoneNumbers } from './clientRecipientPhoneNumbers';
-import {
-  calculateMoratoryCharges,
-  calculateOverdueDays,
-  calculateTotalDue,
-} from '../loans/installments/installmentCalculations';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
@@ -52,17 +44,14 @@ export class PaymentConfirmationService {
     private readonly installmentsRepository: Repository<Installment>,
     @InjectRepository(Loan)
     private readonly loansRepository: Repository<Loan>,
-    @InjectRepository(Payment)
-    private readonly paymentsRepository: Repository<Payment>,
     @InjectRepository(MessageLog)
     private readonly messageLogsRepository: Repository<MessageLog>,
     @InjectRepository(MessageLogItem)
     private readonly messageLogItemsRepository: Repository<MessageLogItem>,
-    @InjectRepository(LoanInstallmentConcept)
-    private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     private readonly messageTemplatesService: MessageTemplatesService,
     private readonly whatsAppService: WhatsAppService,
     private readonly configService: ConfigService<Configuration, true>,
+    private readonly clientCreditBalanceService: ClientCreditBalanceService,
   ) {}
 
   // Human report, 2026-09-11 — see WhatsappConfig.paymentConfirmationPaused's
@@ -119,7 +108,27 @@ export class PaymentConfirmationService {
     const remainingInstallments = await this.installmentsRepository.count({
       where: { loanId: installment.loanId, status: InstallmentStatus.Pending },
     });
-    const overpaymentAmount = await this.overpaymentFor(installment);
+    // Human report, 2026-09-14 — this used to be derived narrowly from
+    // this one installment's own totalPaid vs totalOwed (see git history),
+    // which by design almost never fires anymore: registerPayment now caps
+    // a payment at maxPayable and shunts any excess straight into
+    // ClientCreditBalanceService's ledger (installments.service.ts) instead
+    // of letting it inflate this installment's totalPaid. Reading the real
+    // ledger balance here reports what the client can actually go apply —
+    // including credit left over from a DIFFERENT loan of theirs — instead
+    // of a number that's now structurally close to always 0.
+    //
+    // alternateContactPhoneNumber carve-out (confirmed with the human,
+    // 2026-09-14): the ledger balance is client-wide, but a loan's
+    // alternate contact is scoped to just that one loan — showing them the
+    // client's aggregate credit (possibly earned on a loan that isn't
+    // theirs to know about) would leak more than this message should. So a
+    // routed-to-contact confirmation never reports a saldo a favor.
+    const overpaymentAmount = installment.loan.alternateContactPhoneNumber
+      ? 0
+      : await this.clientCreditBalanceService.getBalance(
+          installment.loan.clientId,
+        );
 
     const selection = selectPaymentConfirmationTemplate({
       clientFullName: `${installment.loan.client.firstName} ${installment.loan.client.lastName}`,
@@ -168,8 +177,12 @@ export class PaymentConfirmationService {
     const installments = await this.installmentsRepository.find({
       where: { loanId },
     });
-    const overpaymentAmount =
-      await this.overpaymentAcrossInstallments(installments);
+
+    // Human report, 2026-09-14 — see sendPaymentConfirmation's identical
+    // alternateContactPhoneNumber carve-out.
+    const overpaymentAmount = loan.alternateContactPhoneNumber
+      ? 0
+      : await this.clientCreditBalanceService.getBalance(loan.clientId);
 
     const selection = selectPaidInFullTemplate({
       clientFullName: `${loan.client.firstName} ${loan.client.lastName}`,
@@ -235,92 +248,5 @@ export class PaymentConfirmationService {
     }
 
     return savedLogs;
-  }
-
-  // Bug fix, 2026-09-08 (human report — a fully-mora'd cuota's payment
-  // confirmation reported the accrued mora as "saldo a favor"): this used to
-  // compare totalPaid against the installment's bare `amount` (capital
-  // only), so once the same-day closing-rule fix (see docs/DATABASE.md)
-  // started requiring a payment to cover capital AND accrued mora before an
-  // installment can close, paying exactly that full balance got
-  // misreported as an in-favor credit equal to whatever mora had accrued —
-  // money that was correctly owed and collected, not an overpayment.
-  //
-  // Now compares against the installment's real total owed (capital +
-  // accrued mora), computed with the exact same formulas
-  // installments.service.ts's resolveRemainingBalance/registerPayment
-  // ceiling use. Deliberately doesn't call enrichInstallment() directly:
-  // by the time this runs, the installment has already been flipped to
-  // Paid (installments.service.ts), and enrichInstallment() short-circuits
-  // a non-Pending installment's interest/totalDue to 0 — so the raw
-  // calculation functions are used instead, which only need `dueDate` and
-  // don't care about the installment's current status.
-  private computeTotalOwed(
-    installment: Installment,
-    moratoryConcepts: LoanInstallmentConcept[],
-  ): number {
-    const overdueDays = calculateOverdueDays(new Date(installment.dueDate));
-    const interest = calculateMoratoryCharges(
-      installment.amount,
-      overdueDays,
-      moratoryConcepts.map((concept) => ({
-        name: concept.nameSnapshot,
-        calculationType: concept.calculationType,
-        value: concept.value,
-      })),
-    ).reduce((sum, item) => sum + item.amount, 0);
-    return calculateTotalDue(installment.amount, interest);
-  }
-
-  // The excess of what was actually paid on this installment over its real
-  // total owed — see paymentConfirmationTemplateSelection.ts's doc comment
-  // on why this is the narrow, directly-derivable definition used, not a
-  // persisted running credit balance.
-  private async overpaymentFor(installment: Installment): Promise<number> {
-    const payments = await this.paymentsRepository.find({
-      where: { installmentId: installment.id },
-      select: { amountPaid: true },
-    });
-    const totalPaid = payments.reduce((sum, p) => sum + p.amountPaid, 0);
-    const concepts = await this.loanInstallmentConceptsRepository.find({
-      where: { installmentId: installment.id },
-    });
-    const moratoryConcepts = concepts.filter(
-      (concept) => concept.category === ConceptCategory.Moratorio,
-    );
-    const totalOwed = this.computeTotalOwed(installment, moratoryConcepts);
-    return Math.max(0, totalPaid - totalOwed);
-  }
-
-  private async overpaymentAcrossInstallments(
-    installments: Installment[],
-  ): Promise<number> {
-    if (installments.length === 0) {
-      return 0;
-    }
-    const installmentIds = installments.map((installment) => installment.id);
-    const payments = await this.paymentsRepository.find({
-      where: { installmentId: In(installmentIds) },
-    });
-    const paidByInstallmentId = new Map<string, number>();
-    for (const payment of payments) {
-      paidByInstallmentId.set(
-        payment.installmentId,
-        (paidByInstallmentId.get(payment.installmentId) ?? 0) +
-          payment.amountPaid,
-      );
-    }
-    const conceptsByInstallmentId = await findConceptsByInstallmentId(
-      this.loanInstallmentConceptsRepository,
-      installmentIds,
-    );
-    return installments.reduce((sum, installment) => {
-      const paid = paidByInstallmentId.get(installment.id) ?? 0;
-      const moratoryConcepts = (
-        conceptsByInstallmentId.get(installment.id) ?? []
-      ).filter((concept) => concept.category === ConceptCategory.Moratorio);
-      const totalOwed = this.computeTotalOwed(installment, moratoryConcepts);
-      return sum + Math.max(0, paid - totalOwed);
-    }, 0);
   }
 }
