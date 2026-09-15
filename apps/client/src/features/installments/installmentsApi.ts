@@ -134,6 +134,10 @@ export interface Payment {
   // as anulado instead of it silently vanishing.
   deletedAt: string | null;
   voidReason: string | null;
+  // Human report, 2026-09-14 — true only for a payment created by applying
+  // a client's saldo a favor (see ClientCreditBanner.tsx), not an ordinary
+  // cash/transfer payment.
+  fundedByCredit: boolean;
 }
 
 export const installmentsApi = {
@@ -181,6 +185,21 @@ export const installmentsApi = {
     const { data } = await apiClient.patch<Payment>(
       `/installments/payments/${paymentId}/void`,
       { reason },
+    );
+    return data;
+  },
+
+  // Human report, 2026-09-14 — the explicit, operator-initiated half of
+  // saldo a favor. See ClientCreditBanner.tsx and
+  // InstallmentsService.applyCreditToInstallment.
+  applyCredit: async (
+    installmentId: string,
+    clientId: string,
+    amount: number,
+  ): Promise<Payment> => {
+    const { data } = await apiClient.post<Payment>(
+      `/installments/${installmentId}/apply-credit`,
+      { clientId, amount },
     );
     return data;
   },

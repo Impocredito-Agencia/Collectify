@@ -6,9 +6,11 @@ import { Loan } from '../loans/entities/loan.entity';
 import { LoanInstallmentConcept } from '../loans/entities/loanInstallmentConcept.entity';
 import { Payment } from '../loans/entities/payment.entity';
 
+import { ClientCreditBalanceService } from './clientCreditBalance.service';
 import { ClientsController } from './clients.controller';
 import { ClientsService } from './clients.service';
 import { Client } from './entities/client.entity';
+import { ClientCreditLedgerEntry } from './entities/clientCreditLedgerEntry.entity';
 import { ClientMessageFrequency } from './entities/clientMessageFrequency.entity';
 import { ClientReference } from './entities/clientReference.entity';
 
@@ -31,10 +33,15 @@ import { ClientReference } from './entities/clientReference.entity';
       LoanInstallmentConcept,
       ClientReference,
       ClientMessageFrequency,
+      // Human report, 2026-09-14 — ClientCreditBalanceService's own ledger.
+      ClientCreditLedgerEntry,
     ]),
   ],
   controllers: [ClientsController],
-  providers: [ClientsService],
-  exports: [ClientsService],
+  providers: [ClientsService, ClientCreditBalanceService],
+  // ClientCreditBalanceService exported so InstallmentsService (LoansModule,
+  // which already imports ClientsModule) can inject it directly — see that
+  // service's own comment on why this stays one-directional.
+  exports: [ClientsService, ClientCreditBalanceService],
 })
 export class ClientsModule {}

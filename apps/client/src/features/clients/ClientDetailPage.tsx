@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Td, Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
+import { ClientCreditBanner } from '@/features/clients/ClientCreditBanner';
 import { ClientForm } from '@/features/clients/ClientForm';
 import {
   CLIENT_REFERENCE_TYPE_LABELS,
@@ -214,6 +215,8 @@ export function ClientDetailPage() {
           </div>
         )}
       </div>
+
+      <ClientCreditBanner clientId={client.id} />
 
       <div className="grid grid-cols-5 gap-4">
         <StatCard label="Préstamos totales" value={String(totalLoans)} />

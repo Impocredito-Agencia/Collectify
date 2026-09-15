@@ -81,3 +81,36 @@ export function useVoidPayment(loanId: string) {
     },
   });
 }
+
+// Human report, 2026-09-14 — the explicit, operator-initiated half of
+// saldo a favor (ClientCreditBanner.tsx). The destination installment can
+// belong to ANY of the client's loans (confirmed with the human), so
+// loanId is passed in at call time (from whichever cuota was picked)
+// rather than curried like the hooks above — this invalidates that
+// specific loan plus the credit balance itself, which is what drives the
+// banner disappearing once it hits $0.
+export function useApplyClientCredit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      installmentId,
+      clientId,
+      amount,
+    }: {
+      installmentId: string;
+      clientId: string;
+      amount: number;
+      loanId: string;
+    }) => installmentsApi.applyCredit(installmentId, clientId, amount),
+    onSuccess: (_data, { clientId, loanId }) => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['loans', loanId] });
+      queryClient.invalidateQueries({
+        queryKey: ['loans', loanId, 'payments'],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['clients', clientId, 'credit-balance'],
+      });
+    },
+  });
+}

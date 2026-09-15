@@ -21,6 +21,7 @@ import { PaginatedResult } from '../../common/interfaces/paginatedResult.interfa
 import { UserRole } from '../../users/entities/user.entity';
 import { Payment } from '../entities/payment.entity';
 
+import { ApplyClientCreditDto } from './dto/applyClientCredit.dto';
 import { CreatePaymentDto } from './dto/createPayment.dto';
 import { QueryInstallmentsDto } from './dto/queryInstallments.dto';
 import { RegisterBulkPaymentsDto } from './dto/registerBulkPayments.dto';
@@ -111,6 +112,39 @@ export class InstallmentsController {
     @Body() dto: CreatePaymentDto,
   ): Promise<Payment> {
     return this.installmentsService.registerPayment(id, dto);
+  }
+
+  // Human report, 2026-09-14 — the explicit, operator-initiated half of
+  // saldo a favor: applying an already-generated client credit to a
+  // pending installment. Never automatic — see
+  // InstallmentsService.applyCreditToInstallment's own comment.
+  @Post(':id/apply-credit')
+  @Audit('payment.applyCredit', 'payment')
+  @ApiOperation({
+    summary: "Apply part of a client's saldo a favor to a pending installment",
+    description:
+      'Creates a real Payment against the installment (fundedByCredit: true) for the ' +
+      "given amount, deducted from the client's credit balance. Rejected if the " +
+      "amount exceeds the client's available credit, or the installment doesn't " +
+      'belong to that client.',
+  })
+  @ApiResponse({ status: 201, description: 'The credit was applied.' })
+  @ApiResponse({
+    status: 400,
+    description:
+      "The amount exceeds the client's available credit, or the installment doesn't belong to this client.",
+  })
+  @ApiResponse({ status: 404, description: 'Installment not found.' })
+  applyCredit(
+    @Param('id') id: string,
+    @CurrentUser() _currentUser: AuthenticatedUser,
+    @Body() dto: ApplyClientCreditDto,
+  ): Promise<Payment> {
+    return this.installmentsService.applyCreditToInstallment(
+      dto.clientId,
+      id,
+      dto.amount,
+    );
   }
 
   // Human report, 2026-09-09 — admin-only correction for a payment

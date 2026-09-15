@@ -8,11 +8,15 @@ import { formatCurrency } from './messageRenderer';
 //
 // This module only composes the STRING once the caller already knows which
 // of the three cases applies and, if relevant, the dollar amount — it does
-// NOT decide which case applies. Whether a given client currently has a
-// saldo pendiente (incomplete/partial payment) or a saldo a favor
-// (overpayment) is a separate piece of domain logic this phase hasn't
-// built yet — see the phase doc's Open questions. Callers that don't have
-// that detection wired up yet should pass NotaAdicionalState.Normal.
+// NOT decide which case applies. Deciding whether a given client currently
+// has a saldo pendiente (incomplete/partial payment) or a saldo a favor
+// (unclaimed credit, per ClientCreditBalanceService) is separate domain
+// logic — see saldoPendiente.ts and OverdueReminderService/
+// UpcomingDueReminderService's resolveNotaAdicional for the reminder
+// family, and PaymentConfirmationService for the confirmation family.
+// Callers that don't have that detection wired up (or that deliberately
+// suppress it, e.g. a loan's alternate contact) should pass
+// NotaAdicionalState.Normal.
 export enum NotaAdicionalState {
   Normal = 'normal',
   SaldoPendiente = 'saldo_pendiente',

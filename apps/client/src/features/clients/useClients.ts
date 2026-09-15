@@ -157,3 +157,15 @@ export function useClearClientMessageFrequency() {
       queryClient.invalidateQueries({ queryKey: ['clients', clientId] }),
   });
 }
+
+// Human report, 2026-09-14 — see ClientCreditBanner.tsx. Own query key
+// (not folded into ['clients', clientId], which carries the heavier
+// ClientDetail payload) so the banner can poll/invalidate this alone after
+// applying credit, without re-fetching the whole client.
+export function useClientCreditBalance(clientId: string) {
+  return useQuery({
+    queryKey: ['clients', clientId, 'credit-balance'],
+    queryFn: () => clientsApi.getCreditBalance(clientId),
+    enabled: clientId !== '',
+  });
+}

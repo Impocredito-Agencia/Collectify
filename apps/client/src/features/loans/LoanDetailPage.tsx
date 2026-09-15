@@ -14,6 +14,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Td, Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
+import { ClientCreditBanner } from '@/features/clients/ClientCreditBanner';
 import { DOCUMENT_TYPE_LABELS } from '@/features/clients/clientsApi';
 import { useClient } from '@/features/clients/useClients';
 import { BulkRegisterPaymentDialog } from '@/features/installments/BulkRegisterPaymentDialog';
@@ -391,6 +392,8 @@ export function LoanDetailPage() {
         </div>
       )}
 
+      <ClientCreditBanner clientId={loan.clientId} loanId={loan.id} />
+
       <div className="grid grid-cols-5 gap-4">
         <StatCard
           label="Capital original sin incremento"
@@ -604,6 +607,17 @@ export function LoanDetailPage() {
                         title={payment.voidReason ?? undefined}
                       >
                         Anulado
+                      </StatusBadge>
+                    ) : payment.fundedByCredit ? (
+                      // Human report, 2026-09-14 — see ClientCreditBanner.tsx.
+                      // A real Payment in every other respect; only this
+                      // badge distinguishes it from an ordinary cash/transfer
+                      // collection.
+                      <StatusBadge
+                        tone="neutral"
+                        title="Este pago se cubrió con el saldo a favor del cliente, no con dinero recibido en esta cuota."
+                      >
+                        Vía saldo a favor
                       </StatusBadge>
                     ) : (
                       <span className="text-meta text-mid">—</span>

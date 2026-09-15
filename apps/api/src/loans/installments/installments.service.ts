@@ -16,9 +16,11 @@ import {
   Repository,
 } from 'typeorm';
 
+import { ClientCreditBalanceService } from '../../clients/clientCreditBalance.service';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { WhatsappInboundMessage } from '../../whatsapp/entities/whatsappInboundMessage.entity';
 import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
+import { todayDateString } from '../dueDateSchedule';
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { Loan, LoanStatus } from '../entities/loan.entity';
 import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entity';
@@ -57,6 +59,7 @@ export class InstallmentsService {
     private readonly whatsappInboundMessagesRepository: Repository<WhatsappInboundMessage>,
     private readonly dataSource: DataSource,
     private readonly paymentConfirmationService: PaymentConfirmationService,
+    private readonly clientCreditBalanceService: ClientCreditBalanceService,
   ) {}
 
   async findAll(
@@ -139,9 +142,15 @@ export class InstallmentsService {
     return map;
   }
 
+  // `fundedByCredit` is deliberately NOT part of CreatePaymentDto — it's
+  // only ever set by applyCreditToInstallment below, never reachable from
+  // the public POST /installments/:id/payments body. Exposing it there
+  // would let a caller mark a real cash payment as credit-funded (or vice
+  // versa) with no validation at all.
   async registerPayment(
     installmentId: string,
     dto: CreatePaymentDto,
+    options?: { fundedByCredit?: boolean },
   ): Promise<Payment> {
     const installment = await this.installmentsRepository.findOne({
       where: { id: installmentId },
@@ -175,16 +184,21 @@ export class InstallmentsService {
     // service nor CreatePaymentDto capped the amount at all. A second
     // payment for the full $850.000 went through on top of the first,
     // marking the loan "Pagado" with $800.000 paid that was never actually
-    // owed. Confirmed with the human: reject the excess outright rather
-    // than silently accepting it — how the cobrador should record a
-    // genuine excess handed over in person (apply it to the next
-    // installment, hand back change, etc.) is a separate, not-yet-decided
-    // question, deliberately not guessed at here. This also means an
+    // owed.
+    //
+    // Bug fix, 2026-09-14 (human decision) — the #0920 fix's own
+    // not-yet-decided question ("how should a genuine excess handed over
+    // in person be recorded?") is now decided: instead of rejecting the
+    // excess outright, this installment's own Payment row is capped at
+    // what it actually owed (it must never exceed that, or every
+    // totalDue/remainingBalance calculation downstream would be
+    // corrupted), and the excess is recorded as a client-level credit —
+    // see ClientCreditLedgerEntry's own comment. This still means an
     // installment that's already Paid or Cancelled (remainingBalance
     // resolves to 0 for both, see enrichInstallment's non-Pending
-    // short-circuit) can no longer silently accept an extra payment record
-    // either — a deliberate tightening of the old Phase 32 behavior, not an
-    // oversight.
+    // short-circuit) routes its ENTIRE amount into credit rather than
+    // silently accepting an extra payment record — a deliberate tightening
+    // of the old Phase 32 behavior, not an oversight.
     const totalPaidBefore = await this.sumPayments(
       installmentId,
       this.paymentsRepository,
@@ -195,23 +209,25 @@ export class InstallmentsService {
       this.loanInstallmentConceptsRepository,
     );
     const maxPayable = Math.ceil(remainingBalance);
-    if (dto.amountPaid > maxPayable) {
-      throw new BadRequestException(
-        `El monto del pago ($${dto.amountPaid}) supera el saldo pendiente de esta cuota ($${maxPayable}). Registra como máximo ese valor.`,
-      );
-    }
+    const amountToRecord = Math.min(dto.amountPaid, maxPayable);
+    const excess = dto.amountPaid - amountToRecord;
 
     const payment = this.paymentsRepository.create({
       installmentId,
-      amountPaid: dto.amountPaid,
+      amountPaid: amountToRecord,
       paidAt: dto.paidAt,
       observation: dto.observation ?? null,
       // imageUrl is deprecated as of Phase 28 — no longer written for new
       // payments, see payment.entity.ts. Photos go through payment_images
       // below instead.
       imageUrl: null,
+      fundedByCredit: options?.fundedByCredit ?? false,
     });
     const savedPayment = await this.paymentsRepository.save(payment);
+
+    if (excess > 0) {
+      await this.recordExcessAsCreditSafely(installment, savedPayment, excess);
+    }
     await this.savePaymentImages(
       savedPayment.id,
       dto.imageUrls,
@@ -283,6 +299,46 @@ export class InstallmentsService {
     }
 
     return savedPayment;
+  }
+
+  // Human report, 2026-09-14 — the explicit, operator-initiated half of
+  // saldo a favor (see ClientCreditLedgerEntry's own comment): confirmed
+  // with the human that APPLYING a credit must always be a deliberate
+  // action, never automatic, for audit-trail reasons. Delegates the actual
+  // money movement to registerPayment above (fundedByCredit: true) rather
+  // than duplicating its close/cascade/WhatsApp-confirmation logic — if the
+  // requested amount turns out to exceed what this installment still
+  // needed, registerPayment's own excess handling recycles the leftover
+  // right back into a fresh credit for the client, which is the correct
+  // outcome here too.
+  async applyCreditToInstallment(
+    clientId: string,
+    installmentId: string,
+    amount: number,
+  ): Promise<Payment> {
+    await this.clientCreditBalanceService.assertCanApply(
+      clientId,
+      installmentId,
+      amount,
+    );
+
+    const payment = await this.registerPayment(
+      installmentId,
+      {
+        amountPaid: amount,
+        paidAt: todayDateString(),
+        observation: 'Pago aplicado desde el saldo a favor del cliente.',
+      },
+      { fundedByCredit: true },
+    );
+
+    await this.clientCreditBalanceService.recordApplication(
+      clientId,
+      payment.id,
+      amount,
+    );
+
+    return payment;
   }
 
   // Phase 28 — pays several installments in one action, one amount entered
@@ -635,6 +691,40 @@ export class InstallmentsService {
       { status: LoanStatus.Paid },
     );
     return (result.affected ?? 0) > 0;
+  }
+
+  // Human report, 2026-09-14 — never lets a credit-ledger write failure
+  // undo or fail the payment that already went through (same "safely"
+  // principle as every other best-effort side effect below): the payment
+  // itself is already correctly capped and saved regardless, so the worst
+  // case here is a client's saldo a favor briefly under-counting a credit
+  // it should have, loudly logged for someone to reconcile by hand.
+  private async recordExcessAsCreditSafely(
+    installment: Installment,
+    savedPayment: Payment,
+    excess: number,
+  ): Promise<void> {
+    try {
+      const loan = await this.loansRepository.findOne({
+        where: { id: installment.loanId },
+      });
+      if (!loan) {
+        this.logger.error(
+          `Could not record a $${excess} credit for payment ${savedPayment.id} — loan ${installment.loanId} not found.`,
+        );
+        return;
+      }
+      await this.clientCreditBalanceService.recordExcess(
+        loan.clientId,
+        savedPayment.id,
+        excess,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to record a $${excess} credit for payment ${savedPayment.id}`,
+        error,
+      );
+    }
   }
 
   // Human report, 2026-09-11 — the "Registrar pago con este comprobante"

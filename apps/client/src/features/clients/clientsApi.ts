@@ -299,4 +299,15 @@ export const clientsApi = {
   clearMessageFrequency: async (clientId: string): Promise<void> => {
     await apiClient.delete(`/clients/${clientId}/message-frequency`);
   },
+
+  // Human report, 2026-09-14 — saldo a favor: a client-level credit
+  // generated when a payment exceeds what its installment owed. See
+  // ClientCreditBanner.tsx and docs/DATABASE.md's client_credit_ledger_entries
+  // note.
+  getCreditBalance: async (clientId: string): Promise<{ balance: number }> => {
+    const { data } = await apiClient.get<{ balance: number }>(
+      `/clients/${clientId}/credit-balance`,
+    );
+    return data;
+  },
 };
