@@ -27,11 +27,38 @@ import {
 // violation, not a functional bug (TypeORM never confuses the two
 // differently-NAMED migrations), so it's left as-is rather than "fixed"
 // again in a way that would break migration history a second time.
+//
+// Made defensive (existence checks before each ALTER/CREATE) in the same
+// fix — Railway's deploy runs migrations automatically, so by the time
+// this rename went out, production had almost certainly already run this
+// under the OLD (now temporarily-wrong) name, recording it in the
+// `migrations` table as such. Reverting the name alone would make
+// production see this as a brand-new pending migration and try to run it
+// again, failing on the now-existing column/table exactly like it did
+// locally — but there was no way to safely confirm production's exact
+// migrations-table state to fix it surgically instead. These guards make
+// `up()` a safe no-op in every possible state (never run anywhere; run
+// under this same name already; or run under the temporary wrong name
+// already) without needing to know which one applies, or touching the
+// `migrations` table by hand.
 export class AddClientCreditLedger1790700000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `ALTER TABLE "payments" ADD COLUMN "funded_by_credit" boolean NOT NULL DEFAULT false`,
+    const hasFundedByCreditColumn = await queryRunner.hasColumn(
+      'payments',
+      'funded_by_credit',
     );
+    if (!hasFundedByCreditColumn) {
+      await queryRunner.query(
+        `ALTER TABLE "payments" ADD COLUMN "funded_by_credit" boolean NOT NULL DEFAULT false`,
+      );
+    }
+
+    const hasLedgerTable = await queryRunner.hasTable(
+      'client_credit_ledger_entries',
+    );
+    if (hasLedgerTable) {
+      return;
+    }
 
     await queryRunner.query(
       `CREATE TYPE "client_credit_ledger_entries_type_enum" AS ENUM ('created', 'applied')`,
@@ -119,12 +146,24 @@ export class AddClientCreditLedger1790700000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.dropTable('client_credit_ledger_entries');
-    await queryRunner.query(
-      `DROP TYPE "client_credit_ledger_entries_type_enum"`,
+    const hasLedgerTable = await queryRunner.hasTable(
+      'client_credit_ledger_entries',
     );
-    await queryRunner.query(
-      `ALTER TABLE "payments" DROP COLUMN "funded_by_credit"`,
+    if (hasLedgerTable) {
+      await queryRunner.dropTable('client_credit_ledger_entries');
+      await queryRunner.query(
+        `DROP TYPE "client_credit_ledger_entries_type_enum"`,
+      );
+    }
+
+    const hasFundedByCreditColumn = await queryRunner.hasColumn(
+      'payments',
+      'funded_by_credit',
     );
+    if (hasFundedByCreditColumn) {
+      await queryRunner.query(
+        `ALTER TABLE "payments" DROP COLUMN "funded_by_credit"`,
+      );
+    }
   }
 }
