@@ -33,6 +33,7 @@ import {
 } from './reminderRecipientGrouping';
 import { selectReminderTemplate } from './reminderTemplateSelection';
 import { computeSaldoPendiente } from './saldoPendiente';
+import { renderTemplateBody } from './templateBodyRenderer';
 import { WhatsAppService } from './whatsapp.service';
 
 // Phase 33 rewrite — picks among SingleUpcomingInstallment,
@@ -183,7 +184,10 @@ export class UpcomingDueReminderService {
           clientId,
           type: selection.type,
           phoneNumber,
-          messageContent: selection.bodyParameters.join(' | '),
+          messageContent: renderTemplateBody(
+            template.content,
+            selection.bodyParameters,
+          ),
           status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
           sentAt: new Date(),
           whatsappMessageId,

@@ -19,6 +19,7 @@ import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { NewLoanReminderService } from './newLoanReminder.service';
+import { GENERIC_TEMPLATE_CONTENT } from './templateBodyRenderer.testFixtures';
 import { WhatsAppService } from './whatsapp.service';
 
 describe('NewLoanReminderService', () => {
@@ -169,6 +170,7 @@ describe('NewLoanReminderService', () => {
       messageTemplatesService.findByTypeOrThrow.mockResolvedValue({
         metaTemplateName: 'some_template',
         metaLanguageCode: 'es',
+        content: GENERIC_TEMPLATE_CONTENT,
       });
       whatsAppService.sendTemplateMessage.mockResolvedValue({
         sent: true,
@@ -324,6 +326,7 @@ describe('NewLoanReminderService', () => {
       messageTemplatesService.findByTypeOrThrow.mockResolvedValue({
         metaTemplateName: 'some_template',
         metaLanguageCode: 'es',
+        content: GENERIC_TEMPLATE_CONTENT,
       });
     });
 

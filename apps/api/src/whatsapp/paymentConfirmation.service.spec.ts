@@ -12,6 +12,7 @@ import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { PaymentConfirmationService } from './paymentConfirmation.service';
+import { GENERIC_TEMPLATE_CONTENT } from './templateBodyRenderer.testFixtures';
 import { WhatsAppService } from './whatsapp.service';
 
 describe('PaymentConfirmationService', () => {
@@ -103,6 +104,7 @@ describe('PaymentConfirmationService', () => {
     messageTemplatesService.findByTypeOrThrow.mockResolvedValue({
       metaTemplateName: 'confirmacion_pago',
       metaLanguageCode: 'es',
+      content: GENERIC_TEMPLATE_CONTENT,
     });
     whatsAppService.sendTemplateMessage.mockResolvedValue({
       sent: true,
@@ -158,6 +160,33 @@ describe('PaymentConfirmationService', () => {
         MessageType.PaymentConfirmation,
       );
       expect(result?.status).toBe(MessageLogStatus.Sent);
+    });
+
+    // Human report, 2026-09-14 — messageContent used to be
+    // bodyParameters.join(' | '), a raw debug rendering that never matched
+    // what the client actually saw. It's now the real template body with
+    // its placeholders filled in, the same text Meta sent.
+    it('logs the fully rendered message the client actually received, not the raw parameters', async () => {
+      installmentsRepository.findOne.mockResolvedValue({
+        id: 'inst-1',
+        loanId: 'loan-1',
+        loan,
+        installmentNumber: 14,
+        amount: 300000,
+        dueDate: notYetDueDate,
+      });
+      installmentsRepository.count.mockResolvedValue(4);
+      messageTemplatesService.findByTypeOrThrow.mockResolvedValue({
+        metaTemplateName: 'confirmacion_pago',
+        metaLanguageCode: 'es',
+        content: 'Hola {{1}}, su cuota {{2}} del pagaré {{3}} fue registrada.',
+      });
+
+      const [result] = await service.sendPaymentConfirmation('inst-1');
+
+      expect(result?.messageContent).toBe(
+        'Hola Señor/a Angela Fajardo, su cuota 14 del pagaré 778 fue registrada.',
+      );
     });
 
     // Human report, 2026-09-14 — this used to be derived narrowly from

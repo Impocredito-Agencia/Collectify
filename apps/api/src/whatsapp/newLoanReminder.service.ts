@@ -13,6 +13,7 @@ import {
   selectNewLoanTemplate,
   selectRefinanceTemplate,
 } from './newLoanTemplateSelection';
+import { renderTemplateBody } from './templateBodyRenderer';
 import { WhatsAppService } from './whatsapp.service';
 
 // Restored, 2026-09-09 (confirmed with the human) — the cron-sweep design
@@ -142,7 +143,10 @@ export class NewLoanReminderService {
         clientId: loan.clientId,
         type: selection.type,
         phoneNumber,
-        messageContent: selection.bodyParameters.join(' | '),
+        messageContent: renderTemplateBody(
+          template.content,
+          selection.bodyParameters,
+        ),
         status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
         sentAt: new Date(),
         whatsappMessageId,

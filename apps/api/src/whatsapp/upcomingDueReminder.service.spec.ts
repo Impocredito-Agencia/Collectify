@@ -21,6 +21,7 @@ import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { formatCurrency } from './messageRenderer';
+import { GENERIC_TEMPLATE_CONTENT } from './templateBodyRenderer.testFixtures';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { UPCOMING_FAMILY_TYPES } from './reminderFamily';
@@ -149,6 +150,7 @@ describe('UpcomingDueReminderService', () => {
       findByTypeOrThrow: jest.fn().mockResolvedValue({
         metaTemplateName: 'some_template',
         metaLanguageCode: 'es',
+        content: GENERIC_TEMPLATE_CONTENT,
       }),
     };
     messageFrequencyThrottleService = {
