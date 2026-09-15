@@ -11,7 +11,7 @@ import {
 // rejected outright; the excess is tracked here as a client-level credit,
 // applicable (by explicit operator action, never automatically) to any
 // pending installment of any of the client's loans.
-export class AddClientCreditLedger1790700000000 implements MigrationInterface {
+export class AddClientCreditLedger1790800000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `ALTER TABLE "payments" ADD COLUMN "funded_by_credit" boolean NOT NULL DEFAULT false`,
