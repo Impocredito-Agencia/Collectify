@@ -11,7 +11,23 @@ import {
 // rejected outright; the excess is tracked here as a client-level credit,
 // applicable (by explicit operator action, never automatically) to any
 // pending installment of any of the client's loans.
-export class AddClientCreditLedger1790800000000 implements MigrationInterface {
+//
+// Bug fix, 2026-09-15 (human report — `npm run migration:run` failed with
+// "column funded_by_credit already exists"): briefly renamed to
+// AddClientCreditLedger1790800000000 to resolve a filename collision with
+// AddMetaMediaIdToWhatsappInboundMessages1790700000000 (both landed on the
+// same millisecond by coincidence, from two branches merged around the
+// same time) — but this migration had, by then, already run against real
+// databases under ITS ORIGINAL name. TypeORM matches "already executed"
+// by migration NAME (the class name, stored in the `migrations` table),
+// not by file timestamp, so the rename made every environment that had
+// already run this migration try to run it again and fail on the
+// already-existing column/table. Reverted back to this original name —
+// the timestamp collision is genuinely just a filename convention
+// violation, not a functional bug (TypeORM never confuses the two
+// differently-NAMED migrations), so it's left as-is rather than "fixed"
+// again in a way that would break migration history a second time.
+export class AddClientCreditLedger1790700000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `ALTER TABLE "payments" ADD COLUMN "funded_by_credit" boolean NOT NULL DEFAULT false`,
