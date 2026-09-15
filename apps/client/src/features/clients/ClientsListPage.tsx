@@ -11,6 +11,7 @@ import { ClientForm } from '@/features/clients/ClientForm';
 import { ClientRow } from '@/features/clients/ClientRow';
 import { DeactivateClientDialog } from '@/features/clients/DeactivateClientDialog';
 import { ImportClientsDialog } from '@/features/clients/ImportClientsDialog';
+import { overdueInstallmentsReportApi } from '@/features/clients/overdueInstallmentsReportApi';
 import {
   useClients,
   useCreateClient,
@@ -71,7 +72,29 @@ export function ClientsListPage() {
     null,
   );
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isDownloadingReport, setIsDownloadingReport] = useState(false);
+  const [downloadReportError, setDownloadReportError] = useState<string | null>(
+    null,
+  );
   const queryClient = useQueryClient();
+
+  // Human request, 2026-09-15 — the client used to build this by hand from
+  // their paper records. One row per overdue installment, sorted by pagaré
+  // (see overdueInstallmentsReportWorkbook.ts) — the button just triggers
+  // the download, no dialog needed since there's nothing to configure.
+  const handleDownloadReport = async () => {
+    setDownloadReportError(null);
+    setIsDownloadingReport(true);
+    try {
+      await overdueInstallmentsReportApi.download();
+    } catch {
+      setDownloadReportError(
+        'No se pudo generar el reporte de cuotas vencidas. Intenta de nuevo.',
+      );
+    } finally {
+      setIsDownloadingReport(false);
+    }
+  };
 
   const { data, isLoading, isError } = useClients({
     search: search || undefined,
@@ -150,6 +173,16 @@ export function ClientsListPage() {
         </div>
 
         <div className="flex-1" />
+
+        {canManageClient && (
+          <Button
+            variant="secondary"
+            onClick={() => void handleDownloadReport()}
+            disabled={isDownloadingReport}
+          >
+            {isDownloadingReport ? 'Generando…' : 'Reporte de cuotas vencidas'}
+          </Button>
+        )}
 
         {canManageClient && (
           <Button
@@ -267,6 +300,12 @@ export function ClientsListPage() {
       {reactivateError && (
         <p className="text-small text-danger" role="alert">
           {reactivateError}
+        </p>
+      )}
+
+      {downloadReportError && (
+        <p className="text-small text-danger" role="alert">
+          {downloadReportError}
         </p>
       )}
 
