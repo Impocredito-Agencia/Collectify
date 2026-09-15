@@ -74,7 +74,7 @@ export function overdueInstallmentsReportFilename(): string {
   return `cuotas_vencidas_${todayDateString()}.xlsx`;
 }
 
-// GET /clients/overdue-installments-report — one row per overdue
+// GET /clients/reports/overdue-installments — one row per overdue
 // installment (never aggregated by client), built for a non-technical
 // reader (confirmed with the human): a plain-language summary line up
 // top, currency columns formatted as real numbers (not text), the most

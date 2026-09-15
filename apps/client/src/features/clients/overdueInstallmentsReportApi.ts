@@ -1,7 +1,10 @@
 /**
- * GET /clients/overdue-installments-report returns a raw .xlsx file (same
+ * GET /clients/reports/overdue-installments returns a raw .xlsx file (same
  * @Res()-bypasses-the-envelope pattern as clientsImportApi.ts's downloads),
  * so this talks to the API directly with fetch rather than apiClient.ts.
+ * Nested under an extra "reports" segment (not just /clients/overdue-
+ * installments-report) so it can never collide with GET /clients/:id — see
+ * OverdueInstallmentsReportController's own comment on the bug this fixed.
  */
 
 import { ApiError } from '@/lib/apiClient';
@@ -26,7 +29,7 @@ function filenameFrom(response: Response): string {
 
 async function downloadOverdueInstallmentsReport(): Promise<void> {
   const response = await fetch(
-    `${API_URL}/clients/overdue-installments-report`,
+    `${API_URL}/clients/reports/overdue-installments`,
     {
       headers: authHeaders(),
     },

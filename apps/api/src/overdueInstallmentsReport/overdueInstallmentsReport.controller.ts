@@ -22,15 +22,27 @@ const XLSX_MIME_TYPE =
 // are (admin or granted the clients module), since the button lives on
 // the Clientes page, not Dashboard (which has no module gate at all — see
 // AppModule's own comment on why).
+//
+// Bug fix, 2026-09-15 (human report) — this used to be @Controller('clients')
+// with @Get('overdue-installments-report'), i.e. GET /clients/overdue-
+// installments-report. ClientsController already has GET /clients/:id, and
+// Nest/Express match routes in registration order, not by specificity — so
+// that one-segment literal path collided with :id (matched as though "id"
+// were literally "overdue-installments-report", crashing ClientsService's
+// UUID lookup). Nested under an extra "reports" segment instead of just
+// reordering module imports to "win" the race — that would still be one
+// merge away from silently breaking again the exact same way. Two segments
+// after /clients/ can never match the single-segment :id pattern,
+// regardless of which controller Nest registers first.
 @ApiTags('clients')
 @ApiBearerAuth()
-@Controller('clients')
+@Controller('clients/reports')
 export class OverdueInstallmentsReportController {
   constructor(
     private readonly reportService: OverdueInstallmentsReportService,
   ) {}
 
-  @Get('overdue-installments-report')
+  @Get('overdue-installments')
   @RequireModule(AppModule.Clients)
   @ApiOperation({
     summary:
