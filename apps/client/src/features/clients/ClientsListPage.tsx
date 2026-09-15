@@ -217,7 +217,15 @@ export function ClientsListPage() {
           <thead className="bg-input">
             <tr className="divide-x divide-border">
               <Th className="w-10 whitespace-nowrap">#</Th>
-              <Th style={{ textAlign: 'center' }}>Nombre</Th>
+              {/* Human request, 2026-09-15 — some full names wrapped to two
+                  lines under the equal-split width every other column
+                  still uses. Fixed at 256px, wide enough for a real
+                  two-given-name + two-surname Colombian name at this font
+                  size, without touching the rest of the table-fixed
+                  recipe above. */}
+              <Th className="w-64" style={{ textAlign: 'center' }}>
+                Nombre
+              </Th>
               <Th style={{ textAlign: 'center' }}>Cédula</Th>
               <Th style={{ textAlign: 'center' }}>Celular</Th>
               <Th style={{ textAlign: 'center' }}>Préstamos activos</Th>

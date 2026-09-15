@@ -456,7 +456,15 @@ export function Sidebar() {
                   // into whichever neighbor is on the other side of that
                   // 2px gap. See index.css for the inset-ring override this
                   // class hooks.
-                  'sidebar-nav-link flex items-center gap-2.5 rounded-lg px-4 py-1.5 text-nav-item',
+                  // Human request, 2026-09-15 — pr-2.5 (not px-4's usual
+                  // pr-4) specifically to give the pending-tickets badge on
+                  // "Mensajes entrantes" 6px more room before the label's
+                  // truncate kicks in, without the badge reaching the
+                  // rounded box's own right edge (still a 10px clearance,
+                  // just less generous than every other item's unused
+                  // right-side padding). Left side untouched — the icon
+                  // still sits at the original pl-4 inset.
+                  'sidebar-nav-link flex items-center gap-2.5 rounded-lg py-1.5 pl-4 pr-2.5 text-nav-item',
                   // Visual polish (2026-09-02): active item used to be a
                   // flat neutral `bg-border` highlight — same tone as
                   // every other gray surface, so it was easy to miss at a
@@ -482,9 +490,11 @@ export function Sidebar() {
                   ticket went pending. min-w-0 lets this item actually
                   shrink instead of overflowing the row, and truncate
                   (same safety-net pattern as the user-name NavLink below)
-                  ellipsizes rather than wraps if it's ever genuinely too
-                  tight — in practice there's always room, so this just
-                  reads as "stays on one line". */}
+                  ellipsizes rather than wraps.
+                  Human report, 2026-09-15 — a real 2-digit pending count
+                  ("18") genuinely didn't fit, contradicting this comment's
+                  earlier "in practice there's always room" claim — see the
+                  pr-2.5 fix on this NavLink's className above. */}
               <span className="min-w-0 flex-1 truncate">{item.label}</span>
               {item.to === MESSAGES_NAV_PATH && pendingTicketsCount > 0 && (
                 <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-medium text-white">
