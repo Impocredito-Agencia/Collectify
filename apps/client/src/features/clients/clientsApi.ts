@@ -149,6 +149,37 @@ export interface ClientListItem extends Client {
   maxOverdueDays: number;
 }
 
+// Mirrors the backend's OverdueInstallmentResult/UpcomingInstallmentResult
+// (whatsapp/reminderInstallmentQueries.ts) field-for-field — see
+// ClientsService.getAccountStatus's own comment on why this reuses those
+// exact queries instead of a separate calculation.
+export interface OverdueInstallment {
+  id: string;
+  loanId: string;
+  alternateContactPhoneNumber: string | null;
+  installmentNumber: number;
+  promissoryNoteNumber: string;
+  amount: number;
+  totalDue: number;
+  overdueDays: number;
+  interest: number;
+}
+
+export interface UpcomingInstallment {
+  id: string;
+  loanId: string;
+  alternateContactPhoneNumber: string | null;
+  installmentNumber: number;
+  promissoryNoteNumber: string;
+  amount: number;
+  daysUntilDue: number;
+}
+
+export interface ClientAccountStatus {
+  overdue: OverdueInstallment[];
+  upcoming: UpcomingInstallment[];
+}
+
 export interface ClientsQueryParams {
   search?: string;
   // true = active (default), false = soft-deleted, 'all' = both — the
@@ -307,6 +338,18 @@ export const clientsApi = {
   getCreditBalance: async (clientId: string): Promise<{ balance: number }> => {
     const { data } = await apiClient.get<{ balance: number }>(
       `/clients/${clientId}/credit-balance`,
+    );
+    return data;
+  },
+
+  // Human request, 2026-09-15 — front-desk lookup, see
+  // ClientAccountStatusPanel.tsx's own comment. Mirrors the backend's
+  // OverdueInstallmentResult/UpcomingInstallmentResult exactly (same
+  // fields as reminderInstallmentQueries.ts) so this never needs its own
+  // remapping.
+  getAccountStatus: async (clientId: string): Promise<ClientAccountStatus> => {
+    const { data } = await apiClient.get<ClientAccountStatus>(
+      `/clients/${clientId}/account-status`,
     );
     return data;
   },

@@ -169,3 +169,16 @@ export function useClientCreditBalance(clientId: string) {
     enabled: clientId !== '',
   });
 }
+
+// Human request, 2026-09-15 — see ClientAccountStatusPanel.tsx. Own query
+// key for the same reason useClientCreditBalance's does: this can go stale
+// the moment a payment is registered against one of the client's
+// installments, so it's invalidated independently of the heavier
+// ClientDetail payload.
+export function useClientAccountStatus(clientId: string) {
+  return useQuery({
+    queryKey: ['clients', clientId, 'account-status'],
+    queryFn: () => clientsApi.getAccountStatus(clientId),
+    enabled: clientId !== '',
+  });
+}

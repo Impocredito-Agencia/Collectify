@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Td, Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
+import { ClientAccountStatusPanel } from '@/features/clients/ClientAccountStatusPanel';
 import { ClientCreditBanner } from '@/features/clients/ClientCreditBanner';
 import { ClientForm } from '@/features/clients/ClientForm';
 import {
@@ -215,6 +216,8 @@ export function ClientDetailPage() {
           </div>
         )}
       </div>
+
+      <ClientAccountStatusPanel clientId={client.id} />
 
       <ClientCreditBanner clientId={client.id} />
 
