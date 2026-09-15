@@ -12,6 +12,7 @@ import {
 import { Loan } from '../loans/entities/loan.entity';
 
 import { getRecipientPhoneNumbers } from './clientRecipientPhoneNumbers';
+import { renderTemplateBody } from './templateBodyRenderer';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
@@ -228,7 +229,10 @@ export class PaymentConfirmationService {
         clientId,
         type: selection.type,
         phoneNumber,
-        messageContent: selection.bodyParameters.join(' | '),
+        messageContent: renderTemplateBody(
+          template.content,
+          selection.bodyParameters,
+        ),
         status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
         sentAt: new Date(),
         whatsappMessageId,

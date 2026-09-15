@@ -1319,7 +1319,14 @@ function AutomatedMessageBubble({ log }: { log: MessageLog }) {
         </span>
         {failed && <span className="text-meta text-danger">No entregado</span>}
       </div>
-      <p className="text-small text-white">{log.messageContent}</p>
+      {/* Human report, 2026-09-14 — messageContent is now the real
+          rendered template text (line breaks and all, matching what
+          Meta sent), not a single-line "|"-joined parameter dump —
+          whitespace-pre-wrap keeps those line breaks visible instead of
+          collapsing them like a plain <p> normally would. */}
+      <p className="whitespace-pre-wrap text-small text-white">
+        {log.messageContent}
+      </p>
     </div>
   );
 }

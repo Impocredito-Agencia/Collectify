@@ -25,6 +25,7 @@ import { enrichInstallment } from '../loans/installments/enrichInstallment';
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { formatCurrency } from './messageRenderer';
+import { GENERIC_TEMPLATE_CONTENT } from './templateBodyRenderer.testFixtures';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
@@ -158,6 +159,7 @@ describe('OverdueReminderService', () => {
       findByTypeOrThrow: jest.fn().mockResolvedValue({
         metaTemplateName: 'some_template',
         metaLanguageCode: 'es',
+        content: GENERIC_TEMPLATE_CONTENT,
       }),
     };
     // Default: no throttling — passes every dynamically-qualifying client
