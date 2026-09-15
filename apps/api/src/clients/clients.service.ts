@@ -4,11 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, ILike, In, IsNull, Not, Repository } from 'typeorm';
 
 import { ClientCreditBalanceService } from './clientCreditBalance.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import { Configuration } from '../config/configuration';
 import {
   Installment,
   InstallmentStatus,
@@ -19,6 +21,20 @@ import { Payment } from '../loans/entities/payment.entity';
 import { findConceptsByInstallmentId } from '../loans/installments/conceptsByInstallmentId';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
 import { sumPaymentsByInstallmentId } from '../loans/installments/paymentTotals';
+// Human request, 2026-09-15 — the front desk needs the exact same
+// overdue/upcoming picture the client already gets by WhatsApp, shown
+// directly on their profile instead of someone having to open the chat.
+// These are plain functions (no @Injectable, no module-level DI), so
+// importing them here doesn't create a circular MODULE dependency even
+// though WhatsappModule separately imports ClientsModule — Nest's cycle
+// detection is about @Module()/provider graphs, not a file importing a
+// stateless helper from another domain folder.
+import {
+  findOverdueInstallmentsForClient,
+  findUpcomingInstallmentsForClient,
+  OverdueInstallmentResult,
+  UpcomingInstallmentResult,
+} from '../whatsapp/reminderInstallmentQueries';
 
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
@@ -117,6 +133,7 @@ export class ClientsService {
     @InjectRepository(ClientMessageFrequency)
     private readonly clientMessageFrequenciesRepository: Repository<ClientMessageFrequency>,
     private readonly clientCreditBalanceService: ClientCreditBalanceService,
+    private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
   // Human report, 2026-09-14 — thin passthrough so ClientsController stays
@@ -126,6 +143,46 @@ export class ClientsService {
   async getCreditBalance(clientId: string): Promise<{ balance: number }> {
     const balance = await this.clientCreditBalanceService.getBalance(clientId);
     return { balance };
+  }
+
+  // Human request, 2026-09-15 — when a client walks into the office, the
+  // front desk needs to say "your pagaré #X owes cuota N for $Y" without
+  // opening the messages module and reading their last WhatsApp reminder,
+  // which can go stale the moment a same-day payment is registered. Reuses
+  // the exact overdue/upcoming queries the WhatsApp reminders themselves
+  // are built from, so this can never say something different from what
+  // the client was already told. `upcomingDueReminderDays` is the same
+  // admin-configurable window the reminders use (confirmed with the
+  // human) — not a separate number, so "próxima a vencer" means the same
+  // thing here as it does in the message the client received.
+  async getAccountStatus(clientId: string): Promise<{
+    overdue: OverdueInstallmentResult[];
+    upcoming: UpcomingInstallmentResult[];
+  }> {
+    const client = await this.clientsRepository.findOneBy({ id: clientId });
+    if (!client) {
+      throw new NotFoundException(`Client with id ${clientId} not found`);
+    }
+
+    const { upcomingDueReminderDays } = this.configService.get('cron', {
+      infer: true,
+    });
+
+    const [overdue, upcoming] = await Promise.all([
+      findOverdueInstallmentsForClient(
+        this.installmentsRepository,
+        this.paymentsRepository,
+        this.loanInstallmentConceptsRepository,
+        clientId,
+      ),
+      findUpcomingInstallmentsForClient(
+        this.installmentsRepository,
+        clientId,
+        upcomingDueReminderDays,
+      ),
+    ]);
+
+    return { overdue, upcoming };
   }
 
   // requireConsent/requireDocumentType both default to true (the

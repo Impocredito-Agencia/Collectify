@@ -37,6 +37,10 @@ import { UpdateClientReferenceDto } from './dto/updateClientReference.dto';
 import { Client } from './entities/client.entity';
 import { ClientMessageFrequency } from './entities/clientMessageFrequency.entity';
 import { ClientReference } from './entities/clientReference.entity';
+import {
+  OverdueInstallmentResult,
+  UpcomingInstallmentResult,
+} from '../whatsapp/reminderInstallmentQueries';
 
 @ApiTags('clients')
 @ApiBearerAuth()
@@ -256,6 +260,31 @@ export class ClientsController {
   })
   getCreditBalance(@Param('id') id: string): Promise<{ balance: number }> {
     return this.clientsService.getCreditBalance(id);
+  }
+
+  // Human request, 2026-09-15 — front-desk lookup: everything a client
+  // currently owes across all their loans, without opening the messages
+  // module. See ClientsService.getAccountStatus's own comment.
+  @Get(':id/account-status')
+  @RequireModule(AppModule.Clients)
+  @ApiOperation({
+    summary:
+      'View everything a client currently owes across all their loans (admin or granted the clients module)',
+    description:
+      'overdue: every pending installment already past its due date, on any active loan, regardless ' +
+      'of how overdue. upcoming: pending installments due within the same admin-configurable window ' +
+      'the WhatsApp reminders use (cron.upcomingDueReminderDays) — matches what the client was already ' +
+      'told, never a separately-invented number.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Returns the client's overdue and upcoming installments.",
+  })
+  getAccountStatus(@Param('id') id: string): Promise<{
+    overdue: OverdueInstallmentResult[];
+    upcoming: UpcomingInstallmentResult[];
+  }> {
+    return this.clientsService.getAccountStatus(id);
   }
 
   @Delete(':id')
