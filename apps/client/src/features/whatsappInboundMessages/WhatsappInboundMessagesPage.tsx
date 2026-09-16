@@ -286,6 +286,24 @@ function isRoutineBotReply(reply: WhatsappManualReply): boolean {
   );
 }
 
+// Human report, 2026-09-16 — selfServiceReplyKind has existed since
+// 2026-09-14 (see docs/DATABASE.md's "Added, 2026-09-13" note) but was
+// never actually surfaced here — every automated reply just showed the
+// generic "Automático" badge below, with no way to tell which of the
+// bot's own actions actually produced it. Purely a label lookup: doesn't
+// touch how a reply is sent, stored, or grouped (see
+// ROUTINE_SELF_SERVICE_REPLY_KINDS above, unaffected).
+const SELF_SERVICE_REPLY_KIND_LABELS: Record<SelfServiceReplyKind, string> = {
+  main_menu: 'Menú principal',
+  mi_cuenta_submenu: 'Submenú Mi cuenta',
+  breakdown: 'Estado de cuenta',
+  payment_history: 'Historial de pagos',
+  receipt_request: 'Solicitud de comprobante',
+  receipt_received_ack: 'Confirmación de comprobante',
+  advisor_handoff: 'Aviso de asesor',
+  volver_al_menu_follow_up: '¿Algo más?',
+};
+
 // Human report, 2026-09-14 (bug fix) — every routine tap is answered
 // immediately by the bot's own reply (merged into this same thread since
 // 2026-09-19's "automated messages" work), which used to unconditionally
@@ -1265,6 +1283,15 @@ function ReplyBubble({ reply }: { reply: WhatsappManualReply }) {
   // the bot sent.
   const isAutomated = reply.sentByUserId === null;
   const failed = reply.status === 'failed';
+  // Human report, 2026-09-16 — selfServiceReplyKind is only set for a
+  // reply the self-service menu itself produced, never for an admin's
+  // typed reply or closeConversation's generic closing message (both
+  // sentByUserId-null too, but with no menu action behind them) — those
+  // two keep the plain "Automático" fallback.
+  const automatedLabel =
+    reply.selfServiceReplyKind !== null
+      ? SELF_SERVICE_REPLY_KIND_LABELS[reply.selfServiceReplyKind]
+      : 'Automático';
 
   return (
     <div
@@ -1274,7 +1301,7 @@ function ReplyBubble({ reply }: { reply: WhatsappManualReply }) {
     >
       <div className="flex items-center gap-2">
         <span className="rounded-[3px] border border-border bg-surface px-1.5 py-0.5 text-meta text-muted">
-          {isAutomated ? 'Automático' : 'Tú'}
+          {isAutomated ? automatedLabel : 'Tú'}
         </span>
         <span className="text-meta text-subtle">
           {new Date(reply.sentAt).toLocaleString('es-CO', {
