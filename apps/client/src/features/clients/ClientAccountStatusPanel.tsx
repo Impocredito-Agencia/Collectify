@@ -1,12 +1,22 @@
 import { Link } from 'react-router-dom';
 
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { Td, Th } from '@/components/ui/Table';
 import { useClientAccountStatus } from '@/features/clients/useClients';
 import { formatCurrency } from '@/lib/format';
 
+import type { ReactNode } from 'react';
+
 interface ClientAccountStatusPanelProps {
   clientId: string;
+}
+
+interface AccountStatusRow {
+  key: string;
+  loanId: string;
+  promissoryNoteNumber: string;
+  installmentNumber: number;
+  amount: number;
+  status: ReactNode;
 }
 
 // Human request, 2026-09-15 — when a client walks into the office, the
@@ -22,6 +32,13 @@ interface ClientAccountStatusPanelProps {
 // lookup needs a clear "nothing pending" answer just as much as a list of
 // what's owed; empty space here would read as "still loading", not "all
 // good".
+//
+// Redesign, 2026-09-15 (human report — the original one-row-per-cuota
+// table wasted most of its width on short values and repeated the same
+// pagaré number on every row of a multi-cuota loan). Grouped by pagaré
+// instead — one compact card per loan with something pending, each
+// listing just its own cuotas — laid out two-up so several short cards
+// share a row instead of one table stretched edge to edge.
 export function ClientAccountStatusPanel({
   clientId,
 }: ClientAccountStatusPanelProps) {
@@ -31,7 +48,7 @@ export function ClientAccountStatusPanel({
     return null;
   }
 
-  const rows = [
+  const rows: AccountStatusRow[] = [
     ...data.overdue.map((installment) => ({
       key: installment.id,
       loanId: installment.loanId,
@@ -60,6 +77,27 @@ export function ClientAccountStatusPanel({
     })),
   ];
 
+  // Map preserves insertion order, and `rows` lists every overdue cuota
+  // (oldest due date first) before any upcoming one — so the first pagaré
+  // encountered is whichever has the single oldest overdue cuota, giving
+  // the most urgent loan the first card without a separate sort pass.
+  const groups = new Map<
+    string,
+    { loanId: string; promissoryNoteNumber: string; rows: AccountStatusRow[] }
+  >();
+  for (const row of rows) {
+    const existing = groups.get(row.loanId);
+    if (existing) {
+      existing.rows.push(row);
+    } else {
+      groups.set(row.loanId, {
+        loanId: row.loanId,
+        promissoryNoteNumber: row.promissoryNoteNumber,
+        rows: [row],
+      });
+    }
+  }
+
   return (
     <div className="rounded border border-border bg-surface">
       <div className="border-b border-border px-6 py-4">
@@ -68,42 +106,47 @@ export function ClientAccountStatusPanel({
           Cuotas vencidas y próximas a vencer, en todos sus pagarés.
         </p>
       </div>
-      {rows.length === 0 ? (
+      {groups.size === 0 ? (
         <p className="px-6 py-4 text-small text-muted">
           Al día — no tiene cuotas vencidas ni próximas a vencer.
         </p>
       ) : (
-        <table className="w-full table-fixed">
-          <thead className="bg-input">
-            <tr className="divide-x divide-border">
-              <Th style={{ textAlign: 'center' }}>Pagaré</Th>
-              <Th className="w-24" style={{ textAlign: 'center' }}>
-                Cuota
-              </Th>
-              <Th style={{ textAlign: 'center' }}>Valor</Th>
-              <Th className="w-48" style={{ textAlign: 'center' }}>
-                Estado
-              </Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.key} className="divide-x divide-border">
-                <Td className="text-center">
-                  <Link
-                    to={`/prestamos/${row.loanId}`}
-                    className="text-white hover:underline"
+        <div className="grid grid-cols-1 gap-3 p-6 sm:grid-cols-2">
+          {Array.from(groups.values()).map((group) => (
+            <div
+              key={group.loanId}
+              className="rounded border border-border bg-input/40 px-4 py-3"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <Link
+                  to={`/prestamos/${group.loanId}`}
+                  className="text-small font-medium text-white hover:underline"
+                >
+                  Pagaré {group.promissoryNoteNumber}
+                </Link>
+                <span className="text-small text-muted">
+                  {formatCurrency(
+                    group.rows.reduce((sum, row) => sum + row.amount, 0),
+                  )}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-col gap-1.5 border-t border-border pt-2">
+                {group.rows.map((row) => (
+                  <div
+                    key={row.key}
+                    className="flex items-center justify-between gap-3"
                   >
-                    {row.promissoryNoteNumber}
-                  </Link>
-                </Td>
-                <Td className="text-center">{row.installmentNumber}</Td>
-                <Td className="text-center">{formatCurrency(row.amount)}</Td>
-                <Td className="text-center">{row.status}</Td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    <span className="text-small text-muted">
+                      Cuota {row.installmentNumber} —{' '}
+                      {formatCurrency(row.amount)}
+                    </span>
+                    {row.status}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
