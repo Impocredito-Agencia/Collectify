@@ -124,7 +124,7 @@ Every option reuses a mechanism already designed elsewhere, none of these are ne
 - [x] `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`'s open questions #1 (menu shape), #3 (unprompted-message handling), and #4 (admin notification) are updated with this phase's answers. Question #2 (does a "no" persist as a standing preference) remains genuinely open — nothing in this phase's scope resolves it.
 - [x] The TEST-ONLY `sendTestMenu`/`TEST_MENU_MESSAGE` scaffolding from commit `9ad5891` is removed (2026-09-02), replaced by the real menu — including the `apps/client` "Enviar menú de prueba" button, removed in the same catch-up pass (PR #9, once `apps/client` stopped being treated as a separate developer's territory).
 - [x] Every open question above has a recorded, confirmed answer.
-- [ ] All items in `docs/DEFINITION_OF_DONE.md` checklist pass — not yet self-checked against that full list; do before considering the phase fully closed.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass. Confirmed, 2026-09-16 (left unchecked since the phase shipped — re-verified now rather than assuming): `apps/api` — `npm run lint`, `npm run build`, and every self-service-menu-touching spec (`selfServiceMenu.service`, `selfServiceMenuMessages`, `whatsappWebhook.service`, `whatsappConversationState.service`, `whatsappOutboundLog.service`) all pass, 98 tests (921 across the whole suite). `apps/client` — `npm run lint`, `npm run build`, `npm run test` all pass, 38 tests.
 
 ## After this phase
 
