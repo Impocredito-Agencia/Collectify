@@ -111,7 +111,7 @@ export function ClientAccountStatusPanel({
           Al día — no tiene cuotas vencidas ni próximas a vencer.
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-3 p-6 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 p-6 sm:grid-cols-3">
           {Array.from(groups.values()).map((group) => (
             <div
               key={group.loanId}
