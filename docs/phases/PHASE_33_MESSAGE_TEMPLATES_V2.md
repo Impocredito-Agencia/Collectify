@@ -431,6 +431,8 @@ None currently open. (A promotional-image follow-up template after `pago_complet
 
 Update `docs/DATABASE.md`'s `message_templates`/`message_logs` sections with the new 13-value enum and the two new `MessageTemplate` columns; update `docs/GLOSSARY.md` if any new business term needs an entry (e.g. "nota adicional"); update `docs/phases/PHASE_9_MESSAGE_TYPES.md` and `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md` with a pointer noting they're superseded by this catalog where they conflict.
 
+**No `docs/phasesClient/PHASE_33_*.md` exists, on purpose (noted 2026-09-16):** this phase's client-side impact was small (`MessageTemplatesPage.tsx` mostly just needed to keep displaying whatever the backend now returns) and was absorbed into a single combined catch-up commit alongside Phase 34's own frontend changes (`fix(client): catch up apps/client to Phase 33/34's backend WhatsApp changes`) rather than shipped as its own discrete client-side pass — there was never a separate phasesClient scope to write down. `docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md` is the closest thing to a client-side home for the WhatsApp inbox work this phase's templates feed into.
+
 ## Related documents
 
 - `docs/phases/PHASE_9_MESSAGE_TYPES.md`, `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md` — the model this phase replaces/extends

@@ -128,7 +128,11 @@ Every option reuses a mechanism already designed elsewhere, none of these are ne
 
 ## After this phase
 
-Update `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md` with a "Resolved" section closing its four open questions, referencing this phase. Update `docs/DATABASE.md` with the new `whatsapp_conversation_states` table. Update `docs/GLOSSARY.md` with "Menú de autoservicio" / "Estado de conversación" entries. Check whether `apps/client`'s existing inbound-message inbox (`docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md`) needs any UI addition to show which menu a client is currently on, or a visible "waiting for asesor" queue — likely a small follow-up for the client-side developer, not necessarily part of this phase's own scope.
+Update `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md` with a "Resolved" section closing its four open questions, referencing this phase. Update `docs/DATABASE.md` with the new `whatsapp_conversation_states` table. Update `docs/GLOSSARY.md` with "Menú de autoservicio" / "Estado de conversación" entries.
+
+**The predicted "waiting for asesor" queue follow-up above was built, 2026-09-13/14** — the `whatsapp_conversation_tickets` table, the inbox's pending-ticket badge/filter/FIFO pinning, sound/tab-title/favicon alerts, and the paginate-by-conversation rework that followed once it surfaced a real bug (a busy conversation could hide a quieter one's pending ticket from the list entirely). Shipped via a separate feature branch (`feature/whatsapp-inbound-tickets`, PR #58) rather than as a phasesClient doc — see `docs/DATABASE.md`'s `whatsapp_conversation_tickets` section for the data model and the branch's own commit history for the rest; no separate phase brief was written for it.
+
+**No `docs/phasesClient/PHASE_34_*.md` exists, on purpose (noted 2026-09-16):** this phase's initial client-side catch-up shipped in the same combined commit as Phase 33's (`fix(client): catch up apps/client to Phase 33/34's backend WhatsApp changes`), and the bulk of its real client-side scope — the ticket system above — arrived later as its own iterative branch rather than a discrete phase pass. `docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md` remains the closest thing to a client-side home for the inbox this phase's menu flows feed into.
 
 ## Related documents
 
