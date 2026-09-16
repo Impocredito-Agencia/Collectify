@@ -130,7 +130,7 @@ export function ClientAccountStatusPanel({
             sharing it with a second line of text. */}
         {totalOverdue > 0 && (
           <div className="flex items-center gap-3">
-            <p className="max-w-[110px] text-right text-meta text-muted">
+            <p className="max-w-[110px] text-balance text-right text-meta text-muted">
               Total vencido en todos sus pagarés
             </p>
             <p className="text-[28px] font-semibold leading-none text-danger">
