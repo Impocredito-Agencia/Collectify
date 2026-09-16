@@ -834,6 +834,7 @@ describe('WhatsappWebhookService', () => {
             occurredAt: new Date('2026-09-10').toISOString(),
             messageContent: 'Recuerda tu cuota vencida...',
             status: 'sent',
+            client: null,
           },
         }),
       ]);

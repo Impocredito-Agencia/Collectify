@@ -20,6 +20,11 @@ export type WhatsappConversationLastEvent =
       occurredAt: string;
       messageContent: string;
       status: 'sent' | 'failed';
+      // Same shape as WhatsappInboundMessage.client — null only for the
+      // rare whatsapp_manual_replies row with no matched client (an admin
+      // manually messaged a number that resolved to nobody). message_logs
+      // always has one (every send targets an existing client).
+      client: { id: string; firstName: string; lastName: string } | null;
     };
 
 // One row per contact (matched client or raw phone number), not per

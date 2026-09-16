@@ -455,11 +455,13 @@ export class WhatsappWebhookService {
       idsBySource.message_log.length > 0
         ? this.messageLogsRepository.find({
             where: { id: In(idsBySource.message_log) },
+            relations: { client: true },
           })
         : Promise.resolve([]),
       idsBySource.manual_reply.length > 0
         ? this.manualRepliesRepository.find({
             where: { id: In(idsBySource.manual_reply) },
+            relations: { client: true },
           })
         : Promise.resolve([]),
     ]);
@@ -494,6 +496,13 @@ export class WhatsappWebhookService {
           occurredAt: log.sentAt.toISOString(),
           messageContent: log.messageContent,
           status: log.status === MessageLogStatus.Sent ? 'sent' : 'failed',
+          client: log.client
+            ? {
+                id: log.client.id,
+                firstName: log.client.firstName,
+                lastName: log.client.lastName,
+              }
+            : null,
         };
         summaries.push({
           key: log.clientId,
@@ -513,6 +522,13 @@ export class WhatsappWebhookService {
           messageContent: reply.messageContent,
           status:
             reply.status === WhatsappManualReplyStatus.Sent ? 'sent' : 'failed',
+          client: reply.client
+            ? {
+                id: reply.client.id,
+                firstName: reply.client.firstName,
+                lastName: reply.client.lastName,
+              }
+            : null,
         };
         summaries.push({
           key: reply.clientId ?? reply.phoneNumber,
