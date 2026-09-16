@@ -108,13 +108,31 @@ export function ClientAccountStatusPanel({
     }
   }
 
+  const totalOverdue = data.overdue.reduce(
+    (sum, installment) => sum + installment.totalDue,
+    0,
+  );
+
   return (
     <div className="rounded border border-border bg-surface">
-      <div className="border-b border-border px-6 py-4">
-        <p className="text-[15px] font-medium text-white">Estado de cuenta</p>
-        <p className="text-small text-muted">
-          Cuotas vencidas y próximas a vencer, en todos sus pagarés.
-        </p>
+      <div className="flex items-center justify-between border-b border-border px-6 py-4">
+        <div>
+          <p className="text-[15px] font-medium text-white">Estado de cuenta</p>
+          <p className="text-small text-muted">
+            Cuotas vencidas y próximas a vencer, en todos sus pagarés.
+          </p>
+        </div>
+        {/* Human request, 2026-09-15 — only shown when something's actually
+            overdue; "Total vencido: $0" would read oddly for a client
+            whose only pending cuotas are upcoming, not late. */}
+        {totalOverdue > 0 && (
+          <div className="text-right">
+            <p className="text-meta text-muted">Total vencido</p>
+            <p className="text-[15px] font-medium text-danger">
+              {formatCurrency(totalOverdue)}
+            </p>
+          </div>
+        )}
       </div>
       {groups.size === 0 ? (
         <p className="px-6 py-4 text-small text-muted">
