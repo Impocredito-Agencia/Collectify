@@ -124,11 +124,16 @@ export function ClientAccountStatusPanel({
         </div>
         {/* Human request, 2026-09-15 — only shown when something's actually
             overdue; "Total vencido: $0" would read oddly for a client
-            whose only pending cuotas are upcoming, not late. */}
+            whose only pending cuotas are upcoming, not late. Label to the
+            left of a large number (not stacked above it) so the figure
+            that actually matters fills the row's height instead of
+            sharing it with a second line of text. */}
         {totalOverdue > 0 && (
-          <div className="text-right">
-            <p className="text-meta text-muted">Total vencido</p>
-            <p className="text-[15px] font-medium text-danger">
+          <div className="flex items-center gap-3">
+            <p className="max-w-[110px] text-right text-meta text-muted">
+              Total vencido en todos sus pagarés
+            </p>
+            <p className="text-[28px] font-semibold leading-none text-danger">
               {formatCurrency(totalOverdue)}
             </p>
           </div>
