@@ -46,7 +46,10 @@ import { useEscapeKey } from '@/lib/useEscapeKey';
 import type { Installment } from '@/features/installments/installmentsApi';
 import type { LoanSummary } from '@/features/loans/loansApi';
 import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
-import type { WhatsappConversationSummary } from '@/features/whatsappInboundMessages/whatsappConversationsApi';
+import type {
+  WhatsappConversationLastEvent,
+  WhatsappConversationSummary,
+} from '@/features/whatsappInboundMessages/whatsappConversationsApi';
 import type { WhatsappConversationTicket } from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
 import type {
   SelfServiceReplyKind,
@@ -160,23 +163,49 @@ interface ConversationSummaryEntry {
   clientId: string | null;
   displayName: string;
   phoneNumber: string;
-  lastMessage: WhatsappInboundMessage;
+  lastEvent: WhatsappConversationLastEvent;
   messageCount: number;
 }
 
 function toConversationSummaryEntry(
   summary: WhatsappConversationSummary,
 ): ConversationSummaryEntry {
+  const client =
+    summary.lastEvent.direction === 'inbound'
+      ? summary.lastEvent.message.client
+      : summary.lastEvent.client;
   return {
     key: summary.key,
     clientId: summary.clientId,
-    displayName: summary.lastMessage.client
-      ? `${summary.lastMessage.client.firstName} ${summary.lastMessage.client.lastName}`
+    displayName: client
+      ? `${client.firstName} ${client.lastName}`
       : 'Número no reconocido',
     phoneNumber: summary.fromPhoneNumber,
-    lastMessage: summary.lastMessage,
+    lastEvent: summary.lastEvent,
     messageCount: summary.messageCount,
   };
+}
+
+// Human report, 2026-09-16 — the conversation list's last-event timestamp
+// and preview now come from either an inbound message or an outbound-only
+// send (a reminder, a self-service/manual reply the client never answered)
+// — see WhatsappConversationLastEvent's own comment on why the inbound
+// case still carries the full WhatsappInboundMessage (reused
+// media/button-aware rendering) while the outbound case is plain text.
+function lastEventTimestamp(lastEvent: WhatsappConversationLastEvent): string {
+  return lastEvent.direction === 'inbound'
+    ? lastEvent.message.receivedAt
+    : lastEvent.occurredAt;
+}
+
+function lastEventPreview(lastEvent: WhatsappConversationLastEvent): string {
+  if (lastEvent.direction === 'inbound') {
+    return messagePreview(lastEvent.message);
+  }
+  // "Tú: " mirrors how a real WhatsApp client marks its own last message
+  // in the chat list, so an outbound-only conversation (never replied to)
+  // still reads clearly as "we sent this", not as if the client said it.
+  return `Tú: ${lastEvent.messageContent}`;
 }
 
 // Human report, 2026-09-13 — short label for why a conversation is
@@ -688,7 +717,9 @@ function ConversationListItem({
           {conversation.displayName}
         </span>
         <span className="shrink-0 text-meta text-subtle">
-          {formatConversationTimestamp(conversation.lastMessage.receivedAt)}
+          {formatConversationTimestamp(
+            lastEventTimestamp(conversation.lastEvent),
+          )}
         </span>
       </div>
       {attention === 'pending' && ticket && (
@@ -702,7 +733,7 @@ function ConversationListItem({
         </span>
       )}
       <span className="truncate text-meta text-muted">
-        {messagePreview(conversation.lastMessage)}
+        {lastEventPreview(conversation.lastEvent)}
       </span>
       {conversation.messageCount > 1 && (
         <span className="text-meta text-subtle">
