@@ -264,7 +264,20 @@ export function ClientsListPage() {
               <Th style={{ textAlign: 'center' }}>Préstamos activos</Th>
               <Th style={{ textAlign: 'center' }}>En mora</Th>
               <Th style={{ textAlign: 'center' }}>Estado</Th>
-              <Th style={{ textAlign: 'center' }}>Acciones</Th>
+              {/* Human report, 2026-09-15 — Nombre's own fixed width above
+                  (w-64) shrank the equal-split share every other column
+                  including this one used to get, squeezing three buttons
+                  ("Ver detalle"/"Editar"/"Desactivar") into less room than
+                  before. Given its own explicit width instead, same fix
+                  as Préstamos' Acciones column (LoansListPage.tsx) — wider
+                  than that one's w-32 since this row has three buttons to
+                  Préstamos' two. */}
+              <Th
+                className="w-60 whitespace-nowrap"
+                style={{ textAlign: 'center' }}
+              >
+                Acciones
+              </Th>
             </tr>
           </thead>
           <tbody>
