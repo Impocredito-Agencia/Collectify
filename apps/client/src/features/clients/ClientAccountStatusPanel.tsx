@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useClientAccountStatus } from '@/features/clients/useClients';
+import { moraBadgeClasses } from '@/features/loans/loanStatusDisplay';
 import { formatCurrency } from '@/lib/format';
 
 import type { ReactNode } from 'react';
@@ -55,11 +56,20 @@ export function ClientAccountStatusPanel({
       promissoryNoteNumber: installment.promissoryNoteNumber,
       installmentNumber: installment.installmentNumber,
       amount: installment.totalDue,
+      // Confirmed with the human, 2026-09-15 — the same 0/1-30/31-60/60+
+      // mora-severity coloring the "Días mora" column already uses
+      // elsewhere (LoanRow.tsx, LoanDetailPage.tsx), not StatusBadge's
+      // flat "danger" — a cuota 3 days overdue and one 137 days overdue
+      // shouldn't look the same. "Vence en" badges below stay neutral:
+      // their window tops out at ~5 days, too short for these buckets to
+      // ever differentiate anything.
       status: (
-        <StatusBadge tone="danger">
+        <span
+          className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(installment.overdueDays)}`}
+        >
           Vencida hace {installment.overdueDays}{' '}
           {installment.overdueDays === 1 ? 'día' : 'días'}
-        </StatusBadge>
+        </span>
       ),
     })),
     ...data.upcoming.map((installment) => ({
