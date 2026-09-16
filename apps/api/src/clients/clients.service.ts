@@ -224,6 +224,9 @@ export class ClientsService {
     }
     await this.assertDocumentNumberIsUnique(dto.documentNumber);
     await this.assertPhoneNumberIsUnique(dto.phoneNumber);
+    if (dto.alternatePhoneNumber) {
+      await this.assertPhoneNumberIsUnique(dto.alternatePhoneNumber);
+    }
 
     const client = this.clientsRepository.create({
       ...dto,
@@ -485,7 +488,13 @@ export class ClientsService {
       await this.assertDocumentNumberIsUnique(dto.documentNumber);
     }
     if (dto.phoneNumber && dto.phoneNumber !== client.phoneNumber) {
-      await this.assertPhoneNumberIsUnique(dto.phoneNumber);
+      await this.assertPhoneNumberIsUnique(dto.phoneNumber, id);
+    }
+    if (
+      dto.alternatePhoneNumber &&
+      dto.alternatePhoneNumber !== client.alternatePhoneNumber
+    ) {
+      await this.assertPhoneNumberIsUnique(dto.alternatePhoneNumber, id);
     }
 
     // Same "server clock, not caller-supplied" reasoning as create(): only
@@ -667,12 +676,39 @@ export class ClientsService {
     }
   }
 
-  // Human confirmed, 2026-09-16: two clients must never share a phone
-  // number. Same "withDeleted" reasoning as assertDocumentNumberIsUnique —
-  // a soft-deleted client's number still counts as taken.
-  private async assertPhoneNumberIsUnique(phoneNumber: string): Promise<void> {
+  // Human confirmed, 2026-09-16: no phone number — primary or alternate —
+  // may belong to more than one client. WhatsApp message routing resolves
+  // a number to a client by checking BOTH fields (see
+  // clientRecipientPhoneNumbers.ts and WhatsappWebhookService.persistEvent
+  // et al.), so a number shared across two clients would fan a reminder
+  // for either client's loan out to the same physical phone, and an
+  // inbound reply/payment proof from that number would attribute to
+  // whichever of the two clients Postgres happens to return first — not
+  // necessarily the right one. Checked against both columns of every
+  // OTHER client; excludeClientId lets update() skip the client's own
+  // row, since a client having the same number in both phoneNumber and
+  // alternatePhoneNumber is harmless (deduped by getRecipientPhoneNumbers),
+  // not a conflict. Same "withDeleted" reasoning as
+  // assertDocumentNumberIsUnique — a soft-deleted client's number still
+  // counts as taken.
+  //
+  // Unlike documentNumber/phoneNumber's own column, there is no DB-level
+  // unique index backing this cross-column rule (Postgres can't express
+  // "unique across the union of two columns" as a single index) — this
+  // app-level check is the only guard, not just the friendly-error layer
+  // in front of one. Accepted as-is given this app's actual write pattern
+  // (an admin entering clients one at a time, not concurrent bulk writes)
+  // — see docs/DATABASE.md's note under "Indexes".
+  private async assertPhoneNumberIsUnique(
+    phoneNumber: string,
+    excludeClientId?: string,
+  ): Promise<void> {
+    const idFilter = excludeClientId ? { id: Not(excludeClientId) } : {};
     const existing = await this.clientsRepository.findOne({
-      where: { phoneNumber },
+      where: [
+        { ...idFilter, phoneNumber },
+        { ...idFilter, alternatePhoneNumber: phoneNumber },
+      ],
       withDeleted: true,
     });
     if (existing) {

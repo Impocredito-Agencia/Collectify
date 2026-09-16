@@ -6,7 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Between } from 'typeorm';
+import { Between, Not } from 'typeorm';
 
 import {
   Installment,
@@ -256,10 +256,46 @@ describe('ClientsService', () => {
         ConflictException,
       );
       expect(repository.findOne).toHaveBeenNthCalledWith(2, {
-        where: { phoneNumber: createDto.phoneNumber },
+        where: [
+          { phoneNumber: createDto.phoneNumber },
+          { alternatePhoneNumber: createDto.phoneNumber },
+        ],
         withDeleted: true,
       });
       expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    // Human confirmed, 2026-09-16 — the cross-field routing collision
+    // matters just as much for the alternate number: WhatsApp message
+    // routing resolves a number against BOTH clients' phoneNumber and
+    // alternatePhoneNumber, so a shared number needs to be blocked
+    // regardless of which field either side stored it in.
+    it('rejects a new alternate phone number that collides with another client (either of their two fields)', async () => {
+      repository.findOne
+        .mockResolvedValueOnce(null) // documentNumber check passes
+        .mockResolvedValueOnce(null) // phoneNumber check passes
+        .mockResolvedValueOnce(mockClient); // alternatePhoneNumber check conflicts
+
+      await expect(
+        service.create({ ...createDto, alternatePhoneNumber: '+573009999999' }),
+      ).rejects.toThrow(ConflictException);
+      expect(repository.findOne).toHaveBeenNthCalledWith(3, {
+        where: [
+          { phoneNumber: '+573009999999' },
+          { alternatePhoneNumber: '+573009999999' },
+        ],
+        withDeleted: true,
+      });
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('does not check alternatePhoneNumber uniqueness when none is given', async () => {
+      repository.findOne.mockResolvedValue(null);
+      repository.save.mockResolvedValue(mockClient);
+
+      await service.create(createDto);
+
+      expect(repository.findOne).toHaveBeenCalledTimes(2);
     });
 
     // The pre-check above is what normally produces the friendly error —
@@ -500,6 +536,66 @@ describe('ClientsService', () => {
         service.update(mockClient.id, { phoneNumber: '+573009999999' }),
       ).rejects.toThrow(ConflictException);
       expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    // Excludes the client's OWN row from the conflict search — otherwise
+    // this call would find itself (its own phoneNumber already equals the
+    // candidate value shared with another client in some other scenario)
+    // and reject a perfectly legitimate update.
+    it('excludes the client itself when checking phone number uniqueness', async () => {
+      repository.findOneBy.mockResolvedValue(mockClient);
+      repository.findOne.mockResolvedValue(null);
+      repository.save.mockResolvedValue({
+        ...mockClient,
+        phoneNumber: '+573009999999',
+      });
+
+      await service.update(mockClient.id, { phoneNumber: '+573009999999' });
+
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: [
+          { id: Not(mockClient.id), phoneNumber: '+573009999999' },
+          { id: Not(mockClient.id), alternatePhoneNumber: '+573009999999' },
+        ],
+        withDeleted: true,
+      });
+    });
+
+    it('rejects updating the alternate phone number to one already used by another client (either of their two fields)', async () => {
+      repository.findOneBy.mockResolvedValue(mockClient);
+      repository.findOne.mockResolvedValue({
+        ...mockClient,
+        id: 'other-client',
+      });
+
+      await expect(
+        service.update(mockClient.id, {
+          alternatePhoneNumber: '+573009999999',
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    // A client having the same number in both of their own fields is
+    // harmless (deduped by getRecipientPhoneNumbers) — must not be
+    // rejected as a self-conflict.
+    it('allows setting the alternate phone number to match the client’s own primary number', async () => {
+      repository.findOneBy.mockResolvedValue(mockClient);
+      repository.findOne.mockResolvedValue(null);
+      repository.save.mockResolvedValue({
+        ...mockClient,
+        alternatePhoneNumber: mockClient.phoneNumber,
+      });
+
+      await expect(
+        service.update(mockClient.id, {
+          alternatePhoneNumber: mockClient.phoneNumber,
+        }),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          alternatePhoneNumber: mockClient.phoneNumber,
+        }),
+      );
     });
 
     it('does not re-check the phone number when it is unchanged', async () => {
