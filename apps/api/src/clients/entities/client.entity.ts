@@ -39,7 +39,7 @@ export class Client {
   @Column()
   documentNumber!: string;
 
-  @Index()
+  @Index({ unique: true })
   @Column()
   phoneNumber!: string;
 

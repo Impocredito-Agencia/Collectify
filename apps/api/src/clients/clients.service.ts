@@ -223,6 +223,7 @@ export class ClientsService {
       );
     }
     await this.assertDocumentNumberIsUnique(dto.documentNumber);
+    await this.assertPhoneNumberIsUnique(dto.phoneNumber);
 
     const client = this.clientsRepository.create({
       ...dto,
@@ -483,6 +484,9 @@ export class ClientsService {
     if (dto.documentNumber && dto.documentNumber !== client.documentNumber) {
       await this.assertDocumentNumberIsUnique(dto.documentNumber);
     }
+    if (dto.phoneNumber && dto.phoneNumber !== client.phoneNumber) {
+      await this.assertPhoneNumberIsUnique(dto.phoneNumber);
+    }
 
     // Same "server clock, not caller-supplied" reasoning as create(): only
     // stamp consentGivenAt when consent is actually transitioning to true,
@@ -663,6 +667,21 @@ export class ClientsService {
     }
   }
 
+  // Human confirmed, 2026-09-16: two clients must never share a phone
+  // number. Same "withDeleted" reasoning as assertDocumentNumberIsUnique —
+  // a soft-deleted client's number still counts as taken.
+  private async assertPhoneNumberIsUnique(phoneNumber: string): Promise<void> {
+    const existing = await this.clientsRepository.findOne({
+      where: { phoneNumber },
+      withDeleted: true,
+    });
+    if (existing) {
+      throw new ConflictException(
+        `A client with phone number ${phoneNumber} already exists`,
+      );
+    }
+  }
+
   private mapUniqueViolation(error: unknown): unknown {
     if (
       typeof error === 'object' &&
@@ -670,6 +689,21 @@ export class ClientsService {
       'code' in error &&
       error.code === POSTGRES_UNIQUE_VIOLATION
     ) {
+      // Both asserts above already pre-check before this insert/update is
+      // even attempted, so this only fires on a genuine race (two
+      // concurrent requests slipping past the pre-check at once) — the
+      // 'detail' text is Postgres's own way of naming which column's
+      // constraint actually fired, e.g. "Key (phone_number)=(...) already
+      // exists.".
+      const detail =
+        'detail' in error && typeof error.detail === 'string'
+          ? error.detail
+          : '';
+      if (detail.includes('phone_number')) {
+        return new ConflictException(
+          'A client with this phone number already exists',
+        );
+      }
       return new ConflictException(
         'A client with this document number already exists',
       );

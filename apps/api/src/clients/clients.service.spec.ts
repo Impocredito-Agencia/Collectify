@@ -245,6 +245,48 @@ describe('ClientsService', () => {
       expect(repository.save).not.toHaveBeenCalled();
     });
 
+    // Human confirmed, 2026-09-16: two clients must never share a phone
+    // number — same treatment as documentNumber above.
+    it('rejects a duplicate phone number with ConflictException, not a raw DB error', async () => {
+      repository.findOne
+        .mockResolvedValueOnce(null) // documentNumber check passes
+        .mockResolvedValueOnce(mockClient); // phoneNumber check conflicts
+
+      await expect(service.create(createDto)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(repository.findOne).toHaveBeenNthCalledWith(2, {
+        where: { phoneNumber: createDto.phoneNumber },
+        withDeleted: true,
+      });
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    // The pre-check above is what normally produces the friendly error —
+    // this covers mapUniqueViolation's own fallback for the rarer case of
+    // two concurrent requests both slipping past the pre-check at once.
+    it('maps a concurrent DB-level unique violation to a friendly ConflictException, distinguishing which column', async () => {
+      repository.findOne.mockResolvedValue(null);
+
+      repository.save.mockRejectedValueOnce({
+        code: '23505',
+        detail: 'Key (phone_number)=(+573001234567) already exists.',
+      });
+      await expect(service.create(createDto)).rejects.toThrow(
+        new ConflictException('A client with this phone number already exists'),
+      );
+
+      repository.save.mockRejectedValueOnce({
+        code: '23505',
+        detail: 'Key (document_number)=(1234567890) already exists.',
+      });
+      await expect(service.create(createDto)).rejects.toThrow(
+        new ConflictException(
+          'A client with this document number already exists',
+        ),
+      );
+    });
+
     // Phase 21 — dataProcessingConsent is required through this path
     // (ClientsController.create), never through the bulk-import path
     // (ClientLoanImportService, which opts out explicitly). See
@@ -445,6 +487,34 @@ describe('ClientsService', () => {
         service.update(mockClient.id, { documentNumber: '9999999999' }),
       ).rejects.toThrow(ConflictException);
       expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects updating to a phone number already used by another client', async () => {
+      repository.findOneBy.mockResolvedValue(mockClient);
+      repository.findOne.mockResolvedValue({
+        ...mockClient,
+        id: 'other-client',
+      });
+
+      await expect(
+        service.update(mockClient.id, { phoneNumber: '+573009999999' }),
+      ).rejects.toThrow(ConflictException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('does not re-check the phone number when it is unchanged', async () => {
+      repository.findOneBy.mockResolvedValue(mockClient);
+      repository.save.mockResolvedValue({
+        ...mockClient,
+        firstName: 'Juanita',
+      });
+
+      await service.update(mockClient.id, {
+        firstName: 'Juanita',
+        phoneNumber: mockClient.phoneNumber,
+      });
+
+      expect(repository.findOne).not.toHaveBeenCalled();
     });
 
     // Phase 21 — consentGivenAt is stamped with the server clock only when
