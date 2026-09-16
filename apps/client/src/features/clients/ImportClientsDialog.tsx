@@ -28,10 +28,12 @@ interface ImportClientsDialogProps {
 // human request) — each row is now just a client, no loan data. A cédula
 // that already exists is a no-op (surfaced below as "ya existían", not an
 // error) as long as the row's data matches what's on file; a mismatch is
-// still a row error. This dialog never creates a loan — the backend split
-// off a separate POST /loans/import (see apps/api/src/loanImport, matched
-// by cédula), but there's no UI for it on the Préstamos list yet; that's a
-// deliberately separate follow-up, not built in this pass.
+// still a row error. This dialog never creates a loan — loans are entered
+// by hand after a bulk client import, the whole reason for this split. A
+// separate POST /loans/import existed briefly for bulk-assigning a loan to
+// an already-imported client by cédula, but was removed outright
+// 2026-09-09 (confirmed with the human: no UI ever called it, and it was
+// never going to be used — see docs/DATABASE.md's note of that date).
 export function ImportClientsDialog({
   onClose,
   onImported,
