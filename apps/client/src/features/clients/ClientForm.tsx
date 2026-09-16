@@ -556,6 +556,18 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
           };
           setFieldErrors(errors);
           scrollToFirstError(errors);
+        } else if (
+          err.statusCode === 409 &&
+          /phone number/i.test(err.message)
+        ) {
+          // Backend throws ConflictException("A client with phone number X
+          // already exists") for a duplicate celular — same pattern as the
+          // cédula conflict above.
+          const errors: FieldErrors = {
+            phoneNumber: 'Ya existe un cliente registrado con este celular.',
+          };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
         } else if (err.statusCode === 400 && /consent/i.test(err.message)) {
           const errors: FieldErrors = {
             dataProcessingConsent:
