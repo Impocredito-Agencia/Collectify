@@ -20,12 +20,12 @@ import {
 
 import { Audit } from '../auditLog/decorators/audit.decorator';
 import { CurrentUser } from '../auth/decorators/currentUser.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireModule } from '../auth/decorators/requireModule.decorator';
 
 import { CreateUserDto } from './dto/createUser.dto';
 import { QueryUsersDto } from './dto/queryUsers.dto';
 import { UpdateUserModulePermissionsDto } from './dto/updateUserModulePermissions.dto';
-import { UserRole } from './entities/user.entity';
+import { AppModule } from './entities/userModulePermission.entity';
 import { UsersService } from './users.service';
 
 import type { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
@@ -38,36 +38,36 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Users)
   @ApiOperation({
-    summary: 'List users, active by default (admin only)',
+    summary:
+      'List users, active by default (admin or granted the users module)',
     description: 'Pass isActive=false to list deactivated accounts.',
   })
   @ApiResponse({ status: 200, description: 'Returns the list of users.' })
-  @ApiResponse({ status: 403, description: 'Requires the admin role.' })
   findAll(@Query() query: QueryUsersDto): Promise<PublicUser[]> {
     return this.usersService.findAll(query);
   }
 
   @Get(':id')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Users)
   @ApiOperation({
-    summary: "Get a single user's details (admin only)",
+    summary: "Get a single user's details (admin or granted the users module)",
     description:
       'Backs the "Ver perfil" action on the Usuarios list — read-only, no PATCH counterpart exists (edits go through deactivate/reactivate/permissions/delete instead).',
   })
   @ApiResponse({ status: 200, description: 'Returns the user.' })
-  @ApiResponse({ status: 403, description: 'Requires the admin role.' })
   @ApiResponse({ status: 404, description: 'User not found.' })
   findOne(@Param('id') id: string): Promise<PublicUser> {
     return this.usersService.findOne(id);
   }
 
   @Post()
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Users)
   @Audit('user.create', 'user')
   @ApiOperation({
-    summary: 'Create a collector or admin account (admin only)',
+    summary:
+      'Create a collector or admin account (admin or granted the users module)',
     description: 'No self-registration — accounts are always admin-created.',
   })
   @ApiResponse({ status: 201, description: 'The user was created.' })
@@ -77,10 +77,10 @@ export class UsersController {
   }
 
   @Patch(':id/deactivate')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Users)
   @Audit('user.deactivate', 'user')
   @ApiOperation({
-    summary: 'Deactivate a user account (admin only)',
+    summary: 'Deactivate a user account (admin or granted the users module)',
     description:
       'Locks the account out of login without deleting it. An admin cannot deactivate their own account.',
   })
@@ -98,10 +98,11 @@ export class UsersController {
   }
 
   @Patch(':id/reactivate')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Users)
   @Audit('user.reactivate', 'user')
   @ApiOperation({
-    summary: 'Reactivate a deactivated user account (admin only)',
+    summary:
+      'Reactivate a deactivated user account (admin or granted the users module)',
   })
   @ApiResponse({ status: 200, description: 'The user was reactivated.' })
   @ApiResponse({ status: 404, description: 'User not found.' })
@@ -110,11 +111,12 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Users)
   @HttpCode(HttpStatus.NO_CONTENT)
   @Audit('user.delete', 'user')
   @ApiOperation({
-    summary: 'Permanently delete a deactivated user account (admin only)',
+    summary:
+      'Permanently delete a deactivated user account (admin or granted the users module)',
     description:
       'Irreversible — a real delete, not the deactivate/reactivate soft lock above. Only allowed once the account is already deactivated. Past actions this user took stay in the audit trail and usury-rate history (actor/creator reference set to null, per docs/phases/PHASE_20_MODULE_PERMISSIONS.md), only the account itself is removed.',
   })
@@ -129,10 +131,11 @@ export class UsersController {
   }
 
   @Put(':id/permissions')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Users)
   @Audit('user.updatePermissions', 'user')
   @ApiOperation({
-    summary: "Replace a collector's module permissions (admin only)",
+    summary:
+      "Replace a collector's module permissions (admin or granted the users module)",
     description:
       "Sets the full set of modules this collector can access, replacing whatever was granted before. Rejected for an admin account — an admin's access is unconditional and never depends on these rows. See docs/phases/PHASE_20_MODULE_PERMISSIONS.md.",
   })
