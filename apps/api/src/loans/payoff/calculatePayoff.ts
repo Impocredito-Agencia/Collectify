@@ -34,6 +34,17 @@ export interface PayoffInstallmentInput {
   // charged amount — only what the quote can additionally display.
   // Defaults to [] for the (now legacy) case of a caller not passing it.
   corrienteConcepts?: { name: string; amount: number }[];
+  // Bug fix, 2026-09-15 (human report) — how much has already been paid
+  // toward this Pending installment (see sumPaymentsByInstallmentId).
+  // Before this, a quote/payoff/refinance-suggestion recharged an
+  // installment's full nominal cost even when a prior PARTIAL payment
+  // already existed on it — the same class of bug as préstamo #0920's
+  // overcharge, in this function's own separate code path (see
+  // docs/DATABASE.md's "Known gap, flagged 2026-09-07" note). Netted
+  // interest-first, then principal, per Art. 1653 — the same imputación
+  // rule this file's own header comment already invokes for how a FRESH
+  // payoff payment gets split. Defaults to 0.
+  totalPaid?: number;
 }
 
 export interface PayoffInstallmentBreakdown {
@@ -133,6 +144,7 @@ function calculateInstallmentPayoff(
   options: CalculatePayoffOptions,
 ): PayoffInstallmentBreakdown {
   const principalPortion = installment.principalPortion ?? installment.amount;
+  const totalPaid = installment.totalPaid ?? 0;
 
   const dueDate = new Date(installment.dueDate);
   // 0 once the due date is today or has already passed — same "matured"
@@ -152,12 +164,17 @@ function calculateInstallmentPayoff(
     (options.earlyMaturityWindowDays ?? 0);
 
   if (!hasMatured) {
+    // Bug fix, 2026-09-15 — a not-yet-due installment can still carry a
+    // prior payment (an eager/ahead-of-schedule abono); nets straight off
+    // principal since there's no interest here to absorb it first (none
+    // has accrued on an installment that isn't even due yet).
+    const principalApplied = Math.max(0, principalPortion - totalPaid);
     return {
       installmentId: installment.installmentId,
       installmentNumber: installment.installmentNumber,
       interestApplied: 0,
-      principalApplied: principalPortion,
-      totalDue: principalPortion,
+      principalApplied,
+      totalDue: principalApplied,
       conceptBreakdown: [],
     };
   }
@@ -173,7 +190,7 @@ function calculateInstallmentPayoff(
     (sum, item) => sum + item.amount,
     0,
   );
-  const interestApplied = conceptsInterest + moratoryInterest;
+  const grossInterest = conceptsInterest + moratoryInterest;
 
   const conceptBreakdown: ConceptBreakdownItem[] = [
     ...(installment.corrienteConcepts ?? []).map((concept) => ({
@@ -187,12 +204,24 @@ function calculateInstallmentPayoff(
     })),
   ];
 
+  // Bug fix, 2026-09-15 — see PayoffInstallmentInput.totalPaid's own
+  // comment. A prior payment already collected on this installment
+  // settles its interest before touching principal (Art. 1653), so it's
+  // subtracted from grossInterest first; only whatever's left over after
+  // that reduces principal.
+  const interestApplied = Math.max(0, grossInterest - totalPaid);
+  const principalCoveredByPriorPayment = Math.max(0, totalPaid - grossInterest);
+  const principalApplied = Math.max(
+    0,
+    principalPortion - principalCoveredByPriorPayment,
+  );
+
   return {
     installmentId: installment.installmentId,
     installmentNumber: installment.installmentNumber,
     interestApplied,
-    principalApplied: principalPortion,
-    totalDue: interestApplied + principalPortion,
+    principalApplied,
+    totalDue: interestApplied + principalApplied,
     conceptBreakdown,
   };
 }

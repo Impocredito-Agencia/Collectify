@@ -554,4 +554,124 @@ describe('calculatePayoff', () => {
       ]);
     });
   });
+
+  // Bug fix, 2026-09-15 (human report) — a Pending installment with a
+  // prior partial payment used to be quoted/charged at its full nominal
+  // cost all over again, the same class of bug as préstamo #0920's
+  // overcharge in a separate code path (see docs/DATABASE.md's "Known
+  // gap, flagged 2026-09-07"). Every case here reuses the exact same
+  // overdue installment as the very first test above (amount 300000,
+  // principalPortion 270000, 10 days overdue, 6% moratory concept) — gross
+  // interestApplied 36000, principalApplied 270000, totalDue 306000 —
+  // so each totalPaid variant below is easy to check against that same
+  // known baseline.
+  describe('totalPaid netting', () => {
+    const today = new Date('2026-01-11T12:00:00Z');
+    const dueDate = subDays(today, 10).toISOString().slice(0, 10);
+
+    function overdueInstallment(totalPaid: number) {
+      return installment({
+        dueDate,
+        amount: 300000,
+        principalPortion: 270000,
+        moratoryConcepts: [moratoryConceptAt6Percent],
+        totalPaid,
+      });
+    }
+
+    it('is unaffected when nothing has been paid yet (totalPaid defaults to 0)', () => {
+      const quote = calculatePayoff([installment({ dueDate })], today);
+      // No moratory concept on this one — plain baseline from the very
+      // first test in this file, just confirming totalPaid's absence
+      // changes nothing.
+      expect(quote.installments[0].totalDue).toBe(
+        calculatePayoff([installment({ dueDate, totalPaid: 0 })], today)
+          .installments[0].totalDue,
+      );
+    });
+
+    it('nets a partial payment smaller than the accrued interest off interest only', () => {
+      const quote = calculatePayoff([overdueInstallment(10000)], today);
+
+      expect(quote.installments[0]).toMatchObject({
+        interestApplied: 26000, // 36000 - 10000
+        principalApplied: 270000, // untouched — the payment never reached principal
+        totalDue: 296000,
+      });
+    });
+
+    it('zeroes interest exactly when the prior payment equals it, leaving principal untouched', () => {
+      const quote = calculatePayoff([overdueInstallment(36000)], today);
+
+      expect(quote.installments[0]).toMatchObject({
+        interestApplied: 0,
+        principalApplied: 270000,
+        totalDue: 270000,
+      });
+    });
+
+    it('spills the remainder into principal once the prior payment exceeds accrued interest (Art. 1653 — interest first)', () => {
+      const quote = calculatePayoff([overdueInstallment(50000)], today);
+
+      expect(quote.installments[0]).toMatchObject({
+        interestApplied: 0,
+        principalApplied: 256000, // 270000 - (50000 - 36000)
+        totalDue: 256000,
+      });
+    });
+
+    it('floors at zero rather than going negative once the prior payment covers everything owed', () => {
+      const quote = calculatePayoff([overdueInstallment(500000)], today);
+
+      expect(quote.installments[0]).toMatchObject({
+        interestApplied: 0,
+        principalApplied: 0,
+        totalDue: 0,
+      });
+    });
+
+    it('nets a prior payment straight off principal for a not-yet-matured installment (no interest to absorb it first)', () => {
+      const futureDueDate = addDays(today, 5).toISOString().slice(0, 10);
+      const quote = calculatePayoff(
+        [
+          installment({
+            dueDate: futureDueDate,
+            amount: 300000,
+            principalPortion: 270000,
+            moratoryConcepts: [moratoryConceptAt6Percent],
+            totalPaid: 100000,
+          }),
+        ],
+        today,
+      );
+
+      expect(quote.installments[0]).toMatchObject({
+        interestApplied: 0,
+        principalApplied: 170000, // 270000 - 100000
+        totalDue: 170000,
+      });
+    });
+
+    it('nets totalPaid per installment, independently, across several pending installments', () => {
+      const quote = calculatePayoff(
+        [
+          overdueInstallment(36000), // first installment's own payment...
+          installment({
+            installmentId: 'inst-2',
+            installmentNumber: 2,
+            dueDate,
+            amount: 300000,
+            principalPortion: 270000,
+            moratoryConcepts: [moratoryConceptAt6Percent],
+            totalPaid: 0, // ...never touches the second installment's own balance
+          }),
+        ],
+        today,
+      );
+
+      expect(quote.installments[0].totalDue).toBe(270000);
+      expect(quote.installments[1].totalDue).toBe(306000);
+      expect(quote.totalDue).toBe(270000 + 306000);
+    });
+  });
 });
