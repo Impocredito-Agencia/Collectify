@@ -159,7 +159,7 @@ Unique on (`user_id`, `module`). **Row presence is the grant — there's no bool
 | `first_name` | VARCHAR | |
 | `last_name` | VARCHAR | |
 | `document_number` | VARCHAR | national ID (cédula) — confirmed required, present in both source spreadsheets as `DOCUMENTO`. As of Phase 26, also enforced (rejected if missing/empty) in `ClientsService.create()` for interactively-created clients — see "Added/changed in Phase 26" below. |
-| `phone_number` | VARCHAR | E.164 format, e.g. `+573001234567`. As of 2026-09-06, this is enforced by normalization, not just documentation — see "Bug fix, 2026-09-06 — phone number normalization" below. |
+| `phone_number` | VARCHAR, unique | E.164 format, e.g. `+573001234567`. As of 2026-09-06, this is enforced by normalization, not just documentation — see "Bug fix, 2026-09-06 — phone number normalization" below. **Unique, as of 2026-09-16** (human confirmed) — see "Indexes" below. |
 | `credit_limit` | DECIMAL(12,2), nullable | maximum credit exposure ("cupo") enforced at loan creation. Nullable — unset means no cupo is enforced for this client, same "absence of a value means the rule doesn't apply" convention as `loans.description`. Added Phase 10, see "Changed after Phase 10" below. |
 | `document_type` | ENUM (`cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`), nullable | Added Phase 21. As of Phase 26, `loans.co_debtor_document_type` (which shared this enum) is gone — a co-debtor is now a `Client` reference, so their `document_type` is read from this same column. |
 | `date_of_birth` | DATE, nullable | Added Phase 21. |
@@ -592,7 +592,7 @@ npm run migration:revert
 - `usury_rates.effective_month` — unique, and looked up on every loan creation/refinance to enforce the ceiling
 - `loans.promissory_note_number` — looked up constantly, must be fast; the DB-level constraint is a partial unique index scoped to `status = 'active'` rows as of the 2026-09-06 refinancing redesign (see "Refinancing" above), no longer a plain column-level unique constraint — full "never reused by an unrelated new loan" uniqueness is enforced at the application layer instead (`LoansService.assertPromissoryNoteNumberIsUnique`)
 - `clients.document_number` — for search and duplicate prevention
-- `clients.phone_number` — for search and WhatsApp matching
+- `clients.phone_number` — for search and WhatsApp matching. **Unique, as of 2026-09-16** (human confirmed: two clients must never share a phone number) — see `AddUniqueConstraintToClientsPhoneNumber1790800000000`. Enforced the same way as `document_number`: `ClientsService.assertPhoneNumberIsUnique` pre-checks (including soft-deleted clients) before a friendlier `ConflictException` beats the DB constraint to it; the constraint itself is the last-resort guard against a concurrent-request race.
 - `installments.due_date` and `installments.status` — the weekly CronJob queries heavily on both
 - `audit_logs (entity_type, entity_id)` and `audit_logs (actor_user_id, created_at)` — back "show me the history for this record" and "show me what this user did, most recent first", the two filters the audit log screen supports (see `docs/phasesClient/PHASE_11_AUDIT_LOG.md`)
 - `client_references.client_id` — every lookup is "give me this client's references"
