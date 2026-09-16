@@ -209,9 +209,15 @@ export class AuditLogInterceptor implements NestInterceptor {
         if (entity && typeof entity.firstName === 'string') {
           return this.formatClientLabel(entity);
         }
-        if (params.id) {
+        // params.clientId (human report, 2026-09-15) — whatsapp.sendReminder/
+        // sendUpcomingDue route as POST /whatsapp/clients/:clientId/..., not
+        // :id like every other client-entityType endpoint; their response is
+        // MessageLog[] (no client fields to read off `entity` at all), so
+        // this always falls through to the lookup below.
+        const clientId = params.id ?? params.clientId;
+        if (clientId) {
           const client = await this.clientsRepository.findOne({
-            where: { id: params.id },
+            where: { id: clientId },
             withDeleted: true,
           });
           return client
@@ -359,6 +365,68 @@ export class AuditLogInterceptor implements NestInterceptor {
           ? this.formatClientLabel(client as unknown as Record<string, unknown>)
           : phoneNumber;
       }
+      // Human report, 2026-09-15 — closes the "reply" item off the same
+      // 2026-09-03 coverage sweep as whatsappCron/whatsappTicket above
+      // (still confirmed missing as of the 2026-09-10 follow-up sweep in
+      // docs/DATABASE.md). Same dual-match phone lookup as whatsappTicket:
+      // the response here is just `{ sent: boolean }`, no client at all.
+      case 'whatsappReply': {
+        const phoneNumber =
+          requestBody &&
+          typeof requestBody === 'object' &&
+          'phoneNumber' in requestBody &&
+          typeof requestBody.phoneNumber === 'string'
+            ? (requestBody as { phoneNumber: string }).phoneNumber
+            : null;
+        if (!phoneNumber) {
+          return null;
+        }
+        const client = await this.clientsRepository.findOne({
+          where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
+        });
+        const who = client
+          ? this.formatClientLabel(client as unknown as Record<string, unknown>)
+          : phoneNumber;
+        const messageText =
+          requestBody &&
+          typeof requestBody === 'object' &&
+          'message' in requestBody &&
+          typeof requestBody.message === 'string'
+            ? requestBody.message
+            : null;
+        const sent =
+          entity && typeof entity.sent === 'boolean' ? entity.sent : true;
+        const preview = messageText
+          ? ` — "${this.truncate(messageText, 60)}"`
+          : '';
+        return `${who}${preview}${sent ? '' : ' (no entregado)'}`;
+      }
+      // Human report, 2026-09-15 — closes the "message_logs.retry" item off
+      // the same coverage sweep. The response is the NEW MessageLog row the
+      // retry created (see MessageLogsService.retry) — no client fields of
+      // its own to read (just clientId), so this looks the client up the
+      // same way the 'payment' case above looks up an installment's loan.
+      case 'messageLogRetry': {
+        const clientId =
+          entity && typeof entity.clientId === 'string'
+            ? entity.clientId
+            : null;
+        if (!clientId) {
+          return null;
+        }
+        const client = await this.clientsRepository.findOne({
+          where: { id: clientId },
+          withDeleted: true,
+        });
+        const who = client
+          ? this.formatClientLabel(client as unknown as Record<string, unknown>)
+          : null;
+        if (!who) {
+          return null;
+        }
+        const failed = entity?.status === 'failed';
+        return `Reintento de mensaje — ${who}${failed ? ' (no entregado)' : ''}`;
+      }
       case 'interestConceptType': {
         if (entity && typeof entity.name === 'string') {
           return entity.name;
@@ -481,6 +549,14 @@ export class AuditLogInterceptor implements NestInterceptor {
     return (Object.values(ReminderFamily) as string[]).includes(value);
   }
 
+  // Human report, 2026-09-15 — a manual reply's free-text message body has
+  // no length limit, so it's shortened here rather than letting one long
+  // message dominate the audit table's Acción/Entidad columns; the full,
+  // untruncated text still lives in metadata.body regardless.
+  private truncate(value: string, maxLength: number): string {
+    return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
+  }
+
   private formatClientLabel(client: Record<string, unknown>): string {
     const firstName =
       typeof client.firstName === 'string' ? client.firstName : '';
@@ -541,7 +617,11 @@ export class AuditLogInterceptor implements NestInterceptor {
       }
     }
 
-    return params.id ?? null;
+    // params.clientId (human report, 2026-09-15) — whatsapp.sendReminder/
+    // sendUpcomingDue's response is a MessageLog[] with no single id of its
+    // own to fall back to; the client this action was actually about is
+    // the next best thing to record as entityId.
+    return params.id ?? params.clientId ?? null;
   }
 
   private extractId(value: unknown): string | null {

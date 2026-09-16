@@ -134,6 +134,7 @@ export class WhatsappController {
   }
 
   @Post('inbound-messages/reply')
+  @Audit('whatsapp.reply', 'whatsappReply')
   @ApiOperation({
     summary:
       'Manually reply to an inbound WhatsApp conversation (admin or granted the messages module)',
@@ -290,6 +291,7 @@ export class WhatsappController {
   }
 
   @Post('clients/:clientId/send-reminder')
+  @Audit('whatsapp.sendReminder', 'client')
   @ApiOperation({
     summary:
       'Manually trigger the overdue reminder for one client (admin or granted the messages module)',
@@ -311,6 +313,7 @@ export class WhatsappController {
   }
 
   @Post('clients/:clientId/send-upcoming-due')
+  @Audit('whatsapp.sendUpcomingDue', 'client')
   @ApiOperation({
     summary:
       'Manually trigger the upcoming-due reminder for one client (admin or granted the messages module)',
