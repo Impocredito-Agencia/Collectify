@@ -982,6 +982,18 @@ No new schema: `DashboardService.getOverdueInstallmentDetails()` (a thin public 
 
 Gated the same way `clientsImport`'s downloads are (`@RequireModule(AppModule.Clients)`) since the button lives on the Clientes page — not Dashboard, which has no module gate at all (see `AppModule`'s own comment on why).
 
+## Feature, 2026-09-15 — front-desk "estado de cuenta" on the client profile
+
+Human request: when a client walks into the office, the front desk needs to say "your pagaré #X owes cuota N for $Y" right away — they didn't want to open the messages module and read the client's last WhatsApp reminder, which goes stale the moment a same-day payment is registered.
+
+`GET /clients/:id/account-status` (`ClientsService.getAccountStatus`) reuses `findOverdueInstallmentsForClient`/`findUpcomingInstallmentsForClient` (`apps/api/src/whatsapp/reminderInstallmentQueries.ts`) directly — the exact same queries `OverdueReminderService`/`UpcomingDueReminderService` already build their WhatsApp reminders from — so this view can never disagree with what the client was already told. No new schema, no new calculation.
+
+**"Próxima a vencer" window, confirmed with the human:** the same admin-configurable `cron.upcomingDueReminderDays` the reminders themselves use (default 5 days), not a separately-invented number — showing every future installment would bury what actually matters today under cuotas that aren't due for months. `overdue` has no such cutoff — any installment past its due date shows, regardless of how overdue.
+
+**Why this lives in `ClientsService`, importing from `whatsapp/`:** these are plain functions (no `@Injectable()`, no module-level DI), so importing them into `clients/` doesn't create a circular NestJS module dependency even though `WhatsappModule` separately imports `ClientsModule` — Nest's cycle detection is about `@Module()`/provider graphs, not a file importing a stateless helper from another domain folder.
+
+**`apps/client` UI:** `ClientAccountStatusPanel.tsx`, rendered at the top of `ClientDetailPage.tsx` (above `ClientCreditBanner`) — unlike that banner, which hides entirely when there's nothing to show, this panel always renders, including a plain "Al día" message when both lists are empty: a front-desk lookup needs a clear "nothing pending" answer just as much as a list of what's owed.
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above

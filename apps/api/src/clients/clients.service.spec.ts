@@ -3,8 +3,10 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Between } from 'typeorm';
 
 import {
   Installment,
@@ -56,6 +58,7 @@ describe('ClientsService', () => {
     delete: jest.Mock;
   };
   let clientCreditBalanceService: { getBalance: jest.Mock };
+  let configService: { get: jest.Mock };
 
   const mockClient: Client = {
     id: 'client-1',
@@ -158,6 +161,9 @@ describe('ClientsService', () => {
     clientCreditBalanceService = {
       getBalance: jest.fn().mockResolvedValue(0),
     };
+    configService = {
+      get: jest.fn().mockReturnValue({ upcomingDueReminderDays: 5 }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -188,6 +194,7 @@ describe('ClientsService', () => {
           provide: ClientCreditBalanceService,
           useValue: clientCreditBalanceService,
         },
+        { provide: ConfigService, useValue: configService },
       ],
     }).compile();
 
@@ -927,6 +934,93 @@ describe('ClientsService', () => {
 
       expect(loansRepository.find).toHaveBeenCalledWith({
         where: { clientId: mockClient.id, status: LoanStatus.Active },
+      });
+    });
+  });
+
+  // Human request, 2026-09-15 — front-desk lookup. Reuses
+  // findOverdueInstallmentsForClient/findUpcomingInstallmentsForClient
+  // (whatsapp/reminderInstallmentQueries.ts), already covered by their own
+  // spec — these tests only check getAccountStatus's own wiring (client
+  // existence, the two queries actually running, the config-driven
+  // window), not re-verify mora arithmetic.
+  describe('getAccountStatus', () => {
+    it('throws NotFoundException when the client does not exist', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getAccountStatus('missing')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it("returns the client's overdue and upcoming installments", async () => {
+      repository.findOneBy.mockResolvedValue(mockClient);
+      const loan = {
+        id: 'loan-1',
+        clientId: mockClient.id,
+        promissoryNoteNumber: '#0800',
+        alternateContactPhoneNumber: null,
+      };
+      installmentsRepository.find
+        .mockResolvedValueOnce([
+          {
+            id: 'inst-overdue',
+            loanId: loan.id,
+            loan,
+            installmentNumber: 3,
+            amount: 300000,
+            dueDate: daysAgo(10),
+            status: InstallmentStatus.Pending,
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 'inst-upcoming',
+            loanId: loan.id,
+            loan,
+            installmentNumber: 4,
+            amount: 300000,
+            dueDate: daysAgo(-3),
+            status: InstallmentStatus.Pending,
+          },
+        ]);
+
+      const result = await service.getAccountStatus(mockClient.id);
+
+      expect(result.overdue).toHaveLength(1);
+      expect(result.overdue[0]).toMatchObject({
+        promissoryNoteNumber: '#0800',
+        installmentNumber: 3,
+        overdueDays: 10,
+      });
+      expect(result.upcoming).toHaveLength(1);
+      expect(result.upcoming[0]).toMatchObject({
+        promissoryNoteNumber: '#0800',
+        installmentNumber: 4,
+        daysUntilDue: 3,
+      });
+    });
+
+    it("reads the upcoming window from the admin's own reminder config, not a separate number", async () => {
+      repository.findOneBy.mockResolvedValue(mockClient);
+      configService.get.mockReturnValue({ upcomingDueReminderDays: 9 });
+      installmentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      await service.getAccountStatus(mockClient.id);
+
+      expect(configService.get).toHaveBeenCalledWith('cron', {
+        infer: true,
+      });
+      expect(installmentsRepository.find).toHaveBeenNthCalledWith(2, {
+        where: {
+          status: InstallmentStatus.Pending,
+          dueDate: Between(daysAgo(-1), daysAgo(-9)),
+          loan: { clientId: mockClient.id, status: LoanStatus.Active },
+        },
+        relations: { loan: true },
+        order: { dueDate: 'ASC' },
       });
     });
   });
