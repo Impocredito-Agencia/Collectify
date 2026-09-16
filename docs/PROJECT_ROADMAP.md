@@ -302,7 +302,6 @@ Requested by the client — templates already written and submitted to Meta for 
 - Switches outbound WhatsApp sends from plain text to real Meta-approved Template Messages, required for any business-initiated send outside the 24h session window
 - Replaces the old 4-type message catalog (`new_loan`, `upcoming_due`, `overdue`, `account_summary`) with the 13 specific templates the client wrote — new/existing client variants, cuota inicial variants, refinancing, upcoming/overdue by count and days-overdue, payment confirmation, and paz y salvo
 - A shared "nota adicional" mechanism (saldo pendiente / saldo a favor / normal) fills the closing line on every reminder template
-- A fixed promotional image follows the paz y salvo confirmation, submitted to Meta as Marketing category
 
 **Exit criteria:** every trigger (new loan, refinance, upcoming due, overdue, payment confirmation, paz y salvo) sends the correct one of the 13 approved templates with the exact parameter order the client specified.
 
