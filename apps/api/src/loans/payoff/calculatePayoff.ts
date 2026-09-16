@@ -3,6 +3,7 @@ import {
   calculateDaysUntilDue,
   calculateMoratoryCharges,
   calculateOverdueDays,
+  calculateTotalDue,
   MoratoryConceptAssignment,
 } from '../installments/installmentCalculations';
 
@@ -204,6 +205,22 @@ function calculateInstallmentPayoff(
     })),
   ];
 
+  // Bug fix, 2026-09-15 — rounds the gross total to the nearest $100, the
+  // exact same call (same inputs: installment.amount, moratoryInterest)
+  // enrichInstallment.ts's own totalDue already uses — without this, a
+  // payoff quote and the loan detail view disagreed on this installment's
+  // total by however much that rounding moved it (human report). Interest
+  // itself is deliberately left UNROUNDED here (interestApplied below),
+  // same convention enrichInstallment.ts follows for its own `interest`
+  // field — only the combined total gets rounded; principal silently
+  // absorbs that rounding delta (±$50), the same role it already plays
+  // once concept charges get folded into `amount` at schedule generation.
+  const roundedGrossTotal = calculateTotalDue(
+    installment.amount,
+    moratoryInterest,
+  );
+  const roundedGrossPrincipal = roundedGrossTotal - grossInterest;
+
   // Bug fix, 2026-09-15 — see PayoffInstallmentInput.totalPaid's own
   // comment. A prior payment already collected on this installment
   // settles its interest before touching principal (Art. 1653), so it's
@@ -213,7 +230,7 @@ function calculateInstallmentPayoff(
   const principalCoveredByPriorPayment = Math.max(0, totalPaid - grossInterest);
   const principalApplied = Math.max(
     0,
-    principalPortion - principalCoveredByPriorPayment,
+    roundedGrossPrincipal - principalCoveredByPriorPayment,
   );
 
   return {

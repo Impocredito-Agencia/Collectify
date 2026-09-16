@@ -1504,12 +1504,21 @@ describe('LoansService', () => {
         paidInstallment,
       ]);
       loanInstallmentConceptsRepository.find.mockResolvedValue([
+        // FixedAmount (bug fix, 2026-09-15), not Percentage — a percentage
+        // rate compounds with real elapsed days since dueDate, which
+        // change every time this suite runs (calculatePayoff() here has
+        // no fixed `today` to pin it against, unlike calculatePayoff.spec.ts's
+        // own fixtures), making the resulting rounding delta this test
+        // would need to predict non-deterministic. FixedAmount charges the
+        // same flat 5000 regardless of overdueDays, keeping the whole
+        // installment (210000 + 5000 = 215000) landing exactly on a round
+        // hundred with zero rounding delta to account for.
         {
           installmentId: overduePending.id,
           category: ConceptCategory.Moratorio,
-          calculationType: ConceptCalculationType.Percentage,
+          calculationType: ConceptCalculationType.FixedAmount,
           nameSnapshot: 'Intereses moratorios',
-          value: 6,
+          value: 5000,
         },
       ]);
 

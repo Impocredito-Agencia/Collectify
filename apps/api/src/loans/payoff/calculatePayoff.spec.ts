@@ -674,4 +674,67 @@ describe('calculatePayoff', () => {
       expect(quote.totalDue).toBe(270000 + 306000);
     });
   });
+
+  // Bug fix, 2026-09-15 (human report) — a payoff quote's totalDue used to
+  // be the raw, unrounded principal+interest sum, while the loan detail
+  // view's totalDue (enrichInstallment.ts) always rounds that same sum to
+  // the nearest $100 (calculateTotalDue) — the two disagreed by whatever
+  // the rounding moved, confusing a cobrador comparing them side by side.
+  // Every test above this point happens to land on a round hundred
+  // already (moratoryInterest was always an exact multiple of 100 in
+  // those fixtures), so this block deliberately picks a rate/day count
+  // that DOESN'T, to actually exercise the rounding path.
+  describe('totalDue rounding — matches the loan detail view', () => {
+    const today = new Date('2026-01-14T12:00:00Z');
+    const dueDate = subDays(today, 13).toISOString().slice(0, 10);
+    const moratoryConceptAt5Percent = {
+      name: 'Interés moratorio',
+      calculationType: ConceptCalculationType.Percentage,
+      value: 5,
+    };
+
+    it('rounds the gross total to the nearest $100, same as calculateTotalDue', () => {
+      const quote = calculatePayoff(
+        [
+          installment({
+            dueDate,
+            amount: 250000,
+            principalPortion: 220000,
+            moratoryConcepts: [moratoryConceptAt5Percent],
+          }),
+        ],
+        today,
+      );
+
+      // conceptsInterest = 250000 - 220000 = 30000
+      // moratoryInterest = round(250000 * 0.05 / 30 * 13) = round(5416.67) = 5417
+      // gross = 30000 + 5417 = 35417 -> rounds to 255417 -> nearest 100 = 255400
+      // (the OLD, unrounded behavior would have quoted 255417 instead)
+      expect(quote.installments[0]).toMatchObject({
+        interestApplied: 35417,
+        principalApplied: 219983, // absorbs the 17-peso rounding delta
+        totalDue: 255400,
+      });
+    });
+
+    it('nets totalPaid off the already-rounded total, same order as enrichInstallment', () => {
+      const quote = calculatePayoff(
+        [
+          installment({
+            dueDate,
+            amount: 250000,
+            principalPortion: 220000,
+            moratoryConcepts: [moratoryConceptAt5Percent],
+            totalPaid: 10000,
+          }),
+        ],
+        today,
+      );
+
+      // Rounds first (255400), THEN subtracts the prior payment — same
+      // sequence as enrichInstallment.ts's own totalDue, not rounded a
+      // second time afterward.
+      expect(quote.installments[0].totalDue).toBe(245400);
+    });
+  });
 });
