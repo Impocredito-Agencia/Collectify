@@ -50,12 +50,15 @@ class ImportErrorsExportDto {
 
 // Split 2026-09-06 from the old combined clients+loans importer — this
 // module only ever creates clients. Assigning a loan to one of them by
-// cédula is POST /loans/import (see apps/api/src/loanImport). The route
-// path below is kept literally as `import-with-loans` for now even
-// though it no longer touches loans — the admin panel's Excel import
-// dialog (apps/client) still calls this exact path, and that frontend
-// wiring is a deliberately separate follow-up, not done in this pass.
-// Rename the route together with that frontend update, not before.
+// cédula is POST /loans/import (see apps/api/src/loanImport).
+//
+// Route renamed, 2026-09-16 — `import-with-loans` no longer described
+// what this does (it hasn't touched loans since the split above); renamed
+// to `import-clients` to match its sibling routes' own `import-*` naming
+// (import-template, import-errors-export) and the audit action name this
+// already logs under (`clientsImport.execute`). The only caller was
+// apps/client/src/features/clients/clientsImportApi.ts — updated in the
+// same commit, so there's no window where the two sides disagree.
 @ApiTags('clients')
 @ApiBearerAuth()
 @Controller('clients')
@@ -68,7 +71,7 @@ export class ClientsImportController {
     summary:
       'Download an empty .xlsx template for the clients import (admin or granted the clients module)',
     description:
-      'Columns always match what POST /clients/import-with-loans accepts — both are built from the ' +
+      'Columns always match what POST /clients/import-clients accepts — both are built from the ' +
       'same column definitions, so they cannot drift apart. Clients only — no loan data. See ' +
       'POST /loans/import to assign a loan to an existing client by cédula.',
   })
@@ -82,7 +85,7 @@ export class ClientsImportController {
     res.send(buffer);
   }
 
-  @Post('import-with-loans')
+  @Post('import-clients')
   @RequireModule(AppModule.Clients)
   @Audit('clientsImport.execute', 'clientsImport')
   @UseInterceptors(
@@ -130,7 +133,7 @@ export class ClientsImportController {
     summary:
       'Regenerate a downloadable .xlsx of just the rows that failed a given import attempt (admin or granted the clients module)',
     description:
-      'Stateless — pass back the exact `skipped` array from a prior POST /clients/import-with-loans ' +
+      'Stateless — pass back the exact `skipped` array from a prior POST /clients/import-clients ' +
       'response. Pre-fills each failed row plus a "Motivo del error" column, using the same columns ' +
       'as the template, so the corrected file can be re-uploaded through the same endpoint.',
   })
