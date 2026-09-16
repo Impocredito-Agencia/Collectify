@@ -89,7 +89,7 @@ export class WhatsappController {
     summary:
       'List WhatsApp conversations, one per contact (admin or granted the messages module)',
     description:
-      "Paginated by conversation, not by message — each item is the latest message plus a total count for that contact. search matches the matched client's first/last name. Fetch a conversation's own full history separately via GET /whatsapp/inbound-messages?clientId=/fromPhoneNumber=.",
+      "Paginated by conversation, not by message — each item is the latest event plus a total count for that contact. As of 2026-09-16 this includes a contact who was only ever SENT something (a reminder or self-service/manual reply) and never replied, not only contacts who texted in — lastEvent's direction/source tells the two apart. search matches the matched client's first/last name. Fetch a conversation's own full history separately via GET /whatsapp/inbound-messages?clientId=/fromPhoneNumber=.",
   })
   @ApiResponse({
     status: 200,

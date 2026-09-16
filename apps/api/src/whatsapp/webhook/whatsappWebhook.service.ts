@@ -13,12 +13,16 @@ import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Configuration } from '../../config/configuration';
+import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import { ConversationMenu } from '../entities/whatsappConversationState.entity';
 import {
   WhatsappInboundMessage,
   WhatsappInboundMessageType,
 } from '../entities/whatsappInboundMessage.entity';
-import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
+import {
+  WhatsappManualReply,
+  WhatsappManualReplyStatus,
+} from '../entities/whatsappManualReply.entity';
 import { CONVERSATION_CLOSED_MESSAGE } from '../selfServiceMenuMessages';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
@@ -33,7 +37,10 @@ import {
   extractInboundEvents,
   ParsedInboundEvent,
 } from './extractInboundEvents';
-import { WhatsappConversationSummary } from './interfaces/whatsappConversationSummary.interface';
+import type {
+  WhatsappConversationLastEvent,
+  WhatsappConversationSummary,
+} from './interfaces/whatsappConversationSummary.interface';
 import { normalizeIncomingPhoneNumber } from './normalizeIncomingPhoneNumber';
 import { WhatsappInboundGateway } from './whatsappInbound.gateway';
 import { WhatsappMediaService } from './whatsappMedia.service';
@@ -43,9 +50,65 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_CONVERSATIONS_PAGE_SIZE = 20;
 
+type ConversationEventSource =
+  'inbound_message' | 'message_log' | 'manual_reply';
+
 interface ConversationRow {
   id: string;
+  source: ConversationEventSource;
   message_count: string;
+}
+
+// Shared by findConversations' paginated rows/count queries — a UNION ALL
+// across the three tables a client's WhatsApp activity can live in, each
+// projected to (id, source, contact_key, occurred_at) so they can be
+// grouped/paginated together as one timeline. $1 is the optional search
+// term (client first/last name), applied identically to all three
+// branches so an unmatched-number conversation is excluded from a search
+// result exactly like before (c.first_name/c.last_name are NULL for an
+// unjoined row, so the ILIKE never matches unless $1 itself is NULL).
+//
+// contact_key normalizes whatsapp_inbound_messages.from_phone_number (Meta
+// sends it WITHOUT a leading "+", see normalizeIncomingPhoneNumber's own
+// comment) to the same "+"-prefixed shape message_logs.phone_number and
+// whatsapp_manual_replies.phone_number are already stored in — without
+// this, the same real contact could group into two separate conversation
+// rows (one keyed by the raw inbound number, one by the normalized
+// outbound number) the moment they had both an inbound and an
+// outbound-only row. message_logs.client_id is never null (every send
+// targets an existing client), so that branch keys on it directly.
+function buildConversationEventsCte(): string {
+  return `
+    SELECT
+      m.id,
+      'inbound_message'::text AS source,
+      COALESCE(
+        m.client_id::text,
+        CASE WHEN m.from_phone_number LIKE '+%' THEN m.from_phone_number ELSE '+' || m.from_phone_number END
+      ) AS contact_key,
+      m.received_at AS occurred_at
+    FROM whatsapp_inbound_messages m
+    LEFT JOIN clients c ON c.id = m.client_id AND c.deleted_at IS NULL
+    WHERE $1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1
+    UNION ALL
+    SELECT
+      l.id,
+      'message_log'::text AS source,
+      l.client_id::text AS contact_key,
+      l.sent_at AS occurred_at
+    FROM message_logs l
+    LEFT JOIN clients c ON c.id = l.client_id AND c.deleted_at IS NULL
+    WHERE $1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1
+    UNION ALL
+    SELECT
+      r.id,
+      'manual_reply'::text AS source,
+      COALESCE(r.client_id::text, r.phone_number) AS contact_key,
+      r.sent_at AS occurred_at
+    FROM whatsapp_manual_replies r
+    LEFT JOIN clients c ON c.id = r.client_id AND c.deleted_at IS NULL
+    WHERE $1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1
+  `;
 }
 
 @Injectable()
@@ -60,6 +123,8 @@ export class WhatsappWebhookService {
     private readonly clientsRepository: Repository<Client>,
     @InjectRepository(WhatsappManualReply)
     private readonly manualRepliesRepository: Repository<WhatsappManualReply>,
+    @InjectRepository(MessageLog)
+    private readonly messageLogsRepository: Repository<MessageLog>,
     private readonly whatsappInboundGateway: WhatsappInboundGateway,
     private readonly whatsAppService: WhatsAppService,
     private readonly selfServiceMenuService: SelfServiceMenuService,
@@ -233,6 +298,14 @@ export class WhatsappWebhookService {
   // events — a busy client is one page-item like everyone else. The
   // conversation's own full history is fetched separately, on demand, once
   // opened — see findAll's clientId/fromPhoneNumber filters above.
+  //
+  // Human report, 2026-09-16 — this used to aggregate ONLY
+  // whatsapp_inbound_messages, so a client who was only ever SENT
+  // something (a reminder via message_logs, a self-service/manual reply
+  // via whatsapp_manual_replies) but never texted back had zero rows to
+  // partition on and simply never appeared in the inbox. Now UNIONs all
+  // three source tables before partitioning — see
+  // buildConversationEventsCte's own comment for the grouping-key details.
   async findConversations(
     query: QueryWhatsappConversationsDto,
   ): Promise<PaginatedResult<WhatsappConversationSummary>> {
@@ -260,21 +333,19 @@ export class WhatsappWebhookService {
     const rows: ConversationRow[] =
       await this.inboundMessagesRepository.manager.query(
         `
-      SELECT id, message_count FROM (
+      WITH events AS (${buildConversationEventsCte()})
+      SELECT id, source, message_count FROM (
         SELECT
-          m.id,
-          m.received_at,
-          COUNT(*) OVER (PARTITION BY COALESCE(m.client_id::text, m.from_phone_number)) AS message_count,
-          ROW_NUMBER() OVER (
-            PARTITION BY COALESCE(m.client_id::text, m.from_phone_number)
-            ORDER BY m.received_at DESC
-          ) AS rn
-        FROM whatsapp_inbound_messages m
-        LEFT JOIN clients c ON c.id = m.client_id AND c.deleted_at IS NULL
-        WHERE $1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1
+          id,
+          source,
+          contact_key,
+          occurred_at,
+          COUNT(*) OVER (PARTITION BY contact_key) AS message_count,
+          ROW_NUMBER() OVER (PARTITION BY contact_key ORDER BY occurred_at DESC) AS rn
+        FROM events
       ) latest
       WHERE rn = 1
-      ORDER BY received_at DESC
+      ORDER BY occurred_at DESC
       LIMIT $2 OFFSET $3
       `,
         [search, limit, (page - 1) * limit],
@@ -283,10 +354,8 @@ export class WhatsappWebhookService {
     const [{ total: totalRaw }]: [{ total: string }] =
       await this.inboundMessagesRepository.manager.query(
         `
-        SELECT COUNT(DISTINCT COALESCE(m.client_id::text, m.from_phone_number)) AS total
-        FROM whatsapp_inbound_messages m
-        LEFT JOIN clients c ON c.id = m.client_id AND c.deleted_at IS NULL
-        WHERE $1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1
+        WITH events AS (${buildConversationEventsCte()})
+        SELECT COUNT(DISTINCT contact_key) AS total FROM events
         `,
         [search],
       );
@@ -298,29 +367,44 @@ export class WhatsappWebhookService {
     };
   }
 
-  // Same DISTINCT ON aggregation as findConversations above, scoped to an
-  // exact set of known clientIds and never paginated — see the DTO's own
-  // comment on clientIds for why. Unmatched-number conversations are
-  // deliberately unreachable here: a ticket only ever exists for a
-  // resolved client (see WhatsappConversationTicket), so there's nothing
-  // to look up by phone number for this queue.
+  // Same aggregation as findConversations above, scoped to an exact set of
+  // known clientIds and never paginated — see the DTO's own comment on
+  // clientIds for why. Unmatched-number conversations are deliberately
+  // unreachable here: a ticket only ever exists for a resolved client (see
+  // WhatsappConversationTicket), so there's nothing to look up by phone
+  // number for this queue — every source is filtered by client_id alone,
+  // no phone-number COALESCE needed.
   private async findConversationsForClientIds(
     clientIds: string[],
   ): Promise<PaginatedResult<WhatsappConversationSummary>> {
     const rows: ConversationRow[] =
       await this.inboundMessagesRepository.manager.query(
         `
-      SELECT id, message_count FROM (
-        SELECT
-          m.id,
-          m.received_at,
-          COUNT(*) OVER (PARTITION BY m.client_id) AS message_count,
-          ROW_NUMBER() OVER (PARTITION BY m.client_id ORDER BY m.received_at DESC) AS rn
+      WITH events AS (
+        SELECT m.id, 'inbound_message'::text AS source, m.client_id::text AS contact_key, m.received_at AS occurred_at
         FROM whatsapp_inbound_messages m
         WHERE m.client_id = ANY($1::uuid[])
+        UNION ALL
+        SELECT l.id, 'message_log'::text AS source, l.client_id::text AS contact_key, l.sent_at AS occurred_at
+        FROM message_logs l
+        WHERE l.client_id = ANY($1::uuid[])
+        UNION ALL
+        SELECT r.id, 'manual_reply'::text AS source, r.client_id::text AS contact_key, r.sent_at AS occurred_at
+        FROM whatsapp_manual_replies r
+        WHERE r.client_id = ANY($1::uuid[])
+      )
+      SELECT id, source, message_count FROM (
+        SELECT
+          id,
+          source,
+          contact_key,
+          occurred_at,
+          COUNT(*) OVER (PARTITION BY contact_key) AS message_count,
+          ROW_NUMBER() OVER (PARTITION BY contact_key ORDER BY occurred_at DESC) AS rn
+        FROM events
       ) latest
       WHERE rn = 1
-      ORDER BY received_at DESC
+      ORDER BY occurred_at DESC
       `,
         [clientIds],
       );
@@ -337,33 +421,109 @@ export class WhatsappWebhookService {
     };
   }
 
+  // Hydrates each winning (source, id) pair with the actual row's content,
+  // one keyed lookup per source table (never N+1 — same batching pattern
+  // the pre-existing inbound-only version already used via In()). In()
+  // doesn't preserve input order — every source re-sorted back into the
+  // same occurred_at DESC order `rows` already came back in, so the page
+  // renders newest-conversation-first regardless of hydration order.
   private async hydrateConversationRows(
     rows: ConversationRow[],
   ): Promise<WhatsappConversationSummary[]> {
     const messageCountById = new Map(
       rows.map((row) => [row.id, Number(row.message_count)]),
     );
-    // In() doesn't preserve input order — messages re-sorted back into the
-    // same receivedAt DESC order `rows` already came back in, so the page
-    // renders newest-conversation-first regardless of hydration order.
-    const messages = await this.inboundMessagesRepository.find({
-      where: { id: In(rows.map((row) => row.id)) },
-      relations: { client: true },
-    });
-    const messageById = new Map(
-      messages.map((message) => [message.id, message]),
-    );
+    const idsBySource = {
+      inbound_message: rows
+        .filter((row) => row.source === 'inbound_message')
+        .map((row) => row.id),
+      message_log: rows
+        .filter((row) => row.source === 'message_log')
+        .map((row) => row.id),
+      manual_reply: rows
+        .filter((row) => row.source === 'manual_reply')
+        .map((row) => row.id),
+    };
 
-    return rows
-      .map((row) => messageById.get(row.id))
-      .filter((message): message is WhatsappInboundMessage => Boolean(message))
-      .map((lastMessage) => ({
-        key: lastMessage.clientId ?? lastMessage.fromPhoneNumber,
-        clientId: lastMessage.clientId,
-        fromPhoneNumber: lastMessage.fromPhoneNumber,
-        lastMessage,
-        messageCount: messageCountById.get(lastMessage.id) ?? 1,
-      }));
+    const [inboundMessages, messageLogs, manualReplies] = await Promise.all([
+      idsBySource.inbound_message.length > 0
+        ? this.inboundMessagesRepository.find({
+            where: { id: In(idsBySource.inbound_message) },
+            relations: { client: true },
+          })
+        : Promise.resolve([]),
+      idsBySource.message_log.length > 0
+        ? this.messageLogsRepository.find({
+            where: { id: In(idsBySource.message_log) },
+          })
+        : Promise.resolve([]),
+      idsBySource.manual_reply.length > 0
+        ? this.manualRepliesRepository.find({
+            where: { id: In(idsBySource.manual_reply) },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const inboundById = new Map(inboundMessages.map((m) => [m.id, m]));
+    const logById = new Map(messageLogs.map((l) => [l.id, l]));
+    const replyById = new Map(manualReplies.map((r) => [r.id, r]));
+
+    const summaries: WhatsappConversationSummary[] = [];
+    for (const row of rows) {
+      if (row.source === 'inbound_message') {
+        const message = inboundById.get(row.id);
+        if (!message) continue;
+        const lastEvent: WhatsappConversationLastEvent = {
+          direction: 'inbound',
+          message,
+        };
+        summaries.push({
+          key: message.clientId ?? message.fromPhoneNumber,
+          clientId: message.clientId,
+          fromPhoneNumber: message.fromPhoneNumber,
+          lastEvent,
+          messageCount: messageCountById.get(row.id) ?? 1,
+        });
+      } else if (row.source === 'message_log') {
+        const log = logById.get(row.id);
+        if (!log) continue;
+        const lastEvent: WhatsappConversationLastEvent = {
+          direction: 'outbound',
+          source: 'message_log',
+          id: log.id,
+          occurredAt: log.sentAt.toISOString(),
+          messageContent: log.messageContent,
+          status: log.status === MessageLogStatus.Sent ? 'sent' : 'failed',
+        };
+        summaries.push({
+          key: log.clientId,
+          clientId: log.clientId,
+          fromPhoneNumber: log.phoneNumber,
+          lastEvent,
+          messageCount: messageCountById.get(row.id) ?? 1,
+        });
+      } else {
+        const reply = replyById.get(row.id);
+        if (!reply) continue;
+        const lastEvent: WhatsappConversationLastEvent = {
+          direction: 'outbound',
+          source: 'manual_reply',
+          id: reply.id,
+          occurredAt: reply.sentAt.toISOString(),
+          messageContent: reply.messageContent,
+          status:
+            reply.status === WhatsappManualReplyStatus.Sent ? 'sent' : 'failed',
+        };
+        summaries.push({
+          key: reply.clientId ?? reply.phoneNumber,
+          clientId: reply.clientId,
+          fromPhoneNumber: reply.phoneNumber,
+          lastEvent,
+          messageCount: messageCountById.get(row.id) ?? 1,
+        });
+      }
+    }
+    return summaries;
   }
 
   private async persistEvent(event: ParsedInboundEvent): Promise<void> {

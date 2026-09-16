@@ -6,11 +6,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
+import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import {
   WhatsappInboundMessage,
   WhatsappInboundMessageType,
 } from '../entities/whatsappInboundMessage.entity';
-import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
+import {
+  WhatsappManualReply,
+  WhatsappManualReplyStatus,
+} from '../entities/whatsappManualReply.entity';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
 import { WhatsappConversationTicketService } from '../whatsappConversationTicket.service';
@@ -49,6 +53,7 @@ describe('WhatsappWebhookService', () => {
     save: jest.Mock;
     find: jest.Mock;
   };
+  let messageLogsRepository: { find: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
   let whatsappOutboundLogService: { log: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
@@ -84,6 +89,7 @@ describe('WhatsappWebhookService', () => {
       ),
       find: jest.fn().mockResolvedValue([]),
     };
+    messageLogsRepository = { find: jest.fn().mockResolvedValue([]) };
     whatsAppService = { sendTextMessage: jest.fn() };
     whatsappOutboundLogService = {
       log: jest.fn((params: Record<string, unknown>) =>
@@ -121,6 +127,10 @@ describe('WhatsappWebhookService', () => {
         {
           provide: getRepositoryToken(WhatsappManualReply),
           useValue: manualRepliesRepository,
+        },
+        {
+          provide: getRepositoryToken(MessageLog),
+          useValue: messageLogsRepository,
         },
         {
           provide: WhatsappInboundGateway,
@@ -735,8 +745,8 @@ describe('WhatsappWebhookService', () => {
     it('returns one summary per conversation, hydrated and reordered by receivedAt', async () => {
       inboundMessagesRepository.manager.query
         .mockResolvedValueOnce([
-          { id: 'msg-2', message_count: '3' },
-          { id: 'msg-1', message_count: '1' },
+          { id: 'msg-2', source: 'inbound_message', message_count: '3' },
+          { id: 'msg-1', source: 'inbound_message', message_count: '1' },
         ])
         .mockResolvedValueOnce([{ total: '2' }]);
       // Hydration order deliberately reversed from the raw-query order
@@ -764,6 +774,9 @@ describe('WhatsappWebhookService', () => {
           key: '573002222222',
           clientId: null,
           messageCount: 3,
+          lastEvent: expect.objectContaining({
+            direction: 'inbound',
+          }) as unknown,
         }),
         expect.objectContaining({
           key: 'client-1',
@@ -777,6 +790,89 @@ describe('WhatsappWebhookService', () => {
         total: 2,
         totalPages: 1,
       });
+    });
+
+    // Human report, 2026-09-16 — the whole point of unioning message_logs
+    // in: a client who was only ever SENT a reminder, never replied, has
+    // zero whatsapp_inbound_messages rows to anchor a partition on and
+    // used to be invisible in this list entirely.
+    it('includes a client who was only ever sent a reminder and never replied', async () => {
+      inboundMessagesRepository.manager.query
+        .mockResolvedValueOnce([
+          { id: 'log-1', source: 'message_log', message_count: '1' },
+        ])
+        .mockResolvedValueOnce([{ total: '1' }]);
+      inboundMessagesRepository.find.mockResolvedValue([]);
+      messageLogsRepository.find.mockResolvedValue([
+        {
+          id: 'log-1',
+          clientId: 'client-1',
+          phoneNumber: '+573001111111',
+          messageContent: 'Recuerda tu cuota vencida...',
+          status: MessageLogStatus.Sent,
+          sentAt: new Date('2026-09-10'),
+        },
+      ]);
+
+      const result = await service.findConversations({});
+
+      expect(messageLogsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: expect.anything() as unknown },
+        }),
+      );
+      expect(result.items).toEqual([
+        expect.objectContaining({
+          key: 'client-1',
+          clientId: 'client-1',
+          fromPhoneNumber: '+573001111111',
+          messageCount: 1,
+          lastEvent: {
+            direction: 'outbound',
+            source: 'message_log',
+            id: 'log-1',
+            occurredAt: new Date('2026-09-10').toISOString(),
+            messageContent: 'Recuerda tu cuota vencida...',
+            status: 'sent',
+          },
+        }),
+      ]);
+    });
+
+    // Same idea, for a self-service/manual reply the bot or an admin sent
+    // to a client who has otherwise gone quiet.
+    it('includes a client who was only ever sent a manual/self-service reply and never replied', async () => {
+      inboundMessagesRepository.manager.query
+        .mockResolvedValueOnce([
+          { id: 'reply-1', source: 'manual_reply', message_count: '1' },
+        ])
+        .mockResolvedValueOnce([{ total: '1' }]);
+      inboundMessagesRepository.find.mockResolvedValue([]);
+      manualRepliesRepository.find.mockResolvedValue([
+        {
+          id: 'reply-1',
+          clientId: 'client-2',
+          phoneNumber: '+573002222222',
+          messageContent: 'Hola, bienvenido a IMPROCRÉDITO...',
+          status: WhatsappManualReplyStatus.Failed,
+          sentAt: new Date('2026-09-11'),
+        },
+      ]);
+
+      const result = await service.findConversations({});
+
+      expect(result.items).toEqual([
+        expect.objectContaining({
+          key: 'client-2',
+          clientId: 'client-2',
+          fromPhoneNumber: '+573002222222',
+          lastEvent: expect.objectContaining({
+            direction: 'outbound',
+            source: 'manual_reply',
+            status: 'failed',
+          }) as unknown,
+        }),
+      ]);
     });
 
     it('passes a null search parameter, not undefined, so Postgres can short-circuit the filter', async () => {
@@ -817,7 +913,7 @@ describe('WhatsappWebhookService', () => {
     // (no unrecognized-number conversation can ever have a ticket).
     it('bypasses search/pagination and returns every requested client, unpaginated', async () => {
       inboundMessagesRepository.manager.query.mockResolvedValueOnce([
-        { id: 'msg-1', message_count: '2' },
+        { id: 'msg-1', source: 'inbound_message', message_count: '2' },
       ]);
       inboundMessagesRepository.find.mockResolvedValue([
         {
