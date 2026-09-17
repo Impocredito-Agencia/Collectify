@@ -177,7 +177,7 @@ export function ClientDetailPage() {
         </span>
       </div>
 
-      <div className="flex items-center justify-between rounded border border-border bg-surface px-6 py-5">
+      <div className="flex items-center justify-between rounded-lg border border-border bg-surface px-6 py-5">
         <div className="flex items-center gap-5">
           <div className="flex size-[52px] shrink-0 items-center justify-center rounded-full bg-border">
             <span className="text-[16px] font-medium text-muted">
@@ -455,7 +455,7 @@ export function ClientDetailPage() {
               </tbody>
             </table>
           ) : (
-            <p className="border border-border p-4 text-small text-muted">
+            <p className="p-4 text-small text-muted">
               Este cliente no tiene mensajes fallidos pendientes de revisar.
             </p>
           )}
@@ -560,7 +560,7 @@ export function ClientDetailPage() {
           />
         </DetailSection>
 
-        <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+        <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
           <span className="text-section-label font-normal tracking-normal text-subtle">
             Referencias
           </span>
@@ -602,7 +602,7 @@ export function ClientDetailPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+          <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
             <span className="text-section-label font-normal tracking-normal text-subtle">
               Documentos
             </span>
@@ -634,7 +634,7 @@ export function ClientDetailPage() {
             )}
           </div>
 
-          <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+          <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
             <span className="text-section-label font-normal tracking-normal text-subtle">
               Autorización de tratamiento de datos
             </span>
@@ -774,7 +774,7 @@ function MessageFrequencySection({
   };
 
   return (
-    <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
       <span className="text-section-label font-normal tracking-normal text-subtle">
         Frecuencia de mensajes
       </span>
@@ -842,7 +842,7 @@ function MessageFrequencySection({
         </div>
       ) : (
         <div className="flex items-center gap-3">
-          <span className="text-small text-muted">
+          <span className="text-small text-white">
             Sin frecuencia personalizada — recibe todos los envíos que
             califiquen.
           </span>
@@ -883,7 +883,7 @@ function DetailSection({
         ? 'grid-cols-3'
         : 'grid-cols-2';
   return (
-    <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
       <span className="text-section-label font-normal tracking-normal text-subtle">
         {title}
       </span>
