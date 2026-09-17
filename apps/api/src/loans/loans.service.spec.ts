@@ -1504,12 +1504,21 @@ describe('LoansService', () => {
         paidInstallment,
       ]);
       loanInstallmentConceptsRepository.find.mockResolvedValue([
+        // FixedAmount (bug fix, 2026-09-15), not Percentage — a percentage
+        // rate compounds with real elapsed days since dueDate, which
+        // change every time this suite runs (calculatePayoff() here has
+        // no fixed `today` to pin it against, unlike calculatePayoff.spec.ts's
+        // own fixtures), making the resulting rounding delta this test
+        // would need to predict non-deterministic. FixedAmount charges the
+        // same flat 5000 regardless of overdueDays, keeping the whole
+        // installment (210000 + 5000 = 215000) landing exactly on a round
+        // hundred with zero rounding delta to account for.
         {
           installmentId: overduePending.id,
           category: ConceptCategory.Moratorio,
-          calculationType: ConceptCalculationType.Percentage,
+          calculationType: ConceptCalculationType.FixedAmount,
           nameSnapshot: 'Intereses moratorios',
-          value: 6,
+          value: 5000,
         },
       ]);
 
@@ -1519,6 +1528,40 @@ describe('LoansService', () => {
       // "sum of totalDue" would overstate the pure-principal figure.
       expect(result.installments[0].interest).toBeGreaterThan(0);
       expect(result.currentPrincipalBalance).toBe(200000);
+    });
+
+    // Bug fix, 2026-09-15 (human report) — currentPrincipalBalance reuses
+    // calculatePayoff() (see this test file's own header comment above),
+    // so a prior partial payment on a pending installment used to inflate
+    // "saldo capital a la fecha" the same way it inflated a payoff quote.
+    it('nets an existing partial payment off currentPrincipalBalance too', async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      loansRepository.findOne.mockResolvedValue(null);
+      const pending: Installment = {
+        id: 'inst-1',
+        loanId: mockLoan.id,
+        loan: undefined as never,
+        installmentNumber: 1,
+        amount: 210000,
+        principalPortion: 200000,
+        dueDate: '2024-01-01',
+        status: InstallmentStatus.Pending,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      };
+      installmentsRepository.find.mockResolvedValue([pending]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 50000 },
+      ]);
+
+      const result = await service.findOne(mockLoan.id);
+
+      // Gross interest here is just the corriente portion baked into the
+      // installment (amount 210000 - principalPortion 200000 = 10000; no
+      // moratory concepts mocked). totalPaid 50000 clears that 10000
+      // first, the remaining 40000 comes off principal: 200000 - 40000.
+      expect(result.currentPrincipalBalance).toBe(160000);
     });
 
     it('attaches each installment its concept breakdown from LoanInstallmentConcept', async () => {
@@ -2422,6 +2465,30 @@ describe('LoansService', () => {
         NotFoundException,
       );
     });
+
+    // Bug fix, 2026-09-15 (human report) — used to quote a Pending
+    // installment at its full nominal cost even when a prior partial
+    // payment already existed on it, the same class of bug as préstamo
+    // #0920's overcharge (see calculatePayoff.spec.ts's dedicated
+    // "totalPaid netting" suite for the underlying math this exercises).
+    it('nets an existing partial payment off the quoted amount', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({ amount: 300000, principalPortion: 270000 }),
+      ]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 100000 },
+      ]);
+
+      const quote = await service.getPayoffQuote(mockLoan.id);
+
+      // Gross: conceptsInterest 300000-270000=30000, no moratory concepts
+      // mocked in this suite so moratoryInterest is always 0 regardless of
+      // real elapsed days — deterministic. totalPaid 100000 clears the
+      // 30000 interest first (Art. 1653), the remaining 70000 comes off
+      // principal: 270000 - 70000 = 200000.
+      expect(quote.installments[0].totalDue).toBe(200000);
+      expect(quote.totalPrincipalOwed).toBe(200000);
+    });
   });
 
   describe('getRefinanceQuote', () => {
@@ -2473,6 +2540,33 @@ describe('LoansService', () => {
 
       expect(quote.suggestedPrincipalAmount).toBe(270000);
       expect(quote.suggestedPrincipalAmount).toBe(quote.payoff.totalDue);
+    });
+
+    // Bug fix, 2026-09-15 (human report) — suggestedPrincipalAmount reuses
+    // calculatePayoff() (see this describe block's own header comment), so
+    // it had the same "recharges a partially-paid pending cuota" gap as
+    // getPayoffQuote/payoff.
+    it('nets an existing partial payment off the suggested principal', async () => {
+      const futureDueDate = new Date();
+      futureDueDate.setFullYear(futureDueDate.getFullYear() + 5);
+
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: futureDueDate.toISOString().slice(0, 10),
+        }),
+      ]);
+      installmentsRepository.findOne.mockResolvedValue(
+        pendingInstallment({ id: 'inst-1' }),
+      );
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 70000 },
+      ]);
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.suggestedPrincipalAmount).toBe(200000); // 270000 - 70000
     });
 
     it("carries over the first installment's concepts, dropping ones with a deleted catalog type", async () => {
@@ -2675,6 +2769,37 @@ describe('LoansService', () => {
         }),
       );
       expect(paymentsRepository.save).toHaveBeenCalled();
+    });
+
+    // Bug fix, 2026-09-15 (human report) — before this, payoff() recharged
+    // an installment's full amount even when a prior partial payment
+    // already existed on it, so the client effectively paid twice for the
+    // same cuota (the same class of bug as préstamo #0920's overcharge).
+    it('nets an existing partial payment before registering the payoff payment', async () => {
+      const futureDueDate = new Date();
+      futureDueDate.setFullYear(futureDueDate.getFullYear() + 5);
+
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          id: 'inst-1',
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: futureDueDate.toISOString().slice(0, 10),
+        }),
+      ]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 100000 },
+      ]);
+
+      await service.payoff(mockLoan.id);
+
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          installmentId: 'inst-1',
+          amountPaid: 170000, // 270000 - 100000, not the full 270000 again
+          observation: 'Liquidación anticipada',
+        }),
+      );
     });
 
     it('marks every pending installment paid and the loan paid', async () => {

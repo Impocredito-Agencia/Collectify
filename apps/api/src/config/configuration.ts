@@ -128,10 +128,11 @@ export default (): Configuration => ({
       process.env.PAYMENT_CONFIRMATION_MESSAGES_PAUSED === 'true',
   },
   cloudinary: {
-    // Pending — no Cloudinary account created for this project yet, same
-    // status as the Meta WhatsApp vars above. UploadsService throws a
-    // clear error if a signature is requested while any of these are
-    // empty, rather than silently signing with a blank secret. Replaces
+    // Live in production since 2026-09-16, same status as the Meta
+    // WhatsApp vars above. UploadsService throws a clear error if a
+    // signature is requested while any of these are empty (still the
+    // normal case in local dev), rather than silently signing with a
+    // blank secret. Replaces
     // the old client-side VITE_CLOUDINARY_CLOUD_NAME/UPLOAD_PRESET
     // (unsigned preset) — every upload is now signed here so it can only
     // be requested by an authenticated user, not by anyone who copies the

@@ -78,7 +78,7 @@ An additional instruction was given alongside these answers, expanding the requi
 - [x] Existing loans' co-debtor data is handled exactly per the confirmed answer to the data-migration open question (nothing to migrate) — not silently dropped.
 - [x] A client cannot be created interactively without a cédula and at least one address, including when created to serve as a co-debtor.
 - [x] Excel-imported clients are NOT exempt from the two new required-field rules (deliberate departure from the Phase 21 precedent, confirmed with the business).
-- [ ] All items in `docs/DEFINITION_OF_DONE.md` checklist pass — pending final lint/test/build verification across both apps (in progress).
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass. Confirmed, 2026-09-15 (this line had been left unchecked since the phase shipped via PR #66 — re-verified now rather than trusting the merge alone): `apps/api` — `npm run lint`, `npm run build`, and every co-debtor-touching spec (`loans.service`, `upcomingDueReminder`, `newLoanReminder`, `dashboard.service`, `overdueReminder`) all pass, 185 tests. `apps/client` — `npm run lint`, `npm run build`, `npm run test` all pass, 38 tests.
 
 ## QoL follow-up (2026-08-30) — resolved
 

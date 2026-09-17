@@ -709,6 +709,7 @@ export class LoansService {
         toPayoffInstallmentInput(
           installment,
           conceptsByInstallmentId.get(installment.id) ?? [],
+          totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
       ),
     ).totalPrincipalOwed;
@@ -819,11 +820,19 @@ export class LoansService {
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
       pending.map((installment) => installment.id),
     );
+    // Bug fix, 2026-09-15 — see PayoffInstallmentInput.totalPaid's own
+    // comment: without this, a Pending installment with a prior partial
+    // payment was quoted at its full nominal cost all over again.
+    const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+      this.paymentsRepository,
+      pending.map((installment) => installment.id),
+    );
     return calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
           installment,
           conceptsByInstallmentId.get(installment.id) ?? [],
+          totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
       ),
     );
@@ -846,11 +855,19 @@ export class LoansService {
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
       pending.map((installment) => installment.id),
     );
+    // Bug fix, 2026-09-15 — see getPayoffQuote's identical addition above;
+    // payoff() has its own separate calculatePayoff() call and needed the
+    // same fix, not just the quote endpoint.
+    const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+      this.paymentsRepository,
+      pending.map((installment) => installment.id),
+    );
     const quote = calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
           installment,
           conceptsByInstallmentId.get(installment.id) ?? [],
+          totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
       ),
     );
@@ -919,11 +936,20 @@ export class LoansService {
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
       pending.map((installment) => installment.id),
     );
+    // Bug fix, 2026-09-15 — see getPayoffQuote's identical addition:
+    // suggestedPrincipalAmount reuses this same engine, so it had the same
+    // gap — a partially-paid pending cuota inflated how much principal got
+    // suggested for the new refinanced loan.
+    const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+      this.paymentsRepository,
+      pending.map((installment) => installment.id),
+    );
     const payoff = calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
           installment,
           conceptsByInstallmentId.get(installment.id) ?? [],
+          totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
       ),
       new Date(),
@@ -1646,9 +1672,13 @@ export class LoansService {
 // conceptBreakdown (see that file's own comment); corriente/moratorio are
 // split here, same filtering enrichInstallment.ts already does for the
 // exact same rows.
+// totalPaid (bug fix, 2026-09-15) — see PayoffInstallmentInput.totalPaid's
+// own comment; defaults to 0 for a not-yet-fetched figure, but every
+// caller below now passes the real one via sumPaymentsByInstallmentId.
 function toPayoffInstallmentInput(
   installment: Installment,
   concepts: LoanInstallmentConcept[] = [],
+  totalPaid = 0,
 ): PayoffInstallmentInput {
   const corrienteConcepts = concepts.filter(
     (concept) => concept.category === ConceptCategory.Corriente,
@@ -1671,6 +1701,7 @@ function toPayoffInstallmentInput(
       name: concept.nameSnapshot,
       amount: concept.computedAmount,
     })),
+    totalPaid,
   };
 }
 

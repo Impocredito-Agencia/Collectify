@@ -1132,6 +1132,199 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
+    // Human report, 2026-09-15 — closes the "whatsapp.sendReminder"/
+    // "whatsapp.sendUpcomingDue" items off the same 2026-09-03 coverage
+    // sweep as whatsappCron/whatsappTicket above. These route as
+    // POST /whatsapp/clients/:clientId/..., not :id like every other
+    // client-entityType action, and their response is a MessageLog[] with
+    // no client fields to read — this always falls to the clientId lookup.
+    it('labels a manually-triggered reminder by looking the client up via params.clientId', async () => {
+      reflector.get.mockReturnValue({
+        action: 'whatsapp.sendReminder',
+        entityType: 'client',
+      });
+      clientsRepository.findOne.mockResolvedValue({
+        firstName: 'Mario',
+        lastName: 'Ruiz',
+        documentNumber: '999888',
+      });
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        params: { clientId: 'client-1' },
+      });
+      const handler = buildCallHandler(
+        of([{ id: 'log-1', clientId: 'client-1' }]),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(clientsRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'client-1' },
+        withDeleted: true,
+      });
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityId: 'client-1',
+          entityLabel: 'Mario Ruiz (CC 999888)',
+        }),
+      );
+    });
+
+    // Human report, 2026-09-15 — closes the "reply" item off the same
+    // coverage sweep. Same dual-match phone lookup as whatsappTicket
+    // above; the response (`{ sent: boolean }`) carries no client either.
+    it('labels a manual reply by the client found from the submitted phone number, with a preview of the message', async () => {
+      reflector.get.mockReturnValue({
+        action: 'whatsapp.reply',
+        entityType: 'whatsappReply',
+      });
+      clientsRepository.findOne.mockResolvedValue({
+        firstName: 'Ana',
+        lastName: 'Gómez',
+        documentNumber: '123456',
+      });
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        body: { phoneNumber: '+573001234567', message: 'Ya casi le pago' },
+      });
+      const handler = buildCallHandler(of({ sent: true }));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: 'Ana Gómez (CC 123456) — "Ya casi le pago"',
+        }),
+      );
+    });
+
+    it('truncates a long manual reply message in the label', async () => {
+      reflector.get.mockReturnValue({
+        action: 'whatsapp.reply',
+        entityType: 'whatsappReply',
+      });
+      clientsRepository.findOne.mockResolvedValue(null);
+      const longMessage = 'x'.repeat(100);
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        body: { phoneNumber: '+573001234567', message: longMessage },
+      });
+      const handler = buildCallHandler(of({ sent: true }));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      const [[{ entityLabel }]] = auditLogService.record.mock.calls as [
+        [{ entityLabel: string }],
+      ];
+      expect(entityLabel).toBe(`+573001234567 — "${'x'.repeat(60)}…"`);
+    });
+
+    it('marks a manual reply "no entregado" when the send failed', async () => {
+      reflector.get.mockReturnValue({
+        action: 'whatsapp.reply',
+        entityType: 'whatsappReply',
+      });
+      clientsRepository.findOne.mockResolvedValue(null);
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        body: { phoneNumber: '+573001234567', message: 'Hola' },
+      });
+      const handler = buildCallHandler(of({ sent: false }));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: '+573001234567 — "Hola" (no entregado)',
+        }),
+      );
+    });
+
+    // Human report, 2026-09-15 — closes the "message_logs.retry" item off
+    // the same coverage sweep. The response is the NEW MessageLog row the
+    // retry created — only clientId, no client fields — so this looks the
+    // client up the same way the 'payment' case looks up an installment.
+    it('labels a message retry by looking up the client from the new log row', async () => {
+      reflector.get.mockReturnValue({
+        action: 'messageLog.retry',
+        entityType: 'messageLogRetry',
+      });
+      clientsRepository.findOne.mockResolvedValue({
+        firstName: 'Luis',
+        lastName: 'Pardo',
+        documentNumber: '777666',
+      });
+      const context = buildContext({
+        user: { id: 'admin-1' },
+        params: { id: 'log-original' },
+      });
+      const handler = buildCallHandler(
+        of({ id: 'log-2', clientId: 'client-1', status: 'sent' }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(clientsRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'client-1' },
+        withDeleted: true,
+      });
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: 'Reintento de mensaje — Luis Pardo (CC 777666)',
+        }),
+      );
+    });
+
+    it('marks a message retry "no entregado" when the retry itself failed', async () => {
+      reflector.get.mockReturnValue({
+        action: 'messageLog.retry',
+        entityType: 'messageLogRetry',
+      });
+      clientsRepository.findOne.mockResolvedValue({
+        firstName: 'Luis',
+        lastName: 'Pardo',
+        documentNumber: '777666',
+      });
+      const context = buildContext({ user: { id: 'admin-1' } });
+      const handler = buildCallHandler(
+        of({ id: 'log-2', clientId: 'client-1', status: 'failed' }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel:
+            'Reintento de mensaje — Luis Pardo (CC 777666) (no entregado)',
+        }),
+      );
+    });
+
+    it('resolves a null entityLabel for a message retry whose client cannot be found', async () => {
+      reflector.get.mockReturnValue({
+        action: 'messageLog.retry',
+        entityType: 'messageLogRetry',
+      });
+      clientsRepository.findOne.mockResolvedValue(null);
+      const context = buildContext({ user: { id: 'admin-1' } });
+      const handler = buildCallHandler(
+        of({ id: 'log-2', clientId: 'client-1', status: 'sent' }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ entityLabel: null }),
+      );
+    });
+
     it('resolves a null entityLabel for an entityType with no labeling rule', async () => {
       reflector.get.mockReturnValue({
         action: 'something.new',

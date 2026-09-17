@@ -16,8 +16,10 @@ export const envValidationSchema = Joi.object({
   JWT_ACCESS_EXPIRATION: Joi.string().default('15m'),
   JWT_REFRESH_EXPIRATION: Joi.string().default('7d'),
 
-  // Pending client's Meta Business account setup — see ENVIRONMENT_VARIABLES.md.
-  // Left optional so the app boots without them; whatsapp module must fail gracefully.
+  // Live in production since 2026-09-16 — see ENVIRONMENT_VARIABLES.md. Left
+  // optional so the app still boots without them (a developer's local .env
+  // has no reason to hold real credentials); whatsapp module keeps failing
+  // gracefully when they're empty regardless.
   META_WHATSAPP_PHONE_NUMBER_ID: Joi.string().allow('').default(''),
   META_WHATSAPP_ACCESS_TOKEN: Joi.string().allow('').default(''),
   META_WHATSAPP_BUSINESS_ACCOUNT_ID: Joi.string().allow('').default(''),
@@ -38,9 +40,10 @@ export const envValidationSchema = Joi.object({
   // backfilled. See WhatsappConfig.paymentConfirmationPaused.
   PAYMENT_CONFIRMATION_MESSAGES_PAUSED: Joi.boolean().default(false),
 
-  // Pending client's Cloudinary account setup — same "allow blank" pattern
-  // as the Meta WhatsApp vars above. UploadsService fails clearly (not
-  // silently) if a signature is requested while any of these are empty.
+  // Live in production since 2026-09-16 — same "allow blank" pattern as
+  // the Meta WhatsApp vars above, kept for local dev. UploadsService fails
+  // clearly (not silently) if a signature is requested while any of these
+  // are empty.
   CLOUDINARY_CLOUD_NAME: Joi.string().allow('').default(''),
   CLOUDINARY_API_KEY: Joi.string().allow('').default(''),
   CLOUDINARY_API_SECRET: Joi.string().allow('').default(''),

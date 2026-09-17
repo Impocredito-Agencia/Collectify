@@ -51,6 +51,14 @@ export const ACTION_LABELS: Record<string, string> = {
   // Human report, 2026-09-13 — same coverage sweep as 'whatsappCron.pause'
   // above, closes the "close-conversation" item off that same list.
   'whatsappTicket.resolve': 'Cerró una conversación de WhatsApp',
+  // Human report, 2026-09-15 — closes the last 4 items off the same
+  // 2026-09-03 coverage sweep (docs/DATABASE.md's "audit_logs" section):
+  // reply, the two manual-send endpoints, and message_logs.retry.
+  'whatsapp.reply': 'Respondió manualmente a un cliente por WhatsApp',
+  'whatsapp.sendReminder': 'Envió manualmente un recordatorio de mora',
+  'whatsapp.sendUpcomingDue':
+    'Envió manualmente un recordatorio de cuota próxima',
+  'messageLog.retry': 'Reintentó un mensaje fallido',
   'user.create': 'Creó un usuario',
   'user.deactivate': 'Desactivó un usuario',
   'user.reactivate': 'Reactivó un usuario',
@@ -107,6 +115,11 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   whatsappCron: 'Recordatorio automático',
   // Human report, 2026-09-13 — see 'whatsappTicket.resolve' above.
   whatsappTicket: 'Conversación de WhatsApp',
+  // Human report, 2026-09-15 — see 'whatsapp.reply'/'messageLog.retry'
+  // above. whatsapp.sendReminder/sendUpcomingDue reuse entityType 'client'
+  // (already labeled above), not a new value.
+  whatsappReply: 'Respuesta de WhatsApp',
+  messageLogRetry: 'Reintento de mensaje',
   user: 'Usuario',
   usuryRate: 'Tasa de usura',
   // Phase 32 — same sync gap as ACTION_LABELS above. Kept for historical

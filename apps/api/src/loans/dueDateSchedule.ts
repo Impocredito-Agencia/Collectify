@@ -86,7 +86,9 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 // selected day even begins locally, so the ENTIRE selected day (and part
 // of the day before) gets silently excluded from results instead of
 // included. Bug found 2026-09-05 in AuditLogsPage's date-range filter;
-// same pattern flagged (not yet fixed) in messageLogs.service.ts.
+// same pattern, same day, also fixed in messageLogs.service.ts (see that
+// file's own "Bug fix, 2026-09-05" comment) — both now use
+// bogotaStartOfDayUtc/bogotaEndOfDayUtc below instead of a raw `new Date()`.
 //
 // bogotaStartOfDayUtc('2026-01-31') -> the UTC instant that IS local
 // midnight at the start of Jan 31 in Bogotá (2026-01-31T05:00:00.000Z).

@@ -9,6 +9,7 @@ import {
 import { RequireModule } from '../../auth/decorators/requireModule.decorator';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { AppModule } from '../../users/entities/userModulePermission.entity';
+import { Audit } from '../../auditLog/decorators/audit.decorator';
 import { MessageLog } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
 
@@ -49,6 +50,7 @@ export class MessageLogsController {
 
   @Post(':id/retry')
   @RequireModule(AppModule.Messages)
+  @Audit('messageLog.retry', 'messageLogRetry')
   @ApiOperation({
     summary:
       'Manually retry a failed message (admin or granted the messages module)',

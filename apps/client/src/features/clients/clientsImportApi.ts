@@ -10,9 +10,9 @@
  * Renamed from clientLoanImportApi.ts (2026-09-06) — ClientsImportController
  * only ever creates clients now; assigning a loan to one of them is a
  * separate upload (see apps/api/src/loanImport, matched by cédula). The
- * route path itself is still literally `/clients/import-with-loans` (kept
- * that way deliberately — see that controller's own comment on why), but
- * everything client-side now calls it what it actually is.
+ * route path itself was `/clients/import-with-loans` until 2026-09-16,
+ * kept that way deliberately until this file's own rename could ship in
+ * the same commit — see that controller's own comment.
  */
 
 import { ApiError } from '@/lib/apiClient';
@@ -91,7 +91,7 @@ export const clientsImportApi = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${API_URL}/clients/import-with-loans`, {
+    const response = await fetch(`${API_URL}/clients/import-clients`, {
       method: 'POST',
       headers: authHeaders(),
       body: formData,
