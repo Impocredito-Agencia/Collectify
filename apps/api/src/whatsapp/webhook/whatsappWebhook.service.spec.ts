@@ -1094,6 +1094,57 @@ describe('WhatsappWebhookService', () => {
     });
   });
 
+  describe('getDeliveryHealth', () => {
+    it('returns the not-blocked default when the client has no outbound history', async () => {
+      messageLogsRepository.find.mockResolvedValue([]);
+      manualRepliesRepository.find.mockResolvedValue([]);
+
+      const result = await service.getDeliveryHealth('client-1');
+
+      expect(messageLogsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { clientId: 'client-1' },
+          order: { sentAt: 'DESC' },
+          take: 5,
+        }),
+      );
+      expect(result).toEqual({
+        lastDeliveryStatus: null,
+        lastErrorCode: null,
+        lastErrorTitle: null,
+        possiblyBlocked: false,
+      });
+    });
+
+    it('merges message_logs and whatsapp_manual_replies by sentAt and flags a likely block', async () => {
+      messageLogsRepository.find.mockResolvedValue([
+        {
+          deliveryStatus: 'failed',
+          lastErrorCode: 131026,
+          lastErrorTitle: 'Message Undeliverable',
+          sentAt: new Date('2026-09-16T10:00:00Z'),
+        },
+      ]);
+      manualRepliesRepository.find.mockResolvedValue([
+        {
+          deliveryStatus: 'delivered',
+          lastErrorCode: null,
+          lastErrorTitle: null,
+          sentAt: new Date('2026-09-15T10:00:00Z'),
+        },
+      ]);
+
+      const result = await service.getDeliveryHealth('client-1');
+
+      expect(result).toEqual({
+        lastDeliveryStatus: 'failed',
+        lastErrorCode: 131026,
+        lastErrorTitle: 'Message Undeliverable',
+        possiblyBlocked: true,
+      });
+    });
+  });
+
   describe('getConversationState', () => {
     it('returns null when there is no active conversation state', async () => {
       conversationStateService.getActive.mockResolvedValue(null);

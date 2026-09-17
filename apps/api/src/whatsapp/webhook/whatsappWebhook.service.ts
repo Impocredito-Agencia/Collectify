@@ -28,6 +28,10 @@ import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
 import { WhatsappConversationTicketService } from '../whatsappConversationTicket.service';
 import { WhatsAppService } from '../whatsapp.service';
+import {
+  computeDeliveryHealth,
+  WhatsappDeliveryHealth,
+} from '../whatsappDeliveryHealth';
 import { WhatsappOutboundLogService } from '../whatsappOutboundLog.service';
 
 import { QueryWhatsappConversationsDto } from './dto/queryWhatsappConversations.dto';
@@ -50,6 +54,7 @@ const HUB_SUBSCRIBE_MODE = 'subscribe';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_CONVERSATIONS_PAGE_SIZE = 20;
+const DELIVERY_HEALTH_WINDOW = 5;
 
 type ConversationEventSource =
   'inbound_message' | 'message_log' | 'manual_reply';
@@ -770,6 +775,41 @@ export class WhatsappWebhookService {
       order: { sentAt: 'DESC' },
       take: DEFAULT_PAGE_SIZE * 10,
     });
+  }
+
+  // Human report, 2026-09-16 — "¿cómo sabemos si un cliente nos bloqueó?".
+  // Pulls the client's last DELIVERY_HEALTH_WINDOW outbound sends across
+  // both tables (message_logs always has one clientId; a manual reply's is
+  // nullable but this endpoint is only ever called for a known client),
+  // merges and re-sorts (each side is already independently ordered/
+  // capped, so this is never more than 2×WINDOW rows), then hands the
+  // computation itself to the pure, independently-tested
+  // computeDeliveryHealth. See that function's own comment on why
+  // `possiblyBlocked` is evidence, not a verdict.
+  async getDeliveryHealth(clientId: string): Promise<WhatsappDeliveryHealth> {
+    const [logs, replies] = await Promise.all([
+      this.messageLogsRepository.find({
+        where: { clientId },
+        order: { sentAt: 'DESC' },
+        take: DELIVERY_HEALTH_WINDOW,
+      }),
+      this.manualRepliesRepository.find({
+        where: { clientId },
+        order: { sentAt: 'DESC' },
+        take: DELIVERY_HEALTH_WINDOW,
+      }),
+    ]);
+
+    const events = [...logs, ...replies]
+      .sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime())
+      .slice(0, DELIVERY_HEALTH_WINDOW)
+      .map((event) => ({
+        deliveryStatus: event.deliveryStatus,
+        errorCode: event.lastErrorCode,
+        errorTitle: event.lastErrorTitle,
+      }));
+
+    return computeDeliveryHealth(events);
   }
 
   // Backs the panel's "Responder"/"Cerrar conversación" gating — see

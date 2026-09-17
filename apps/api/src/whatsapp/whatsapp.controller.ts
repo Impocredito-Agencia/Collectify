@@ -42,6 +42,7 @@ import { WhatsappConversationSummary } from './webhook/interfaces/whatsappConver
 import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
 import { WhatsappConversationTicketService } from './whatsappConversationTicket.service';
 import { WhatsappCronService } from './whatsappCron.service';
+import { WhatsappDeliveryHealth } from './whatsappDeliveryHealth';
 
 import type { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
 import type { Response } from 'express';
@@ -332,5 +333,23 @@ export class WhatsappController {
     @Param('clientId') clientId: string,
   ): Promise<MessageLog[]> {
     return this.upcomingDueReminderService.sendReminderForClient(clientId);
+  }
+
+  // Human report, 2026-09-16 — "¿cómo sabemos si un cliente nos bloqueó?".
+  @Get('clients/:clientId/delivery-health')
+  @ApiOperation({
+    summary:
+      "A client's recent WhatsApp delivery status, and whether they may have blocked the number (admin or granted the messages module)",
+    description:
+      'Computed from the last few outbound sends (reminders + self-service/manual replies). possiblyBlocked is evidence-based, never a confirmed Meta status — WhatsApp itself never reports a block explicitly. See WhatsappDeliveryHealth.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Returns the client's delivery health.",
+  })
+  getDeliveryHealth(
+    @Param('clientId') clientId: string,
+  ): Promise<WhatsappDeliveryHealth> {
+    return this.whatsappWebhookService.getDeliveryHealth(clientId);
   }
 }
