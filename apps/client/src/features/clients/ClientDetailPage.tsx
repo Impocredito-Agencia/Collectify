@@ -774,90 +774,84 @@ function MessageFrequencySection({
   };
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
+    <div className="flex flex-col gap-2.5">
       <span className="text-section-label font-normal tracking-normal text-subtle">
         Frecuencia de mensajes
       </span>
-      <p className="text-meta text-muted">
-        Solo ajusta cada cuántos días como mínimo recibe recordatorios de mora o
-        aviso — no afecta si los recibe o no.
-      </p>
 
-      {isEditing ? (
-        <form
-          onSubmit={(event) => void handleSave(event)}
-          className="flex flex-wrap items-center gap-2.5"
-        >
-          <span className="text-small text-white">Cada</span>
-          <input
-            type="number"
-            min={1}
-            value={days}
-            onChange={(event) => setDays(Number(event.target.value))}
-            className="h-9 w-20 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
-          />
-          <span className="text-small text-white">días como mínimo</span>
-          <Button
-            type="submit"
-            variant="secondary"
-            disabled={setFrequency.isPending}
+      <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
+        <p className="text-meta text-muted">
+          Solo ajusta cada cuántos días como mínimo recibe recordatorios de mora
+          o aviso — no afecta si los recibe o no.
+        </p>
+
+        {isEditing ? (
+          <form
+            onSubmit={(event) => void handleSave(event)}
+            className="flex flex-wrap items-center gap-2.5"
           >
-            {setFrequency.isPending ? 'Guardando…' : 'Guardar'}
-          </Button>
-          <button
-            type="button"
-            onClick={() => setIsEditing(false)}
-            className="text-meta text-muted hover:text-white"
-          >
-            Cancelar
-          </button>
-        </form>
-      ) : client.messageFrequency ? (
-        <div className="flex items-center gap-3">
-          <span className="rounded-[3px] border border-border bg-input px-2 py-[3px] text-meta font-medium text-white">
-            Cada {client.messageFrequency.minimumDaysBetweenMessages} días
-          </span>
-          {canManage && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setDays(client.messageFrequency!.minimumDaysBetweenMessages);
-                  setIsEditing(true);
-                }}
-                className="text-meta text-muted hover:text-white"
-              >
-                Editar
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleClear()}
-                disabled={clearFrequency.isPending}
-                className="text-meta text-muted hover:text-danger disabled:opacity-50"
-              >
-                {clearFrequency.isPending ? 'Quitando…' : 'Quitar'}
-              </button>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-3">
-          <span className="text-small text-white">
-            Sin frecuencia personalizada — recibe todos los envíos que
-            califiquen.
-          </span>
-          {canManage && (
-            <button
+            <span className="text-small text-white">Cada</span>
+            <input
+              type="number"
+              min={1}
+              value={days}
+              onChange={(event) => setDays(Number(event.target.value))}
+              className="h-9 w-20 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
+            />
+            <span className="text-small text-white">días como mínimo</span>
+            <Button type="submit" disabled={setFrequency.isPending}>
+              {setFrequency.isPending ? 'Guardando…' : 'Guardar'}
+            </Button>
+            <Button
               type="button"
-              onClick={() => setIsEditing(true)}
-              className="text-meta text-muted hover:text-white"
+              variant="secondary"
+              onClick={() => setIsEditing(false)}
             >
-              Ajustar
-            </button>
-          )}
-        </div>
-      )}
-      {error && <p className="text-meta text-danger">{error}</p>}
+              Cancelar
+            </Button>
+          </form>
+        ) : client.messageFrequency ? (
+          <div className="flex items-center gap-3">
+            <span className="rounded-[3px] border border-border bg-input px-2 py-[3px] text-meta font-medium text-white">
+              Cada {client.messageFrequency.minimumDaysBetweenMessages} días
+            </span>
+            {canManage && (
+              <>
+                <RowActionButton
+                  onClick={() => {
+                    setDays(
+                      client.messageFrequency!.minimumDaysBetweenMessages,
+                    );
+                    setIsEditing(true);
+                  }}
+                >
+                  Editar
+                </RowActionButton>
+                <RowActionButton
+                  onClick={() => void handleClear()}
+                  disabled={clearFrequency.isPending}
+                  tone="subtle"
+                >
+                  {clearFrequency.isPending ? 'Quitando…' : 'Quitar'}
+                </RowActionButton>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <span className="text-small text-white">
+              Sin frecuencia personalizada — recibe todos los envíos que
+              califiquen.
+            </span>
+            {canManage && (
+              <RowActionButton onClick={() => setIsEditing(true)}>
+                Ajustar
+              </RowActionButton>
+            )}
+          </div>
+        )}
+        {error && <p className="text-meta text-danger">{error}</p>}
+      </div>
     </div>
   );
 }
