@@ -50,6 +50,14 @@ export interface WhatsappManualReply {
   status: 'sent' | 'failed';
   selfServiceReplyKind: SelfServiceReplyKind | null;
   sentAt: string;
+  whatsappMessageId: string | null;
+  // Added 2026-09-16 — matches apps/api's WhatsappDeliveryStatus. Meta's
+  // delivery-status webhook callback, applied once a matching WAMID
+  // arrives; null means no callback has been received yet (or ever).
+  deliveryStatus: 'sent' | 'delivered' | 'read' | 'failed' | null;
+  deliveryStatusUpdatedAt: string | null;
+  lastErrorCode: number | null;
+  lastErrorTitle: string | null;
   createdAt: string;
 }
 
