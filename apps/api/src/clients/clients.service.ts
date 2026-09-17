@@ -223,6 +223,10 @@ export class ClientsService {
       );
     }
     await this.assertDocumentNumberIsUnique(dto.documentNumber);
+    await this.assertPhoneNumberIsUnique(dto.phoneNumber);
+    if (dto.alternatePhoneNumber) {
+      await this.assertPhoneNumberIsUnique(dto.alternatePhoneNumber);
+    }
 
     const client = this.clientsRepository.create({
       ...dto,
@@ -483,6 +487,15 @@ export class ClientsService {
     if (dto.documentNumber && dto.documentNumber !== client.documentNumber) {
       await this.assertDocumentNumberIsUnique(dto.documentNumber);
     }
+    if (dto.phoneNumber && dto.phoneNumber !== client.phoneNumber) {
+      await this.assertPhoneNumberIsUnique(dto.phoneNumber, id);
+    }
+    if (
+      dto.alternatePhoneNumber &&
+      dto.alternatePhoneNumber !== client.alternatePhoneNumber
+    ) {
+      await this.assertPhoneNumberIsUnique(dto.alternatePhoneNumber, id);
+    }
 
     // Same "server clock, not caller-supplied" reasoning as create(): only
     // stamp consentGivenAt when consent is actually transitioning to true,
@@ -663,6 +676,48 @@ export class ClientsService {
     }
   }
 
+  // Human confirmed, 2026-09-16: no phone number — primary or alternate —
+  // may belong to more than one client. WhatsApp message routing resolves
+  // a number to a client by checking BOTH fields (see
+  // clientRecipientPhoneNumbers.ts and WhatsappWebhookService.persistEvent
+  // et al.), so a number shared across two clients would fan a reminder
+  // for either client's loan out to the same physical phone, and an
+  // inbound reply/payment proof from that number would attribute to
+  // whichever of the two clients Postgres happens to return first — not
+  // necessarily the right one. Checked against both columns of every
+  // OTHER client; excludeClientId lets update() skip the client's own
+  // row, since a client having the same number in both phoneNumber and
+  // alternatePhoneNumber is harmless (deduped by getRecipientPhoneNumbers),
+  // not a conflict. Same "withDeleted" reasoning as
+  // assertDocumentNumberIsUnique — a soft-deleted client's number still
+  // counts as taken.
+  //
+  // Unlike documentNumber/phoneNumber's own column, there is no DB-level
+  // unique index backing this cross-column rule (Postgres can't express
+  // "unique across the union of two columns" as a single index) — this
+  // app-level check is the only guard, not just the friendly-error layer
+  // in front of one. Accepted as-is given this app's actual write pattern
+  // (an admin entering clients one at a time, not concurrent bulk writes)
+  // — see docs/DATABASE.md's note under "Indexes".
+  private async assertPhoneNumberIsUnique(
+    phoneNumber: string,
+    excludeClientId?: string,
+  ): Promise<void> {
+    const idFilter = excludeClientId ? { id: Not(excludeClientId) } : {};
+    const existing = await this.clientsRepository.findOne({
+      where: [
+        { ...idFilter, phoneNumber },
+        { ...idFilter, alternatePhoneNumber: phoneNumber },
+      ],
+      withDeleted: true,
+    });
+    if (existing) {
+      throw new ConflictException(
+        `A client with phone number ${phoneNumber} already exists`,
+      );
+    }
+  }
+
   private mapUniqueViolation(error: unknown): unknown {
     if (
       typeof error === 'object' &&
@@ -670,6 +725,21 @@ export class ClientsService {
       'code' in error &&
       error.code === POSTGRES_UNIQUE_VIOLATION
     ) {
+      // Both asserts above already pre-check before this insert/update is
+      // even attempted, so this only fires on a genuine race (two
+      // concurrent requests slipping past the pre-check at once) — the
+      // 'detail' text is Postgres's own way of naming which column's
+      // constraint actually fired, e.g. "Key (phone_number)=(...) already
+      // exists.".
+      const detail =
+        'detail' in error && typeof error.detail === 'string'
+          ? error.detail
+          : '';
+      if (detail.includes('phone_number')) {
+        return new ConflictException(
+          'A client with this phone number already exists',
+        );
+      }
       return new ConflictException(
         'A client with this document number already exists',
       );

@@ -556,6 +556,31 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
           };
           setFieldErrors(errors);
           scrollToFirstError(errors);
+        } else if (
+          err.statusCode === 409 &&
+          /phone number/i.test(err.message)
+        ) {
+          // Backend throws ConflictException("A client with phone number X
+          // already exists") for a duplicate celular — same pattern as the
+          // cédula conflict above. The check covers BOTH phoneNumber and
+          // alternatePhoneNumber (a number can't be reused across either
+          // field on another client — see ClientsService.
+          // assertPhoneNumberIsUnique), and the message only names the
+          // conflicting VALUE, not which of our two fields submitted it —
+          // match it back to the right one so the error lands on the field
+          // the admin actually needs to fix.
+          const errors: FieldErrors =
+            alternatePhoneNumber && err.message.includes(alternatePhoneNumber)
+              ? {
+                  alternatePhoneNumber:
+                    'Ya existe un cliente registrado con este celular.',
+                }
+              : {
+                  phoneNumber:
+                    'Ya existe un cliente registrado con este celular.',
+                };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
         } else if (err.statusCode === 400 && /consent/i.test(err.message)) {
           const errors: FieldErrors = {
             dataProcessingConsent:
