@@ -8,10 +8,16 @@ export interface WhatsAppInteractiveButton {
   title: string;
 }
 
-export interface SendTemplateMessageResult {
+// Human report, 2026-09-16 — was SendTemplateMessageResult, template-only:
+// sendTextMessage/sendInteractiveButtonsMessage returned a bare boolean,
+// so neither a manual reply nor a self-service menu send ever captured a
+// WAMID, leaving whatsapp_manual_replies with no way to correlate a later
+// delivery-status webhook back to the send. All three send methods now
+// share this shape.
+export interface SendMessageResult {
   sent: boolean;
   // Meta's WAMID for this send, null when not sent (or on the rare case
-  // the API accepted the send but omitted it). See sendTemplateMessage.
+  // the API accepted the send but omitted it).
   whatsappMessageId: string | null;
 }
 
@@ -26,13 +32,15 @@ export class WhatsAppService {
     private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
-  // Returns whether the message was actually sent. Never throws — a failed
-  // or skipped send is a business outcome (logged in MessageLog), not an
-  // application error.
+  // Returns whether the message was actually sent, plus its WAMID (added
+  // 2026-09-16 — see SendMessageResult's own comment) so a caller can
+  // correlate a later delivery-status webhook back to this exact send.
+  // Never throws — a failed or skipped send is a business outcome (logged
+  // in MessageLog/WhatsappManualReply), not an application error.
   async sendTextMessage(
     phoneNumber: string,
     message: string,
-  ): Promise<boolean> {
+  ): Promise<SendMessageResult> {
     const {
       phoneNumberId,
       accessToken,
@@ -44,7 +52,7 @@ export class WhatsAppService {
       this.logger.warn(
         `WhatsApp sending is paused (WHATSAPP_SENDING_PAUSED) — skipping send to ${phoneNumber}.`,
       );
-      return false;
+      return { sent: false, whatsappMessageId: null };
     }
 
     if (!phoneNumberId || !accessToken) {
@@ -52,7 +60,7 @@ export class WhatsAppService {
         `WhatsApp credentials are not configured — skipping send to ${phoneNumber}. ` +
           'See docs/ENVIRONMENT_VARIABLES.md.',
       );
-      return false;
+      return { sent: false, whatsappMessageId: null };
     }
 
     try {
@@ -78,16 +86,21 @@ export class WhatsAppService {
         this.logger.error(
           `WhatsApp API responded with ${response.status} for ${phoneNumber}: ${errorBody}`,
         );
-        return false;
+        return { sent: false, whatsappMessageId: null };
       }
 
-      return true;
+      const data = (await response.json()) as {
+        messages?: { id?: string }[];
+      };
+      const whatsappMessageId = data.messages?.[0]?.id ?? null;
+
+      return { sent: true, whatsappMessageId };
     } catch (error) {
       this.logger.error(
         `Failed to send WhatsApp message to ${phoneNumber}`,
         error,
       );
-      return false;
+      return { sent: false, whatsappMessageId: null };
     }
   }
 
@@ -107,7 +120,7 @@ export class WhatsAppService {
     templateName: string,
     languageCode: string,
     bodyParameters: string[],
-  ): Promise<SendTemplateMessageResult> {
+  ): Promise<SendMessageResult> {
     const {
       phoneNumberId,
       accessToken,
@@ -198,7 +211,7 @@ export class WhatsAppService {
     phoneNumber: string,
     bodyText: string,
     buttons: WhatsAppInteractiveButton[],
-  ): Promise<boolean> {
+  ): Promise<SendMessageResult> {
     const {
       phoneNumberId,
       accessToken,
@@ -210,7 +223,7 @@ export class WhatsAppService {
       this.logger.warn(
         `WhatsApp sending is paused (WHATSAPP_SENDING_PAUSED) — skipping interactive send to ${phoneNumber}.`,
       );
-      return false;
+      return { sent: false, whatsappMessageId: null };
     }
 
     if (!phoneNumberId || !accessToken) {
@@ -218,14 +231,14 @@ export class WhatsAppService {
         `WhatsApp credentials are not configured — skipping send to ${phoneNumber}. ` +
           'See docs/ENVIRONMENT_VARIABLES.md.',
       );
-      return false;
+      return { sent: false, whatsappMessageId: null };
     }
 
     if (buttons.length === 0 || buttons.length > MAX_INTERACTIVE_BUTTONS) {
       this.logger.error(
         `Interactive message to ${phoneNumber} must have between 1 and ${MAX_INTERACTIVE_BUTTONS} buttons, got ${buttons.length}`,
       );
-      return false;
+      return { sent: false, whatsappMessageId: null };
     }
 
     try {
@@ -260,16 +273,21 @@ export class WhatsAppService {
         this.logger.error(
           `WhatsApp API responded with ${response.status} for ${phoneNumber} (interactive buttons): ${errorBody}`,
         );
-        return false;
+        return { sent: false, whatsappMessageId: null };
       }
 
-      return true;
+      const data = (await response.json()) as {
+        messages?: { id?: string }[];
+      };
+      const whatsappMessageId = data.messages?.[0]?.id ?? null;
+
+      return { sent: true, whatsappMessageId };
     } catch (error) {
       this.logger.error(
         `Failed to send WhatsApp interactive buttons message to ${phoneNumber}`,
         error,
       );
-      return false;
+      return { sent: false, whatsappMessageId: null };
     }
   }
 }
