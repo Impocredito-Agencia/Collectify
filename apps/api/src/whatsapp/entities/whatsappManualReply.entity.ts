@@ -10,6 +10,7 @@ import {
 
 import { Client } from '../../clients/entities/client.entity';
 import { User } from '../../users/entities/user.entity';
+import { WhatsappDeliveryStatus } from '../whatsappDeliveryStatus.enum';
 
 export enum WhatsappManualReplyStatus {
   Sent = 'sent',
@@ -90,6 +91,32 @@ export class WhatsappManualReply {
 
   @Column({ type: 'timestamptz' })
   sentAt!: Date;
+
+  // Added 2026-09-16 — this table never captured a WAMID at all (unlike
+  // message_logs, since 2026-09-03), because sendTextMessage/
+  // sendInteractiveButtonsMessage — the two Meta calls every row here goes
+  // through — didn't return one. Both now do (mirroring
+  // sendTemplateMessage's existing SendMessageResult shape), so every new
+  // reply/self-service send/closing message can be correlated against a
+  // later delivery-status webhook. Null for any row created before this
+  // column existed, or if Meta's response omitted it.
+  @Index()
+  @Column({ type: 'varchar', nullable: true })
+  whatsappMessageId!: string | null;
+
+  // Same delivery-status tracking as MessageLog — see that entity's own
+  // comment and extractStatusEvents.ts.
+  @Column({ type: 'enum', enum: WhatsappDeliveryStatus, nullable: true })
+  deliveryStatus!: WhatsappDeliveryStatus | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  deliveryStatusUpdatedAt!: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  lastErrorCode!: number | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  lastErrorTitle!: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;
