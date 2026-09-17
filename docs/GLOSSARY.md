@@ -163,6 +163,12 @@ A historical record of a reminder actually sent to a client — one row per clie
 ### Message log item
 A single installment's contribution to a sent message log — since one message covers several installments, this table records each one along with a **snapshot** of its overdue days and interest at the exact moment the message was sent (these values change daily, so the snapshot preserves what the client was actually told). In code: `MessageLogItem` entity, `message_log_items` table.
 
+### Estado de entrega / Delivery status
+Added 2026-09-16 (human report — "¿cómo sabemos si un cliente nos bloqueó?"). Meta's own per-message webhook callback (`sent`/`delivered`/`read`/`failed`), applied to whichever `message_logs`/`whatsapp_manual_replies` row's `whatsapp_message_id` (WAMID) matches. Distinct from that same row's own `status` column, which only ever recorded whether the synchronous send-attempt HTTP call succeeded — never what happened to the message afterward. In code: `WhatsappDeliveryStatus` enum, `extractStatusEvents.ts`, `WhatsappWebhookService.applyDeliveryStatusUpdate`.
+
+### Posible bloqueo / Possibly blocked
+WhatsApp never confirms outright that a client has blocked the business number — this is a **heuristic**, not a Meta-reported fact, computed on read from a client's last 5 outbound sends: flagged when the most recent failed send carries a known undeliverable error code (`131026` "Message Undeliverable", `131047`, `470`), or after 3+ consecutive failed sends with no delivery in between. Always surfaced to the admin alongside the raw evidence (last delivery status, error code/title) rather than as a bare claim, since there's no way to independently verify it. In code: `computeDeliveryHealth` (`whatsappDeliveryHealth.ts`), `GET /whatsapp/clients/:clientId/delivery-health`.
+
 ### Inbound message
 Added Phase 22 — any WhatsApp event a client sends *to* the business: a template's quick-reply button tap, or free text sent unprompted. The first thing Collectify has ever received rather than only sent. Logged unconditionally, whether or not the sender's phone number matches a known client. In code: `WhatsappInboundMessage` entity, `whatsapp_inbound_messages` table. **As of Phase 34, a known client's button tap or unprompted free text triggers the self-service menu below** (see "Menú de autoservicio"); an unrecognized number is still only logged, no automated reply. **Whether a client's stated preference (e.g. a "No") persists is still an open question** — see `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
 
