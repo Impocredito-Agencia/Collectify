@@ -200,11 +200,18 @@ export function ClientDetailPage() {
                 Activo
               </span>
               {client.isMoraBlocked && (
+                // Human decision, 2026-09-09 — mora no longer blocks new
+                // loans (see LoansService.assertClientCanTakeNewLoan),
+                // just warns; isMoraBlocked itself is unchanged (still
+                // "has a cuota over 30 days overdue"), only what it does
+                // about it changed. Wording matches LoanForm.tsx's own
+                // ClientCapacityNotice, the other place this same flag
+                // surfaces.
                 <StatusBadge
                   tone="danger"
-                  title="Este cliente tiene una cuota con más de 30 días de mora y no puede recibir un nuevo préstamo."
+                  title="Este cliente tiene una cuota con más de 30 días de mora — ya no bloquea préstamos nuevos, solo es una alerta."
                 >
-                  Bloqueado por mora
+                  Mora superior a 30 días
                 </StatusBadge>
               )}
               {deliveryHealth?.possiblyBlocked && (
