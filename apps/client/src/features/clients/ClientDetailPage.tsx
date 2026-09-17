@@ -742,8 +742,17 @@ function MessageFrequencySection({
   canManage: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
-  const [days, setDays] = useState(
-    () => client.messageFrequency?.minimumDaysBetweenMessages ?? 7,
+  // '' (not a default like 7) when there's no frequency set yet — human
+  // report, 2026-09-17: pre-filling a real-looking number here read as
+  // "this is what's currently happening" rather than "type a number",
+  // even though it was just an arbitrary suggestion nobody had confirmed.
+  // Left blank, "7" only shows as the input's placeholder (visibly grey,
+  // never mistakable for an entered value) — see the input below.
+  // Editing an EXISTING frequency still pre-fills the real number, set
+  // explicitly by the "Editar" button's own onClick — that one really is
+  // the current value, not a suggestion.
+  const [days, setDays] = useState<number | ''>(
+    () => client.messageFrequency?.minimumDaysBetweenMessages ?? '',
   );
   const [error, setError] = useState<string | null>(null);
   const setFrequency = useSetClientMessageFrequency();
@@ -751,6 +760,10 @@ function MessageFrequencySection({
 
   const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (days === '') {
+      setError('Escribe cada cuántos días como mínimo.');
+      return;
+    }
     setError(null);
     try {
       await setFrequency.mutateAsync({
@@ -801,12 +814,19 @@ function MessageFrequencySection({
             <input
               type="number"
               min={1}
+              placeholder="7"
               value={days}
-              onChange={(event) => setDays(Number(event.target.value))}
-              className="h-9 w-20 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
+              onChange={(event) => {
+                const raw = event.target.value;
+                setDays(raw === '' ? '' : Number(raw));
+              }}
+              className="h-9 w-20 rounded border border-border bg-input px-2 text-meta text-white placeholder:text-muted focus:outline-none"
             />
             <span className="text-small text-white">días como mínimo</span>
-            <Button type="submit" disabled={setFrequency.isPending}>
+            <Button
+              type="submit"
+              disabled={setFrequency.isPending || days === ''}
+            >
               {setFrequency.isPending ? 'Guardando…' : 'Guardar'}
             </Button>
             <Button
@@ -851,7 +871,12 @@ function MessageFrequencySection({
               califiquen.
             </span>
             {canManage && (
-              <RowActionButton onClick={() => setIsEditing(true)}>
+              <RowActionButton
+                onClick={() => {
+                  setDays('');
+                  setIsEditing(true);
+                }}
+              >
                 Ajustar
               </RowActionButton>
             )}
