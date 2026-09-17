@@ -38,7 +38,7 @@ export function ClientCreditBanner({
   }
 
   return (
-    <div className="flex items-center justify-between gap-4 rounded border border-border bg-surface px-4 py-3 text-small text-muted">
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface px-4 py-3 text-small text-muted">
       <span>
         Este cliente tiene un saldo a favor de{' '}
         <strong className="text-white">{formatCurrency(balance)}</strong>,

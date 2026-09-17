@@ -114,7 +114,7 @@ export function ClientAccountStatusPanel({
   );
 
   return (
-    <div className="rounded border border-border bg-surface">
+    <div className="rounded-lg border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <div>
           <p className="text-[15px] font-medium text-white">Estado de cuenta</p>

@@ -177,7 +177,7 @@ export function ClientDetailPage() {
         </span>
       </div>
 
-      <div className="flex items-center justify-between rounded border border-border bg-surface px-6 py-5">
+      <div className="flex items-center justify-between rounded-lg border border-border bg-surface px-6 py-5">
         <div className="flex items-center gap-5">
           <div className="flex size-[52px] shrink-0 items-center justify-center rounded-full bg-border">
             <span className="text-[16px] font-medium text-muted">
@@ -200,11 +200,18 @@ export function ClientDetailPage() {
                 Activo
               </span>
               {client.isMoraBlocked && (
+                // Human decision, 2026-09-09 — mora no longer blocks new
+                // loans (see LoansService.assertClientCanTakeNewLoan),
+                // just warns; isMoraBlocked itself is unchanged (still
+                // "has a cuota over 30 days overdue"), only what it does
+                // about it changed. Wording matches LoanForm.tsx's own
+                // ClientCapacityNotice, the other place this same flag
+                // surfaces.
                 <StatusBadge
                   tone="danger"
-                  title="Este cliente tiene una cuota con más de 30 días de mora y no puede recibir un nuevo préstamo."
+                  title="Este cliente tiene una cuota con más de 30 días de mora — ya no bloquea préstamos nuevos, solo es una alerta."
                 >
-                  Bloqueado por mora
+                  Mora superior a 30 días
                 </StatusBadge>
               )}
               {deliveryHealth?.possiblyBlocked && (
@@ -455,7 +462,7 @@ export function ClientDetailPage() {
               </tbody>
             </table>
           ) : (
-            <p className="border border-border p-4 text-small text-muted">
+            <p className="p-4 text-small text-muted">
               Este cliente no tiene mensajes fallidos pendientes de revisar.
             </p>
           )}
@@ -560,7 +567,7 @@ export function ClientDetailPage() {
           />
         </DetailSection>
 
-        <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+        <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
           <span className="text-section-label font-normal tracking-normal text-subtle">
             Referencias
           </span>
@@ -602,7 +609,7 @@ export function ClientDetailPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+          <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
             <span className="text-section-label font-normal tracking-normal text-subtle">
               Documentos
             </span>
@@ -634,7 +641,7 @@ export function ClientDetailPage() {
             )}
           </div>
 
-          <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+          <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
             <span className="text-section-label font-normal tracking-normal text-subtle">
               Autorización de tratamiento de datos
             </span>
@@ -735,8 +742,17 @@ function MessageFrequencySection({
   canManage: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
-  const [days, setDays] = useState(
-    () => client.messageFrequency?.minimumDaysBetweenMessages ?? 7,
+  // '' (no default, no placeholder either) when there's no frequency set
+  // yet — human report, 2026-09-17: pre-filling a real-looking number
+  // here read as "this is what's currently happening" rather than "type
+  // a number", even though it was just an arbitrary suggestion nobody
+  // had confirmed. Genuinely empty until the admin types something — see
+  // handleSave's own guard below. Editing an EXISTING frequency still
+  // pre-fills the real number, set explicitly by the "Editar" button's
+  // own onClick — that one really is the current value, not a
+  // suggestion.
+  const [days, setDays] = useState<number | ''>(
+    () => client.messageFrequency?.minimumDaysBetweenMessages ?? '',
   );
   const [error, setError] = useState<string | null>(null);
   const setFrequency = useSetClientMessageFrequency();
@@ -744,6 +760,10 @@ function MessageFrequencySection({
 
   const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (days === '') {
+      setError('Escribe cada cuántos días como mínimo.');
+      return;
+    }
     setError(null);
     try {
       await setFrequency.mutateAsync({
@@ -774,90 +794,95 @@ function MessageFrequencySection({
   };
 
   return (
-    <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+    <div className="flex flex-col gap-2.5">
       <span className="text-section-label font-normal tracking-normal text-subtle">
         Frecuencia de mensajes
       </span>
-      <p className="text-meta text-muted">
-        Solo ajusta cada cuántos días como mínimo recibe recordatorios de mora o
-        aviso — no afecta si los recibe o no.
-      </p>
 
-      {isEditing ? (
-        <form
-          onSubmit={(event) => void handleSave(event)}
-          className="flex flex-wrap items-center gap-2.5"
-        >
-          <span className="text-small text-white">Cada</span>
-          <input
-            type="number"
-            min={1}
-            value={days}
-            onChange={(event) => setDays(Number(event.target.value))}
-            className="h-9 w-20 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
-          />
-          <span className="text-small text-white">días como mínimo</span>
-          <Button
-            type="submit"
-            variant="secondary"
-            disabled={setFrequency.isPending}
+      <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
+        <p className="text-meta text-muted">
+          Solo ajusta cada cuántos días como mínimo recibe recordatorios de mora
+          o aviso — no afecta si los recibe o no.
+        </p>
+
+        {isEditing ? (
+          <form
+            onSubmit={(event) => void handleSave(event)}
+            className="flex flex-wrap items-center gap-2.5"
           >
-            {setFrequency.isPending ? 'Guardando…' : 'Guardar'}
-          </Button>
-          <button
-            type="button"
-            onClick={() => setIsEditing(false)}
-            className="text-meta text-muted hover:text-white"
-          >
-            Cancelar
-          </button>
-        </form>
-      ) : client.messageFrequency ? (
-        <div className="flex items-center gap-3">
-          <span className="rounded-[3px] border border-border bg-input px-2 py-[3px] text-meta font-medium text-white">
-            Cada {client.messageFrequency.minimumDaysBetweenMessages} días
-          </span>
-          {canManage && (
-            <>
-              <button
-                type="button"
+            <span className="text-small text-white">Cada</span>
+            <input
+              type="number"
+              min={1}
+              value={days}
+              onChange={(event) => {
+                const raw = event.target.value;
+                setDays(raw === '' ? '' : Number(raw));
+              }}
+              className="h-9 w-20 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
+            />
+            <span className="text-small text-white">días como mínimo</span>
+            <Button
+              type="submit"
+              disabled={setFrequency.isPending || days === ''}
+            >
+              {setFrequency.isPending ? 'Guardando…' : 'Guardar'}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsEditing(false)}
+            >
+              Cancelar
+            </Button>
+          </form>
+        ) : client.messageFrequency ? (
+          <div className="flex items-center gap-3">
+            <span className="rounded-[3px] border border-border bg-input px-2 py-[3px] text-meta font-medium text-white">
+              Cada {client.messageFrequency.minimumDaysBetweenMessages} días
+            </span>
+            {canManage && (
+              <>
+                <RowActionButton
+                  onClick={() => {
+                    setDays(
+                      client.messageFrequency!.minimumDaysBetweenMessages,
+                    );
+                    setIsEditing(true);
+                  }}
+                >
+                  Editar
+                </RowActionButton>
+                <RowActionButton
+                  onClick={() => void handleClear()}
+                  disabled={clearFrequency.isPending}
+                  tone="subtle"
+                >
+                  {clearFrequency.isPending ? 'Quitando…' : 'Quitar'}
+                </RowActionButton>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <span className="text-small text-white">
+              Sin frecuencia personalizada — recibe todos los envíos que
+              califiquen.
+            </span>
+            {canManage && (
+              <RowActionButton
                 onClick={() => {
-                  setDays(client.messageFrequency!.minimumDaysBetweenMessages);
+                  setDays('');
                   setIsEditing(true);
                 }}
-                className="text-meta text-muted hover:text-white"
               >
-                Editar
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleClear()}
-                disabled={clearFrequency.isPending}
-                className="text-meta text-muted hover:text-danger disabled:opacity-50"
-              >
-                {clearFrequency.isPending ? 'Quitando…' : 'Quitar'}
-              </button>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-3">
-          <span className="text-small text-muted">
-            Sin frecuencia personalizada — recibe todos los envíos que
-            califiquen.
-          </span>
-          {canManage && (
-            <button
-              type="button"
-              onClick={() => setIsEditing(true)}
-              className="text-meta text-muted hover:text-white"
-            >
-              Ajustar
-            </button>
-          )}
-        </div>
-      )}
-      {error && <p className="text-meta text-danger">{error}</p>}
+                Ajustar
+              </RowActionButton>
+            )}
+          </div>
+        )}
+        {error && <p className="text-meta text-danger">{error}</p>}
+      </div>
     </div>
   );
 }
@@ -883,7 +908,7 @@ function DetailSection({
         ? 'grid-cols-3'
         : 'grid-cols-2';
   return (
-    <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
       <span className="text-section-label font-normal tracking-normal text-subtle">
         {title}
       </span>
