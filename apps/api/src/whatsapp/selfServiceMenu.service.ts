@@ -94,16 +94,15 @@ export class SelfServiceMenuService {
     message: string,
     kind: SelfServiceReplyKind,
   ): Promise<boolean> {
-    const sent = await this.whatsAppService.sendTextMessage(
-      client.phoneNumber,
-      message,
-    );
+    const { sent, whatsappMessageId } =
+      await this.whatsAppService.sendTextMessage(client.phoneNumber, message);
     await this.whatsappOutboundLogService.log({
       clientId: client.id,
       phoneNumber: client.phoneNumber,
       messageContent: message,
       sentByUserId: null,
       sent,
+      whatsappMessageId,
       selfServiceReplyKind: kind,
     });
     return sent;
@@ -115,17 +114,19 @@ export class SelfServiceMenuService {
     buttons: WhatsAppInteractiveButton[],
     kind: SelfServiceReplyKind,
   ): Promise<boolean> {
-    const sent = await this.whatsAppService.sendInteractiveButtonsMessage(
-      client.phoneNumber,
-      bodyText,
-      buttons,
-    );
+    const { sent, whatsappMessageId } =
+      await this.whatsAppService.sendInteractiveButtonsMessage(
+        client.phoneNumber,
+        bodyText,
+        buttons,
+      );
     await this.whatsappOutboundLogService.log({
       clientId: client.id,
       phoneNumber: client.phoneNumber,
       messageContent: bodyText,
       sentByUserId: null,
       sent,
+      whatsappMessageId,
       selfServiceReplyKind: kind,
     });
     return sent;

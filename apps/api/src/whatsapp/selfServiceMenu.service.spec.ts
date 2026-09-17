@@ -122,8 +122,12 @@ describe('SelfServiceMenuService', () => {
       clear: jest.fn().mockResolvedValue(undefined),
     };
     whatsAppService = {
-      sendTextMessage: jest.fn().mockResolvedValue(true),
-      sendInteractiveButtonsMessage: jest.fn().mockResolvedValue(true),
+      sendTextMessage: jest
+        .fn()
+        .mockResolvedValue({ sent: true, whatsappMessageId: null }),
+      sendInteractiveButtonsMessage: jest
+        .fn()
+        .mockResolvedValue({ sent: true, whatsappMessageId: null }),
     };
     whatsappOutboundLogService = {
       log: jest.fn().mockResolvedValue(undefined),

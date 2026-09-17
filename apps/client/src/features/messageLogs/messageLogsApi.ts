@@ -2,13 +2,22 @@ import { apiClient } from '@/lib/apiClient';
 import { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
 
 // Matches apps/api/src/whatsapp/entities/messageLog.entity.ts's
-// MessageLogStatus. Only two real states exist — the backend never tracks
-// WhatsApp delivery/read receipts (no webhook integration), it only knows
-// whether the initial send API call succeeded or not, synchronously, at
-// send time. Figma's "Leído"/"Entregado"/"Pendiente" don't correspond to
-// anything stored — see DESIGN_TOKENS.md.
+// MessageLogStatus — only whether the initial send API call succeeded or
+// not, synchronously, at send time. Distinct from WhatsappDeliveryStatus
+// below, which is Meta's later delivery-status webhook callback (added
+// 2026-09-16, human report — see that enum's own comment).
 export enum MessageLogStatus {
   Sent = 'sent',
+  Failed = 'failed',
+}
+
+// Matches apps/api/src/whatsapp/whatsappDeliveryStatus.enum.ts. Meta's
+// per-message webhook callback — null on MessageLog/WhatsappManualReply
+// means no callback has been received (yet, or ever) for that send.
+export enum WhatsappDeliveryStatus {
+  Sent = 'sent',
+  Delivered = 'delivered',
+  Read = 'read',
   Failed = 'failed',
 }
 
@@ -28,6 +37,14 @@ export interface MessageLog {
   messageContent: string;
   status: MessageLogStatus;
   sentAt: string;
+  whatsappMessageId: string | null;
+  // Added 2026-09-16 — Meta's delivery-status webhook callback, applied
+  // once a matching WAMID arrives. deliveryStatus null means no callback
+  // has been received yet (or ever) for this send.
+  deliveryStatus: WhatsappDeliveryStatus | null;
+  deliveryStatusUpdatedAt: string | null;
+  lastErrorCode: number | null;
+  lastErrorTitle: string | null;
   // Phase 18 manual retry tracking — retriedAt is set on the ORIGINAL
   // (failed) row once it's retried; retryOfMessageLogId is set on the NEW
   // row created for that retry, pointing back at the original. Both null

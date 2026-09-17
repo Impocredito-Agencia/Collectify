@@ -28,6 +28,10 @@ import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
 import { WhatsappConversationTicketService } from '../whatsappConversationTicket.service';
 import { WhatsAppService } from '../whatsapp.service';
+import {
+  computeDeliveryHealth,
+  WhatsappDeliveryHealth,
+} from '../whatsappDeliveryHealth';
 import { WhatsappOutboundLogService } from '../whatsappOutboundLog.service';
 
 import { QueryWhatsappConversationsDto } from './dto/queryWhatsappConversations.dto';
@@ -37,6 +41,7 @@ import {
   extractInboundEvents,
   ParsedInboundEvent,
 } from './extractInboundEvents';
+import { extractStatusEvents, ParsedStatusEvent } from './extractStatusEvents';
 import type {
   WhatsappConversationLastEvent,
   WhatsappConversationSummary,
@@ -49,6 +54,7 @@ const HUB_SUBSCRIBE_MODE = 'subscribe';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_CONVERSATIONS_PAGE_SIZE = 20;
+const DELIVERY_HEALTH_WINDOW = 5;
 
 type ConversationEventSource =
   'inbound_message' | 'message_log' | 'manual_reply';
@@ -195,6 +201,62 @@ export class WhatsappWebhookService {
 
     for (const event of events) {
       await this.persistEvent(event);
+    }
+
+    // Added 2026-09-16 — the same payload can also carry Meta's delivery-
+    // status callbacks (change.value.statuses[]), previously ignored
+    // entirely. Same webhook endpoint, same payload, so parsed and applied
+    // right alongside the inbound events above — see extractStatusEvents.ts.
+    let statusEvents: ParsedStatusEvent[] = [];
+    try {
+      statusEvents = extractStatusEvents(payload);
+    } catch (error) {
+      this.logger.error(
+        'Failed to parse a WhatsApp delivery-status payload',
+        error,
+      );
+      return;
+    }
+
+    for (const statusEvent of statusEvents) {
+      await this.applyDeliveryStatusUpdate(statusEvent);
+    }
+  }
+
+  // Looks up the WAMID against message_logs first, then
+  // whatsapp_manual_replies — never both (a WAMID belongs to exactly one
+  // outbound send). A WAMID matching neither (e.g. the status arrived
+  // before the send's own row committed, or for a message type this app
+  // doesn't log) is a silent no-op, not an error — same "never break the
+  // ack" contract persistEvent already follows for inbound events.
+  private async applyDeliveryStatusUpdate(
+    event: ParsedStatusEvent,
+  ): Promise<void> {
+    try {
+      const update = {
+        deliveryStatus: event.status,
+        deliveryStatusUpdatedAt: event.timestamp,
+        lastErrorCode: event.errorCode,
+        lastErrorTitle: event.errorTitle,
+      };
+
+      const logUpdateResult = await this.messageLogsRepository.update(
+        { whatsappMessageId: event.whatsappMessageId },
+        update,
+      );
+      if (logUpdateResult.affected) {
+        return;
+      }
+
+      await this.manualRepliesRepository.update(
+        { whatsappMessageId: event.whatsappMessageId },
+        update,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to apply delivery-status update for WAMID ${event.whatsappMessageId}`,
+        error,
+      );
     }
   }
 
@@ -666,10 +728,8 @@ export class WhatsappWebhookService {
     sentByUserId: string,
   ): Promise<boolean> {
     const phoneNumber = normalizeIncomingPhoneNumber(rawPhoneNumber);
-    const sent = await this.whatsAppService.sendTextMessage(
-      phoneNumber,
-      message,
-    );
+    const { sent, whatsappMessageId } =
+      await this.whatsAppService.sendTextMessage(phoneNumber, message);
 
     // Human report, 2026-09-19 — matches either known number, same as
     // persistEvent's inbound resolution, so a reply on a conversation
@@ -684,6 +744,7 @@ export class WhatsappWebhookService {
       messageContent: message,
       sentByUserId,
       sent,
+      whatsappMessageId,
     });
 
     return sent;
@@ -714,6 +775,41 @@ export class WhatsappWebhookService {
       order: { sentAt: 'DESC' },
       take: DEFAULT_PAGE_SIZE * 10,
     });
+  }
+
+  // Human report, 2026-09-16 — "¿cómo sabemos si un cliente nos bloqueó?".
+  // Pulls the client's last DELIVERY_HEALTH_WINDOW outbound sends across
+  // both tables (message_logs always has one clientId; a manual reply's is
+  // nullable but this endpoint is only ever called for a known client),
+  // merges and re-sorts (each side is already independently ordered/
+  // capped, so this is never more than 2×WINDOW rows), then hands the
+  // computation itself to the pure, independently-tested
+  // computeDeliveryHealth. See that function's own comment on why
+  // `possiblyBlocked` is evidence, not a verdict.
+  async getDeliveryHealth(clientId: string): Promise<WhatsappDeliveryHealth> {
+    const [logs, replies] = await Promise.all([
+      this.messageLogsRepository.find({
+        where: { clientId },
+        order: { sentAt: 'DESC' },
+        take: DELIVERY_HEALTH_WINDOW,
+      }),
+      this.manualRepliesRepository.find({
+        where: { clientId },
+        order: { sentAt: 'DESC' },
+        take: DELIVERY_HEALTH_WINDOW,
+      }),
+    ]);
+
+    const events = [...logs, ...replies]
+      .sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime())
+      .slice(0, DELIVERY_HEALTH_WINDOW)
+      .map((event) => ({
+        deliveryStatus: event.deliveryStatus,
+        errorCode: event.lastErrorCode,
+        errorTitle: event.lastErrorTitle,
+      }));
+
+    return computeDeliveryHealth(events);
   }
 
   // Backs the panel's "Responder"/"Cerrar conversación" gating — see
@@ -747,12 +843,12 @@ export class WhatsappWebhookService {
     sendClosingMessage = true,
   ): Promise<boolean> {
     const phoneNumber = normalizeIncomingPhoneNumber(rawPhoneNumber);
-    const sent = sendClosingMessage
+    const { sent, whatsappMessageId } = sendClosingMessage
       ? await this.whatsAppService.sendTextMessage(
           phoneNumber,
           CONVERSATION_CLOSED_MESSAGE,
         )
-      : false;
+      : { sent: false, whatsappMessageId: null };
     // Human report, 2026-09-19 — same "every outbound message needs a
     // record" reasoning as WhatsappOutboundLogService's own comment: this
     // closing message used to leave no trace in the conversation thread.
@@ -772,6 +868,7 @@ export class WhatsappWebhookService {
         messageContent: CONVERSATION_CLOSED_MESSAGE,
         sentByUserId: null,
         sent,
+        whatsappMessageId,
       });
     }
     await this.conversationStateService.clear(phoneNumber);

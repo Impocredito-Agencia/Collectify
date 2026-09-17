@@ -37,6 +37,7 @@ import {
   useSendReminder,
   useSendUpcomingDueReminder,
 } from '@/features/whatsapp/useWhatsapp';
+import { useDeliveryHealth } from '@/features/whatsappInboundMessages/useWhatsappInboundMessages';
 import { ApiError } from '@/lib/apiClient';
 import {
   calculateAge,
@@ -109,6 +110,11 @@ export function ClientDetailPage() {
   });
   const sendReminder = useSendReminder();
   const sendUpcomingDueReminder = useSendUpcomingDueReminder();
+  // Human report, 2026-09-16 — "¿cómo sabemos si un cliente nos bloqueó?".
+  // enabled: false via useDeliveryHealth(null) until `id` resolves (this
+  // hook runs before the `!id` redirect below, same as every other query
+  // on this page).
+  const { data: deliveryHealth } = useDeliveryHealth(id ?? null);
   const [sendError, setSendError] = useState<string | null>(null);
 
   if (!id) {
@@ -199,6 +205,22 @@ export function ClientDetailPage() {
                   title="Este cliente tiene una cuota con más de 30 días de mora y no puede recibir un nuevo préstamo."
                 >
                   Bloqueado por mora
+                </StatusBadge>
+              )}
+              {deliveryHealth?.possiblyBlocked && (
+                <StatusBadge
+                  tone="danger"
+                  title={
+                    deliveryHealth.lastErrorTitle
+                      ? `${deliveryHealth.lastErrorTitle}${
+                          deliveryHealth.lastErrorCode
+                            ? ` (${deliveryHealth.lastErrorCode})`
+                            : ''
+                        }`
+                      : 'Varios envíos recientes de WhatsApp no se entregaron.'
+                  }
+                >
+                  Posible bloqueo en WhatsApp
                 </StatusBadge>
               )}
             </div>

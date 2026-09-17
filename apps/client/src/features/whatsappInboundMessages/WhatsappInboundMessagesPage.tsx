@@ -23,6 +23,7 @@ import {
   useConversationsForClientIds,
   useConversationState,
   useConversationTickets,
+  useDeliveryHealth,
   useManualReplies,
   useReplyToInboundMessage,
   useWhatsappInboundMessages,
@@ -784,6 +785,7 @@ function ConversationThread({
   });
   const { data: currentMenu } = useConversationState(conversation.phoneNumber);
   const { data: messageLogs } = useMessageLogsForClient(conversation.clientId);
+  const { data: deliveryHealth } = useDeliveryHealth(conversation.clientId);
   const attention = conversationAttention(ticket);
   // Human report, 2026-09-14 (bug fix) — used to gate on `currentMenu ===
   // HandedOffToHuman`, which an unprompted comprobante never sets at all
@@ -844,6 +846,22 @@ function ConversationThread({
           {attention === 'resolved' && (
             <p className="mt-1 flex items-center gap-1.5 text-meta text-success">
               ✅ Conversación cerrada
+            </p>
+          )}
+          {deliveryHealth?.possiblyBlocked && (
+            <p
+              className="mt-1 flex items-center gap-1.5 text-meta text-danger"
+              title={
+                deliveryHealth.lastErrorTitle
+                  ? `${deliveryHealth.lastErrorTitle}${
+                      deliveryHealth.lastErrorCode
+                        ? ` (${deliveryHealth.lastErrorCode})`
+                        : ''
+                    }`
+                  : 'Varios envíos recientes no se entregaron'
+              }
+            >
+              ⚠️ Posible bloqueo — revisa el estado de entrega
             </p>
           )}
         </div>
@@ -1285,6 +1303,62 @@ function NavigationGroupBubble({
   );
 }
 
+// Human report, 2026-09-16 — replaces the plain "No entregado" text-only
+// treatment with real WhatsApp-style ticks, now that the backend actually
+// parses Meta's delivery-status webhook (sent/delivered/read/failed)
+// instead of only ever knowing whether the initial send API call
+// succeeded. sendFailed (the ORIGINAL MessageLogStatus/
+// WhatsappManualReplyStatus check) takes priority — a send that never
+// reached Meta at all has no WAMID and so can never get a deliveryStatus
+// update either. `title` carries the raw evidence (Meta's error code/title)
+// on hover rather than asserting a bare verdict — see
+// WhatsappDeliveryHealth's own comment on why "possibly blocked" is
+// evidence, not a confirmed status.
+function DeliveryStatusIndicator({
+  sendFailed,
+  deliveryStatus,
+  lastErrorCode,
+  lastErrorTitle,
+}: {
+  sendFailed: boolean;
+  deliveryStatus: 'sent' | 'delivered' | 'read' | 'failed' | null;
+  lastErrorCode: number | null;
+  lastErrorTitle: string | null;
+}) {
+  if (sendFailed || deliveryStatus === 'failed') {
+    const title = lastErrorTitle
+      ? `${lastErrorTitle}${lastErrorCode ? ` (${lastErrorCode})` : ''}`
+      : 'No entregado';
+    return (
+      <span className="text-meta text-danger" title={title}>
+        ⚠️ No entregado
+      </span>
+    );
+  }
+  if (deliveryStatus === 'read') {
+    return (
+      <span className="text-meta text-accent" title="Leído">
+        ✓✓
+      </span>
+    );
+  }
+  if (deliveryStatus === 'delivered') {
+    return (
+      <span className="text-meta text-subtle" title="Entregado">
+        ✓✓
+      </span>
+    );
+  }
+  // deliveryStatus is 'sent' or null (send succeeded, no webhook callback
+  // yet) — a single tick, same as WhatsApp's own "sent but not yet
+  // confirmed delivered" state.
+  return (
+    <span className="text-meta text-subtle" title="Enviado">
+      ✓
+    </span>
+  );
+}
+
 // Right-aligned, distinct color — the admin's own reply, not something the
 // client sent. Human report, 2026-09-19 — now persisted server-side and
 // pushed live to every connected admin (see useManualReplies/
@@ -1300,7 +1374,9 @@ function ReplyBubble({ reply }: { reply: WhatsappManualReply }) {
   return (
     <div
       className={`ml-auto flex max-w-[480px] flex-col gap-1 rounded-lg px-3.5 py-2.5 ${
-        failed ? 'bg-danger/10' : 'bg-white/10'
+        failed || reply.deliveryStatus === 'failed'
+          ? 'bg-danger/10'
+          : 'bg-white/10'
       }`}
     >
       <div className="flex items-center gap-2">
@@ -1313,7 +1389,12 @@ function ReplyBubble({ reply }: { reply: WhatsappManualReply }) {
             timeStyle: 'short',
           })}
         </span>
-        {failed && <span className="text-meta text-danger">No entregado</span>}
+        <DeliveryStatusIndicator
+          sendFailed={failed}
+          deliveryStatus={reply.deliveryStatus}
+          lastErrorCode={reply.lastErrorCode}
+          lastErrorTitle={reply.lastErrorTitle}
+        />
       </div>
       <p className="text-small text-white">{reply.messageContent}</p>
     </div>
@@ -1335,7 +1416,9 @@ function AutomatedMessageBubble({ log }: { log: MessageLog }) {
   return (
     <div
       className={`ml-auto flex max-w-[480px] flex-col gap-1 rounded-lg px-3.5 py-2.5 ${
-        failed ? 'bg-danger/10' : 'bg-white/5'
+        failed || log.deliveryStatus === 'failed'
+          ? 'bg-danger/10'
+          : 'bg-white/5'
       }`}
     >
       <div className="flex items-center gap-2">
@@ -1348,7 +1431,12 @@ function AutomatedMessageBubble({ log }: { log: MessageLog }) {
             timeStyle: 'short',
           })}
         </span>
-        {failed && <span className="text-meta text-danger">No entregado</span>}
+        <DeliveryStatusIndicator
+          sendFailed={failed}
+          deliveryStatus={log.deliveryStatus}
+          lastErrorCode={log.lastErrorCode}
+          lastErrorTitle={log.lastErrorTitle}
+        />
       </div>
       {/* Human report, 2026-09-14 — messageContent is now the real
           rendered template text (line breaks and all, matching what

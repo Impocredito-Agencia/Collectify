@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { whatsappConversationTicketsApi } from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
 import { whatsappConversationsApi } from '@/features/whatsappInboundMessages/whatsappConversationsApi';
+import { whatsappDeliveryHealthApi } from '@/features/whatsappInboundMessages/whatsappDeliveryHealthApi';
 import { whatsappInboundMessagesApi } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 
 import type { WhatsappConversationsQueryParams } from '@/features/whatsappInboundMessages/whatsappConversationsApi';
@@ -130,5 +131,16 @@ export function useConversationTickets(options?: { enabled?: boolean }) {
     queryKey: ['whatsappConversationTickets'],
     queryFn: () => whatsappConversationTicketsApi.getAll(),
     enabled: options?.enabled ?? true,
+  });
+}
+
+// Human report, 2026-09-16 — "¿cómo sabemos si un cliente nos bloqueó?".
+// `enabled: false` while no known client is selected (an unrecognized-
+// number conversation has no clientId to look this up by).
+export function useDeliveryHealth(clientId: string | null) {
+  return useQuery({
+    queryKey: ['whatsappDeliveryHealth', clientId],
+    queryFn: () => whatsappDeliveryHealthApi.getForClient(clientId as string),
+    enabled: clientId !== null,
   });
 }
