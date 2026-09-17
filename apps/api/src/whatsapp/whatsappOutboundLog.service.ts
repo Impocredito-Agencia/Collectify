@@ -38,6 +38,13 @@ export class WhatsappOutboundLogService {
     // sendText/sendInteractive wrappers; every other caller (an admin's
     // manual reply, the closing message) leaves this null.
     selfServiceReplyKind?: SelfServiceReplyKind | null;
+    // Added 2026-09-16 — Meta's WAMID for this send, once sendTextMessage/
+    // sendInteractiveButtonsMessage started returning one (see
+    // WhatsAppService.SendMessageResult). Optional/nullable so an existing
+    // call site that hasn't been updated yet still compiles; every current
+    // caller passes it through. Lets a later delivery-status webhook be
+    // correlated back to this row — see extractStatusEvents.ts.
+    whatsappMessageId?: string | null;
   }): Promise<WhatsappManualReply> {
     const reply = this.manualRepliesRepository.create({
       clientId: params.clientId,
@@ -48,6 +55,7 @@ export class WhatsappOutboundLogService {
         ? WhatsappManualReplyStatus.Sent
         : WhatsappManualReplyStatus.Failed,
       selfServiceReplyKind: params.selfServiceReplyKind ?? null,
+      whatsappMessageId: params.whatsappMessageId ?? null,
       sentAt: new Date(),
     });
     const saved = await this.manualRepliesRepository.save(reply);

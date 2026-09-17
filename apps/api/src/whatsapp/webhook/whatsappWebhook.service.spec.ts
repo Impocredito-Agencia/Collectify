@@ -52,8 +52,9 @@ describe('WhatsappWebhookService', () => {
     create: jest.Mock;
     save: jest.Mock;
     find: jest.Mock;
+    update: jest.Mock;
   };
-  let messageLogsRepository: { find: jest.Mock };
+  let messageLogsRepository: { find: jest.Mock; update: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
   let whatsappOutboundLogService: { log: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
@@ -88,8 +89,12 @@ describe('WhatsappWebhookService', () => {
         Promise.resolve({ id: 'reply-1', ...data }),
       ),
       find: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({ affected: 0 }),
     };
-    messageLogsRepository = { find: jest.fn().mockResolvedValue([]) };
+    messageLogsRepository = {
+      find: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({ affected: 0 }),
+    };
     whatsAppService = { sendTextMessage: jest.fn() };
     whatsappOutboundLogService = {
       log: jest.fn((params: Record<string, unknown>) =>
@@ -465,6 +470,116 @@ describe('WhatsappWebhookService', () => {
         expect.objectContaining({ metaMediaId: 'media-9' }),
       );
     });
+
+    // Added 2026-09-16 — extractStatusEvents.ts's own delivery-status
+    // callbacks, previously ignored entirely by this same webhook payload.
+    function buildStatusPayload(status: Record<string, unknown>) {
+      return {
+        entry: [{ changes: [{ value: { statuses: [status] } }] }],
+      };
+    }
+
+    it('updates the matching message_logs row when the WAMID matches one', async () => {
+      messageLogsRepository.update.mockResolvedValue({ affected: 1 });
+
+      await service.handleIncomingPayload(
+        buildStatusPayload({
+          id: 'wamid.REMINDER',
+          status: 'delivered',
+          timestamp: '1700000000',
+        }),
+      );
+
+      expect(messageLogsRepository.update).toHaveBeenCalledWith(
+        { whatsappMessageId: 'wamid.REMINDER' },
+        expect.objectContaining({
+          deliveryStatus: 'delivered',
+          deliveryStatusUpdatedAt: new Date(1700000000 * 1000),
+          lastErrorCode: null,
+          lastErrorTitle: null,
+        }),
+      );
+      expect(manualRepliesRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('falls back to whatsapp_manual_replies when no message_logs row matches', async () => {
+      messageLogsRepository.update.mockResolvedValue({ affected: 0 });
+      manualRepliesRepository.update.mockResolvedValue({ affected: 1 });
+
+      await service.handleIncomingPayload(
+        buildStatusPayload({
+          id: 'wamid.MANUAL_REPLY',
+          status: 'read',
+          timestamp: '1700000000',
+        }),
+      );
+
+      expect(manualRepliesRepository.update).toHaveBeenCalledWith(
+        { whatsappMessageId: 'wamid.MANUAL_REPLY' },
+        expect.objectContaining({ deliveryStatus: 'read' }),
+      );
+    });
+
+    it('records the error code/title on a failed status', async () => {
+      messageLogsRepository.update.mockResolvedValue({ affected: 1 });
+
+      await service.handleIncomingPayload(
+        buildStatusPayload({
+          id: 'wamid.REMINDER',
+          status: 'failed',
+          timestamp: '1700000000',
+          errors: [{ code: 131026, title: 'Message Undeliverable' }],
+        }),
+      );
+
+      expect(messageLogsRepository.update).toHaveBeenCalledWith(
+        { whatsappMessageId: 'wamid.REMINDER' },
+        expect.objectContaining({
+          deliveryStatus: 'failed',
+          lastErrorCode: 131026,
+          lastErrorTitle: 'Message Undeliverable',
+        }),
+      );
+    });
+
+    it('is a silent no-op when the WAMID matches neither table', async () => {
+      messageLogsRepository.update.mockResolvedValue({ affected: 0 });
+      manualRepliesRepository.update.mockResolvedValue({ affected: 0 });
+
+      await expect(
+        service.handleIncomingPayload(
+          buildStatusPayload({
+            id: 'wamid.UNKNOWN',
+            status: 'sent',
+            timestamp: '1700000000',
+          }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('never throws when applying a status update fails unexpectedly', async () => {
+      messageLogsRepository.update.mockRejectedValue(new Error('DB is down'));
+
+      await expect(
+        service.handleIncomingPayload(
+          buildStatusPayload({
+            id: 'wamid.REMINDER',
+            status: 'sent',
+            timestamp: '1700000000',
+          }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('never throws for a malformed statuses payload', async () => {
+      await expect(
+        service.handleIncomingPayload({
+          entry: [{ changes: [{ value: { statuses: 'not-an-array' } }] }],
+        }),
+      ).resolves.toBeUndefined();
+      expect(messageLogsRepository.update).not.toHaveBeenCalled();
+      expect(manualRepliesRepository.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('getInboundMedia', () => {
@@ -637,7 +752,10 @@ describe('WhatsappWebhookService', () => {
 
   describe('sendManualReply', () => {
     it('normalizes the phone number and sends via WhatsAppService', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: null,
+      });
       clientsRepository.findOne.mockResolvedValue(null);
 
       const result = await service.sendManualReply(
@@ -654,7 +772,10 @@ describe('WhatsappWebhookService', () => {
     });
 
     it('leaves an already-normalized number unchanged', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(false);
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: false,
+        whatsappMessageId: null,
+      });
       clientsRepository.findOne.mockResolvedValue(null);
 
       const result = await service.sendManualReply(
@@ -675,7 +796,10 @@ describe('WhatsappWebhookService', () => {
     // itself now lives in WhatsappOutboundLogService — this only verifies
     // sendManualReply derives and forwards the right params to it.
     it('logs the reply as sent by this admin', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: null,
+      });
       clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
 
       await service.sendManualReply('573001234567', 'Hola!', 'user-1');
@@ -686,11 +810,15 @@ describe('WhatsappWebhookService', () => {
         messageContent: 'Hola!',
         sentByUserId: 'user-1',
         sent: true,
+        whatsappMessageId: null,
       });
     });
 
     it('logs a failed send with no client, still by this admin', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(false);
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: false,
+        whatsappMessageId: null,
+      });
       clientsRepository.findOne.mockResolvedValue(null);
 
       await service.sendManualReply('573001234567', 'Hola!', 'user-1');
@@ -701,7 +829,25 @@ describe('WhatsappWebhookService', () => {
         messageContent: 'Hola!',
         sentByUserId: 'user-1',
         sent: false,
+        whatsappMessageId: null,
       });
+    });
+
+    // Added 2026-09-16 — see WhatsAppService.SendMessageResult's own
+    // comment: a manual reply's WAMID must reach whatsapp_manual_replies
+    // so a later delivery-status webhook can be correlated back to it.
+    it('threads the WAMID through to the logged reply when the send returns one', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: 'wamid.MANUAL_REPLY',
+      });
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+      await service.sendManualReply('573001234567', 'Hola!', 'user-1');
+
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ whatsappMessageId: 'wamid.MANUAL_REPLY' }),
+      );
     });
   });
 
@@ -973,7 +1119,10 @@ describe('WhatsappWebhookService', () => {
 
   describe('closeConversation', () => {
     it('sends the closing message and clears the conversation state', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: null,
+      });
 
       const result = await service.closeConversation('573001234567');
 
@@ -988,7 +1137,10 @@ describe('WhatsappWebhookService', () => {
     });
 
     it('still clears state even when the closing message fails to send', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(false);
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: false,
+        whatsappMessageId: null,
+      });
 
       const result = await service.closeConversation('+573001234567');
 
@@ -1002,7 +1154,10 @@ describe('WhatsappWebhookService', () => {
     // trace in the conversation thread. sentByUserId is null: the admin
     // only triggered it, they didn't type this fixed message themselves.
     it('logs the closing message with no admin attribution', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: null,
+      });
       clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
 
       await service.closeConversation('573001234567');
@@ -1013,13 +1168,17 @@ describe('WhatsappWebhookService', () => {
         messageContent: expect.stringContaining('Gracias') as unknown,
         sentByUserId: null,
         sent: true,
+        whatsappMessageId: null,
       });
     });
 
     // Human report, 2026-09-13 — closing IS resolving: an admin explicitly
     // closing the conversation clears the client's pending ticket, if any.
     it('resolves the pending ticket for the matched client', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: null,
+      });
       clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
 
       await service.closeConversation('573001234567');
@@ -1030,7 +1189,10 @@ describe('WhatsappWebhookService', () => {
     });
 
     it('still resolves the ticket even when the closing message fails to send', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(false);
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: false,
+        whatsappMessageId: null,
+      });
       clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
 
       await service.closeConversation('573001234567');
@@ -1041,7 +1203,10 @@ describe('WhatsappWebhookService', () => {
     });
 
     it('does not try to resolve a ticket when the phone number matches no client', async () => {
-      whatsAppService.sendTextMessage.mockResolvedValue(true);
+      whatsAppService.sendTextMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: null,
+      });
       clientsRepository.findOne.mockResolvedValue(null);
 
       await service.closeConversation('573001234567');
