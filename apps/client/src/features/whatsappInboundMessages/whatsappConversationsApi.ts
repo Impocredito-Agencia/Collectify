@@ -3,6 +3,23 @@ import { apiClient } from '@/lib/apiClient';
 import type { WhatsappInboundMessage } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 
 // Matches apps/api/src/whatsapp/webhook/interfaces/whatsappConversationSummary.interface.ts.
+// Human report, 2026-09-16 — a conversation's most recent activity is no
+// longer necessarily an inbound message: the backend now unions
+// message_logs/whatsapp_manual_replies in too, so a client who was only
+// ever SENT something (a reminder, a self-service reply) but never
+// replied still shows up here — not just contacts who texted in.
+export type WhatsappConversationLastEvent =
+  | { direction: 'inbound'; message: WhatsappInboundMessage }
+  | {
+      direction: 'outbound';
+      source: 'message_log' | 'manual_reply';
+      id: string;
+      occurredAt: string;
+      messageContent: string;
+      status: 'sent' | 'failed';
+      client: { id: string; firstName: string; lastName: string } | null;
+    };
+
 // Human report, 2026-09-14 (critical bug) — replaces grouping a flat,
 // globally-capped message fetch client-side (see the removed
 // groupIntoConversations on WhatsappInboundMessagesPage.tsx): one busy
@@ -15,7 +32,7 @@ export interface WhatsappConversationSummary {
   key: string; // clientId when matched, otherwise fromPhoneNumber
   clientId: string | null;
   fromPhoneNumber: string;
-  lastMessage: WhatsappInboundMessage;
+  lastEvent: WhatsappConversationLastEvent;
   messageCount: number;
 }
 
