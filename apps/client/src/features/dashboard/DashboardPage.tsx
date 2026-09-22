@@ -78,7 +78,7 @@ export function DashboardPage() {
             comentario arriba). Para el cobrador la fila 2 solo tiene 2
             tarjetas y deja las otras 2 columnas vacías; se prefirió eso a
             estirar las tarjetas para llenar el espacio. */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <StatCard
             label="Clientes con préstamos activos"
             value={
@@ -149,7 +149,7 @@ export function DashboardPage() {
             tarjetas — así quedan del mismo ancho que las de Cartera en vez
             de estirarse para llenar la fila (lo que se veía como cajas
             enormes y vacías con un solo número adentro). */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <StatCard
             label="Mensajes enviados esta semana"
             value={

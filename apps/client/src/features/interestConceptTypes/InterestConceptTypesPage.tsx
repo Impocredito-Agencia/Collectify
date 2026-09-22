@@ -232,7 +232,7 @@ function ConceptTypeSection({
       <span className="text-section-label font-normal tracking-normal text-subtle">
         {title}
       </span>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {conceptTypes.map((conceptType) => (
           <div
             key={conceptType.id}

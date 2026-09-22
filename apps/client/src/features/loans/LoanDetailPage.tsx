@@ -415,7 +415,7 @@ export function LoanDetailPage() {
 
       <ClientCreditBanner clientId={loan.clientId} loanId={loan.id} />
 
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label="Capital original sin incremento"
           value={formatCurrency(loan.principalAmount)}
@@ -507,7 +507,7 @@ export function LoanDetailPage() {
           <span className="text-section-label font-normal tracking-normal text-subtle">
             Codeudor
           </span>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-small">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-2 text-small sm:grid-cols-2">
             <DetailField
               label="Nombre"
               value={
