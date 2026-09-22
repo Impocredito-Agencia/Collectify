@@ -203,4 +203,19 @@ export const installmentsApi = {
     );
     return data;
   },
+
+  // Human report, 2026-09-22 — moves a single pending installment's due
+  // date, nothing about what it owes. See loansApi.ts's
+  // alignInstallmentDueDay for moving every pending installment of a loan
+  // at once instead.
+  updateDueDate: async (
+    installmentId: string,
+    dueDate: string,
+  ): Promise<Installment> => {
+    const { data } = await apiClient.patch<Installment>(
+      `/installments/${installmentId}/due-date`,
+      { dueDate },
+    );
+    return data;
+  },
 };

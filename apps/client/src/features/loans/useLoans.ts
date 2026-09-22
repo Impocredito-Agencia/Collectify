@@ -111,3 +111,18 @@ export function useRemoveLoan() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
   });
 }
+
+// Human report, 2026-09-22 — bulk due-date reschedule ("que queden todas
+// el 10"). Same invalidation shape as useUpdateLoan — this loan's own
+// detail query embeds the installments that just moved.
+export function useAlignInstallmentDueDay(loanId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (dayOfMonth: number) =>
+      loansApi.alignInstallmentDueDay(loanId, dayOfMonth),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['loans', loanId] });
+      queryClient.invalidateQueries({ queryKey: ['loans'] });
+    },
+  });
+}

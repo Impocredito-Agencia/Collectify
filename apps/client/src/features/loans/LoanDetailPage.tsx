@@ -23,6 +23,7 @@ import { RegisterPaymentDialog } from '@/features/installments/RegisterPaymentDi
 import {
   useRegisterBulkPayments,
   useRegisterPayment,
+  useUpdateInstallmentDueDate,
   useVoidPayment,
 } from '@/features/installments/useInstallments';
 import {
@@ -38,7 +39,9 @@ import {
 import { LoanStatus } from '@/features/loans/loansApi';
 import { PayoffDialog } from '@/features/loans/PayoffDialog';
 import { RefinanceLoanForm } from '@/features/loans/RefinanceLoanForm';
+import { RescheduleDueDatesDialog } from '@/features/loans/RescheduleDueDatesDialog';
 import {
+  useAlignInstallmentDueDay,
   useLoan,
   useLoanPayments,
   usePayoffLoan,
@@ -101,6 +104,8 @@ export function LoanDetailPage() {
   const updateLoan = useUpdateLoan();
   const refinanceLoan = useRefinanceLoan();
   const removeLoan = useRemoveLoan();
+  const alignInstallmentDueDay = useAlignInstallmentDueDay(id ?? '');
+  const updateInstallmentDueDate = useUpdateInstallmentDueDate(id ?? '');
 
   // Phase 6: fetch whichever side of the refinance chain applies, purely
   // to show a nicer label (promissoryNoteNumber) than a bare link — both
@@ -149,6 +154,7 @@ export function LoanDetailPage() {
   const [isRefinancing, setIsRefinancing] = useState(false);
   const [isPayingOff, setIsPayingOff] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isReschedulingDueDates, setIsReschedulingDueDates] = useState(false);
   // Phase 12 — click-to-enlarge for a payment's receipt photo. No Figma
   // frame exists for this (see DESIGN_TOKENS.md); just the payment's own
   // imageUrl, no extra fetch needed. Phase 21 reuses this same state for
@@ -334,6 +340,21 @@ export function LoanDetailPage() {
               className="shrink-0 whitespace-nowrap"
             >
               Liquidar anticipadamente
+            </Button>
+          )}
+          {canManageLoan && (
+            <Button
+              variant="secondary"
+              disabled={pendingInstallments.length === 0}
+              title={
+                pendingInstallments.length === 0
+                  ? 'Este préstamo no tiene cuotas pendientes para reprogramar.'
+                  : undefined
+              }
+              onClick={() => setIsReschedulingDueDates(true)}
+              className="shrink-0 whitespace-nowrap"
+            >
+              Editar fechas de cobro
             </Button>
           )}
           {canManageLoan && (
@@ -723,6 +744,20 @@ export function LoanDetailPage() {
           description={loan.description}
           onClose={() => setIsEditing(false)}
           onConfirm={(input) => updateLoan.mutateAsync({ id: loan.id, input })}
+        />
+      )}
+
+      {isReschedulingDueDates && (
+        <RescheduleDueDatesDialog
+          installments={pendingInstallments}
+          loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          onClose={() => setIsReschedulingDueDates(false)}
+          onAlignAll={(dayOfMonth) =>
+            alignInstallmentDueDay.mutateAsync(dayOfMonth)
+          }
+          onUpdateOne={(installmentId, dueDate) =>
+            updateInstallmentDueDate.mutateAsync({ installmentId, dueDate })
+          }
         />
       )}
 

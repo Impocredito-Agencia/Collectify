@@ -474,4 +474,19 @@ export const loansApi = {
   remove: async (id: string): Promise<void> => {
     await apiClient.delete(`/loans/${id}`);
   },
+
+  // Human report, 2026-09-22 — "que queden todas el 10". Moves every
+  // still-pending installment of this loan to the same day of the month
+  // at once, in one transaction — see installmentsApi.ts's updateDueDate
+  // for moving just one installment instead.
+  alignInstallmentDueDay: async (
+    id: string,
+    dayOfMonth: number,
+  ): Promise<Installment[]> => {
+    const { data } = await apiClient.patch<Installment[]>(
+      `/loans/${id}/installments/due-day`,
+      { dayOfMonth },
+    );
+    return data;
+  },
 };
