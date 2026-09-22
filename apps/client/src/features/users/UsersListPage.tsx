@@ -79,8 +79,8 @@ export function UsersListPage() {
         />
       </div>
 
-      <div className="overflow-hidden rounded-lg bg-surface">
-        <table className="w-full">
+      <div className="overflow-x-auto rounded-lg bg-surface">
+        <table className="w-full min-w-[640px]">
           <thead className="bg-input">
             <tr>
               <Th>Nombre</Th>

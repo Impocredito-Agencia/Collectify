@@ -52,6 +52,22 @@ export function addDaysToDateString(dateString: string, days: number): string {
   return toDateString(year, month, day + days);
 }
 
+// Human report, 2026-09-22 — "que se pueda modificar el día" (align every
+// pending installment of a pagaré to the same day of the month, e.g. every
+// cuota currently on the 1st moved to the 10th, or from the 20th to a
+// lower day). Keeps `dateString`'s own year/month, replaces only the day —
+// same clamp-to-last-day-of-month rule as addMonthsToDateString above, so
+// requesting day 31 on a 30-day month lands on that month's actual last
+// day instead of overflowing into the next one. Used by
+// InstallmentsService.alignDueDay; NOT used for a single installment's
+// arbitrary date edit (updateDueDate), which takes the caller's exact
+// date string as-is.
+export function withDayOfMonth(dateString: string, day: number): string {
+  const { year, month } = parseDateString(dateString);
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return toDateString(year, month, Math.min(day, daysInMonth));
+}
+
 // Colombia has no DST, so this fixed offset holds year-round — same
 // precedent as installmentCalculations.ts's identical fix (see
 // docs/DATABASE.md's "Bug fix, 2026-09-04" note under `installments`).

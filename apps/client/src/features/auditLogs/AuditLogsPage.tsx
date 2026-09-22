@@ -138,7 +138,7 @@ export function AuditLogsPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg bg-surface">
+      <div className="overflow-x-auto rounded-lg bg-surface">
         {/* Human report, 2026-09-09 — a bulk payment's entityLabel (already
             shortened once, see auditLogLabels/the interceptor's
             formatCuotaGroupsLabel) can still run long, and with the
@@ -150,7 +150,7 @@ export function AuditLogsPage() {
             column left without an explicit width) absorbs whatever's left
             and wraps to as many lines as it needs, instead of stealing
             space from the rest. */}
-        <table className="w-full table-fixed">
+        <table className="w-full min-w-[480px] table-fixed">
           <thead className="bg-input">
             <tr>
               <Th className="w-[210px]">Actor</Th>

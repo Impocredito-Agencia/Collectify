@@ -225,13 +225,15 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
     null,
   );
 
-  // Required, form-level — see docs/phasesClient/PHASE_21_CLIENT_PROFILE.md:
-  // "a required checkbox... that must be checked before the form can be
-  // submitted". The backend only enforces this on the interactive create
-  // path (Excel imports are exempt, ClientsService.create's
-  // requireConsent option) — this form applies the same rule to editing
-  // too, as a safety net, since ImportClientsDialog.tsx never uses this
-  // form at all and is unaffected either way.
+  // Required, form-level, but ONLY when creating — see
+  // docs/phasesClient/PHASE_21_CLIENT_PROFILE.md: "a required checkbox...
+  // that must be checked before the form can be submitted". The backend
+  // only ever enforces this on the interactive create path (Excel imports
+  // are exempt, ClientsService.create's requireConsent option; update()
+  // has no such check). This form used to also require it on edit as a
+  // "safety net", but that blocked saving an unrelated change (e.g. a
+  // phone number correction) on any legacy/imported client that never had
+  // consent captured — human report, 2026-09-22. See validate() below.
   const [dataProcessingConsent, setDataProcessingConsent] = useState(
     client?.dataProcessingConsent ?? false,
   );
@@ -307,7 +309,19 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
     if (!documentNumber.trim()) {
       errors.documentNumber = 'La cédula es obligatoria.';
     }
-    if (!documentType) {
+    // Only required when creating — ClientsService.create() is the only
+    // place the backend itself enforces this (requireDocumentType, see
+    // clients.service.ts), never on update(). This form used to also
+    // require it on edit as a "safety net" (see dataProcessingConsent's
+    // identical note below), but that made editing ANY already-saved
+    // client — even one that already has a documentType on file, or one
+    // where the admin just wants to fix a phone number — re-block on this
+    // field for imported/legacy clients that never had it captured.
+    // Human report, 2026-09-22: "vuelve a pedir obligatoriamente el tipo
+    // de documento, ya debería guardarse y no volver a pedir." Still
+    // editable on the form either way, just not a blocking requirement
+    // once the client already exists.
+    if (!isEditing && !documentType) {
       errors.documentType = 'El tipo de documento es obligatorio.';
     }
     if (!phoneNumber.trim()) {
@@ -340,7 +354,7 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
       errors.address =
         'Debes registrar al menos una dirección (de residencia o de trabajo).';
     }
-    if (!dataProcessingConsent) {
+    if (!isEditing && !dataProcessingConsent) {
       errors.dataProcessingConsent =
         'El cliente debe autorizar el tratamiento de datos personales antes de guardar.';
     }
@@ -702,7 +716,9 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
               />
             </Field>
             <Field
-              label="Tipo de documento"
+              label={
+                isEditing ? 'Tipo de documento (opcional)' : 'Tipo de documento'
+              }
               error={fieldErrors.documentType}
               id={fieldElementId('documentType')}
             >

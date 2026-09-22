@@ -8,11 +8,14 @@ import { Select } from '@/components/ui/Select';
 import { Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { LoanForm } from '@/features/loans/LoanForm';
+import { estadoBadge } from '@/features/loans/loanStatusDisplay';
 import { LoanRow } from '@/features/loans/LoanRow';
 import { LoanStatus } from '@/features/loans/loansApi';
 import { useCreateLoan, useLoans } from '@/features/loans/useLoans';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
+import { useSortableColumn } from '@/lib/useSortableColumn';
 
+import type { LoanSummary } from '@/features/loans/loansApi';
 import type { ReactNode } from 'react';
 
 // Matches Figma frame 52:95 ("F-16/17 / Préstamos — Desktop 1440"), with
@@ -33,6 +36,43 @@ const STATUS_FILTER_OPTIONS = [
   { value: LoanStatus.Paid, label: 'Pagados' },
   { value: LoanStatus.Refinanced, label: 'Refinanciados' },
 ];
+
+// Human report, 2026-09-22 — sortable columns, client-side over whatever
+// page is currently loaded (see useSortableColumn.ts's own comment).
+type LoanSortColumn =
+  | 'promissoryNoteNumber'
+  | 'clientFullName'
+  | 'outstandingBalance'
+  | 'overdueDays'
+  | 'status';
+
+// Ascending comparator — toggleSort's own asc/desc flip negates this.
+// promissoryNoteNumber/clientFullName use numeric: true so a pagaré like
+// "#2" sorts before "#743" (a plain string compare would put "101" first,
+// per promissoryNoteNumberSort.ts's identical backend concern). status
+// sorts by the same derived label estadoBadge shows ("Al día"/"En
+// mora"/"Pagado"/"Refinanciado"), not the raw enum value, so it matches
+// what's actually on screen.
+function compareLoans(a: LoanSummary, b: LoanSummary, column: LoanSortColumn) {
+  switch (column) {
+    case 'promissoryNoteNumber':
+      return a.promissoryNoteNumber.localeCompare(
+        b.promissoryNoteNumber,
+        'es',
+        {
+          numeric: true,
+        },
+      );
+    case 'clientFullName':
+      return a.clientFullName.localeCompare(b.clientFullName, 'es');
+    case 'outstandingBalance':
+      return a.outstandingBalance - b.outstandingBalance;
+    case 'overdueDays':
+      return a.overdueDays - b.overdueDays;
+    case 'status':
+      return estadoBadge(a).label.localeCompare(estadoBadge(b).label, 'es');
+  }
+}
 
 export function LoansListPage() {
   const { user } = useAuth();
@@ -58,6 +98,23 @@ export function LoansListPage() {
   const loans = data?.items ?? [];
   const meta = data?.meta;
   const rowNumberOffset = ((meta?.page ?? 1) - 1) * (meta?.limit ?? 0);
+
+  // Human report, 2026-09-22 — "que se pueda filtrar por columna... de
+  // menor a mayor y si la vuelve a tocar de mayor a menor". Sorts a copy
+  // of the current page only — the underlying query (search/status
+  // filter/page) is untouched.
+  const {
+    column: sortColumn,
+    direction: sortDirection,
+    toggle: toggleSort,
+    directionFor,
+  } = useSortableColumn<LoanSortColumn>();
+  const sortedLoans = sortColumn
+    ? [...loans].sort(
+        (a, b) =>
+          (sortDirection === 'asc' ? 1 : -1) * compareLoans(a, b, sortColumn),
+      )
+    : loans;
 
   // QoL, 2026-09-10 — rendered both above and below the table (same fix
   // as ClientsListPage.tsx) so paging doesn't require scrolling to the
@@ -145,24 +202,48 @@ export function LoansListPage() {
           centered to match, except "#" (untouched) and "Cliente" — its
           header centers with the rest, but the name itself stays
           left-aligned, same "Nombre" treatment as Clientes' list. */}
-      <div className="overflow-hidden rounded-lg bg-surface">
-        <table className="w-full table-fixed">
+      <div className="overflow-x-auto rounded-lg bg-surface">
+        <table className="w-full min-w-[880px] table-fixed">
           <thead className="bg-input">
             <tr className="divide-x divide-border">
               <Th className="w-10 whitespace-nowrap">#</Th>
               <Th
                 className="w-24 whitespace-nowrap"
                 style={{ textAlign: 'center' }}
+                sortDirection={directionFor('promissoryNoteNumber')}
+                onSort={() => toggleSort('promissoryNoteNumber')}
               >
                 ID
               </Th>
-              <Th style={{ textAlign: 'center' }}>Cliente</Th>
-              <Th style={{ textAlign: 'center' }}>
+              <Th
+                style={{ textAlign: 'center' }}
+                sortDirection={directionFor('clientFullName')}
+                onSort={() => toggleSort('clientFullName')}
+              >
+                Cliente
+              </Th>
+              <Th
+                style={{ textAlign: 'center' }}
+                sortDirection={directionFor('outstandingBalance')}
+                onSort={() => toggleSort('outstandingBalance')}
+              >
                 Saldo total (capital + incremento)
               </Th>
               <Th style={{ textAlign: 'center' }}>Cuotas</Th>
-              <Th style={{ textAlign: 'center' }}>Días mora</Th>
-              <Th style={{ textAlign: 'center' }}>Estado</Th>
+              <Th
+                style={{ textAlign: 'center' }}
+                sortDirection={directionFor('overdueDays')}
+                onSort={() => toggleSort('overdueDays')}
+              >
+                Días mora
+              </Th>
+              <Th
+                style={{ textAlign: 'center' }}
+                sortDirection={directionFor('status')}
+                onSort={() => toggleSort('status')}
+              >
+                Estado
+              </Th>
               <Th
                 className="w-32 whitespace-nowrap"
                 style={{ textAlign: 'center' }}
@@ -181,7 +262,7 @@ export function LoansListPage() {
             {!isLoading && !isError && loans.length === 0 && (
               <EmptyRow>No se encontraron préstamos.</EmptyRow>
             )}
-            {loans.map((loan, index) => (
+            {sortedLoans.map((loan, index) => (
               <LoanRow
                 key={loan.id}
                 loan={loan}

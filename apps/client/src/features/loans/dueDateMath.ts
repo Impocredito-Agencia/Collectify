@@ -56,3 +56,14 @@ export function subtractDaysFromDateString(
   const { year, month, day } = parseDateString(dateString);
   return toDateString(year, month, day - days);
 }
+
+// Human report, 2026-09-22 — RescheduleDueDatesDialog's "aplicar a todas
+// las pendientes" preview, mirroring
+// apps/api/src/loans/dueDateSchedule.ts's withDayOfMonth exactly (same
+// day-of-month replacement, same clamp-to-last-day-of-month rule) so what
+// the admin previews here always matches what the api will actually save.
+export function withDayOfMonth(dateString: string, day: number): string {
+  const { year, month } = parseDateString(dateString);
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return toDateString(year, month, Math.min(day, daysInMonth));
+}

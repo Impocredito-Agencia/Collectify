@@ -19,6 +19,20 @@ interface ThProps {
   // label itself is just the compact symbol/badge. Plain pass-through to
   // the underlying <th>.
   title?: string;
+  // Column sorting (human report, 2026-09-22 — Clientes/Préstamos list
+  // tables) — both optional and independent of every other prop above, so
+  // every existing non-sortable Th call site is unaffected. Passing
+  // `onSort` turns the header into a clickable button (with its own
+  // hover/focus state) and sets `aria-sort` on the <th> itself for
+  // accessibility; `sortDirection` controls the arrow indicator ▲/▼ shown
+  // next to the label — 'asc'/'desc' when this IS the column currently
+  // sorted, null/undefined otherwise (a dim, unobtrusive hint that the
+  // column CAN be sorted, not that it currently is). The click handler
+  // itself decides asc → desc → back to asc (or clears back to the
+  // table's default) — Th only renders the current state, it holds no
+  // sort logic of its own.
+  sortDirection?: 'asc' | 'desc' | null;
+  onSort?: () => void;
 }
 
 interface TdProps {
@@ -89,14 +103,40 @@ export function Th({
   compact = false,
   style,
   title,
+  sortDirection,
+  onSort,
 }: ThProps) {
   return (
     <th
       className={`${compact ? 'h-8' : 'h-[38px]'} px-3.5 text-left text-small font-normal tracking-normal text-muted ${className}`}
       style={style}
       title={title}
+      aria-sort={
+        onSort
+          ? sortDirection === 'asc'
+            ? 'ascending'
+            : sortDirection === 'desc'
+              ? 'descending'
+              : 'none'
+          : undefined
+      }
     >
-      {children}
+      {onSort ? (
+        <button
+          type="button"
+          onClick={onSort}
+          className="inline-flex items-center gap-1 text-inherit hover:text-white"
+        >
+          {children}
+          <span
+            className={`text-[8px] leading-none ${sortDirection ? 'text-white' : 'text-subtle'}`}
+          >
+            {sortDirection === 'desc' ? '▼' : '▲'}
+          </span>
+        </button>
+      ) : (
+        children
+      )}
     </th>
   );
 }

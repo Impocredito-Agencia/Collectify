@@ -22,12 +22,15 @@ import { PaginatedResult } from '../common/interfaces/paginatedResult.interface'
 import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { AppModule } from '../users/entities/userModulePermission.entity';
 
+import { AlignInstallmentDueDayDto } from './dto/alignInstallmentDueDay.dto';
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { PreviewScheduleDto } from './dto/previewSchedule.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
 import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
+import { Installment } from './entities/installment.entity';
 import { Loan } from './entities/loan.entity';
+import { InstallmentsService } from './installments/installments.service';
 import {
   LoansService,
   LoanDetail,
@@ -42,7 +45,10 @@ import { PayoffQuote } from './payoff/calculatePayoff';
 @ApiBearerAuth()
 @Controller('loans')
 export class LoansController {
-  constructor(private readonly loansService: LoansService) {}
+  constructor(
+    private readonly loansService: LoansService,
+    private readonly installmentsService: InstallmentsService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -204,6 +210,38 @@ export class LoansController {
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   update(@Param('id') id: string, @Body() dto: UpdateLoanDto): Promise<Loan> {
     return this.loansService.update(id, dto);
+  }
+
+  // Human report, 2026-09-22 — "algunas [cuotas] están el primero y la
+  // quieren, que queden todas el 10". Bulk counterpart to
+  // PATCH /installments/:id/due-date: moves every still-pending
+  // installment of this loan to the same day of the month at once, in one
+  // transaction (all-or-nothing, see InstallmentsService.alignDueDay).
+  // Same narrow "date only" exception to the loan-is-immutable rule as
+  // that endpoint — amounts and concepts are untouched.
+  @Patch(':id/installments/due-day')
+  @RequireModule(AppModule.Loans)
+  @Audit('loan.alignInstallmentDueDay', 'loan')
+  @ApiOperation({
+    summary:
+      'Move every pending installment of a loan to the same day of the month (admin or granted the loans module)',
+    description:
+      "Each installment keeps its own year/month — only the day changes, clamped to that month's actual last day (e.g. day 31 requested on a 30-day month lands on the 30th). Only pending installments move; paid or cancelled ones are untouched.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Every pending installment was rescheduled.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'The loan has no pending installments to reschedule.',
+  })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  alignInstallmentDueDay(
+    @Param('id') id: string,
+    @Body() dto: AlignInstallmentDueDayDto,
+  ): Promise<Installment[]> {
+    return this.installmentsService.alignDueDay(id, dto);
   }
 
   @Get(':id/payoff-quote')

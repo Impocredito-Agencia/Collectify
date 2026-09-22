@@ -250,7 +250,7 @@ export function ClientDetailPage() {
 
       <ClientCreditBanner clientId={client.id} />
 
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Préstamos totales" value={String(totalLoans)} />
         <StatCard
           label="Capital prestado"
@@ -297,7 +297,7 @@ export function ClientDetailPage() {
           )}
         </div>
 
-        <div className="overflow-hidden rounded-lg bg-surface">
+        <div className="overflow-x-auto rounded-lg bg-surface">
           {loansLoading && (
             <p className="p-4 text-small text-muted">Cargando préstamos…</p>
           )}
@@ -312,7 +312,7 @@ export function ClientDetailPage() {
             </p>
           )}
           {!loansLoading && !loansError && displayedLoans.length > 0 && (
-            <table className="w-full">
+            <table className="w-full min-w-[880px]">
               <thead className="bg-input">
                 <tr>
                   <Th className="w-12">#</Th>
@@ -483,7 +483,7 @@ export function ClientDetailPage() {
           across the whole page width left large horizontal gaps for
           short values ("se pierde mucho espacio"). */}
       <div className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <DetailSection title="Contacto">
             {/* Repeats the celular already shown in the header above —
                 same reasoning as the Cédula repeat in DATOS PERSONALES:
@@ -580,7 +580,7 @@ export function ClientDetailPage() {
             // (name + one phone + a badge), so one per row at full page
             // width left the same kind of wasted horizontal space as the
             // old Datos personales layout — 2 per row uses it better.
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {client.references.map((reference) => (
                 <div
                   key={reference.id}
@@ -608,7 +608,7 @@ export function ClientDetailPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
             <span className="text-section-label font-normal tracking-normal text-subtle">
               Documentos
@@ -901,12 +901,16 @@ function DetailSection({
   children: ReactNode;
   columns?: 2 | 3 | 4;
 }) {
+  // Human report, 2026-09-22 — collapses to 1 column below sm (640px),
+  // reaching the configured column count at sm and up, same pattern as
+  // every other page-level grid in the app (see index.css's font-size
+  // bump commit for the sibling "responsive" report this came with).
   const gridColsClassName =
     columns === 4
-      ? 'grid-cols-4'
+      ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
       : columns === 3
-        ? 'grid-cols-3'
-        : 'grid-cols-2';
+        ? 'grid-cols-1 sm:grid-cols-3'
+        : 'grid-cols-1 sm:grid-cols-2';
   return (
     <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-6 py-5">
       <span className="text-section-label font-normal tracking-normal text-subtle">

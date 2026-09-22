@@ -166,7 +166,7 @@ export function MessageTemplatesPage() {
         <p className="text-small text-muted">Todavía no hay plantillas.</p>
       )}
 
-      <div className="grid grid-cols-2 items-start gap-4">
+      <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
         {templates?.map((template) => (
           <div
             key={template.id}

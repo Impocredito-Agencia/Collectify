@@ -202,8 +202,8 @@ export function MessageLogsPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg bg-surface">
-        <table className="w-full">
+      <div className="overflow-x-auto rounded-lg bg-surface">
+        <table className="w-full min-w-[760px]">
           <thead className="bg-input">
             <tr>
               <Th>Cliente</Th>
