@@ -20,8 +20,9 @@ import {
   useUpdateClient,
 } from '@/features/clients/useClients';
 import { ApiError } from '@/lib/apiClient';
+import { useSortableColumn } from '@/lib/useSortableColumn';
 
-import type { Client } from '@/features/clients/clientsApi';
+import type { Client, ClientListItem } from '@/features/clients/clientsApi';
 import type { ReactNode } from 'react';
 
 // Matches Figma frame 40:3 ("F-10 / Clientes — Desktop 1440"), with one
@@ -49,6 +50,45 @@ const STATUS_FILTER_TO_IS_ACTIVE: Record<StatusFilter, boolean | 'all'> = {
   active: true,
   inactive: false,
 };
+
+// Human report, 2026-09-22 — sortable columns, client-side over whatever
+// page is currently loaded (see useSortableColumn.ts's own comment).
+type ClientSortColumn =
+  | 'name'
+  | 'documentNumber'
+  | 'phoneNumber'
+  | 'activeLoanCount'
+  | 'maxOverdueDays';
+
+// Ascending comparator for the column — toggleSort's own asc/desc flip
+// negates this, so every case here only ever needs to express "smaller
+// first". documentNumber/phoneNumber use numeric: true so "9" sorts
+// before "10" (a plain string compare would put "10" first).
+function compareClients(
+  a: ClientListItem,
+  b: ClientListItem,
+  column: ClientSortColumn,
+) {
+  switch (column) {
+    case 'name':
+      return `${a.firstName} ${a.lastName}`.localeCompare(
+        `${b.firstName} ${b.lastName}`,
+        'es',
+      );
+    case 'documentNumber':
+      return a.documentNumber.localeCompare(b.documentNumber, 'es', {
+        numeric: true,
+      });
+    case 'phoneNumber':
+      return a.phoneNumber.localeCompare(b.phoneNumber, 'es', {
+        numeric: true,
+      });
+    case 'activeLoanCount':
+      return a.activeLoanCount - b.activeLoanCount;
+    case 'maxOverdueDays':
+      return a.maxOverdueDays - b.maxOverdueDays;
+  }
+}
 
 export function ClientsListPage() {
   const { user } = useAuth();
@@ -112,6 +152,23 @@ export function ClientsListPage() {
   const meta = data?.meta;
   // First row number on the current page — see rowNumber comment below.
   const rowNumberOffset = ((meta?.page ?? 1) - 1) * (meta?.limit ?? 0);
+
+  // Human report, 2026-09-22 — "que se pueda filtrar por columna... de
+  // menor a mayor y si la vuelve a tocar de mayor a menor". Sorts a copy
+  // of the current page only (see useSortableColumn.ts) — the underlying
+  // query (search/status filter/page) is untouched.
+  const {
+    column: sortColumn,
+    direction: sortDirection,
+    toggle: toggleSort,
+    directionFor,
+  } = useSortableColumn<ClientSortColumn>();
+  const sortedClients = sortColumn
+    ? [...clients].sort(
+        (a, b) =>
+          (sortDirection === 'asc' ? 1 : -1) * compareClients(a, b, sortColumn),
+      )
+    : clients;
 
   // QoL, 2026-09-10 — rendered both above and below the table (see the
   // comment at the top call site) so paging doesn't require scrolling to
@@ -256,13 +313,42 @@ export function ClientsListPage() {
                   two-given-name + two-surname Colombian name at this font
                   size, without touching the rest of the table-fixed
                   recipe above. */}
-              <Th className="w-64" style={{ textAlign: 'center' }}>
+              <Th
+                className="w-64"
+                style={{ textAlign: 'center' }}
+                sortDirection={directionFor('name')}
+                onSort={() => toggleSort('name')}
+              >
                 Nombre
               </Th>
-              <Th style={{ textAlign: 'center' }}>Cédula</Th>
-              <Th style={{ textAlign: 'center' }}>Celular</Th>
-              <Th style={{ textAlign: 'center' }}>Préstamos activos</Th>
-              <Th style={{ textAlign: 'center' }}>En mora</Th>
+              <Th
+                style={{ textAlign: 'center' }}
+                sortDirection={directionFor('documentNumber')}
+                onSort={() => toggleSort('documentNumber')}
+              >
+                Cédula
+              </Th>
+              <Th
+                style={{ textAlign: 'center' }}
+                sortDirection={directionFor('phoneNumber')}
+                onSort={() => toggleSort('phoneNumber')}
+              >
+                Celular
+              </Th>
+              <Th
+                style={{ textAlign: 'center' }}
+                sortDirection={directionFor('activeLoanCount')}
+                onSort={() => toggleSort('activeLoanCount')}
+              >
+                Préstamos activos
+              </Th>
+              <Th
+                style={{ textAlign: 'center' }}
+                sortDirection={directionFor('maxOverdueDays')}
+                onSort={() => toggleSort('maxOverdueDays')}
+              >
+                En mora
+              </Th>
               <Th style={{ textAlign: 'center' }}>Estado</Th>
               {/* Human report, 2026-09-15 — Nombre's own fixed width above
                   (w-64) shrank the equal-split share every other column
@@ -290,7 +376,7 @@ export function ClientsListPage() {
             {!isLoading && !isError && clients.length === 0 && (
               <EmptyRow>No se encontraron clientes.</EmptyRow>
             )}
-            {clients.map((client, index) => (
+            {sortedClients.map((client, index) => (
               <ClientRow
                 key={client.id}
                 client={client}
