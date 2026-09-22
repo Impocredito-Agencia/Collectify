@@ -202,8 +202,8 @@ export function LoansListPage() {
           centered to match, except "#" (untouched) and "Cliente" — its
           header centers with the rest, but the name itself stays
           left-aligned, same "Nombre" treatment as Clientes' list. */}
-      <div className="overflow-hidden rounded-lg bg-surface">
-        <table className="w-full table-fixed">
+      <div className="overflow-x-auto rounded-lg bg-surface">
+        <table className="w-full min-w-[880px] table-fixed">
           <thead className="bg-input">
             <tr className="divide-x divide-border">
               <Th className="w-10 whitespace-nowrap">#</Th>

@@ -297,7 +297,7 @@ export function ClientDetailPage() {
           )}
         </div>
 
-        <div className="overflow-hidden rounded-lg bg-surface">
+        <div className="overflow-x-auto rounded-lg bg-surface">
           {loansLoading && (
             <p className="p-4 text-small text-muted">Cargando préstamos…</p>
           )}
@@ -312,7 +312,7 @@ export function ClientDetailPage() {
             </p>
           )}
           {!loansLoading && !loansError && displayedLoans.length > 0 && (
-            <table className="w-full">
+            <table className="w-full min-w-[880px]">
               <thead className="bg-input">
                 <tr>
                   <Th className="w-12">#</Th>

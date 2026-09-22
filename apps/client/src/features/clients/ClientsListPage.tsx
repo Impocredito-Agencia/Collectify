@@ -290,7 +290,7 @@ export function ClientsListPage() {
           once so the two copies can't drift), sandwiching the table. */}
       {paginationBar}
 
-      <div className="overflow-hidden rounded-lg bg-surface">
+      <div className="overflow-x-auto rounded-lg bg-surface">
         {/* Style cleanup, 2026-09-06 (client feedback — hand-tuned
             per-column percentages, "no podemos acomodar una por una",
             still didn't distribute the row's width well). Replaced with
@@ -303,7 +303,7 @@ export function ClientsListPage() {
             remaining row width EQUALLY across those columns automatically —
             no more guessing percentages by content type, and no leftover
             unused space on wide screens. */}
-        <table className="w-full table-fixed">
+        <table className="w-full min-w-[880px] table-fixed">
           <thead className="bg-input">
             <tr className="divide-x divide-border">
               <Th className="w-10 whitespace-nowrap">#</Th>

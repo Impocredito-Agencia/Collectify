@@ -296,8 +296,8 @@ export function UsuryRatesPage() {
           </p>
         )}
         {!isLoadingHistory && history && history.length > 0 && (
-          <div className="overflow-hidden rounded-lg bg-surface">
-            <table className="w-full">
+          <div className="overflow-x-auto rounded-lg bg-surface">
+            <table className="w-full min-w-[480px]">
               {/* Style cleanup (2026-09-02): this table had no size/color
                   tokens at all — plain `px-5 py-3`, default text color,
                   no `bg-input` header — found while auditing every table

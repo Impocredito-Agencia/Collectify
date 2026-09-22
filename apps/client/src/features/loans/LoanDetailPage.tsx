@@ -561,8 +561,8 @@ export function LoanDetailPage() {
         <span className="text-section-label font-normal tracking-normal text-subtle">
           Historial de pagos
         </span>
-        <div className="overflow-hidden rounded-lg bg-surface">
-          <table className="w-full">
+        <div className="overflow-x-auto rounded-lg bg-surface">
+          <table className="w-full min-w-[760px]">
             <thead className="bg-input">
               <tr>
                 <Th className="w-10">#</Th>
