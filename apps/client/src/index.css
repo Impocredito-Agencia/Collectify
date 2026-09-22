@@ -125,15 +125,25 @@
      badges — those stay flush on purpose. */
   --shadow-card: 0 4px 14px rgba(0, 0, 0, 0.35);
 
-  --text-h1: 28px;
-  --text-kpi: 24px;
+  /* Every token below was bumped +1px (human report, 2026-09-22 — "hace
+     la letra un poco más grande en general"). A flat +1px keeps every
+     token's relative ratio to the others intact (the hierarchy tuned
+     against Linear throughout 2026-09-02's style cleanup is preserved,
+     just scaled up slightly), and matters most on the smallest ones —
+     `text-meta` 10→11px and `text-label` 11→12px are each a real ~10%
+     step, where `text-h1` 28→29px is barely perceptible on its own. Each
+     token's own historical comment below (Linear-comparison values, split
+     rationale, etc.) still describes the PRE-bump value's origin — only
+     the number changed here, not the reasoning for why it's what it is. */
+  --text-h1: 29px;
+  --text-kpi: 25px;
   /* Bumped from 20px after visual comparison against the real F-10 screen
      — the library swatch's "Light" weight metadata didn't match either;
      see Header.tsx, now rendered bold instead of light. */
-  --text-page-title: 24px;
-  --text-card-title: 15px;
-  --text-body: 13px;
-  --text-small: 12px;
+  --text-page-title: 25px;
+  --text-card-title: 16px;
+  --text-body: 14px;
+  --text-small: 13px;
   /* Split off from `text-small` (style cleanup, 2026-09-02, sixth pass) —
      the client asked specifically that Sidebar nav item labels (Dashboard,
      Clientes, Préstamos, etc.) get their own token, not share `text-small`
@@ -141,9 +151,9 @@
      devtools-inspecting Linear's equivalent nav item directly: 13px, not
      12. Only Sidebar.tsx's NavLink uses this — don't fold it back into
      `text-small`. */
-  --text-nav-item: 13px;
-  --text-label: 11px;
-  --text-meta: 10px;
+  --text-nav-item: 14px;
+  --text-label: 12px;
+  --text-meta: 11px;
   /* Bumped 9px → 12px (style cleanup, 2026-09-02, second pass) — the
      client asked for a literal 1:1 copy of Linear's text after the first
      pass didn't fully convince. Found Linear's one true analog for an
@@ -151,7 +161,7 @@
      FUTURE") by inspecting their live DOM directly: 12px, weight 400,
      letter-spacing `normal` — not smaller, not extra-tracked. See the
      `font-normal`/`tracking-normal` note below for the other half of this. */
-  --text-section-label: 12px;
+  --text-section-label: 13px;
   /* Split off from `section-label` (style cleanup, 2026-09-02, fifth pass)
      — the client asked for these to be treated as a genuinely different
      thing, not the same token reused: `section-label` is for in-page
@@ -161,11 +171,11 @@
      — this is purely so the two can diverge independently later without a
      find-and-replace, since the client's already said the other section
      titles are getting a different format. Don't merge these back. */
-  --text-nav-group-label: 12px;
+  --text-nav-group-label: 13px;
   /* Not in the library's named type scale, but used inline on every form
      control (inputs, buttons) in the Login component — kept as its own
      token since it'll recur constantly from Phase 3 onward. */
-  --text-control: 14px;
+  --text-control: 15px;
 }
 
 /*
