@@ -27,6 +27,7 @@ describe('InstallmentsService', () => {
     update: jest.Mock;
     find: jest.Mock;
     findAndCount: jest.Mock;
+    save: jest.Mock;
   };
   let paymentsRepository: {
     create: jest.Mock;
@@ -89,6 +90,9 @@ describe('InstallmentsService', () => {
       update: jest.fn(),
       find: jest.fn(),
       findAndCount: jest.fn(),
+      save: jest.fn((installment: Partial<Installment>) =>
+        Promise.resolve(installment),
+      ),
     };
     paymentsRepository = {
       create: jest.fn((dto: Partial<Payment>) => dto),
@@ -1353,6 +1357,196 @@ describe('InstallmentsService', () => {
 
       expect(installmentsRepository.update).not.toHaveBeenCalled();
       expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // Human report, 2026-09-22 — narrow exception to "a loan's schedule is
+  // fixed at creation": moves one pending installment's due date only.
+  describe('updateDueDate', () => {
+    it('updates the due date of a pending installment with no siblings', async () => {
+      installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+      installmentsRepository.find.mockResolvedValue([mockInstallment]);
+
+      const result = await service.updateDueDate(mockInstallment.id, {
+        dueDate: '2099-02-10',
+      });
+
+      expect(result.dueDate).toBe('2099-02-10');
+      expect(installmentsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ dueDate: '2099-02-10' }),
+      );
+    });
+
+    it('throws NotFoundException when the installment does not exist', async () => {
+      installmentsRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.updateDueDate('missing-id', { dueDate: '2099-02-10' }),
+      ).rejects.toThrow(NotFoundException);
+      expect(installmentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects changing the due date of an already-paid installment', async () => {
+      installmentsRepository.findOne.mockResolvedValue({
+        ...mockInstallment,
+        status: InstallmentStatus.Paid,
+      });
+
+      await expect(
+        service.updateDueDate(mockInstallment.id, { dueDate: '2099-02-10' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(installmentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a new date earlier than the previous pending installment', async () => {
+      const earlier = {
+        ...mockInstallment,
+        id: 'inst-0',
+        installmentNumber: 1,
+        dueDate: '2099-02-01',
+      };
+      const target = {
+        ...mockInstallment,
+        id: 'inst-1',
+        installmentNumber: 2,
+        dueDate: '2099-03-01',
+      };
+      installmentsRepository.findOne.mockResolvedValue(target);
+      installmentsRepository.find.mockResolvedValue([earlier, target]);
+
+      await expect(
+        service.updateDueDate(target.id, { dueDate: '2099-01-15' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(installmentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a new date later than the next pending installment', async () => {
+      const target = {
+        ...mockInstallment,
+        id: 'inst-1',
+        installmentNumber: 1,
+        dueDate: '2099-02-01',
+      };
+      const later = {
+        ...mockInstallment,
+        id: 'inst-2',
+        installmentNumber: 2,
+        dueDate: '2099-03-01',
+      };
+      installmentsRepository.findOne.mockResolvedValue(target);
+      installmentsRepository.find.mockResolvedValue([target, later]);
+
+      await expect(
+        service.updateDueDate(target.id, { dueDate: '2099-03-15' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(installmentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('allows a new date between its two pending neighbors', async () => {
+      const earlier = {
+        ...mockInstallment,
+        id: 'inst-0',
+        installmentNumber: 1,
+        dueDate: '2099-01-01',
+      };
+      const target = {
+        ...mockInstallment,
+        id: 'inst-1',
+        installmentNumber: 2,
+        dueDate: '2099-02-01',
+      };
+      const later = {
+        ...mockInstallment,
+        id: 'inst-2',
+        installmentNumber: 3,
+        dueDate: '2099-03-01',
+      };
+      installmentsRepository.findOne.mockResolvedValue(target);
+      installmentsRepository.find.mockResolvedValue([earlier, target, later]);
+
+      const result = await service.updateDueDate(target.id, {
+        dueDate: '2099-02-10',
+      });
+
+      expect(result.dueDate).toBe('2099-02-10');
+    });
+  });
+
+  // Bulk counterpart to updateDueDate above.
+  describe('alignDueDay', () => {
+    it('moves every pending installment to the requested day of month', async () => {
+      loansRepository.findOne.mockResolvedValue({ id: 'loan-1' });
+      const first = {
+        ...mockInstallment,
+        id: 'inst-1',
+        installmentNumber: 1,
+        dueDate: '2099-01-01',
+      };
+      const second = {
+        ...mockInstallment,
+        id: 'inst-2',
+        installmentNumber: 2,
+        dueDate: '2099-02-01',
+      };
+      installmentsRepository.find.mockResolvedValue([first, second]);
+
+      const result = await service.alignDueDay('loan-1', { dayOfMonth: 10 });
+
+      expect(result.map((installment) => installment.dueDate)).toEqual([
+        '2099-01-10',
+        '2099-02-10',
+      ]);
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ dueDate: '2099-01-10' }),
+        expect.objectContaining({ dueDate: '2099-02-10' }),
+      ]);
+    });
+
+    it('clamps to the last day of a shorter month instead of overflowing', async () => {
+      loansRepository.findOne.mockResolvedValue({ id: 'loan-1' });
+      const installment = {
+        ...mockInstallment,
+        id: 'inst-1',
+        installmentNumber: 1,
+        dueDate: '2099-02-01',
+      };
+      installmentsRepository.find.mockResolvedValue([installment]);
+
+      const result = await service.alignDueDay('loan-1', { dayOfMonth: 31 });
+
+      expect(result[0].dueDate).toBe('2099-02-28');
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      loansRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.alignDueDay('missing-loan', { dayOfMonth: 10 }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects a loan with no pending installments', async () => {
+      loansRepository.findOne.mockResolvedValue({ id: 'loan-1' });
+      installmentsRepository.find.mockResolvedValue([]);
+
+      await expect(
+        service.alignDueDay('loan-1', { dayOfMonth: 10 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('only moves pending installments — find() is scoped to status: Pending', async () => {
+      loansRepository.findOne.mockResolvedValue({ id: 'loan-1' });
+      installmentsRepository.find.mockResolvedValue([
+        { ...mockInstallment, dueDate: '2099-01-01' },
+      ]);
+
+      await service.alignDueDay('loan-1', { dayOfMonth: 10 });
+
+      expect(installmentsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { loanId: 'loan-1', status: InstallmentStatus.Pending },
+        }),
+      );
     });
   });
 });

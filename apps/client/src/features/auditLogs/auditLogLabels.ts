@@ -36,9 +36,15 @@ export const ACTION_LABELS: Record<string, string> = {
   // Phase 30 — same gap as above: added when loan deletion shipped, never
   // added here.
   'loan.delete': 'Eliminó un préstamo',
+  // Human report, 2026-09-22 — moves every pending installment of a loan
+  // to the same day of the month (LoansController's bulk endpoint).
+  'loan.alignInstallmentDueDay': 'Cambió el día de cobro de un préstamo',
   'payment.register': 'Registró un pago',
   // Phase 28 — same gap: added when bulk payments shipped.
   'payment.registerBulk': 'Registró un pago sobre varias cuotas',
+  // Human report, 2026-09-22 — moves a single pending installment's due
+  // date (InstallmentsController's PATCH /installments/:id/due-date).
+  'installment.updateDueDate': 'Cambió la fecha de cobro de una cuota',
   // Human report, 2026-09-09 — payment correction feature.
   'payment.void': 'Anuló un pago',
   // Human report, 2026-09-10 — docs/DATABASE.md's 2026-09-03 coverage
@@ -110,6 +116,8 @@ export const ACTION_LABELS: Record<string, string> = {
 export const ENTITY_TYPE_LABELS: Record<string, string> = {
   client: 'Cliente',
   loan: 'Préstamo',
+  // Human report, 2026-09-22 — see 'installment.updateDueDate' above.
+  installment: 'Cuota',
   payment: 'Pago',
   // Human report, 2026-09-10 — see 'whatsappCron.pause' above.
   whatsappCron: 'Recordatorio automático',
