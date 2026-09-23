@@ -64,6 +64,11 @@ export interface PayoffInstallmentBreakdown {
 
 export interface PayoffQuote {
   installments: PayoffInstallmentBreakdown[];
+  // Interest already caused to date that the smoothed cuotas didn't collect
+  // yet — see calculateInterestTrueUp.ts. Already included in
+  // totalInterestOwed/totalDue; not attributed to any one installment.
+  // 0 when not supplied.
+  interestTrueUp: number;
   totalInterestOwed: number;
   totalPrincipalOwed: number;
   totalDue: number;
@@ -84,6 +89,10 @@ export interface CalculatePayoffOptions {
   // function (the actual early-payoff endpoint) must keep omitting this
   // option so a real payoff quote is never inflated by not-yet-due cuotas.
   earlyMaturityWindowDays?: number;
+  // Computed by the caller from the loan's FULL installment list (this
+  // function only ever sees the pending ones) via calculateInterestTrueUp.
+  // Added on top of the per-installment interest. Defaults to 0.
+  interestTrueUp?: number;
 }
 
 // Colombian Civil Code Art. 1653 ("imputación del pago a intereses"): a
@@ -122,10 +131,10 @@ export function calculatePayoff(
     calculateInstallmentPayoff(installment, today, options),
   );
 
-  const totalInterestOwed = breakdown.reduce(
-    (sum, item) => sum + item.interestApplied,
-    0,
-  );
+  const interestTrueUp = options.interestTrueUp ?? 0;
+  const totalInterestOwed =
+    breakdown.reduce((sum, item) => sum + item.interestApplied, 0) +
+    interestTrueUp;
   const totalPrincipalOwed = breakdown.reduce(
     (sum, item) => sum + item.principalApplied,
     0,
@@ -133,6 +142,7 @@ export function calculatePayoff(
 
   return {
     installments: breakdown,
+    interestTrueUp,
     totalInterestOwed,
     totalPrincipalOwed,
     totalDue: totalInterestOwed + totalPrincipalOwed,

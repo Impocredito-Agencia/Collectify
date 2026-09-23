@@ -305,6 +305,7 @@ describe('calculatePayoff', () => {
 
     expect(quote).toEqual({
       installments: [],
+      interestTrueUp: 0,
       totalInterestOwed: 0,
       totalPrincipalOwed: 0,
       totalDue: 0,
@@ -735,6 +736,57 @@ describe('calculatePayoff', () => {
       // sequence as enrichInstallment.ts's own totalDue, not rounded a
       // second time afterward.
       expect(quote.installments[0].totalDue).toBe(245400);
+    });
+  });
+  describe('interestTrueUp option', () => {
+    // 10 cuotas of the 2.600.000 / 12 / 3,9% loan are already paid, so only
+    // cuotas 11 and 12 (not yet due) are pending: capital only, 433.333,30,
+    // plus the 84.417 the smoothed cuotas under-collected (computed by the
+    // caller via calculateInterestTrueUp — agreed with the human 2026-09-23).
+    const pendingNotYetDue = [
+      installment({
+        installmentId: 'inst-11',
+        installmentNumber: 11,
+        amount: 271600,
+        principalPortion: 216666.67,
+        dueDate: '2026-08-15',
+      }),
+      installment({
+        installmentId: 'inst-12',
+        installmentNumber: 12,
+        amount: 271600,
+        principalPortion: 216666.63,
+        dueDate: '2026-09-15',
+      }),
+    ];
+    const today = new Date('2026-08-01T12:00:00Z');
+
+    it('adds the true-up on top of capital-only future installments', () => {
+      const quote = calculatePayoff(pendingNotYetDue, today, {
+        interestTrueUp: 84417,
+      });
+
+      expect(quote.totalPrincipalOwed).toBeCloseTo(433333.3, 2);
+      expect(quote.interestTrueUp).toBe(84417);
+      expect(quote.totalInterestOwed).toBe(84417);
+      expect(quote.totalDue).toBeCloseTo(433333.3 + 84417, 2);
+    });
+
+    it('does not touch any per-installment breakdown', () => {
+      const quote = calculatePayoff(pendingNotYetDue, today, {
+        interestTrueUp: 84417,
+      });
+
+      expect(quote.installments.map((item) => item.interestApplied)).toEqual([
+        0, 0,
+      ]);
+    });
+
+    it('defaults to 0 when not supplied (original behavior)', () => {
+      const quote = calculatePayoff(pendingNotYetDue, today);
+
+      expect(quote.interestTrueUp).toBe(0);
+      expect(quote.totalDue).toBeCloseTo(433333.3, 2);
     });
   });
 });
