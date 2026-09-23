@@ -1015,6 +1015,10 @@ Human request: when a client walks into the office, the front desk needs to say 
 
 **`apps/client` UI:** `ClientAccountStatusPanel.tsx`, rendered at the top of `ClientDetailPage.tsx` (above `ClientCreditBanner`) — unlike that banner, which hides entirely when there's nothing to show, this panel always renders, including a plain "Al día" message when both lists are empty: a front-desk lookup needs a clear "nothing pending" answer just as much as a list of what's owed.
 
+## Change, 2026-09-23 — interest true-up on payoff and refinance
+
+No schema change. `LoansService.getPayoffQuote()`, `payoff()` and `getRefinanceQuote()` now also read the loan's *full* installment list (paid ones included) and its corriente `loan_installment_concepts` rows, and add `calculateInterestTrueUp()`'s result to the quote (`PayoffQuote.interestTrueUp`, included in `totalInterestOwed`/`totalDue`). The true interest per installment is derived from stored data only — `balanceBefore` = sum of the remaining `installments.principal_portion` (excluding the cuota inicial and cancelled rows), times the concept's snapshotted `value` — compared against the concept's stored `computed_amount`. `payoff()` writes the true-up into the first pending installment's `payments.amount_paid`. Full rules and the worked example: `docs/GLOSSARY.md` → "Liquidación anticipada".
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above
