@@ -21,7 +21,15 @@ export function AppLayout() {
     <div className="flex h-screen bg-background">
       {hasMessagesAccess && <WhatsappTicketWatcher />}
       <Sidebar />
-      <main className="flex-1 overflow-y-auto px-10 pb-10 pt-8">
+      {/* min-w-0 (human report, 2026-09-22 — responsive pass): without it,
+          a flex item defaults to min-width: auto, so a page containing
+          something with its own intrinsic minimum width (e.g. one of the
+          data tables now given min-w-[…] + overflow-x-auto, see
+          ClientsListPage.tsx et al.) would grow THIS element — and with
+          it, the whole flex row including Sidebar — instead of letting
+          that one element scroll internally within its own fixed share
+          of the width. */}
+      <main className="min-w-0 flex-1 overflow-y-auto px-10 pb-10 pt-8">
         <Outlet />
       </main>
     </div>

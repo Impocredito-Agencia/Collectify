@@ -67,7 +67,7 @@ export function UserDetailPage() {
 
       <div className="border-t border-border" />
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         <div className="rounded border border-border bg-surface p-5">
           <span className="text-[10px] font-normal tracking-normal text-muted">
             INFORMACIÓN DE CUENTA

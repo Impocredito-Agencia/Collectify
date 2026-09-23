@@ -20,7 +20,8 @@ import { ClientCreditBalanceService } from '../../clients/clientCreditBalance.se
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { WhatsappInboundMessage } from '../../whatsapp/entities/whatsappInboundMessage.entity';
 import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
-import { todayDateString } from '../dueDateSchedule';
+import { AlignInstallmentDueDayDto } from '../dto/alignInstallmentDueDay.dto';
+import { todayDateString, withDayOfMonth } from '../dueDateSchedule';
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { Loan, LoanStatus } from '../entities/loan.entity';
 import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entity';
@@ -30,6 +31,7 @@ import { PaymentImage } from '../entities/paymentImage.entity';
 import { CreatePaymentDto } from './dto/createPayment.dto';
 import { QueryInstallmentsDto } from './dto/queryInstallments.dto';
 import { BulkPaymentEntryDto } from './dto/registerBulkPayments.dto';
+import { UpdateInstallmentDueDateDto } from './dto/updateInstallmentDueDate.dto';
 import { VoidPaymentDto } from './dto/voidPayment.dto';
 import {
   enrichInstallment,
@@ -593,6 +595,109 @@ export class InstallmentsService {
       }
 
       return savedPayment;
+    });
+  }
+
+  // Human report, 2026-09-22 — a narrow, explicit exception to "a loan's
+  // schedule is fixed at creation" (see UpdateLoanDto's own comment and
+  // docs/DATABASE.md's `interest_rate` "Resolved, 2026-09-04" note): moves
+  // ONE pending installment's due date, nothing else about it — amount,
+  // principalPortion, and every concept stay untouched, so this never
+  // needs Refinanciar's full weight (no recalculation, no WhatsApp
+  // message). Guards against reordering the loan's own schedule out of
+  // installmentNumber order: the new date can't land earlier than the
+  // previous still-pending installment's own due date, nor later than the
+  // next one's.
+  async updateDueDate(
+    installmentId: string,
+    dto: UpdateInstallmentDueDateDto,
+  ): Promise<Installment> {
+    const installment = await this.installmentsRepository.findOne({
+      where: { id: installmentId },
+    });
+    if (!installment) {
+      throw new NotFoundException(
+        `Installment with id ${installmentId} not found`,
+      );
+    }
+    if (installment.status !== InstallmentStatus.Pending) {
+      throw new BadRequestException(
+        "Only a pending installment's due date can be changed — this one is already paid or cancelled.",
+      );
+    }
+
+    const siblings = await this.installmentsRepository.find({
+      where: { loanId: installment.loanId, status: InstallmentStatus.Pending },
+      order: { installmentNumber: 'ASC' },
+    });
+    const earlier = siblings
+      .filter(
+        (sibling) => sibling.installmentNumber < installment.installmentNumber,
+      )
+      .at(-1);
+    const later = siblings.find(
+      (sibling) => sibling.installmentNumber > installment.installmentNumber,
+    );
+    if (earlier && dto.dueDate < earlier.dueDate) {
+      throw new BadRequestException(
+        `The new date can't be earlier than installment ${earlier.installmentNumber}'s own due date (${earlier.dueDate}).`,
+      );
+    }
+    if (later && dto.dueDate > later.dueDate) {
+      throw new BadRequestException(
+        `The new date can't be later than installment ${later.installmentNumber}'s own due date (${later.dueDate}).`,
+      );
+    }
+
+    installment.dueDate = dto.dueDate;
+    return this.installmentsRepository.save(installment);
+  }
+
+  // Bulk counterpart to updateDueDate above — moves EVERY pending
+  // installment of a loan to the same day of the month at once ("algunas
+  // [cuotas] están el primero y la quieren... que queden todas el 10").
+  // Wrapped in a transaction, same all-or-nothing precedent as
+  // registerBulkPayments: either the whole loan's pending schedule moves,
+  // or none of it does. Each installment keeps its own year/month —
+  // withDayOfMonth only replaces the day, clamped to that month's actual
+  // last day. The ordering guard below is defense-in-depth: moving every
+  // date by the same day-of-month can't actually invert installmentNumber
+  // order on its own (only the day changes, never the month), but it's
+  // checked explicitly rather than assumed safe from the math alone.
+  async alignDueDay(
+    loanId: string,
+    dto: AlignInstallmentDueDayDto,
+  ): Promise<Installment[]> {
+    const loan = await this.loansRepository.findOne({ where: { id: loanId } });
+    if (!loan) {
+      throw new NotFoundException(`Loan with id ${loanId} not found`);
+    }
+
+    return this.dataSource.transaction(async (manager: EntityManager) => {
+      const installmentsRepository = manager.getRepository(Installment);
+      const pending = await installmentsRepository.find({
+        where: { loanId, status: InstallmentStatus.Pending },
+        order: { installmentNumber: 'ASC' },
+      });
+      if (pending.length === 0) {
+        throw new BadRequestException(
+          'This loan has no pending installments to reschedule.',
+        );
+      }
+
+      let previousDueDate: string | null = null;
+      for (const installment of pending) {
+        const nextDueDate = withDayOfMonth(installment.dueDate, dto.dayOfMonth);
+        if (previousDueDate && nextDueDate < previousDueDate) {
+          throw new BadRequestException(
+            `Moving every pending installment to day ${dto.dayOfMonth} would put installment ${installment.installmentNumber} before the previous one — check the requested day.`,
+          );
+        }
+        installment.dueDate = nextDueDate;
+        previousDueDate = nextDueDate;
+      }
+
+      return installmentsRepository.save(pending);
     });
   }
 

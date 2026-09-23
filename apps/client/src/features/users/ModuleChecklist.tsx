@@ -23,7 +23,7 @@ export function ModuleChecklist({ selected, onChange }: ModuleChecklistProps) {
   };
 
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
       {ALL_MODULES.map((module) => (
         <label
           key={module}

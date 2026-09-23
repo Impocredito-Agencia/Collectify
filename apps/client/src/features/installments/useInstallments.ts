@@ -114,3 +114,24 @@ export function useApplyClientCredit() {
     },
   });
 }
+
+// Human report, 2026-09-22 — moves a single pending installment's due
+// date. Same invalidation shape as useRegisterPayment/useVoidPayment
+// above — loanId is curried since this is only ever called from
+// LoanDetailPage's own installments table.
+export function useUpdateInstallmentDueDate(loanId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      installmentId,
+      dueDate,
+    }: {
+      installmentId: string;
+      dueDate: string;
+    }) => installmentsApi.updateDueDate(installmentId, dueDate),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['loans', loanId] });
+    },
+  });
+}

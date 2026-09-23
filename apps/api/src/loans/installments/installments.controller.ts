@@ -16,15 +16,19 @@ import {
 
 import { Audit } from '../../auditLog/decorators/audit.decorator';
 import { CurrentUser } from '../../auth/decorators/currentUser.decorator';
+import { RequireModule } from '../../auth/decorators/requireModule.decorator';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
+import { AppModule } from '../../users/entities/userModulePermission.entity';
 import { UserRole } from '../../users/entities/user.entity';
+import { Installment } from '../entities/installment.entity';
 import { Payment } from '../entities/payment.entity';
 
 import { ApplyClientCreditDto } from './dto/applyClientCredit.dto';
 import { CreatePaymentDto } from './dto/createPayment.dto';
 import { QueryInstallmentsDto } from './dto/queryInstallments.dto';
 import { RegisterBulkPaymentsDto } from './dto/registerBulkPayments.dto';
+import { UpdateInstallmentDueDateDto } from './dto/updateInstallmentDueDate.dto';
 import { VoidPaymentDto } from './dto/voidPayment.dto';
 import { InstallmentWithCalculated } from './enrichInstallment';
 import { InstallmentsService } from './installments.service';
@@ -173,5 +177,34 @@ export class InstallmentsController {
     @Body() dto: VoidPaymentDto,
   ): Promise<Payment> {
     return this.installmentsService.voidPayment(id, dto);
+  }
+
+  // Human report, 2026-09-22 — a narrow exception to "a loan's schedule is
+  // fixed at creation" (see UpdateLoanDto's own comment): moves ONE
+  // pending installment's collection date, nothing about what it owes.
+  // Same permission level as PATCH /loans/:id (any other loan-modifying
+  // action) rather than voidPayment's stricter admin-only gate above —
+  // this doesn't touch money, just when it's collected.
+  @Patch(':id/due-date')
+  @RequireModule(AppModule.Loans)
+  @Audit('installment.updateDueDate', 'installment')
+  @ApiOperation({
+    summary:
+      "Move a single pending installment's due date (admin or granted the loans module)",
+    description:
+      "Only the date changes — amount, principalPortion, and every concept stay exactly as generated. The new date can't cross an adjacent still-pending installment's own due date (keeps the schedule in installmentNumber order). See InstallmentsService.alignDueDay for moving every pending installment of a loan at once.",
+  })
+  @ApiResponse({ status: 200, description: 'The due date was updated.' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'The installment is not pending, or the new date crosses an adjacent installment.',
+  })
+  @ApiResponse({ status: 404, description: 'Installment not found.' })
+  updateDueDate(
+    @Param('id') id: string,
+    @Body() dto: UpdateInstallmentDueDateDto,
+  ): Promise<Installment> {
+    return this.installmentsService.updateDueDate(id, dto);
   }
 }

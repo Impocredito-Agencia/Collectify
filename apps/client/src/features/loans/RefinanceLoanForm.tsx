@@ -815,10 +815,10 @@ export function RefinanceLoanForm({
                   </span>
 
                   <div
-                    className={`grid gap-3 ${
+                    className={`grid grid-cols-1 gap-3 ${
                       refinanceQuote.earlyWindowInterest > 0
-                        ? 'grid-cols-3'
-                        : 'grid-cols-2'
+                        ? 'sm:grid-cols-3'
+                        : 'sm:grid-cols-2'
                     }`}
                   >
                     <div>
@@ -872,7 +872,7 @@ export function RefinanceLoanForm({
                     <span className="h-px flex-1 bg-border" />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <p className="text-[10px] font-normal text-muted">
                         Capital a refinanciar

@@ -3,6 +3,7 @@ import {
   addMonthsToDateString,
   addWeeksToDateString,
   todayDateString,
+  withDayOfMonth,
 } from './dueDateSchedule';
 
 describe('dueDateSchedule', () => {
@@ -67,6 +68,24 @@ describe('dueDateSchedule', () => {
 
     it('rolls over across a month boundary', () => {
       expect(addDaysToDateString('2026-01-30', 3)).toBe('2026-02-02');
+    });
+  });
+
+  describe('withDayOfMonth', () => {
+    it('replaces the day, keeping the same year and month', () => {
+      expect(withDayOfMonth('2026-03-01', 10)).toBe('2026-03-10');
+    });
+
+    it('clamps to the last day of the month instead of overflowing', () => {
+      expect(withDayOfMonth('2026-02-05', 31)).toBe('2026-02-28');
+    });
+
+    it('clamps to Feb 29 in a leap year instead of Feb 28', () => {
+      expect(withDayOfMonth('2028-02-05', 31)).toBe('2028-02-29');
+    });
+
+    it('supports moving the day earlier in the month, not just later', () => {
+      expect(withDayOfMonth('2026-05-20', 10)).toBe('2026-05-10');
     });
   });
 
