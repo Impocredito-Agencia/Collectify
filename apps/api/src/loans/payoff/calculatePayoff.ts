@@ -64,10 +64,10 @@ export interface PayoffInstallmentBreakdown {
 
 export interface PayoffQuote {
   installments: PayoffInstallmentBreakdown[];
-  // Interest already caused to date that the smoothed cuotas didn't collect
-  // yet — see calculateInterestTrueUp.ts. Already included in
-  // totalInterestOwed/totalDue; not attributed to any one installment.
-  // 0 when not supplied.
+  // The part of the interest true-up (see calculateInterestTrueUp.ts) that
+  // could NOT be placed inside a pending installment's own row — it comes
+  // from installments already paid. Already included in
+  // totalInterestOwed/totalDue. 0 when not supplied.
   interestTrueUp: number;
   totalInterestOwed: number;
   totalPrincipalOwed: number;
@@ -93,6 +93,13 @@ export interface CalculatePayoffOptions {
   // function only ever sees the pending ones) via calculateInterestTrueUp.
   // Added on top of the per-installment interest. Defaults to 0.
   interestTrueUp?: number;
+  // Optional: the share of the true-up that belongs to specific pending,
+  // matured installments (keyed by installmentNumber). It is added to that
+  // row's interestApplied/totalDue and listed in its conceptBreakdown, so
+  // the table rows add up to the quote total. NOT added on top of
+  // `interestTrueUp` — callers pass only the unattributed remainder there
+  // (see calculateInterestTrueUpBreakdown).
+  interestTrueUpByInstallment?: Map<number, number>;
 }
 
 // Colombian Civil Code Art. 1653 ("imputación del pago a intereses"): a
@@ -127,9 +134,12 @@ export function calculatePayoff(
   today: Date = new Date(),
   options: CalculatePayoffOptions = {},
 ): PayoffQuote {
-  const breakdown = installments.map((installment) =>
-    calculateInstallmentPayoff(installment, today, options),
-  );
+  const attributed = options.interestTrueUpByInstallment;
+  const breakdown = installments.map((installment) => {
+    const item = calculateInstallmentPayoff(installment, today, options);
+    const adjustment = attributed?.get(installment.installmentNumber) ?? 0;
+    return adjustment === 0 ? item : withTrueUpAdjustment(item, adjustment);
+  });
 
   const interestTrueUp = options.interestTrueUp ?? 0;
   const totalInterestOwed =
@@ -146,6 +156,26 @@ export function calculatePayoff(
     totalInterestOwed,
     totalPrincipalOwed,
     totalDue: totalInterestOwed + totalPrincipalOwed,
+  };
+}
+
+function withTrueUpAdjustment(
+  item: PayoffInstallmentBreakdown,
+  adjustment: number,
+): PayoffInstallmentBreakdown {
+  const interestApplied = Math.max(0, item.interestApplied + adjustment);
+  return {
+    ...item,
+    interestApplied,
+    totalDue: interestApplied + item.principalApplied,
+    conceptBreakdown: [
+      ...item.conceptBreakdown,
+      {
+        name: 'Ajuste de interés causado',
+        amount: adjustment,
+        category: ConceptCategory.Corriente,
+      },
+    ],
   };
 }
 

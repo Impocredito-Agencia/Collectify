@@ -245,16 +245,18 @@ export function PayoffDialog({
             </table>
           </div>
 
-          {quote.interestTrueUp > 0 && (
+          {quote.interestTrueUp !== 0 && (
             <div className="mt-3 flex items-start justify-between gap-4 rounded border border-border bg-surface px-3.5 py-2.5">
               <div>
                 <p className="text-small font-medium text-white">
-                  Ajuste de interés causado a la fecha
+                  {quote.interestTrueUp > 0
+                    ? 'Ajuste de interés de cuotas ya pagadas'
+                    : 'Crédito por interés cobrado por adelantado'}
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted">
-                  La cuota promediada cobra menos interés al inicio del plazo
-                  del que realmente se causó; esta es la diferencia pendiente.
-                  Ya está incluida en el total.
+                  {quote.interestTrueUp > 0
+                    ? 'Las cuotas que ya pagó se cobraron con un interés promediado, menor al que realmente se causó hasta hoy; esta es la diferencia. Ya está incluida en el total.'
+                    : 'Las cuotas pagadas por adelantado ya incluyeron interés de períodos que aún no se causan; se descuenta del total.'}
                 </p>
               </div>
               <span className="whitespace-nowrap text-small font-medium text-white">

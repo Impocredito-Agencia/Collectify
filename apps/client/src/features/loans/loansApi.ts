@@ -270,9 +270,12 @@ export interface PayoffInstallmentBreakdown {
 
 export interface PayoffQuote {
   installments: PayoffInstallmentBreakdown[];
-  // Interest already caused to date that the flat, averaged cuotas hadn't
-  // collected yet — already included in totalInterestOwed/totalDue but not
-  // attributed to any row in `installments`. See
+  // The part of the interest true-up (interest already caused to date that
+  // the flat, averaged cuotas hadn't collected) that comes from
+  // installments already paid, so it has no row in `installments`. The
+  // share belonging to a pending overdue cuota is inside that row instead
+  // (interestApplied/conceptBreakdown). Already included in
+  // totalInterestOwed/totalDue. See
   // apps/api/src/loans/payoff/calculateInterestTrueUp.ts.
   interestTrueUp: number;
   totalInterestOwed: number;

@@ -38,11 +38,24 @@ export interface CalculateInterestTrueUpOptions {
 // a period that hasn't been caused — that is credited back. Never negative:
 // the result is floored at 0, so this can only ever add to what the
 // pre-existing capital-only payoff charged.
-export function calculateInterestTrueUp(
+export interface InterestTrueUpBreakdown {
+  // Whole pesos, floored at 0 — the full amount to add to the quote.
+  total: number;
+  // The part of `total` that belongs to a specific installment that is
+  // still pending AND matured (its own caused-minus-charged difference), so
+  // the quote can show it inside that row. Empty when total is 0.
+  attributedByInstallmentNumber: Map<number, number>;
+  // total minus everything attributed above: what comes from installments
+  // already paid (or credited back for paid-ahead cuotas), which has no
+  // pending row to sit in. May be negative in unusual prepayment cases.
+  unattributed: number;
+}
+
+export function calculateInterestTrueUpBreakdown(
   installments: TrueUpInstallmentInput[],
   today: Date = new Date(),
   options: CalculateInterestTrueUpOptions = {},
-): number {
+): InterestTrueUpBreakdown {
   const amortizing = installments
     .filter(
       (installment) =>
@@ -59,6 +72,7 @@ export function calculateInterestTrueUp(
   );
 
   let trueUp = 0;
+  const pendingDifferences = new Map<number, number>();
   for (const installment of amortizing) {
     const hasMatured =
       calculateDaysUntilDue(new Date(installment.dueDate), today) <= window;
@@ -74,6 +88,12 @@ export function calculateInterestTrueUp(
         0,
       );
       trueUp += caused - charged;
+      if (installment.status === InstallmentStatus.Pending) {
+        pendingDifferences.set(
+          installment.installmentNumber,
+          Math.round(caused - charged),
+        );
+      }
     } else if (installment.status === InstallmentStatus.Paid) {
       trueUp -= charged;
     }
@@ -81,7 +101,28 @@ export function calculateInterestTrueUp(
     balanceBefore -= installment.principalPortion ?? installment.amount;
   }
 
-  return Math.max(0, Math.round(trueUp));
+  const total = Math.max(0, Math.round(trueUp));
+  if (total === 0) {
+    return { total, attributedByInstallmentNumber: new Map(), unattributed: 0 };
+  }
+
+  const attributedTotal = [...pendingDifferences.values()].reduce(
+    (sum, value) => sum + value,
+    0,
+  );
+  return {
+    total,
+    attributedByInstallmentNumber: pendingDifferences,
+    unattributed: total - attributedTotal,
+  };
+}
+
+export function calculateInterestTrueUp(
+  installments: TrueUpInstallmentInput[],
+  today: Date = new Date(),
+  options: CalculateInterestTrueUpOptions = {},
+): number {
+  return calculateInterestTrueUpBreakdown(installments, today, options).total;
 }
 
 function roundCents(value: number): number {

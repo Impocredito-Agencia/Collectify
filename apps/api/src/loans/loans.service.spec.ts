@@ -2585,6 +2585,71 @@ describe('LoansService', () => {
     });
   });
 
+  // Préstamo #0911-like case (2026-09-23): 1.000.000 / 10 cuotas / 4,5%,
+  // nothing paid, cuota 1 overdue. Its real interest (45.000) must sit
+  // inside its own row, so the table rows add up to the total.
+  describe('interest true-up attributed to a pending overdue cuota', () => {
+    const schedule = generateAmortizationSchedule(1000000, 10, [
+      {
+        conceptTypeId: null,
+        name: 'Intereses corrientes',
+        calculationType: ConceptCalculationType.Percentage,
+        value: 4.5,
+      },
+    ]);
+    const installments: Installment[] = schedule.map((generated) => ({
+      id: `inst-${generated.installmentNumber}`,
+      loanId: mockLoan.id,
+      loan: mockLoan,
+      installmentNumber: generated.installmentNumber,
+      amount: generated.amount,
+      principalPortion: generated.principalPortion,
+      dueDate: bogotaTodayPlusDays(
+        generated.installmentNumber === 1
+          ? -11
+          : generated.installmentNumber * 30,
+      ),
+      status: InstallmentStatus.Pending,
+      isDownPayment: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    }));
+    const conceptRows = schedule.flatMap((generated) =>
+      generated.concepts.map(
+        (concept) =>
+          ({
+            id: `concept-${generated.installmentNumber}`,
+            installmentId: `inst-${generated.installmentNumber}`,
+            interestConceptTypeId: null,
+            nameSnapshot: concept.name,
+            calculationType: ConceptCalculationType.Percentage,
+            category: ConceptCategory.Corriente,
+            value: concept.value,
+            computedAmount: concept.computedAmount,
+          }) as LoanInstallmentConcept,
+      ),
+    );
+
+    beforeEach(() => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+      installmentsRepository.find.mockResolvedValue(installments);
+      loanInstallmentConceptsRepository.find.mockResolvedValue(conceptRows);
+    });
+
+    it('shows the real interest on the overdue row and leaves nothing unattributed', async () => {
+      const quote = await service.getPayoffQuote(mockLoan.id);
+
+      expect(quote.installments[0].interestApplied).toBeCloseTo(45000, 0);
+      expect(quote.interestTrueUp).toBe(0);
+      const rowsTotal = quote.installments.reduce(
+        (sum, item) => sum + item.totalDue,
+        0,
+      );
+      expect(rowsTotal).toBeCloseTo(quote.totalDue, 2);
+    });
+  });
+
   describe('getPayoffQuote', () => {
     function pendingInstallment(
       overrides: Partial<Installment> = {},

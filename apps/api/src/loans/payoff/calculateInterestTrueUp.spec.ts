@@ -2,7 +2,10 @@ import { ConceptCalculationType } from '../../interestConceptTypes/entities/inte
 import { generateAmortizationSchedule } from '../amortization/generateSchedule';
 import { InstallmentStatus } from '../entities/installment.entity';
 
-import { calculateInterestTrueUp } from './calculateInterestTrueUp';
+import {
+  calculateInterestTrueUp,
+  calculateInterestTrueUpBreakdown,
+} from './calculateInterestTrueUp';
 
 import type { TrueUpInstallmentInput } from './calculateInterestTrueUp';
 
@@ -21,13 +24,14 @@ function dueDateOf(installmentNumber: number): string {
 // $271.600, true (balance-proportional) interest 101.400, 92.950, ...
 function buildLoan(
   statuses: Record<number, InstallmentStatus> = {},
+  { principal = 2600000, count = 12, rate = 3.9 } = {},
 ): TrueUpInstallmentInput[] {
-  const schedule = generateAmortizationSchedule(2600000, 12, [
+  const schedule = generateAmortizationSchedule(principal, count, [
     {
       conceptTypeId: null,
       name: 'Intereses corrientes',
       calculationType: ConceptCalculationType.Percentage,
-      value: 3.9,
+      value: rate,
     },
   ]);
   return schedule.map((generated) => ({
@@ -162,5 +166,62 @@ describe('calculateInterestTrueUp', () => {
 
   it('returns 0 for an empty installment list', () => {
     expect(calculateInterestTrueUp([], TODAY_AFTER_10TH_DUE)).toBe(0);
+  });
+  describe('calculateInterestTrueUpBreakdown', () => {
+    // 1.000.000 / 10 cuotas / 4,5%: flat cuota 124.800, cuota 1 charges
+    // 24.800 of interest but really caused 45.000.
+    const small = { principal: 1000000, count: 10, rate: 4.5 };
+    const afterFirstDue = new Date('2025-10-26T12:00:00Z'); // 11 days after cuota 1
+
+    it('places a pending, matured installment’s difference on its own row', () => {
+      const loan = buildLoan({}, small);
+
+      const result = calculateInterestTrueUpBreakdown(loan, afterFirstDue);
+
+      expect(result.total).toBe(20200);
+      expect(result.attributedByInstallmentNumber.get(1)).toBe(20200);
+      expect(result.unattributed).toBe(0);
+    });
+
+    it('leaves the difference of already-paid installments unattributed', () => {
+      const loan = buildLoan(paidThrough(10), {
+        principal: 2600000,
+        count: 12,
+        rate: 3.9,
+      });
+
+      const result = calculateInterestTrueUpBreakdown(
+        loan,
+        TODAY_AFTER_10TH_DUE,
+      );
+
+      expect(result.total).toBe(84417);
+      expect(result.attributedByInstallmentNumber.size).toBe(0);
+      expect(result.unattributed).toBe(84417);
+    });
+
+    it('splits between a paid cuota (unattributed) and a pending matured one (own row)', () => {
+      const loan = buildLoan({ 1: InstallmentStatus.Paid }, small);
+      const afterSecondDue = new Date('2025-11-20T12:00:00Z');
+
+      const result = calculateInterestTrueUpBreakdown(loan, afterSecondDue);
+
+      // Cuota 1: 45.000 - 24.800 = 20.200. Cuota 2: 900.000 x 4,5% =
+      // 40.500 vs 24.800 charged = 15.700.
+      expect(result.attributedByInstallmentNumber.get(2)).toBe(15700);
+      expect(result.unattributed).toBe(20200);
+      expect(result.total).toBe(35900);
+    });
+
+    it('attributes nothing when the total is floored to 0', () => {
+      const result = calculateInterestTrueUpBreakdown(
+        buildLoan(),
+        new Date('2025-01-01T12:00:00Z'),
+      );
+
+      expect(result.total).toBe(0);
+      expect(result.attributedByInstallmentNumber.size).toBe(0);
+      expect(result.unattributed).toBe(0);
+    });
   });
 });

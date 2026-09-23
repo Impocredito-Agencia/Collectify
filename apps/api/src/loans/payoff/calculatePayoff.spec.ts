@@ -789,4 +789,54 @@ describe('calculatePayoff', () => {
       expect(quote.totalDue).toBeCloseTo(433333.3, 2);
     });
   });
+  describe('interestTrueUpByInstallment option', () => {
+    const today = new Date('2026-09-23T12:00:00Z');
+    const overdue = installment({
+      installmentId: 'inst-1',
+      installmentNumber: 1,
+      amount: 125000,
+      principalPortion: 100000,
+      dueDate: '2026-09-12',
+    });
+    const future = installment({
+      installmentId: 'inst-2',
+      installmentNumber: 2,
+      amount: 125000,
+      principalPortion: 100000,
+      dueDate: '2027-01-12',
+    });
+
+    it('adds the adjustment to that row and lists it as a corriente concept', () => {
+      const plain = calculatePayoff([overdue, future], today);
+      const quote = calculatePayoff([overdue, future], today, {
+        interestTrueUpByInstallment: new Map([[1, 20000]]),
+      });
+
+      const row = quote.installments[0];
+      expect(row.interestApplied).toBe(
+        plain.installments[0].interestApplied + 20000,
+      );
+      expect(row.totalDue).toBe(plain.installments[0].totalDue + 20000);
+      expect(row.conceptBreakdown).toContainEqual({
+        name: 'Ajuste de interés causado',
+        amount: 20000,
+        category: ConceptCategory.Corriente,
+      });
+      expect(quote.installments[1]).toEqual(plain.installments[1]);
+    });
+
+    it('keeps the rows adding up to the total when nothing is left unattributed', () => {
+      const quote = calculatePayoff([overdue, future], today, {
+        interestTrueUp: 0,
+        interestTrueUpByInstallment: new Map([[1, 20000]]),
+      });
+
+      const rowsTotal = quote.installments.reduce(
+        (sum, item) => sum + item.totalDue,
+        0,
+      );
+      expect(rowsTotal).toBe(quote.totalDue);
+      expect(quote.interestTrueUp).toBe(0);
+    });
+  });
 });
