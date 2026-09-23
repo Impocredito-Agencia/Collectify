@@ -244,6 +244,24 @@ export function PayoffDialog({
               </tbody>
             </table>
           </div>
+
+          {quote.interestTrueUp > 0 && (
+            <div className="mt-3 flex items-start justify-between gap-4 rounded border border-border bg-surface px-3.5 py-2.5">
+              <div>
+                <p className="text-small font-medium text-white">
+                  Ajuste de interés causado a la fecha
+                </p>
+                <p className="mt-0.5 text-[11px] text-muted">
+                  La cuota promediada cobra menos interés al inicio del plazo
+                  del que realmente se causó; esta es la diferencia pendiente.
+                  Ya está incluida en el total.
+                </p>
+              </div>
+              <span className="whitespace-nowrap text-small font-medium text-white">
+                {formatCurrency(quote.interestTrueUp)}
+              </span>
+            </div>
+          )}
         </>
       )}
 

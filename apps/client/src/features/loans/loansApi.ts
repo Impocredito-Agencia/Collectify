@@ -270,6 +270,11 @@ export interface PayoffInstallmentBreakdown {
 
 export interface PayoffQuote {
   installments: PayoffInstallmentBreakdown[];
+  // Interest already caused to date that the flat, averaged cuotas hadn't
+  // collected yet — already included in totalInterestOwed/totalDue but not
+  // attributed to any row in `installments`. See
+  // apps/api/src/loans/payoff/calculateInterestTrueUp.ts.
+  interestTrueUp: number;
   totalInterestOwed: number;
   totalPrincipalOwed: number;
   totalDue: number;
