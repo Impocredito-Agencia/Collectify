@@ -46,6 +46,7 @@ import {
   enrichInstallment,
   InstallmentWithCalculated,
 } from './installments/enrichInstallment';
+import { calculateDaysUntilDue } from './installments/installmentCalculations';
 import { sumPaymentsByInstallmentId } from './installments/paymentTotals';
 import { calculateInterestTrueUp } from './payoff/calculateInterestTrueUp';
 import {
@@ -95,6 +96,9 @@ export interface RefinanceQuote {
   // already caused) — i.e. what the quote would NOT include without that
   // window. 0 when no installment falls inside it.
   earlyWindowInterest: number;
+  // Which pending installments are inside that window (due within the next
+  // few days, not yet due) — lets the UI name them in its explanation.
+  earlyWindowInstallmentNumbers: number[];
   suggestedPrincipalAmount: number;
   concepts: LoanConceptAssignmentDto[];
   // Phase 23 — same carry-over as concepts above, filtered to the loan's
@@ -1049,6 +1053,14 @@ export class LoansService {
         today,
       ),
     });
+    const earlyWindowInstallmentNumbers = pending
+      .filter(
+        (installment) =>
+          calculateDaysUntilDue(new Date(installment.dueDate), today) > 0 &&
+          calculateDaysUntilDue(new Date(installment.dueDate), today) <=
+            REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+      )
+      .map((installment) => installment.installmentNumber);
     const earlyWindowInterest = Math.max(
       0,
       payoff.totalInterestOwed - payoffWithoutWindow.totalInterestOwed,
@@ -1074,6 +1086,7 @@ export class LoansService {
     return {
       payoff,
       earlyWindowInterest,
+      earlyWindowInstallmentNumbers,
       suggestedPrincipalAmount: payoff.totalDue,
       concepts: concepts
         .filter(

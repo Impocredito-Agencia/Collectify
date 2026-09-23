@@ -2550,6 +2550,7 @@ describe('LoansService', () => {
       const quote = await service.getRefinanceQuote(mockLoan.id);
 
       // Within a peso or two: the true-up is rounded to whole pesos.
+      expect(quote.earlyWindowInstallmentNumbers).toEqual([11]);
       expect(quote.earlyWindowInterest).toBeCloseTo(16900, -1);
       // Formal interest = everything else: the 10 matured cuotas' 84.417.
       expect(
@@ -2561,6 +2562,7 @@ describe('LoansService', () => {
       const quote = await service.getRefinanceQuote(mockLoan.id);
 
       expect(quote.earlyWindowInterest).toBe(0);
+      expect(quote.earlyWindowInstallmentNumbers).toEqual([]);
     });
 
     it('adds no true-up once nothing is pending (already paid/refinanced loan)', async () => {

@@ -129,6 +129,15 @@ function roundToNearestHundred(amount: number): number {
 // "type the exact figure by hand" decision: principalAmount and concepts
 // are now pre-filled from GET /loans/:id/refinance-quote, but both stay
 // fully editable — the admin keeps final say, exactly as Phase 6 required.
+function describeEarlyWindow(installmentNumbers: number[]): string {
+  const labels = installmentNumbers.map((number) => `#${number}`);
+  const subject =
+    labels.length === 1
+      ? `La cuota ${labels[0]} vence`
+      : `Las cuotas ${labels.slice(0, -1).join(', ')} y ${labels[labels.length - 1]} vencen`;
+  return `${subject} en los próximos 5 días. Aún no vence${labels.length === 1 ? '' : 'n'}, pero su interés se cobra ahora porque al refinanciar se toma como ya causado.`;
+}
+
 export function RefinanceLoanForm({
   oldLoanId,
   oldLoanClientId,
@@ -833,7 +842,9 @@ export function RefinanceLoanForm({
                     </div>
                     <div>
                       <p className="text-[10px] font-normal text-muted">
-                        Interés causado
+                        {refinanceQuote.earlyWindowInterest > 0
+                          ? 'Interés de cuotas vencidas'
+                          : 'Interés causado'}
                       </p>
                       <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
                         {formatCurrency(
@@ -848,7 +859,7 @@ export function RefinanceLoanForm({
                           className="text-[10px] font-normal text-muted"
                           title="Cuotas que aún no vencen pero vencen en los próximos 5 días: su interés se toma como ya causado al refinanciar."
                         >
-                          Interés por vencer (5 días)
+                          Interés de cuota próxima a vencer
                         </p>
                         <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
                           {formatCurrency(refinanceQuote.earlyWindowInterest)}
@@ -856,6 +867,14 @@ export function RefinanceLoanForm({
                       </div>
                     )}
                   </div>
+
+                  {refinanceQuote.earlyWindowInterest > 0 && (
+                    <p className="text-[11px] text-muted">
+                      {describeEarlyWindow(
+                        refinanceQuote.earlyWindowInstallmentNumbers,
+                      )}
+                    </p>
+                  )}
 
                   {/* "suman" → "=" (client feedback, 2026-09-04): with two
                       figures below now instead of one, "suman" implied

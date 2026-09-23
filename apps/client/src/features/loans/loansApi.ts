@@ -291,6 +291,8 @@ export interface RefinanceQuote {
   // installment is due within the next few days (the refinance early-
   // maturity window) rather than having formally run. 0 when none is.
   earlyWindowInterest: number;
+  // Numbers of the pending installments inside that window.
+  earlyWindowInstallmentNumbers: number[];
   suggestedPrincipalAmount: number;
   concepts: LoanConceptAssignment[];
   // Phase 23 — same carry-over as concepts above, filtered to the loan's
