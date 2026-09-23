@@ -47,6 +47,7 @@ import {
   InstallmentWithCalculated,
 } from './installments/enrichInstallment';
 import { sumPaymentsByInstallmentId } from './installments/paymentTotals';
+import { calculateInterestTrueUp } from './payoff/calculateInterestTrueUp';
 import {
   calculatePayoff,
   PayoffInstallmentInput,
@@ -827,6 +828,7 @@ export class LoansService {
       this.paymentsRepository,
       pending.map((installment) => installment.id),
     );
+    const today = new Date();
     return calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
@@ -835,6 +837,14 @@ export class LoansService {
           totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
       ),
+      today,
+      {
+        interestTrueUp: await this.computeInterestTrueUp(
+          id,
+          pending.length,
+          today,
+        ),
+      },
     );
   }
 
@@ -862,6 +872,7 @@ export class LoansService {
       this.paymentsRepository,
       pending.map((installment) => installment.id),
     );
+    const today = new Date();
     const quote = calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
@@ -870,18 +881,33 @@ export class LoansService {
           totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
       ),
+      today,
+      {
+        interestTrueUp: await this.computeInterestTrueUp(
+          id,
+          pending.length,
+          today,
+        ),
+      },
     );
 
     const paidAt = new Date().toISOString().slice(0, 10);
-    const payments = quote.installments.map((breakdown) =>
-      this.paymentsRepository.create({
+    // The true-up isn't tied to any one installment, so it rides on the
+    // first pending installment's payment — that way the payments still
+    // sum to exactly the quoted total.
+    const payments = quote.installments.map((breakdown, index) => {
+      const carriesTrueUp = index === 0 && quote.interestTrueUp > 0;
+      return this.paymentsRepository.create({
         installmentId: breakdown.installmentId,
-        amountPaid: breakdown.totalDue,
+        amountPaid:
+          breakdown.totalDue + (carriesTrueUp ? quote.interestTrueUp : 0),
         paidAt,
-        observation: 'Liquidación anticipada',
+        observation: carriesTrueUp
+          ? 'Liquidación anticipada (incluye ajuste de interés causado)'
+          : 'Liquidación anticipada',
         imageUrl: null,
-      }),
-    );
+      });
+    });
     if (payments.length > 0) {
       await this.paymentsRepository.save(payments);
     }
@@ -893,6 +919,50 @@ export class LoansService {
     await this.loansRepository.update({ id }, { status: LoanStatus.Paid });
 
     return this.findOne(id);
+  }
+
+  // See calculateInterestTrueUp.ts. Needs the loan's FULL installment list
+  // (paid ones included), unlike calculatePayoff which only sees pending
+  // ones. A loan with nothing pending (already paid/refinanced) has nothing
+  // left to settle, so its quote stays empty like before.
+  private async computeInterestTrueUp(
+    loanId: string,
+    pendingCount: number,
+    today: Date,
+    options?: { earlyMaturityWindowDays?: number },
+  ): Promise<number> {
+    if (pendingCount === 0) {
+      return 0;
+    }
+    const installments = await this.installmentsRepository.find({
+      where: { loanId },
+      order: { installmentNumber: 'ASC' },
+    });
+    const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
+      installments.map((installment) => installment.id),
+    );
+    return calculateInterestTrueUp(
+      installments.map((installment) => ({
+        installmentNumber: installment.installmentNumber,
+        dueDate: installment.dueDate,
+        status: installment.status,
+        isDownPayment: installment.isDownPayment,
+        amount: installment.amount,
+        principalPortion: installment.principalPortion,
+        percentageConcepts: (conceptsByInstallmentId.get(installment.id) ?? [])
+          .filter(
+            (concept) =>
+              concept.category === ConceptCategory.Corriente &&
+              concept.calculationType === ConceptCalculationType.Percentage,
+          )
+          .map((concept) => ({
+            value: concept.value,
+            computedAmount: concept.computedAmount,
+          })),
+      })),
+      today,
+      options,
+    );
   }
 
   private findPendingInstallments(loanId: string): Promise<Installment[]> {
@@ -944,6 +1014,7 @@ export class LoansService {
       this.paymentsRepository,
       pending.map((installment) => installment.id),
     );
+    const today = new Date();
     const payoff = calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
@@ -952,8 +1023,18 @@ export class LoansService {
           totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
       ),
-      new Date(),
-      { earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS },
+      today,
+      {
+        earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+        interestTrueUp: await this.computeInterestTrueUp(
+          id,
+          pending.length,
+          today,
+          {
+            earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+          },
+        ),
+      },
     );
 
     const firstInstallment = await this.installmentsRepository.findOne({
