@@ -2527,6 +2527,42 @@ describe('LoansService', () => {
       expect(quote.suggestedPrincipalAmount).toBe(quote.payoff.totalDue);
     });
 
+    it('separates the interest that only entered through the 5-day window', async () => {
+      // Cuota 11 now falls due in 3 days: inside the refinance window, so
+      // its true interest (16.900) counts even though it is not yet due.
+      const shifted = allInstallments.map((installment) =>
+        installment.installmentNumber === 11
+          ? { ...installment, dueDate: bogotaTodayPlusDays(3) }
+          : installment,
+      );
+      installmentsRepository.find.mockImplementation(
+        (options: { where: { status?: InstallmentStatus } }) =>
+          Promise.resolve(
+            options.where.status === InstallmentStatus.Pending
+              ? shifted.filter(
+                  (installment) =>
+                    installment.status === InstallmentStatus.Pending,
+                )
+              : shifted,
+          ),
+      );
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      // Within a peso or two: the true-up is rounded to whole pesos.
+      expect(quote.earlyWindowInterest).toBeCloseTo(16900, -1);
+      // Formal interest = everything else: the 10 matured cuotas' 84.417.
+      expect(
+        quote.payoff.totalInterestOwed - quote.earlyWindowInterest,
+      ).toBeCloseTo(84417, -1);
+    });
+
+    it('reports no window interest when no installment is inside the window', async () => {
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.earlyWindowInterest).toBe(0);
+    });
+
     it('adds no true-up once nothing is pending (already paid/refinanced loan)', async () => {
       installmentsRepository.find.mockImplementation(
         (options: { where: { status?: InstallmentStatus } }) =>

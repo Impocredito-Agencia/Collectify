@@ -287,6 +287,10 @@ export interface PayoffQuote {
 // keeps full editing control over what actually gets submitted.
 export interface RefinanceQuote {
   payoff: PayoffQuote;
+  // Part of payoff.totalInterestOwed that is only included because an
+  // installment is due within the next few days (the refinance early-
+  // maturity window) rather than having formally run. 0 when none is.
+  earlyWindowInterest: number;
   suggestedPrincipalAmount: number;
   concepts: LoanConceptAssignment[];
   // Phase 23 — same carry-over as concepts above, filtered to the loan's

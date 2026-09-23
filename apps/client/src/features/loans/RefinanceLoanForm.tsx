@@ -282,8 +282,12 @@ export function RefinanceLoanForm({
         // dialog. Pre-filled, still fully editable like every other field
         // this effect sets.
         if (quote.payoff.totalInterestOwed > 0) {
+          const formalInterest =
+            quote.payoff.totalInterestOwed - quote.earlyWindowInterest;
           setDescription(
-            `Refinanciación incluye ${formatCurrency(quote.payoff.totalInterestOwed)} de interés ya causado en cuotas vencidas o próximas a vencer.`,
+            quote.earlyWindowInterest > 0
+              ? `Refinanciación incluye ${formatCurrency(formalInterest)} de interés ya causado y ${formatCurrency(quote.earlyWindowInterest)} de interés de cuotas que vencen en los próximos 5 días.`
+              : `Refinanciación incluye ${formatCurrency(formalInterest)} de interés ya causado en cuotas vencidas.`,
           );
         }
       })
@@ -810,7 +814,13 @@ export function RefinanceLoanForm({
                     Cómo se calculó el monto sugerido
                   </span>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div
+                    className={`grid gap-3 ${
+                      refinanceQuote.earlyWindowInterest > 0
+                        ? 'grid-cols-3'
+                        : 'grid-cols-2'
+                    }`}
+                  >
                     <div>
                       <p className="text-[10px] font-normal text-muted">
                         Capital pendiente
@@ -827,10 +837,24 @@ export function RefinanceLoanForm({
                       </p>
                       <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
                         {formatCurrency(
-                          refinanceQuote.payoff.totalInterestOwed,
+                          refinanceQuote.payoff.totalInterestOwed -
+                            refinanceQuote.earlyWindowInterest,
                         )}
                       </p>
                     </div>
+                    {refinanceQuote.earlyWindowInterest > 0 && (
+                      <div>
+                        <p
+                          className="text-[10px] font-normal text-muted"
+                          title="Cuotas que aún no vencen pero vencen en los próximos 5 días: su interés se toma como ya causado al refinanciar."
+                        >
+                          Interés por vencer (5 días)
+                        </p>
+                        <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
+                          {formatCurrency(refinanceQuote.earlyWindowInterest)}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* "suman" → "=" (client feedback, 2026-09-04): with two

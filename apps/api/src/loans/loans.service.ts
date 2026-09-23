@@ -90,6 +90,11 @@ export interface SchedulePreview {
 // data for pre-filling RefinanceLoanForm.tsx, not a new persisted concept.
 export interface RefinanceQuote {
   payoff: PayoffQuote;
+  // Part of payoff.totalInterestOwed that is only there because of the
+  // 5-day early-maturity window (an installment not yet due, treated as
+  // already caused) — i.e. what the quote would NOT include without that
+  // window. 0 when no installment falls inside it.
+  earlyWindowInterest: number;
   suggestedPrincipalAmount: number;
   concepts: LoanConceptAssignmentDto[];
   // Phase 23 — same carry-over as concepts above, filtered to the loan's
@@ -1015,26 +1020,38 @@ export class LoansService {
       pending.map((installment) => installment.id),
     );
     const today = new Date();
-    const payoff = calculatePayoff(
-      pending.map((installment) =>
-        toPayoffInstallmentInput(
-          installment,
-          conceptsByInstallmentId.get(installment.id) ?? [],
-          totalPaidByInstallmentId.get(installment.id) ?? 0,
-        ),
+    const payoffInputs = pending.map((installment) =>
+      toPayoffInstallmentInput(
+        installment,
+        conceptsByInstallmentId.get(installment.id) ?? [],
+        totalPaidByInstallmentId.get(installment.id) ?? 0,
       ),
-      today,
-      {
-        earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
-        interestTrueUp: await this.computeInterestTrueUp(
-          id,
-          pending.length,
-          today,
-          {
-            earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
-          },
-        ),
-      },
+    );
+    const payoff = calculatePayoff(payoffInputs, today, {
+      earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+      interestTrueUp: await this.computeInterestTrueUp(
+        id,
+        pending.length,
+        today,
+        {
+          earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+        },
+      ),
+    });
+
+    // Same quote without the window: the difference is exactly the interest
+    // that only entered because an installment is due within the next few
+    // days, so the UI can show it apart from interest that formally ran.
+    const payoffWithoutWindow = calculatePayoff(payoffInputs, today, {
+      interestTrueUp: await this.computeInterestTrueUp(
+        id,
+        pending.length,
+        today,
+      ),
+    });
+    const earlyWindowInterest = Math.max(
+      0,
+      payoff.totalInterestOwed - payoffWithoutWindow.totalInterestOwed,
     );
 
     const firstInstallment = await this.installmentsRepository.findOne({
@@ -1056,6 +1073,7 @@ export class LoansService {
 
     return {
       payoff,
+      earlyWindowInterest,
       suggestedPrincipalAmount: payoff.totalDue,
       concepts: concepts
         .filter(

@@ -264,6 +264,7 @@ export class LoansController {
       '(per docs/phases/PHASE_25_REFINANCE_OVERDUE.md) an installment due within the next 5 days ' +
       'also has its corriente interest folded in early, even though it is not yet actually ' +
       'overdue, and the same interestTrueUp as the payoff quote is included in totalDue — ' +
+      'earlyWindowInterest reports how much of totalInterestOwed is there ONLY because of that 5-day window (0 when no installment is inside it), so the UI can show it apart from interest that formally ran — ' +
       'overdue — its moratory interest stays 0 since no mora has accrued yet. ' +
       "concepts carries over the old loan's first installment's concepts, " +
       'excluding any whose catalog type was since deleted.',
