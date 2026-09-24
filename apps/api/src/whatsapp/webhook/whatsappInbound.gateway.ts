@@ -17,6 +17,8 @@ import { WhatsappConversationTicket } from '../entities/whatsappConversationTick
 import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
 import { WhatsappManualReply } from '../entities/whatsappManualReply.entity';
 
+const CONVERSATION_UPDATE_DEBOUNCE_MS = 1000;
+
 // Real-time push for the "Mensajes entrantes" inbox — see
 // docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md. Admin-only, mirroring
 // GET /whatsapp/inbound-messages's @Roles(UserRole.Admin): a connecting
@@ -33,6 +35,8 @@ export class WhatsappInboundGateway
 
   @WebSocketServer()
   private server!: Server;
+
+  private conversationUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly jwtService: JwtService,
@@ -99,5 +103,23 @@ export class WhatsappInboundGateway
   // or resolves, not just in the tab where it happened.
   emitTicketUpdate(ticket: WhatsappConversationTicket): void {
     this.server.emit('ticket-update', ticket);
+  }
+
+  // Human report, 2026-09-23 — "que los chats se ordenen siempre por el más
+  // reciente tal cual lo hace WhatsApp". A signal only, no payload: the
+  // conversation list's order/preview/closed state changed for a reason
+  // the events above don't already cover (a reminder or confirmation went
+  // out via message_logs, or an admin closed a chat), so every connected
+  // panel refetches it. Debounced — a reminder cron run inserts one
+  // message_logs row per recipient, and each would otherwise trigger its
+  // own refetch in every open tab.
+  emitConversationUpdate(): void {
+    if (this.conversationUpdateTimer) {
+      return;
+    }
+    this.conversationUpdateTimer = setTimeout(() => {
+      this.conversationUpdateTimer = null;
+      this.server.emit('conversation-update');
+    }, CONVERSATION_UPDATE_DEBOUNCE_MS);
   }
 }

@@ -8,6 +8,7 @@ import { In } from 'typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
+import { WhatsappConversationClosure } from '../entities/whatsappConversationClosure.entity';
 import {
   WhatsappInboundMessage,
   WhatsappInboundMessageType,
@@ -48,7 +49,9 @@ describe('WhatsappWebhookService', () => {
   let whatsappInboundGateway: {
     emitInboundMessage: jest.Mock;
     emitManualReply: jest.Mock;
+    emitConversationUpdate: jest.Mock;
   };
+  let closuresRepository: { upsert: jest.Mock };
   let manualRepliesRepository: {
     create: jest.Mock;
     save: jest.Mock;
@@ -83,7 +86,9 @@ describe('WhatsappWebhookService', () => {
     whatsappInboundGateway = {
       emitInboundMessage: jest.fn(),
       emitManualReply: jest.fn(),
+      emitConversationUpdate: jest.fn(),
     };
+    closuresRepository = { upsert: jest.fn().mockResolvedValue(undefined) };
     manualRepliesRepository = {
       create: jest.fn((data: Record<string, unknown>) => data),
       save: jest.fn((data: Record<string, unknown>) =>
@@ -137,6 +142,10 @@ describe('WhatsappWebhookService', () => {
         {
           provide: getRepositoryToken(MessageLog),
           useValue: messageLogsRepository,
+        },
+        {
+          provide: getRepositoryToken(WhatsappConversationClosure),
+          useValue: closuresRepository,
         },
         {
           provide: WhatsappInboundGateway,
@@ -1039,6 +1048,55 @@ describe('WhatsappWebhookService', () => {
       ]);
     });
 
+    // Human report, 2026-09-23 — closed_at only ever comes back non-null
+    // while the closure is newer than the client's latest inbound message
+    // (decided in SQL, see buildLatestPerConversationQuery); this just
+    // checks it's passed through as an ISO string, or null.
+    it("passes each conversation's closedAt through as an ISO string, or null", async () => {
+      inboundMessagesRepository.manager.query
+        .mockResolvedValueOnce([
+          {
+            id: 'msg-1',
+            source: 'inbound_message',
+            message_count: '2',
+            closed_at: new Date('2026-09-20T10:00:00Z'),
+          },
+          {
+            id: 'msg-2',
+            source: 'inbound_message',
+            message_count: '1',
+            closed_at: null,
+          },
+        ])
+        .mockResolvedValueOnce([{ total: '2' }]);
+      inboundMessagesRepository.find.mockResolvedValue([
+        { id: 'msg-1', clientId: 'client-1', fromPhoneNumber: '573001111111' },
+        { id: 'msg-2', clientId: null, fromPhoneNumber: '573002222222' },
+      ]);
+
+      const result = await service.findConversations({});
+
+      expect(result.items.map((item) => item.closedAt)).toEqual([
+        '2026-09-20T10:00:00.000Z',
+        null,
+      ]);
+    });
+
+    it('only treats a closure as current while no inbound message is newer than it', async () => {
+      inboundMessagesRepository.manager.query
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ total: '0' }]);
+
+      await service.findConversations({});
+
+      const [sql] = inboundMessagesRepository.manager.query.mock.calls[0] as [
+        string,
+      ];
+      expect(sql).toContain('LEFT JOIN whatsapp_conversation_closures cl');
+      expect(sql).toContain('latest.last_inbound_at <= cl.closed_at');
+      expect(sql).toContain("FILTER (WHERE source = 'inbound_message')");
+    });
+
     it('passes a null search parameter, not undefined, so Postgres can short-circuit the filter', async () => {
       inboundMessagesRepository.manager.query
         .mockResolvedValueOnce([])
@@ -1285,6 +1343,35 @@ describe('WhatsappWebhookService', () => {
     // Human report, 2026-09-13 — resolving a ticket doesn't require the
     // client-facing message, e.g. once the 24h session window has already
     // closed and a real send would just fail outright.
+    // Human report, 2026-09-23 — any conversation can be closed now, not
+    // only one with a hand-off ticket; keyed like findConversations'
+    // contact_key so the list can join it back onto the right row.
+    it("records the closure under the matched client's id", async () => {
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+      await service.closeConversation('573001234567', false);
+
+      expect(closuresRepository.upsert).toHaveBeenCalledWith(
+        { contactKey: 'client-1', closedAt: expect.any(Date) as unknown },
+        ['contactKey'],
+      );
+      expect(whatsappInboundGateway.emitConversationUpdate).toHaveBeenCalled();
+    });
+
+    it('records the closure under the normalized phone number for an unrecognized one', async () => {
+      clientsRepository.findOne.mockResolvedValue(null);
+
+      await service.closeConversation('573001234567', false);
+
+      expect(closuresRepository.upsert).toHaveBeenCalledWith(
+        {
+          contactKey: '+573001234567',
+          closedAt: expect.any(Date) as unknown,
+        },
+        ['contactKey'],
+      );
+    });
+
     describe('sendClosingMessage: false', () => {
       it('skips sending the closing message entirely', async () => {
         const result = await service.closeConversation('573001234567', false);

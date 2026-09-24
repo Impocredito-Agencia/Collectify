@@ -15,6 +15,7 @@ import { UsersModule } from '../users/users.module';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
+import { WhatsappConversationClosure } from './entities/whatsappConversationClosure.entity';
 import { WhatsappConversationState } from './entities/whatsappConversationState.entity';
 import { WhatsappConversationTicket } from './entities/whatsappConversationTicket.entity';
 import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
@@ -60,6 +61,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
       WhatsappManualReply,
       WhatsappConversationState,
       WhatsappConversationTicket,
+      WhatsappConversationClosure,
       Client,
       ClientMessageFrequency,
       Installment,
