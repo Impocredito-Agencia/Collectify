@@ -10,3 +10,17 @@ export function useAuditLogs(params: AuditLogsQueryParams) {
     queryFn: () => auditLogsApi.getAll(params),
   });
 }
+
+export function useAuditActors() {
+  return useQuery({
+    queryKey: ['auditLogs', 'actors'],
+    queryFn: () => auditLogsApi.getActors(),
+  });
+}
+
+export function useAuditActions() {
+  return useQuery({
+    queryKey: ['auditLogs', 'actions'],
+    queryFn: () => auditLogsApi.getActions(),
+  });
+}

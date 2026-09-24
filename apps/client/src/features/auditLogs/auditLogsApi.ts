@@ -25,6 +25,11 @@ export interface AuditLog {
 }
 
 export interface AuditLogsQueryParams {
+  // Free text — client name/cédula/phone or pagaré number, several words
+  // allowed ("Juana 0928"). The backend also returns the entries of that
+  // client's/pagaré's loans, installments and payments, not just entries
+  // whose label mentions the words. See AuditLogService.findAll.
+  search?: string;
   actorUserId?: string;
   action?: string;
   entityType?: string;
@@ -32,6 +37,16 @@ export interface AuditLogsQueryParams {
   dateTo?: string;
   page?: number;
   limit?: number;
+}
+
+export interface AuditActor {
+  id: string;
+  fullName: string;
+}
+
+export interface AuditActionOption {
+  action: string;
+  entityType: string;
 }
 
 export interface PaginatedAuditLogs {
@@ -49,6 +64,7 @@ export const auditLogsApi = {
     params: AuditLogsQueryParams = {},
   ): Promise<PaginatedAuditLogs> => {
     const { data, meta } = await apiClient.get<AuditLog[]>('/audit-logs', {
+      search: params.search,
       actorUserId: params.actorUserId,
       action: params.action,
       entityType: params.entityType,
@@ -58,5 +74,20 @@ export const auditLogsApi = {
       limit: params.limit,
     });
     return { items: data, meta: meta as PaginatedAuditLogs['meta'] };
+  },
+
+  // Users who appear in the trail — feeds the "Usuario" filter.
+  getActors: async (): Promise<AuditActor[]> => {
+    const { data } = await apiClient.get<AuditActor[]>('/audit-logs/actors');
+    return data;
+  },
+
+  // Distinct actions actually logged, each with its entity type — feeds the
+  // "Acción"/"Entidad" filters.
+  getActions: async (): Promise<AuditActionOption[]> => {
+    const { data } = await apiClient.get<AuditActionOption[]>(
+      '/audit-logs/actions',
+    );
+    return data;
   },
 };
