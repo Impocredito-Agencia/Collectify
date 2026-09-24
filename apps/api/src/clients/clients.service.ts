@@ -93,9 +93,9 @@ export interface ClientDetail extends Client {
   messageRecipients: ClientMessageRecipient[];
 }
 
-// Human report, 2026-09-23 — every number that can receive an automated
-// WhatsApp message on this client's behalf, each with whether an admin
-// turned it off (Client.mutedPhoneNumbers). Backs the per-number switches
+// Human report, 2026-09-23 — every number that can receive a collection
+// reminder on this client's behalf, each with whether an admin turned
+// reminders off for it (Client.mutedPhoneNumbers). Backs the per-number switches
 // on the profile's "Frecuencia de mensajes" section. alternate_contact is
 // a loan's third party (Loan.alternateContactPhoneNumber), never the
 // co-debtor — one entry per distinct number, listing every active loan

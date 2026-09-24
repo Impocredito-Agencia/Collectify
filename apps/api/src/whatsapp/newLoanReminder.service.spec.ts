@@ -204,6 +204,29 @@ describe('NewLoanReminderService', () => {
       );
     });
 
+    // Human report, 2026-09-23 — muting a number only stops collection
+    // reminders; the new-loan notice still goes out.
+    it('still sends to a number whose reminders are turned off', async () => {
+      loansRepository.findOne.mockResolvedValue(
+        loan({
+          client: {
+            ...mockClient,
+            mutedPhoneNumbers: [mockClient.phoneNumber],
+          },
+        }),
+      );
+      otherLoanCount = 0;
+
+      await service.sendNewLoanMessage('loan-1');
+
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        mockClient.phoneNumber,
+        expect.any(String),
+        expect.any(String),
+        expect.any(Array),
+      );
+    });
+
     it('sends NewLoanNewClient when the client has no other loan', async () => {
       loansRepository.findOne.mockResolvedValue(loan());
       otherLoanCount = 0;

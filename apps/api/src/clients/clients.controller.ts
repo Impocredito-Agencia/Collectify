@@ -242,7 +242,7 @@ export class ClientsController {
     return this.clientsService.clearMessageFrequency(id);
   }
 
-  // Human report, 2026-09-23 — turn automated WhatsApp messages off per
+  // Human report, 2026-09-23 — turn collection reminders off per
   // number (primary, alternate, or an active loan's third-party contact).
   // Read side is GET /clients/:id's messageRecipients.
   @Put(':id/muted-phone-numbers')
@@ -250,11 +250,12 @@ export class ClientsController {
   @Audit('client.setMutedPhoneNumbers', 'client')
   @ApiOperation({
     summary:
-      "Set which of a client's numbers get no automated messages (admin or granted the clients module)",
+      "Set which of a client's numbers get no collection reminders (admin or granted the clients module)",
     description:
       'Replaces the full set of muted numbers (an empty array turns every number back on). ' +
-      'A muted number receives no reminder, payment confirmation or new-loan notice; ' +
-      'manual replies from the panel and the bot answering an inbound message are unaffected.',
+      'A muted number receives no overdue/upcoming-due reminder. It still receives the ' +
+      'new-loan notice and payment confirmations, and manual replies from the panel and the ' +
+      'bot answering an inbound message are unaffected.',
   })
   @ApiResponse({
     status: 200,

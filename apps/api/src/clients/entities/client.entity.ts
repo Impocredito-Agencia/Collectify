@@ -84,15 +84,18 @@ export class Client {
   // Human report, 2026-09-23 — "quieren poder desactivar envío de
   // mensajes a ciertas personas... número principal, número secundario, y
   // el número de la tercera persona... desactivar uno, dos o todos".
-  // E.164 numbers (same shape as phoneNumber) that must NOT receive any
-  // automated WhatsApp message on this client's behalf: reminders,
-  // payment confirmations, new-loan notices. Stored by number rather than
+  // E.164 numbers (same shape as phoneNumber) that must NOT receive
+  // collection reminders (overdue / upcoming-due) on this client's behalf.
+  // Narrowed the same day ("también deberían llegar mensajes de nuevo
+  // pagaré y de confirmación de pago"): the new-loan notice and payment
+  // confirmations still go to a muted number. Stored by number rather than
   // as per-slot flags so it also covers each loan's own
   // alternateContactPhoneNumber (a client can have several loans, each
   // with a different third party). Enforced at recipient selection — see
-  // clientRecipientPhoneNumbers.ts's excludeMutedPhoneNumbers. Never
-  // blocks an admin's own manual reply or the bot answering someone who
-  // wrote in first; only business-initiated sends.
+  // clientRecipientPhoneNumbers.ts's excludeMutedPhoneNumbers, applied
+  // only in groupInstallmentsByRecipient (the two reminder services).
+  // Never blocks an admin's own manual reply or the bot answering someone
+  // who wrote in first.
   @Column({ type: 'text', array: true, default: () => "'{}'" })
   mutedPhoneNumbers!: string[];
 
