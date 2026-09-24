@@ -16,6 +16,7 @@ import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogsForClient } from '@/features/messageLogs/useMessageLogs';
 import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
 import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMessages/RegisterPaymentFromWhatsappModal';
+import { SendFollowUpButton } from '@/features/whatsappInboundMessages/SendFollowUpButton';
 import { whatsappInboundMediaApi } from '@/features/whatsappInboundMessages/whatsappInboundMediaApi';
 import {
   useCloseConversation,
@@ -891,6 +892,10 @@ function ConversationThread({
               {isInfoPanelOpen ? 'Ocultar información' : 'Ver información'}
             </RowActionButton>
           )}
+          <SendFollowUpButton
+            phoneNumber={conversation.phoneNumber}
+            clientName={conversation.clientId ? conversation.displayName : null}
+          />
           {showCloseConversationButton && (
             <CloseConversationButton
               phoneNumber={conversation.phoneNumber}
