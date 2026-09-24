@@ -142,4 +142,33 @@ describe('WhatsappInboundGateway', () => {
       expect(emitMock).toHaveBeenCalledWith('inbound-message', message);
     });
   });
+
+  // Human report, 2026-09-23 — a reminder cron run inserts one message_logs
+  // row per recipient; each must not trigger its own list refetch in every
+  // open panel.
+  describe('emitConversationUpdate', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('collapses a burst of calls into a single "conversation-update" event', () => {
+      gateway.emitConversationUpdate();
+      gateway.emitConversationUpdate();
+      gateway.emitConversationUpdate();
+
+      expect(emitMock).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1000);
+
+      expect(emitMock).toHaveBeenCalledTimes(1);
+      expect(emitMock).toHaveBeenCalledWith('conversation-update');
+    });
+
+    it('emits again for a call after the previous burst went out', () => {
+      gateway.emitConversationUpdate();
+      jest.advanceTimersByTime(1000);
+      gateway.emitConversationUpdate();
+      jest.advanceTimersByTime(1000);
+
+      expect(emitMock).toHaveBeenCalledTimes(2);
+    });
+  });
 });

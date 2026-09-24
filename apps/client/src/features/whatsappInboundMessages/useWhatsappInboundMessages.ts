@@ -54,8 +54,12 @@ export function useReplyToInboundMessage() {
       phoneNumber: string;
       message: string;
     }) => whatsappInboundMessagesApi.reply(phoneNumber, message),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['whatsappManualReplies'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['whatsappManualReplies'] });
+      // Human report, 2026-09-23 — replying makes this the most recent
+      // conversation, so the list re-sorts it to the top right away.
+      queryClient.invalidateQueries({ queryKey: ['whatsappConversations'] });
+    },
   });
 }
 
@@ -80,18 +84,6 @@ export function useManualReplies(params: {
   });
 }
 
-// Backs the "Responder"/"Cerrar conversación" gating on
-// WhatsappInboundMessagesPage.tsx — see whatsappInboundMessagesApi.ts's
-// ConversationMenu. `enabled: false` while no conversation is selected
-// yet (phoneNumber === '').
-export function useConversationState(phoneNumber: string) {
-  return useQuery({
-    queryKey: ['whatsappConversationState', phoneNumber],
-    queryFn: () => whatsappInboundMessagesApi.getConversationState(phoneNumber),
-    enabled: phoneNumber !== '',
-  });
-}
-
 export function useCloseConversation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -106,9 +98,11 @@ export function useCloseConversation() {
         phoneNumber,
         sendClosingMessage,
       ),
-    onSuccess: (_data, { phoneNumber }) => {
+    onSuccess: () => {
+      // Human report, 2026-09-23 — closing now also turns the chat green
+      // in the list (closedAt), not only via its ticket.
       queryClient.invalidateQueries({
-        queryKey: ['whatsappConversationState', phoneNumber],
+        queryKey: ['whatsappConversations'],
       });
       // Human report, 2026-09-13 — closing IS resolving a ticket too; same
       // "don't wait on the socket round trip" reasoning as

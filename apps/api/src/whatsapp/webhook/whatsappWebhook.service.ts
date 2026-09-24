@@ -14,6 +14,11 @@ import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Configuration } from '../../config/configuration';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
+import {
+  WhatsappTicketStatus,
+  WhatsappTicketTriggerKind,
+} from '../entities/whatsappConversationTicket.entity';
+import { WhatsappConversationClosure } from '../entities/whatsappConversationClosure.entity';
 import { ConversationMenu } from '../entities/whatsappConversationState.entity';
 import {
   WhatsappInboundMessage,
@@ -63,6 +68,52 @@ interface ConversationRow {
   id: string;
   source: ConversationEventSource;
   message_count: string;
+  closed_at: Date | null;
+}
+
+// Shared by findConversations and findConversationsForClientIds — picks
+// each contact's latest event (plus a total count) out of `events`.
+//
+// Human report, 2026-09-23 — also resolves whether the conversation is
+// currently closed: an admin's WhatsappConversationClosure counts only
+// while it's newer than the contact's latest INBOUND message, so the
+// client writing again reopens it with no write needed anywhere (see that
+// entity's own comment). Outbound events (a reminder, the closing message
+// itself) never reopen it — only the client can. closed_at comes back
+// null whenever it isn't currently closed, so callers never re-derive it.
+function buildLatestPerConversationQuery(
+  eventsCte: string,
+  paginationClause: string,
+): string {
+  return `
+    WITH events AS (${eventsCte})
+    SELECT
+      latest.id,
+      latest.source,
+      latest.message_count,
+      CASE
+        WHEN latest.last_inbound_at IS NULL
+          OR latest.last_inbound_at <= cl.closed_at
+        THEN cl.closed_at
+      END AS closed_at
+    FROM (
+      SELECT
+        id,
+        source,
+        contact_key,
+        occurred_at,
+        COUNT(*) OVER (PARTITION BY contact_key) AS message_count,
+        MAX(occurred_at) FILTER (WHERE source = 'inbound_message')
+          OVER (PARTITION BY contact_key) AS last_inbound_at,
+        ROW_NUMBER() OVER (PARTITION BY contact_key ORDER BY occurred_at DESC) AS rn
+      FROM events
+    ) latest
+    LEFT JOIN whatsapp_conversation_closures cl
+      ON cl.contact_key = latest.contact_key
+    WHERE latest.rn = 1
+    ORDER BY latest.occurred_at DESC
+    ${paginationClause}
+  `;
 }
 
 // Shared by findConversations' paginated rows/count queries — a UNION ALL
@@ -131,6 +182,8 @@ export class WhatsappWebhookService {
     private readonly manualRepliesRepository: Repository<WhatsappManualReply>,
     @InjectRepository(MessageLog)
     private readonly messageLogsRepository: Repository<MessageLog>,
+    @InjectRepository(WhatsappConversationClosure)
+    private readonly closuresRepository: Repository<WhatsappConversationClosure>,
     private readonly whatsappInboundGateway: WhatsappInboundGateway,
     private readonly whatsAppService: WhatsAppService,
     private readonly selfServiceMenuService: SelfServiceMenuService,
@@ -402,22 +455,10 @@ export class WhatsappWebhookService {
     // window-function pass, no second per-conversation query needed.
     const rows: ConversationRow[] =
       await this.inboundMessagesRepository.manager.query(
-        `
-      WITH events AS (${buildConversationEventsCte()})
-      SELECT id, source, message_count FROM (
-        SELECT
-          id,
-          source,
-          contact_key,
-          occurred_at,
-          COUNT(*) OVER (PARTITION BY contact_key) AS message_count,
-          ROW_NUMBER() OVER (PARTITION BY contact_key ORDER BY occurred_at DESC) AS rn
-        FROM events
-      ) latest
-      WHERE rn = 1
-      ORDER BY occurred_at DESC
-      LIMIT $2 OFFSET $3
-      `,
+        buildLatestPerConversationQuery(
+          buildConversationEventsCte(),
+          'LIMIT $2 OFFSET $3',
+        ),
         [search, limit, (page - 1) * limit],
       );
 
@@ -449,8 +490,8 @@ export class WhatsappWebhookService {
   ): Promise<PaginatedResult<WhatsappConversationSummary>> {
     const rows: ConversationRow[] =
       await this.inboundMessagesRepository.manager.query(
-        `
-      WITH events AS (
+        buildLatestPerConversationQuery(
+          `
         SELECT m.id, 'inbound_message'::text AS source, m.client_id::text AS contact_key, m.received_at AS occurred_at
         FROM whatsapp_inbound_messages m
         WHERE m.client_id = ANY($1::uuid[])
@@ -462,20 +503,9 @@ export class WhatsappWebhookService {
         SELECT r.id, 'manual_reply'::text AS source, r.client_id::text AS contact_key, r.sent_at AS occurred_at
         FROM whatsapp_manual_replies r
         WHERE r.client_id = ANY($1::uuid[])
-      )
-      SELECT id, source, message_count FROM (
-        SELECT
-          id,
-          source,
-          contact_key,
-          occurred_at,
-          COUNT(*) OVER (PARTITION BY contact_key) AS message_count,
-          ROW_NUMBER() OVER (PARTITION BY contact_key ORDER BY occurred_at DESC) AS rn
-        FROM events
-      ) latest
-      WHERE rn = 1
-      ORDER BY occurred_at DESC
-      `,
+          `,
+          '',
+        ),
         [clientIds],
       );
 
@@ -502,6 +532,12 @@ export class WhatsappWebhookService {
   ): Promise<WhatsappConversationSummary[]> {
     const messageCountById = new Map(
       rows.map((row) => [row.id, Number(row.message_count)]),
+    );
+    const closedAtById = new Map(
+      rows.map((row) => [
+        row.id,
+        row.closed_at ? new Date(row.closed_at).toISOString() : null,
+      ]),
     );
     const idsBySource = {
       inbound_message: rows
@@ -562,6 +598,7 @@ export class WhatsappWebhookService {
           fromPhoneNumber,
           lastEvent,
           messageCount: messageCountById.get(row.id) ?? 1,
+          closedAt: closedAtById.get(row.id) ?? null,
         });
       } else if (row.source === 'message_log') {
         const log = logById.get(row.id);
@@ -587,6 +624,7 @@ export class WhatsappWebhookService {
           fromPhoneNumber: log.phoneNumber,
           lastEvent,
           messageCount: messageCountById.get(row.id) ?? 1,
+          closedAt: closedAtById.get(row.id) ?? null,
         });
       } else {
         const reply = replyById.get(row.id);
@@ -613,6 +651,7 @@ export class WhatsappWebhookService {
           fromPhoneNumber: reply.phoneNumber,
           lastEvent,
           messageCount: messageCountById.get(row.id) ?? 1,
+          closedAt: closedAtById.get(row.id) ?? null,
         });
       }
     }
@@ -858,7 +897,29 @@ export class WhatsappWebhookService {
     sendClosingMessage = true,
   ): Promise<boolean> {
     const phoneNumber = normalizeIncomingPhoneNumber(rawPhoneNumber);
-    const { sent, whatsappMessageId } = sendClosingMessage
+    // Matches either known number — see sendManualReply's identical
+    // comment.
+    const client = await this.clientsRepository.findOne({
+      where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
+    });
+    // Human report, 2026-09-23 — "el mensaje solo debe llegar si el cliente
+    // pidió hablar con el asesor recientemente, si no no debe enviarse".
+    // Any chat can be closed now (see WhatsappConversationClosure), mostly
+    // as the admin's own bookkeeping, and a client who never asked for
+    // anyone shouldn't get a "gracias por contactarnos" out of nowhere.
+    // "Recently" = their ticket is still pending with advisor_requested as
+    // its latest trigger, i.e. nobody has closed that request yet.
+    // Enforced here, not just in the panel — sendClosingMessage only ever
+    // narrows this further (the admin can still skip it), never widens it.
+    const ticket = client
+      ? await this.conversationTicketService.findByClientId(client.id)
+      : null;
+    const clientAwaitsAdvisor =
+      ticket?.status === WhatsappTicketStatus.Pending &&
+      ticket.triggerKind === WhatsappTicketTriggerKind.AdvisorRequested;
+    const shouldSendClosingMessage = sendClosingMessage && clientAwaitsAdvisor;
+
+    const { sent, whatsappMessageId } = shouldSendClosingMessage
       ? await this.whatsAppService.sendTextMessage(
           phoneNumber,
           CONVERSATION_CLOSED_MESSAGE,
@@ -868,15 +929,10 @@ export class WhatsappWebhookService {
     // record" reasoning as WhatsappOutboundLogService's own comment: this
     // closing message used to leave no trace in the conversation thread.
     // sentByUserId null since the admin only triggered it, they didn't
-    // type this fixed message themselves. Matches either known number —
-    // see sendManualReply's identical comment. Skipped entirely (not
-    // logged as a failed send) when sendClosingMessage is false — nothing
-    // was actually attempted, so there's nothing real to show in the
-    // thread.
-    const client = await this.clientsRepository.findOne({
-      where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
-    });
-    if (sendClosingMessage) {
+    // type this fixed message themselves. Skipped entirely (not logged as a
+    // failed send) when no closing message was attempted — nothing real to
+    // show in the thread.
+    if (shouldSendClosingMessage) {
       await this.whatsappOutboundLogService.log({
         clientId: client?.id ?? null,
         phoneNumber,
@@ -887,6 +943,15 @@ export class WhatsappWebhookService {
       });
     }
     await this.conversationStateService.clear(phoneNumber);
+    // Human report, 2026-09-23 — any conversation can be closed now, not
+    // only one with a hand-off ticket (see WhatsappConversationClosure).
+    // Keyed exactly like findConversations' contact_key, so the list can
+    // join it straight back onto the right row.
+    await this.closuresRepository.upsert(
+      { contactKey: client?.id ?? phoneNumber, closedAt: new Date() },
+      ['contactKey'],
+    );
+    this.whatsappInboundGateway.emitConversationUpdate();
     // Human report, 2026-09-13 — closing IS resolving: an admin explicitly
     // closing the conversation is what clears the pending-ticket badge,
     // regardless of whether the closing message itself actually sent (the

@@ -153,6 +153,20 @@ describe('WhatsappConversationTicketService', () => {
     });
   });
 
+  describe('findByClientId', () => {
+    it("returns the client's ticket, or null when there is none", async () => {
+      const existing = { clientId: 'client-1' };
+      repository.findOneBy.mockResolvedValueOnce(existing);
+      repository.findOneBy.mockResolvedValueOnce(null);
+
+      await expect(service.findByClientId('client-1')).resolves.toBe(existing);
+      await expect(service.findByClientId('client-2')).resolves.toBeNull();
+      expect(repository.findOneBy).toHaveBeenCalledWith({
+        clientId: 'client-1',
+      });
+    });
+  });
+
   describe('findAll', () => {
     it('returns every ticket ordered oldest-pending-first', async () => {
       repository.find.mockResolvedValue([]);

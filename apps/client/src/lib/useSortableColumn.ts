@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useSessionState } from '@/lib/useSessionState';
 
 export type SortDirection = 'asc' | 'desc';
 
@@ -10,9 +10,19 @@ export type SortDirection = 'asc' | 'desc';
 // status filters are untouched by this, it only reorders what's already
 // on screen. Generic over `T`, the column-key union each page defines for
 // its own table (see ClientsListPage.tsx/LoansListPage.tsx call sites).
-export function useSortableColumn<T extends string>() {
-  const [column, setColumn] = useState<T | null>(null);
-  const [direction, setDirection] = useState<SortDirection>('asc');
+//
+// storageKey (human report, 2026-09-23) — when set, the sort survives
+// leaving the page and coming back, same as that page's search/filters;
+// see useSessionState.
+export function useSortableColumn<T extends string>(storageKey?: string) {
+  const [column, setColumn] = useSessionState<T | null>(
+    storageKey ? `${storageKey}.column` : null,
+    null,
+  );
+  const [direction, setDirection] = useSessionState<SortDirection>(
+    storageKey ? `${storageKey}.direction` : null,
+    'asc',
+  );
 
   // Clicking the already-active column flips asc ↔ desc; clicking a
   // different column starts it fresh at asc — same behavior as every

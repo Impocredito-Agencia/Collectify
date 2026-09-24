@@ -37,4 +37,8 @@ export interface WhatsappConversationSummary {
   fromPhoneNumber: string;
   lastEvent: WhatsappConversationLastEvent;
   messageCount: number;
+  // Human report, 2026-09-23 — ISO timestamp of the admin's last "Cerrar
+  // conversación", only while the client hasn't written since; null
+  // otherwise. See buildLatestPerConversationQuery.
+  closedAt: string | null;
 }

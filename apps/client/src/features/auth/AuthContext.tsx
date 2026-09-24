@@ -4,6 +4,7 @@ import { authApi } from '@/features/auth/authApi';
 import { AuthContext } from '@/features/auth/authContext';
 import { setUnauthorizedHandler } from '@/lib/apiClient';
 import { tokenStore } from '@/lib/tokenStore';
+import { clearSessionState } from '@/lib/useSessionState';
 
 import type { AuthenticatedUser, LoginInput } from '@/features/auth/authApi';
 import type { ReactNode } from 'react';
@@ -21,6 +22,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = useCallback(() => {
     tokenStore.clear();
+    clearSessionState();
     setUser(null);
   }, []);
 
