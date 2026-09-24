@@ -5,6 +5,13 @@ import { MessageType } from './messageType.enum';
 import { NotaAdicionalInput } from './notaAdicional';
 import { composeReminderNotaAdicional } from './notaAdicional';
 
+// Human report, 2026-09-23 — "esta solo se va a enviar cuando el cliente
+// tiene una mora de MÁS de 30 días". A client's mora is their OLDEST
+// overdue installment's days late (the same one "La más antigua venció
+// hace…" already reports), so strictly greater than this switches to the
+// *_30dias variant of whichever template applies.
+export const SEVERE_MORA_THRESHOLD_DAYS = 30;
+
 function money(amount: number): string {
   return `$${formatCurrency(amount)}`;
 }
@@ -43,8 +50,9 @@ export interface TemplateSelectionResult {
   bodyParameters: string[];
 }
 
-// The one place that decides among the 5 reminder templates (Templates
-// 4-8, see docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md) — shared by
+// The one place that decides among the reminder templates (Templates
+// 4-8, see docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md, plus the three
+// *_30dias variants added 2026-09-23) — shared by
 // OverdueReminderService and UpcomingDueReminderService so the mixed
 // UpcomingAndOverdueMixed template is only ever defined in one place.
 // Which of the two SERVICES is allowed to actually select it for an
@@ -60,11 +68,17 @@ export function selectReminderTemplate(
   const tratamiento = formatTratamiento(clientFullName);
   const nota = composeReminderNotaAdicional(notaAdicional);
 
+  const isSevereMora = overdue.some(
+    (installment) => installment.overdueDays > SEVERE_MORA_THRESHOLD_DAYS,
+  );
+
   if (overdue.length > 0 && upcoming.length > 0) {
     const overdueTotal = overdue.reduce((sum, i) => sum + i.totalDue, 0);
     const upcomingTotal = upcoming.reduce((sum, i) => sum + i.amount, 0);
     return {
-      type: MessageType.UpcomingAndOverdueMixed,
+      type: isSevereMora
+        ? MessageType.UpcomingAndOverdueMixedOver30Days
+        : MessageType.UpcomingAndOverdueMixed,
       bodyParameters: [
         tratamiento,
         String(overdue.length),
@@ -82,7 +96,9 @@ export function selectReminderTemplate(
     );
     const total = overdue.reduce((sum, i) => sum + i.totalDue, 0);
     return {
-      type: MessageType.MultipleOverdueInstallments,
+      type: isSevereMora
+        ? MessageType.MultipleOverdueInstallmentsOver30Days
+        : MessageType.MultipleOverdueInstallments,
       bodyParameters: [
         tratamiento,
         String(overdue.length),
@@ -97,7 +113,9 @@ export function selectReminderTemplate(
     const [item] = overdue;
     if (item.overdueDays > MORA_GRACE_PERIOD_DAYS) {
       return {
-        type: MessageType.SingleOverdueInstallmentWithSurcharge,
+        type: isSevereMora
+          ? MessageType.SingleOverdueInstallmentWithSurchargeOver30Days
+          : MessageType.SingleOverdueInstallmentWithSurcharge,
         bodyParameters: [
           tratamiento,
           String(item.installmentNumber),

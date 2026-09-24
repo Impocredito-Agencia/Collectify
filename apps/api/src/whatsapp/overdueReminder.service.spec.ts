@@ -338,7 +338,7 @@ describe('OverdueReminderService', () => {
       ]);
     });
 
-    it('sends MultipleOverdueInstallments across several loans', async () => {
+    it('sends the 30-day MultipleOverdueInstallments variant across several loans (fixtures are past 30 days)', async () => {
       const otherLoan: Loan = {
         ...mockLoan,
         id: 'loan-2',
@@ -352,11 +352,11 @@ describe('OverdueReminderService', () => {
       await service.sendReminderForClient(mockClient.id);
 
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
-        MessageType.MultipleOverdueInstallments,
+        MessageType.MultipleOverdueInstallmentsOver30Days,
       );
     });
 
-    it('sends UpcomingAndOverdueMixed when the client has both', async () => {
+    it('sends the 30-day UpcomingAndOverdueMixed variant when the client has both (fixtures are past 30 days)', async () => {
       mockGathered(
         [overdueInstallment()],
         [
@@ -370,7 +370,7 @@ describe('OverdueReminderService', () => {
       await service.sendReminderForClient(mockClient.id);
 
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
-        MessageType.UpcomingAndOverdueMixed,
+        MessageType.UpcomingAndOverdueMixedOver30Days,
       );
       expect(messageLogItemsRepository.save).toHaveBeenCalledWith([
         expect.objectContaining({ installmentId: 'inst-1' }),
