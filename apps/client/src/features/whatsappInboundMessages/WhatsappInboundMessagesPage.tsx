@@ -892,7 +892,14 @@ function ConversationThread({
             </RowActionButton>
           )}
           {showCloseConversationButton && (
-            <CloseConversationButton phoneNumber={conversation.phoneNumber} />
+            <CloseConversationButton
+              phoneNumber={conversation.phoneNumber}
+              canNotifyClient={
+                ticket?.status === WhatsappTicketStatus.Pending &&
+                ticket.triggerKind ===
+                  WhatsappTicketTriggerKind.AdvisorRequested
+              }
+            />
           )}
         </div>
       </div>
@@ -951,7 +958,18 @@ function ConversationThread({
 // obvious it only applies to closing. Moved into its own confirmation
 // dialog (same Modal pattern as VoidPaymentDialog on the loan detail
 // page), where it has room for a real explanation.
-function CloseConversationButton({ phoneNumber }: { phoneNumber: string }) {
+// Human report, 2026-09-23 — canNotifyClient: the closing message only
+// ever goes out while the client is still waiting on an advisor they asked
+// for (a pending advisor_requested ticket). The API enforces the same rule
+// on its own (WhatsappWebhookService.closeConversation); this just keeps
+// the dialog from offering a message that wouldn't be sent.
+function CloseConversationButton({
+  phoneNumber,
+  canNotifyClient,
+}: {
+  phoneNumber: string;
+  canNotifyClient: boolean;
+}) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   return (
@@ -962,6 +980,7 @@ function CloseConversationButton({ phoneNumber }: { phoneNumber: string }) {
       {isDialogOpen && (
         <CloseConversationDialog
           phoneNumber={phoneNumber}
+          canNotifyClient={canNotifyClient}
           onClose={() => setIsDialogOpen(false)}
         />
       )}
@@ -971,9 +990,11 @@ function CloseConversationButton({ phoneNumber }: { phoneNumber: string }) {
 
 function CloseConversationDialog({
   phoneNumber,
+  canNotifyClient,
   onClose,
 }: {
   phoneNumber: string;
+  canNotifyClient: boolean;
   onClose: () => void;
 }) {
   const closeConversation = useCloseConversation();
@@ -986,7 +1007,10 @@ function CloseConversationDialog({
 
   const handleConfirm = () => {
     closeConversation.mutate(
-      { phoneNumber, sendClosingMessage },
+      {
+        phoneNumber,
+        sendClosingMessage: canNotifyClient && sendClosingMessage,
+      },
       { onSuccess: onClose },
     );
   };
@@ -1002,22 +1026,29 @@ function CloseConversationDialog({
         próximo mensaje arranca el menú desde cero.
       </p>
 
-      <label className="mt-4 flex items-start gap-2">
-        <input
-          type="checkbox"
-          checked={sendClosingMessage}
-          onChange={(event) => setSendClosingMessage(event.target.checked)}
-          className="mt-0.5 h-3.5 w-3.5 accent-white"
-        />
-        <span className="text-small text-white">
-          Avisar al cliente
-          <span className="mt-0.5 block text-meta text-subtle">
-            Le manda un mensaje de cierre por WhatsApp. Desmárcalo si ya se le
-            avisó por otro medio, o si su ventana de 24 horas ya se cerró (el
-            envío fallaría de todas formas).
+      {canNotifyClient ? (
+        <label className="mt-4 flex items-start gap-2">
+          <input
+            type="checkbox"
+            checked={sendClosingMessage}
+            onChange={(event) => setSendClosingMessage(event.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 accent-white"
+          />
+          <span className="text-small text-white">
+            Avisar al cliente
+            <span className="mt-0.5 block text-meta text-subtle">
+              Le manda un mensaje de cierre por WhatsApp. Desmárcalo si ya se le
+              avisó por otro medio, o si su ventana de 24 horas ya se cerró (el
+              envío fallaría de todas formas).
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
+      ) : (
+        <p className="mt-4 text-small text-subtle">
+          No se le enviará ningún mensaje al cliente: el aviso de cierre solo se
+          manda cuando pidió hablar con un asesor.
+        </p>
+      )}
 
       {closeConversation.isError && (
         <p className="mt-3 text-small text-danger" role="alert">
