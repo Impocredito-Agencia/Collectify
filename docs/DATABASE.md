@@ -576,6 +576,25 @@ Added 2026-09-13 (human report) — cobradores had no way to tell which WhatsApp
 
 **Added, 2026-09-13 — `whatsapp_manual_replies.self_service_reply_kind`:** `WhatsappOutboundLogService.log()` covers both the self-service menu's own automated replies AND `closeConversation`'s closing message, told apart only by `sentByUserId: null` for both — this nullable enum column (`main_menu`, `mi_cuenta_submenu`, `breakdown`, `payment_history`, `receipt_request`, `receipt_received_ack`, `advisor_handoff`, `volver_al_menu_follow_up`) further tags WHICH self-service action produced a reply, set only by `SelfServiceMenuService`'s `sendText`/`sendInteractive` wrappers — null for an admin's own typed reply or the closing message, same as before this column existed. **Surfaced in `apps/client`'s UI, 2026-09-16** — `WhatsappInboundMessagesPage.tsx`'s `ReplyBubble` now shows a specific Spanish label per kind (e.g. "Estado de cuenta", "Solicitud de comprobante") instead of a generic "Automático"; an admin's own typed reply and the closing message (both `selfServiceReplyKind: null`) keep that generic label, since neither came from a menu action.
 
+### `whatsapp_conversation_closures`
+
+Added 2026-09-23 (human report — "que pueda marcar el chat cerrado, para que salga en verde cuando sea, no solo cuando el cliente pide asesor, pero que se cambie cuando un cliente escriba nuevamente"). A `whatsapp_conversation_tickets` row only exists once the bot hands a KNOWN client off to a human, so it couldn't back "close any chat": an unrecognized number never has one, and neither does a client who never asked for an advisor. This is the separate, simpler marker — the last time an admin closed a conversation. One row per conversation, upserted.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `contact_key` | VARCHAR, unique | Same identifier `findConversations` groups the inbox by: the client's id (as text) for a matched client — covering every number on file for them — or the `+`-prefixed phone number for an unrecognized one. Deliberately not an FK, since it's one or the other. |
+| `closed_at` | TIMESTAMPTZ | Set to now on every close-conversation call. |
+| `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+**Never cleared when the client writes again.** Whether a conversation is currently "closed" is derived at read time instead: `findConversations` reports `closedAt` only while `closed_at` is newer than that conversation's latest INBOUND message (`MAX(occurred_at) FILTER (WHERE source = 'inbound_message')`), and `null` otherwise. No write is needed on the inbound hot path, so the two can never drift apart. Outbound events (a reminder, the closing message itself, a manual reply) never reopen it — only the client writing again does.
+
+**Written by:** `closeConversation` (`POST /whatsapp/inbound-messages/close-conversation`), alongside everything it already did (optional closing message, clearing `whatsapp_conversation_states`, resolving the client's ticket if any). The panel's "Cerrar conversación" button is now available on every conversation that isn't already closed, not just a pending hand-off or one awaiting a receipt. Green in the inbox now comes from `closedAt`, not from a resolved ticket; a pending ticket still takes priority (red).
+
+**Backfill:** the migration seeds one closure per already-`resolved` ticket (`contact_key = client_id`, `closed_at = resolved_at`), so a conversation showing "Conversación cerrada" before deploy keeps showing it afterwards — unless the client has written since, under the same read-time rule as every other closure.
+
+**Inbox ordering, same report:** the list was already ordered by each conversation's most recent event across all three sources, but an open panel only refetched it on an inbound message, so a reply or a reminder going out didn't move that chat to the top until a reload. It now also refetches on `manual-reply` and on a new debounced `conversation-update` gateway event, emitted after a close and after any `message_logs` insert (`MessageLogSubscriber`, a TypeORM entity subscriber — covers every reminder/confirmation service without threading the gateway through each).
+
 ## Refinancing
 
 When a loan is refinanced:
