@@ -308,7 +308,15 @@ export class WhatsappWebhookService {
       // for an unrecognized number, which has no clientId to filter by.
       // Only meaningful when clientId isn't set — a real client's messages
       // are already scoped precisely enough by clientId alone.
-      base.fromPhoneNumber = query.fromPhoneNumber;
+      //
+      // Human report, 2026-09-23 (critical bug) — from_phone_number is
+      // stored exactly as Meta sent it (no "+"), but once an admin replies,
+      // the conversation's latest event is a manual reply whose number IS
+      // "+"-prefixed, so the panel started asking for "+57…" and matched
+      // zero inbound rows: the client's own messages vanished from the
+      // thread (still in the DB, just never fetched). Matches both shapes.
+      const normalized = normalizeIncomingPhoneNumber(query.fromPhoneNumber);
+      base.fromPhoneNumber = In([normalized, normalized.slice(1)]);
     }
     if (query.type) {
       base.type = query.type;
@@ -541,10 +549,17 @@ export class WhatsappWebhookService {
           direction: 'inbound',
           message,
         };
+        // Normalized to the same "+"-prefixed shape the outbound branches
+        // below already use, so an unrecognized-number conversation keeps
+        // the same key whether its latest event is inbound or a reply —
+        // see buildConversationEventsCte's contact_key.
+        const fromPhoneNumber = normalizeIncomingPhoneNumber(
+          message.fromPhoneNumber,
+        );
         summaries.push({
-          key: message.clientId ?? message.fromPhoneNumber,
+          key: message.clientId ?? fromPhoneNumber,
           clientId: message.clientId,
-          fromPhoneNumber: message.fromPhoneNumber,
+          fromPhoneNumber,
           lastEvent,
           messageCount: messageCountById.get(row.id) ?? 1,
         });

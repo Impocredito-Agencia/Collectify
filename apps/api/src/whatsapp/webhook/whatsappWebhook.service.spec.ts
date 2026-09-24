@@ -4,6 +4,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { In } from 'typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
@@ -686,7 +687,22 @@ describe('WhatsappWebhookService', () => {
 
       expect(inboundMessagesRepository.findAndCount).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { fromPhoneNumber: '573009999999' },
+          where: { fromPhoneNumber: In(['+573009999999', '573009999999']) },
+        }),
+      );
+    });
+
+    // Human report, 2026-09-23 — once an admin replied to an unrecognized
+    // number, the conversation's number came back "+"-prefixed (from the
+    // manual reply) and the thread matched none of the raw inbound rows.
+    it('still matches raw inbound rows when fromPhoneNumber is "+"-prefixed', async () => {
+      inboundMessagesRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({ fromPhoneNumber: '+573009999999' });
+
+      expect(inboundMessagesRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { fromPhoneNumber: In(['+573009999999', '573009999999']) },
         }),
       );
     });
@@ -917,8 +933,9 @@ describe('WhatsappWebhookService', () => {
 
       expect(result.items).toEqual([
         expect.objectContaining({
-          key: '573002222222',
+          key: '+573002222222',
           clientId: null,
+          fromPhoneNumber: '+573002222222',
           messageCount: 3,
           lastEvent: expect.objectContaining({
             direction: 'inbound',
