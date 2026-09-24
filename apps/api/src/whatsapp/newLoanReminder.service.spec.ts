@@ -51,6 +51,7 @@ describe('NewLoanReminderService', () => {
     documentIssueDate: null,
     email: null,
     alternatePhoneNumber: null,
+    mutedPhoneNumbers: [],
     homeAddress: null,
     workAddress: null,
     city: null,
