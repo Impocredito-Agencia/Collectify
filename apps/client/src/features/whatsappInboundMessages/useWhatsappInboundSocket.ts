@@ -25,12 +25,6 @@ export function useWhatsappInboundSocket(): void {
       void queryClient.invalidateQueries({
         queryKey: ['whatsappConversations'],
       });
-      // A new inbound event can flip a phone number's self-service-menu
-      // state (e.g. a receipt arriving moves it to handed_off_to_human) —
-      // keep the "Responder"/"Cerrar conversación" gating live too.
-      void queryClient.invalidateQueries({
-        queryKey: ['whatsappConversationState'],
-      });
     });
 
     // Human report, 2026-09-19 — an admin's manual reply now persists and
@@ -39,6 +33,22 @@ export function useWhatsappInboundSocket(): void {
     socket.on('manual-reply', () => {
       void queryClient.invalidateQueries({
         queryKey: ['whatsappManualReplies'],
+      });
+      // Human report, 2026-09-23 — "que los chats se ordenen siempre por el
+      // más reciente tal cual lo hace WhatsApp": any reply (an admin's or
+      // the bot's) makes that chat the newest, so the list re-sorts too.
+      void queryClient.invalidateQueries({
+        queryKey: ['whatsappConversations'],
+      });
+    });
+
+    // Human report, 2026-09-23 — a reminder/confirmation went out, or an
+    // admin closed a chat: the list's order or green/closed state changed
+    // for a reason none of the other events cover. See the gateway's
+    // emitConversationUpdate.
+    socket.on('conversation-update', () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['whatsappConversations'],
       });
     });
 

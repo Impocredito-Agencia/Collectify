@@ -21,7 +21,6 @@ import {
   useCloseConversation,
   useConversations,
   useConversationsForClientIds,
-  useConversationState,
   useConversationTickets,
   useDeliveryHealth,
   useManualReplies,
@@ -32,10 +31,7 @@ import {
   WhatsappTicketStatus,
   WhatsappTicketTriggerKind,
 } from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
-import {
-  ConversationMenu,
-  WhatsappInboundMessageType,
-} from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
+import { WhatsappInboundMessageType } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 import { ApiError } from '@/lib/apiClient';
 import {
   formatCurrency,
@@ -73,7 +69,7 @@ import type { ReactNode } from 'react';
 // see the critical-bug comment on useConversations): a
 // WhatsappConversationTicket (Pending/Resolved — see its own entity
 // comment) tracks whether a human still needs to act, separately from the
-// bot's own ConversationMenu state below. "Todos" is the recency-ordered,
+// bot's own ConversationMenu state. "Todos" is the recency-ordered,
 // server-paginated conversation list; "Esperando asesor" is now a
 // SEPARATE data source entirely — the pending tickets themselves, oldest-
 // waiting-first, each resolved to its own conversation summary via
@@ -84,18 +80,14 @@ import type { ReactNode } from 'react';
 // all, which is exactly the kind of gap this whole restructuring exists
 // to close.
 //
-// Manual reply / "Cerrar conversación" gating (Phase 34, fixed 2026-09-02):
-// enabled while the backend's self-service-menu state for that phone
-// number is AwaitingReceipt (client tapped "Reportar un pago") or
-// HandedOffToHuman (client tapped "Hablar con asesor", or already sent a
-// receipt) — see useConversationState and SelfServiceMenuService. The bot
-// stays silent on further client messages in either state; "Cerrar
-// conversación" sends a generic closing message and clears that state, so
-// the client's next message gets the real menu fresh. Replaces the old
-// TEST-ONLY "client replies '1'" text-scanning hack this page used before
-// the real menu existed. A manual reply is persisted server-side and
-// pushed live to every connected admin — see useManualReplies/
-// useWhatsappInboundSocket.
+// "Cerrar conversación" (Phase 34, fixed 2026-09-02; widened 2026-09-23):
+// available on any conversation that isn't already closed — it optionally
+// sends a generic closing message, clears the bot's self-service-menu
+// state (so the client's next message gets the real menu fresh), resolves
+// any pending ticket, and marks the chat green until the client writes
+// again (see conversationAttention). A manual reply is persisted
+// server-side and pushed live to every connected admin — see
+// useManualReplies/useWhatsappInboundSocket.
 //
 // Automated messages (human report, 2026-09-19): the reminder/confirmation
 // templates a client actually received (message_logs) are merged into
@@ -166,6 +158,7 @@ interface ConversationSummaryEntry {
   phoneNumber: string;
   lastEvent: WhatsappConversationLastEvent;
   messageCount: number;
+  closedAt: string | null;
 }
 
 function toConversationSummaryEntry(
@@ -184,6 +177,7 @@ function toConversationSummaryEntry(
     phoneNumber: summary.fromPhoneNumber,
     lastEvent: summary.lastEvent,
     messageCount: summary.messageCount,
+    closedAt: summary.closedAt,
   };
 }
 
@@ -530,8 +524,16 @@ export function WhatsappInboundMessagesPage() {
   // the "Todos"/"Esperando asesor" tab never yanks an already-open thread
   // out from under whoever's reading it, even though the two tabs are now
   // genuinely separate data sources that don't always overlap in memory.
-  const effectiveSelectedConversation =
-    selectedConversation ?? visibleConversations[0] ?? null;
+  //
+  // Human report, 2026-09-23 — re-resolved against the freshly fetched list
+  // by key whenever it's there, so the open thread picks up changes to
+  // that same conversation (closing it, the client writing again) instead
+  // of showing the snapshot from the moment it was clicked.
+  const effectiveSelectedConversation = selectedConversation
+    ? (visibleConversations.find(
+        (conversation) => conversation.key === selectedConversation.key,
+      ) ?? selectedConversation)
+    : (visibleConversations[0] ?? null);
 
   return (
     <div className="flex h-full flex-col gap-5">
@@ -660,13 +662,18 @@ type ConversationAttention = 'pending' | 'resolved' | 'none';
 // WhatsappConversationTicket this client may have covers both cases
 // directly — it's the actual "does a human still need to act" source of
 // truth now, not a side effect of the bot's own menu state.
+//
+// Human report, 2026-09-23 — green no longer comes from the ticket: ANY
+// conversation can be closed now (not only a hand-off), and it stops
+// being green as soon as the client writes again. Both are already
+// decided server-side into closedAt. A pending ticket still wins, since
+// that's a human who still has to act.
 function conversationAttention(
   ticket: WhatsappConversationTicket | null,
+  closedAt: string | null,
 ): ConversationAttention {
-  if (!ticket) return 'none';
-  return ticket.status === WhatsappTicketStatus.Pending
-    ? 'pending'
-    : 'resolved';
+  if (ticket?.status === WhatsappTicketStatus.Pending) return 'pending';
+  return closedAt ? 'resolved' : 'none';
 }
 
 // Left-border accent so an admin scanning the list (or the open thread)
@@ -721,7 +728,7 @@ function ConversationListItem({
   isActive: boolean;
   onClick: () => void;
 }) {
-  const attention = conversationAttention(ticket);
+  const attention = conversationAttention(ticket, conversation.closedAt);
 
   return (
     <button
@@ -801,19 +808,14 @@ function ConversationThread({
     clientId: conversation.clientId,
     fromPhoneNumber: conversation.phoneNumber,
   });
-  const { data: currentMenu } = useConversationState(conversation.phoneNumber);
   const { data: messageLogs } = useMessageLogsForClient(conversation.clientId);
   const { data: deliveryHealth } = useDeliveryHealth(conversation.clientId);
-  const attention = conversationAttention(ticket);
-  // Human report, 2026-09-14 (bug fix) — used to gate on `currentMenu ===
-  // HandedOffToHuman`, which an unprompted comprobante never sets at all
-  // (see conversationAttention's own comment) — that conversation had a
-  // pending ticket with no way to close it. AwaitingReceipt is kept as
-  // its own OR'd condition since a ticket doesn't exist yet at that point
-  // (only once the receipt actually arrives, or the client asks for an
-  // advisor) — it still needs a way to bail out of the wait.
-  const showCloseConversationButton =
-    currentMenu === ConversationMenu.AwaitingReceipt || attention === 'pending';
+  const attention = conversationAttention(ticket, conversation.closedAt);
+  // Human report, 2026-09-23 — any conversation that isn't already closed
+  // can be closed now, not only a pending hand-off or one awaiting a
+  // receipt: closing doubles as the admin's own "this chat is handled"
+  // marker, which the client writing again undoes on its own.
+  const showCloseConversationButton = attention !== 'resolved';
   // findAll (and so messagesPage) comes back newest-first — reversed here
   // to chronological order, same as the old groupIntoConversations did.
   const messages = [...(messagesPage?.items ?? [])].reverse();
@@ -995,9 +997,9 @@ function CloseConversationDialog({
         Cerrar conversación
       </h2>
       <p className="mt-2.5 text-small text-muted">
-        Marca la conversación como resuelta y borra el estado del menú de
-        autoservicio, así el próximo mensaje del cliente arranca el menú desde
-        cero.
+        Marca la conversación como cerrada (en verde) hasta que el cliente
+        vuelva a escribir, y borra el estado del menú de autoservicio, así su
+        próximo mensaje arranca el menú desde cero.
       </p>
 
       <label className="mt-4 flex items-start gap-2">

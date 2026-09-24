@@ -34,6 +34,11 @@ export interface WhatsappConversationSummary {
   fromPhoneNumber: string;
   lastEvent: WhatsappConversationLastEvent;
   messageCount: number;
+  // Human report, 2026-09-23 — set while an admin's last "Cerrar
+  // conversación" is newer than the client's latest message; null once
+  // the client writes again (or if it was never closed). Decided
+  // server-side, see WhatsappWebhookService.findConversations.
+  closedAt: string | null;
 }
 
 export interface WhatsappConversationsQueryParams {
