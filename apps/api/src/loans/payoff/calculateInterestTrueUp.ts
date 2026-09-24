@@ -72,6 +72,7 @@ export function calculateInterestTrueUpBreakdown(
   );
 
   let trueUp = 0;
+  let pendingExact = 0;
   const pendingDifferences = new Map<number, number>();
   for (const installment of amortizing) {
     const hasMatured =
@@ -89,6 +90,7 @@ export function calculateInterestTrueUpBreakdown(
       );
       trueUp += caused - charged;
       if (installment.status === InstallmentStatus.Pending) {
+        pendingExact += caused - charged;
         pendingDifferences.set(
           installment.installmentNumber,
           Math.round(caused - charged),
@@ -101,19 +103,28 @@ export function calculateInterestTrueUpBreakdown(
     balanceBefore -= installment.principalPortion ?? installment.amount;
   }
 
-  const total = Math.max(0, Math.round(trueUp));
-  if (total === 0) {
-    return { total, attributedByInstallmentNumber: new Map(), unattributed: 0 };
+  if (Math.round(trueUp) <= 0) {
+    return {
+      total: 0,
+      attributedByInstallmentNumber: new Map(),
+      unattributed: 0,
+    };
   }
 
+  // Each part is rounded on its own and the total is their sum, so the
+  // table rows plus the standalone line always add up to the total exactly
+  // (rounding the grand total separately left a stray $1 "unattributed"
+  // whenever several pending cuotas each rounded down — human report,
+  // 2026-09-23).
+  const unattributed = Math.round(trueUp - pendingExact);
   const attributedTotal = [...pendingDifferences.values()].reduce(
     (sum, value) => sum + value,
     0,
   );
   return {
-    total,
+    total: attributedTotal + unattributed,
     attributedByInstallmentNumber: pendingDifferences,
-    unattributed: total - attributedTotal,
+    unattributed,
   };
 }
 

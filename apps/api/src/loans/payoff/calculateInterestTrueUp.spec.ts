@@ -121,9 +121,10 @@ describe('calculateInterestTrueUp', () => {
     });
 
     // Cuota 11's true interest is 16.900 vs 54.933,33 charged:
-    // 84.416,70 + 16.900 - 54.933,33 = 46.383,37.
+    // 84.416,70 + 16.900 - 54.933,33 = 46.383,37 — reported as the sum of
+    // its independently rounded parts, 84.417 - 38.033.
     expect(withoutWindow).toBe(84417);
-    expect(withWindow).toBe(46383);
+    expect(withWindow).toBe(46384);
   });
 
   it('ignores the down payment installment and cancelled installments', () => {
@@ -222,6 +223,21 @@ describe('calculateInterestTrueUp', () => {
       expect(result.total).toBe(0);
       expect(result.attributedByInstallmentNumber.size).toBe(0);
       expect(result.unattributed).toBe(0);
+    });
+
+    it('adds up exactly when several pending cuotas each round down (préstamo #0930)', () => {
+      // 1.000.000 / 12 / 4,5%, nothing paid, cuotas 1 and 2 overdue: the
+      // exact differences are 20.633,33 and 16.883,33 (sum 37.516,67).
+      const loan = buildLoan({}, { principal: 1000000, count: 12, rate: 4.5 });
+      const afterSecondDue = new Date('2025-11-20T12:00:00Z');
+
+      const result = calculateInterestTrueUpBreakdown(loan, afterSecondDue);
+      const attributed = [...result.attributedByInstallmentNumber.values()];
+
+      expect(result.unattributed).toBe(0);
+      expect(result.total).toBe(
+        attributed.reduce((sum, value) => sum + value, 0),
+      );
     });
   });
 });
