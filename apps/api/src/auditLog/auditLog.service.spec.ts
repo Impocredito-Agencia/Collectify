@@ -289,8 +289,11 @@ describe('AuditLogService', () => {
 
       await service.findAll({ search: '50%_x\\y' });
 
-      const params = qb.andWhere.mock.calls[0][1] as Record<string, string>;
-      expect(params.searchWord0).toBe('%50\\%\\_x\\\\y%');
+      const calls = qb.andWhere.mock.calls as [
+        string,
+        Record<string, string>,
+      ][];
+      expect(calls[0][1].searchWord0).toBe('%50\\%\\_x\\\\y%');
     });
   });
 
