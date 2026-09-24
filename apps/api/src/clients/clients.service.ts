@@ -38,6 +38,7 @@ import {
 
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
+import { SetClientMutedPhoneNumbersDto } from './dto/setClientMutedPhoneNumbers.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
 import { SetClientMessageFrequencyDto } from './dto/setClientMessageFrequency.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
@@ -89,6 +90,22 @@ export interface ClientDetail extends Client {
   isMoraBlocked: boolean;
   references: ClientReference[];
   messageFrequency: ClientMessageFrequency | null;
+  messageRecipients: ClientMessageRecipient[];
+}
+
+// Human report, 2026-09-23 — every number that can receive an automated
+// WhatsApp message on this client's behalf, each with whether an admin
+// turned it off (Client.mutedPhoneNumbers). Backs the per-number switches
+// on the profile's "Frecuencia de mensajes" section. alternate_contact is
+// a loan's third party (Loan.alternateContactPhoneNumber), never the
+// co-debtor — one entry per distinct number, listing every active loan
+// routed to it.
+export interface ClientMessageRecipient {
+  phoneNumber: string;
+  kind: 'primary' | 'alternate' | 'alternate_contact';
+  contactName: string | null;
+  promissoryNoteNumbers: string[];
+  muted: boolean;
 }
 
 // "Préstamos activos" + "En mora" columns on ClientsListPage.tsx (client
@@ -388,6 +405,7 @@ export class ClientsService {
       order: { createdAt: 'ASC' },
     });
     const messageFrequency = await this.getMessageFrequency(id);
+    const messageRecipients = await this.getMessageRecipients(client);
 
     const creditUsed = sumTotalDue(enriched);
     const creditAvailable =
@@ -403,6 +421,7 @@ export class ClientsService {
       isMoraBlocked,
       references,
       messageFrequency,
+      messageRecipients,
     };
   }
 
@@ -635,6 +654,93 @@ export class ClientsService {
   async clearMessageFrequency(clientId: string): Promise<void> {
     await this.findOne(clientId);
     await this.clientMessageFrequenciesRepository.delete({ clientId });
+  }
+
+  // See ClientMessageRecipient. Only ACTIVE loans' contacts are listed —
+  // a paid/refinanced loan never triggers another automated message.
+  async getMessageRecipients(
+    client: Client,
+  ): Promise<ClientMessageRecipient[]> {
+    const muted = new Set(client.mutedPhoneNumbers);
+    const recipients: ClientMessageRecipient[] = [
+      {
+        phoneNumber: client.phoneNumber,
+        kind: 'primary',
+        contactName: null,
+        promissoryNoteNumbers: [],
+        muted: muted.has(client.phoneNumber),
+      },
+    ];
+    if (
+      client.alternatePhoneNumber &&
+      client.alternatePhoneNumber !== client.phoneNumber
+    ) {
+      recipients.push({
+        phoneNumber: client.alternatePhoneNumber,
+        kind: 'alternate',
+        contactName: null,
+        promissoryNoteNumbers: [],
+        muted: muted.has(client.alternatePhoneNumber),
+      });
+    }
+
+    const loansWithContact = await this.loansRepository.find({
+      where: {
+        clientId: client.id,
+        status: LoanStatus.Active,
+        alternateContactPhoneNumber: Not(IsNull()),
+      },
+      order: { createdAt: 'ASC' },
+    });
+    for (const loan of loansWithContact) {
+      const phoneNumber = loan.alternateContactPhoneNumber!;
+      const existing = recipients.find(
+        (recipient) => recipient.phoneNumber === phoneNumber,
+      );
+      if (existing) {
+        existing.promissoryNoteNumbers.push(loan.promissoryNoteNumber);
+        continue;
+      }
+      recipients.push({
+        phoneNumber,
+        kind: 'alternate_contact',
+        contactName: loan.alternateContactName,
+        promissoryNoteNumbers: [loan.promissoryNoteNumber],
+        muted: muted.has(phoneNumber),
+      });
+    }
+
+    return recipients;
+  }
+
+  // Human report, 2026-09-23 — replaces the client's muted set wholesale.
+  // Rejects any number that isn't currently one of this client's
+  // recipients (see getMessageRecipients), so a typo can't silently mute
+  // nothing, or someone else.
+  async setMutedPhoneNumbers(
+    clientId: string,
+    dto: SetClientMutedPhoneNumbersDto,
+  ): Promise<ClientMessageRecipient[]> {
+    const client = await this.findOne(clientId);
+    const recipients = await this.getMessageRecipients(client);
+    const known = new Set(recipients.map((r) => r.phoneNumber));
+    const unknown = dto.phoneNumbers.filter((n) => !known.has(n));
+    if (unknown.length > 0) {
+      throw new BadRequestException(
+        `Estos números no pertenecen a este cliente ni a un tercero de sus pagarés activos: ${unknown.join(', ')}`,
+      );
+    }
+
+    // update(), not save(client) — touches only this column, so it can't
+    // write back a stale copy of the client's other fields.
+    await this.clientsRepository.update(
+      { id: clientId },
+      { mutedPhoneNumbers: dto.phoneNumbers },
+    );
+    return this.getMessageRecipients({
+      ...client,
+      mutedPhoneNumbers: dto.phoneNumbers,
+    });
   }
 
   // Used by ClientLoanImportService to implement "one row = one credit":
