@@ -113,6 +113,49 @@ describe('PaymentConfirmationService', () => {
   });
 
   describe('sendPaymentConfirmation', () => {
+    // Human report, 2026-09-23 — Client.mutedPhoneNumbers.
+    it('sends nothing, and logs nothing, when every recipient is muted', async () => {
+      installmentsRepository.findOne.mockResolvedValue({
+        id: 'inst-1',
+        loanId: 'loan-1',
+        loan: {
+          ...loan,
+          client: { ...client, mutedPhoneNumbers: [client.phoneNumber] },
+        },
+        installmentNumber: 14,
+        amount: 300000,
+        dueDate: notYetDueDate,
+      });
+      installmentsRepository.count.mockResolvedValue(4);
+
+      const logs = await service.sendPaymentConfirmation('inst-1');
+
+      expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
+      expect(logs).toEqual([]);
+    });
+
+    it('never sends to a muted third-party contact, even on a retry targeting it', async () => {
+      installmentsRepository.findOne.mockResolvedValue({
+        id: 'inst-1',
+        loanId: 'loan-1',
+        loan: {
+          ...loan,
+          alternateContactPhoneNumber: '+573009876543',
+          client: { ...client, mutedPhoneNumbers: ['+573009876543'] },
+        },
+        installmentNumber: 14,
+        amount: 300000,
+        dueDate: notYetDueDate,
+      });
+      installmentsRepository.count.mockResolvedValue(4);
+
+      await service.sendPaymentConfirmation('inst-1', {
+        targetPhoneNumbers: ['+573009876543'],
+      });
+
+      expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
+    });
+
     // Human report, 2026-09-19 — a loan with alternateContactPhoneNumber
     // set routes the confirmation to that contact instead of the
     // client's own number(s).

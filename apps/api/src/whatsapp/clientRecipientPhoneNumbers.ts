@@ -17,3 +17,18 @@ export function getRecipientPhoneNumbers(
     (phoneNumber): phoneNumber is string => Boolean(phoneNumber),
   );
 }
+
+// Human report, 2026-09-23 — drops every number the admin turned messages
+// off for on this client's profile (Client.mutedPhoneNumbers): the
+// client's own primary/alternate numbers, or a loan's third-party
+// contact. Applied to every business-initiated send's final recipient
+// list, retries included, so a muted number is never messaged
+// automatically no matter which path picked it. An empty result means
+// "send nothing" — every caller already loops over this list.
+export function excludeMutedPhoneNumbers(
+  phoneNumbers: string[],
+  client: Pick<Client, 'mutedPhoneNumbers'>,
+): string[] {
+  const muted = new Set(client.mutedPhoneNumbers ?? []);
+  return phoneNumbers.filter((phoneNumber) => !muted.has(phoneNumber));
+}

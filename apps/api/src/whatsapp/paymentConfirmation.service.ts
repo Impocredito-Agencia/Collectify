@@ -11,7 +11,10 @@ import {
 } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
 
-import { getRecipientPhoneNumbers } from './clientRecipientPhoneNumbers';
+import {
+  excludeMutedPhoneNumbers,
+  getRecipientPhoneNumbers,
+} from './clientRecipientPhoneNumbers';
 import { renderTemplateBody } from './templateBodyRenderer';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
@@ -143,11 +146,15 @@ export class PaymentConfirmationService {
     // set routes here instead of the client's own number(s) — see
     // Loan.alternateContactPhoneNumber's own comment. A contact is a
     // single number, never fanned out the way a client's own numbers are.
-    const phoneNumbers =
+    // Muted numbers dropped last, so a retry can't reach one either — see
+    // excludeMutedPhoneNumbers.
+    const phoneNumbers = excludeMutedPhoneNumbers(
       options?.targetPhoneNumbers ??
-      (installment.loan.alternateContactPhoneNumber
-        ? [installment.loan.alternateContactPhoneNumber]
-        : getRecipientPhoneNumbers(installment.loan.client));
+        (installment.loan.alternateContactPhoneNumber
+          ? [installment.loan.alternateContactPhoneNumber]
+          : getRecipientPhoneNumbers(installment.loan.client)),
+      installment.loan.client,
+    );
     return this.sendAndLog(installment.loan.clientId, phoneNumbers, selection, [
       installmentId,
     ]);
@@ -192,11 +199,13 @@ export class PaymentConfirmationService {
     });
 
     // See sendPaymentConfirmation's identical comment above.
-    const phoneNumbers =
+    const phoneNumbers = excludeMutedPhoneNumbers(
       options?.targetPhoneNumbers ??
-      (loan.alternateContactPhoneNumber
-        ? [loan.alternateContactPhoneNumber]
-        : getRecipientPhoneNumbers(loan.client));
+        (loan.alternateContactPhoneNumber
+          ? [loan.alternateContactPhoneNumber]
+          : getRecipientPhoneNumbers(loan.client)),
+      loan.client,
+    );
     return this.sendAndLog(
       loan.clientId,
       phoneNumbers,

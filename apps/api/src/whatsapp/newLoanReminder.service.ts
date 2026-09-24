@@ -5,7 +5,10 @@ import { IsNull, Repository } from 'typeorm';
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
 
-import { getRecipientPhoneNumbers } from './clientRecipientPhoneNumbers';
+import {
+  excludeMutedPhoneNumbers,
+  getRecipientPhoneNumbers,
+} from './clientRecipientPhoneNumbers';
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
@@ -121,12 +124,15 @@ export class NewLoanReminderService {
     );
 
     // Human report, 2026-09-19 — see PaymentConfirmationService's
-    // identical comment.
-    const phoneNumbers =
+    // identical comment. Muted numbers dropped last, so a retry can't
+    // reach one either — see excludeMutedPhoneNumbers.
+    const phoneNumbers = excludeMutedPhoneNumbers(
       options?.targetPhoneNumbers ??
-      (loan.alternateContactPhoneNumber
-        ? [loan.alternateContactPhoneNumber]
-        : getRecipientPhoneNumbers(loan.client));
+        (loan.alternateContactPhoneNumber
+          ? [loan.alternateContactPhoneNumber]
+          : getRecipientPhoneNumbers(loan.client)),
+      loan.client,
+    );
     const savedLogs: MessageLog[] = [];
     let anySent = false;
     for (const phoneNumber of phoneNumbers) {

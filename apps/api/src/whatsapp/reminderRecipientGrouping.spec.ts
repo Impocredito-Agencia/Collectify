@@ -134,6 +134,84 @@ describe('groupInstallmentsByRecipient', () => {
   });
 });
 
+// Human report, 2026-09-23 — Client.mutedPhoneNumbers.
+describe('groupInstallmentsByRecipient with muted numbers', () => {
+  const baseInstallment = {
+    id: 'inst-1',
+    loanId: 'loan-1',
+    alternateContactPhoneNumber: null,
+    installmentNumber: 1,
+    promissoryNoteNumber: '#743',
+    amount: 200000,
+    totalDue: 200000,
+    overdueDays: 5,
+    interest: 0,
+  };
+  const contactInstallment = {
+    ...baseInstallment,
+    id: 'inst-9',
+    loanId: 'loan-2',
+    promissoryNoteNumber: '#900',
+    alternateContactPhoneNumber: '+573005555555',
+  };
+
+  function clientWith(mutedPhoneNumbers: string[]): Client {
+    return {
+      id: 'client-1',
+      phoneNumber: '+573001234567',
+      alternatePhoneNumber: '+573009876543',
+      mutedPhoneNumbers,
+    } as Client;
+  }
+
+  it("drops only the muted number from the client's own group", () => {
+    const groups = groupInstallmentsByRecipient(
+      [baseInstallment],
+      [],
+      clientWith(['+573009876543']),
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].recipientPhoneNumbers).toEqual(['+573001234567']);
+  });
+
+  it("drops the client's group entirely when both of their numbers are muted, keeping the contact's", () => {
+    const groups = groupInstallmentsByRecipient(
+      [baseInstallment, contactInstallment],
+      [],
+      clientWith(['+573001234567', '+573009876543']),
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].recipientPhoneNumbers).toEqual(['+573005555555']);
+    expect(groups[0].overdue.map((i) => i.id)).toEqual(['inst-9']);
+  });
+
+  it("drops a muted third-party contact's group, keeping the client's", () => {
+    const groups = groupInstallmentsByRecipient(
+      [baseInstallment, contactInstallment],
+      [],
+      clientWith(['+573005555555']),
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].recipientPhoneNumbers).toEqual([
+      '+573001234567',
+      '+573009876543',
+    ]);
+  });
+
+  it('returns no groups at all when every number is muted', () => {
+    const groups = groupInstallmentsByRecipient(
+      [baseInstallment, contactInstallment],
+      [],
+      clientWith(['+573001234567', '+573009876543', '+573005555555']),
+    );
+
+    expect(groups).toEqual([]);
+  });
+});
+
 describe('restrictToTargetPhoneNumber', () => {
   it('keeps only the group containing the target number, narrowed to just that number', () => {
     const groups = [
