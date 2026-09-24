@@ -249,12 +249,13 @@ function calculateInstallmentPayoff(
   // exact same call (same inputs: installment.amount, moratoryInterest)
   // enrichInstallment.ts's own totalDue already uses — without this, a
   // payoff quote and the loan detail view disagreed on this installment's
-  // total by however much that rounding moved it (human report). Interest
-  // itself is deliberately left UNROUNDED here (interestApplied below),
-  // same convention enrichInstallment.ts follows for its own `interest`
-  // field — only the combined total gets rounded; principal silently
-  // absorbs that rounding delta (±$50), the same role it already plays
-  // once concept charges get folded into `amount` at schedule generation.
+  // total by however much that rounding moved it (human report).
+  //
+  // Changed, 2026-09-23 (human report: two loans with nothing paid showed a
+  // "saldo capital a la fecha" of 999.994 / 999.983 instead of 1.000.000) —
+  // that rounding delta (±$50 per matured installment) used to be absorbed
+  // by PRINCIPAL. It now lands on INTEREST instead, so principalApplied is
+  // always the real remaining capital while totalDue stays exactly the same.
   const roundedGrossTotal = calculateTotalDue(
     installment.amount,
     moratoryInterest,
@@ -266,19 +267,24 @@ function calculateInstallmentPayoff(
   // settles its interest before touching principal (Art. 1653), so it's
   // subtracted from grossInterest first; only whatever's left over after
   // that reduces principal.
-  const interestApplied = Math.max(0, grossInterest - totalPaid);
+  const interestBeforeRedistribution = Math.max(0, grossInterest - totalPaid);
   const principalCoveredByPriorPayment = Math.max(0, totalPaid - grossInterest);
-  const principalApplied = Math.max(
-    0,
-    roundedGrossPrincipal - principalCoveredByPriorPayment,
+  const totalDue =
+    interestBeforeRedistribution +
+    Math.max(0, roundedGrossPrincipal - principalCoveredByPriorPayment);
+
+  const principalApplied = Math.min(
+    totalDue,
+    Math.max(0, principalPortion - principalCoveredByPriorPayment),
   );
+  const interestApplied = totalDue - principalApplied;
 
   return {
     installmentId: installment.installmentId,
     installmentNumber: installment.installmentNumber,
     interestApplied,
     principalApplied,
-    totalDue: interestApplied + principalApplied,
+    totalDue,
     conceptBreakdown,
   };
 }

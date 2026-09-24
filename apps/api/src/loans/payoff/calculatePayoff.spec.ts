@@ -711,11 +711,42 @@ describe('calculatePayoff', () => {
       // moratoryInterest = round(250000 * 0.05 / 30 * 13) = round(5416.67) = 5417
       // gross = 30000 + 5417 = 35417 -> rounds to 255417 -> nearest 100 = 255400
       // (the OLD, unrounded behavior would have quoted 255417 instead)
+      // Changed 2026-09-23: the 17-peso rounding delta now lands on
+      // INTEREST, so principal stays the real remaining capital — totalDue
+      // is unchanged.
       expect(quote.installments[0]).toMatchObject({
-        interestApplied: 35417,
-        principalApplied: 219983, // absorbs the 17-peso rounding delta
+        interestApplied: 35400,
+        principalApplied: 220000,
         totalDue: 255400,
       });
+    });
+
+    // Human report, 2026-09-23 — two loans of 1.000.000 with nothing paid
+    // showed a "saldo capital a la fecha" of 999.994 / 999.983.
+    it('keeps the remaining capital exact for an untouched loan with overdue cuotas', () => {
+      const cuotas = [1, 2, 3].map((number) =>
+        installment({
+          installmentId: `inst-${number}`,
+          installmentNumber: number,
+          amount: 107700,
+          principalPortion: 83333.33,
+          // Cuota 1 is 22 days overdue, cuota 2 is 13, cuota 3 not yet due.
+          dueDate: subDays(today, [22, 13, -30][number - 1])
+            .toISOString()
+            .slice(0, 10),
+          moratoryConcepts: [moratoryConceptAt5Percent],
+        }),
+      );
+
+      const quote = calculatePayoff(cuotas, today);
+
+      expect(quote.totalPrincipalOwed).toBeCloseTo(3 * 83333.33, 2);
+      // Rounding only ever moves interest, never capital.
+      expect(quote.installments[0].principalApplied).toBeCloseTo(83333.33, 2);
+      expect(quote.installments[1].principalApplied).toBeCloseTo(83333.33, 2);
+      // ...and each matured cuota's total is still the $100-rounded one.
+      expect(quote.installments[0].totalDue % 100).toBe(0);
+      expect(quote.installments[1].totalDue % 100).toBe(0);
     });
 
     it('nets totalPaid off the already-rounded total, same order as enrichInstallment', () => {
