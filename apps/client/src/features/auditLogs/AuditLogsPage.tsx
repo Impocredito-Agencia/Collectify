@@ -3,13 +3,19 @@ import { useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { Pager } from '@/components/ui/Pager';
+import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Select } from '@/components/ui/Select';
 import { Td, Th } from '@/components/ui/Table';
 import {
   formatAuditAction,
   formatAuditEntityType,
 } from '@/features/auditLogs/auditLogLabels';
-import { useAuditLogs } from '@/features/auditLogs/useAuditLogs';
+import {
+  useAuditActions,
+  useAuditActors,
+  useAuditLogs,
+} from '@/features/auditLogs/useAuditLogs';
+import { useDebouncedValue } from '@/lib/useDebouncedValue';
 
 import type { ReactNode } from 'react';
 
@@ -19,42 +25,43 @@ import type { ReactNode } from 'react';
 // click opens a detail drawer), the closest existing "browse a log"
 // screen.
 //
-// "Actor" is a plain text filter (pasted user id), not a dropdown of real
-// admins/collectors — there is no frontend Users management feature to
-// source that list from yet (Phase 8's backend Users module exists, but
-// its client-side UI was never actually merged into this branch lineage;
-// see apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps"). If
-// that feature lands later, this filter should switch to a Select sourced
-// from GET /users.
-type EntityTypeFilter = 'all' | 'client' | 'loan' | 'payment' | 'user';
+// Filters (2026-09-23, human report — finding anything was hard: "Acción"
+// wanted a raw code like client.create, "Usuario" a pasted UUID):
+//   - one search box for a client (name/cédula/phone) or a pagaré number,
+//     several words allowed; the backend also returns what happened to that
+//     client's/pagaré's loans and payments, not just entries whose label
+//     mentions the words.
+//   - Entidad/Acción/Usuario are dropdowns fed by what is actually in the
+//     trail (GET /audit-logs/actions, /actors) instead of hardcoded lists
+//     or pasted ids. Picking an Entidad narrows the Acción list to that
+//     entity's actions.
+const ALL = 'all';
 
-// Mirrors the entityType values actually in use by @Audit()-decorated
-// endpoints today (see apps/api/src/*/*.controller.ts). Extend this list
-// as new actions are added — entityType itself is free text server-side,
-// not a real enum (docs/phases/PHASE_11_AUDIT_LOG.md), so nothing breaks
-// if a new value shows up that isn't in this dropdown; it just won't have
-// a friendly filter option yet.
-const ENTITY_TYPE_FILTER_OPTIONS = [
-  { value: 'all', label: 'Todas las entidades' },
-  { value: 'client', label: 'Cliente' },
-  { value: 'loan', label: 'Préstamo' },
-  { value: 'payment', label: 'Pago' },
-  { value: 'user', label: 'Usuario' },
-];
+// A single character would match nearly everything and is almost always a
+// half-typed word — wait for a real term before querying.
+const MIN_SEARCH_LENGTH = 2;
+
+const SEARCH_HELP =
+  'Escribe un nombre, cédula o número de pagaré. Al buscar un cliente también salen los movimientos de sus pagarés y pagos. Con varias palabras (ej: Juana 0928) deben cumplirse todas.';
 
 export function AuditLogsPage() {
-  const [actorUserId, setActorUserId] = useState('');
-  const [action, setAction] = useState('');
-  const [entityTypeFilter, setEntityTypeFilter] =
-    useState<EntityTypeFilter>('all');
+  const [searchInput, setSearchInput] = useState('');
+  const [actorUserId, setActorUserId] = useState(ALL);
+  const [action, setAction] = useState(ALL);
+  const [entityTypeFilter, setEntityTypeFilter] = useState(ALL);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
 
+  const search = useDebouncedValue(searchInput.trim());
+  const { data: actions = [] } = useAuditActions();
+  const { data: actors = [] } = useAuditActors();
+
   const { data, isLoading, isError } = useAuditLogs({
-    actorUserId: actorUserId || undefined,
-    action: action || undefined,
-    entityType: entityTypeFilter === 'all' ? undefined : entityTypeFilter,
+    search: search.length >= MIN_SEARCH_LENGTH ? search : undefined,
+    actorUserId: actorUserId === ALL ? undefined : actorUserId,
+    action: action === ALL ? undefined : action,
+    entityType: entityTypeFilter === ALL ? undefined : entityTypeFilter,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
     page,
@@ -63,6 +70,53 @@ export function AuditLogsPage() {
   const entries = data?.items ?? [];
   const meta = data?.meta;
 
+  const entityTypeOptions = [
+    { value: ALL, label: 'Todas las entidades' },
+    ...[...new Set(actions.map((option) => option.entityType))]
+      .map((entityType) => ({
+        value: entityType,
+        label: formatAuditEntityType(entityType),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es')),
+  ];
+
+  const actionsForEntity = actions.filter(
+    (option) =>
+      entityTypeFilter === ALL || option.entityType === entityTypeFilter,
+  );
+  const actionOptions = [
+    { value: ALL, label: 'Todas las acciones' },
+    ...actionsForEntity
+      .map((option) => ({
+        value: option.action,
+        label: formatAuditAction(option.action),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es')),
+  ];
+
+  const actorOptions = [
+    { value: ALL, label: 'Todos los usuarios' },
+    ...actors.map((actor) => ({ value: actor.id, label: actor.fullName })),
+  ];
+
+  const hasActiveFilters =
+    searchInput.trim() !== '' ||
+    actorUserId !== ALL ||
+    action !== ALL ||
+    entityTypeFilter !== ALL ||
+    dateFrom !== '' ||
+    dateTo !== '';
+
+  const clearFilters = () => {
+    setSearchInput('');
+    setActorUserId(ALL);
+    setAction(ALL);
+    setEntityTypeFilter(ALL);
+    setDateFrom('');
+    setDateTo('');
+    setPage(1);
+  };
+
   return (
     <div className="flex flex-col gap-5">
       <Header
@@ -70,7 +124,23 @@ export function AuditLogsPage() {
         subtitle="Quién hizo qué, y cuándo, en el sistema"
       />
 
-      <div className="flex h-10 items-center gap-3">
+      <div className="flex flex-col gap-2">
+        <div className="flex h-[38px] max-w-[640px] items-center gap-2 rounded bg-input px-3">
+          <input
+            value={searchInput}
+            onChange={(event) => {
+              setSearchInput(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Buscar por cliente, cédula o número de pagaré…"
+            aria-label="Buscar en la auditoría"
+            className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
+          />
+        </div>
+        <p className="max-w-[640px] text-meta text-muted">{SEARCH_HELP}</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
         {/* Style cleanup, 2026-09-05 (client feedback) — the two date
             pickers used to be visually identical (same size, same empty
             "dd/mm/aaaa" placeholder), with "Desde"/"Hasta" only present as
@@ -106,36 +176,49 @@ export function AuditLogsPage() {
         <Select
           value={entityTypeFilter}
           onChange={(next) => {
-            setEntityTypeFilter(next as EntityTypeFilter);
+            setEntityTypeFilter(next);
+            // The chosen action may not belong to the new entity — keeping
+            // it would silently return nothing.
+            const stillValid =
+              next === ALL ||
+              actions.some(
+                (option) =>
+                  option.action === action && option.entityType === next,
+              );
+            if (!stillValid) {
+              setAction(ALL);
+            }
             setPage(1);
           }}
-          options={ENTITY_TYPE_FILTER_OPTIONS}
+          options={entityTypeOptions}
           className="w-[190px]"
         />
 
-        <div className="flex h-[38px] w-[220px] items-center gap-2 rounded bg-input px-3">
-          <input
-            value={action}
-            onChange={(event) => {
-              setAction(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Acción, ej: client.create"
-            className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
-          />
-        </div>
+        <Select
+          value={action}
+          onChange={(next) => {
+            setAction(next);
+            setPage(1);
+          }}
+          options={actionOptions}
+          className="w-[280px]"
+        />
 
-        <div className="flex h-[38px] w-[220px] items-center gap-2 rounded bg-input px-3">
-          <input
-            value={actorUserId}
-            onChange={(event) => {
-              setActorUserId(event.target.value);
-              setPage(1);
-            }}
-            placeholder="ID de usuario actor…"
-            className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
-          />
-        </div>
+        <Select
+          value={actorUserId}
+          onChange={(next) => {
+            setActorUserId(next);
+            setPage(1);
+          }}
+          options={actorOptions}
+          className="w-[210px]"
+        />
+
+        {hasActiveFilters && (
+          <RowActionButton onClick={clearFilters}>
+            Limpiar filtros
+          </RowActionButton>
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-lg bg-surface">
@@ -154,9 +237,9 @@ export function AuditLogsPage() {
           <thead className="bg-input">
             <tr>
               <Th className="w-[210px]">Actor</Th>
-              <Th className="w-[270px]">Acción</Th>
+              <Th className="w-[350px]">Acción</Th>
               <Th>Entidad</Th>
-              <Th className="w-[160px]">Fecha</Th>
+              <Th className="w-[180px]">Fecha</Th>
             </tr>
           </thead>
           <tbody>
@@ -167,7 +250,11 @@ export function AuditLogsPage() {
               </EmptyRow>
             )}
             {!isLoading && !isError && entries.length === 0 && (
-              <EmptyRow>No se encontraron registros.</EmptyRow>
+              <EmptyRow>
+                {hasActiveFilters
+                  ? 'No se encontraron registros con estos filtros.'
+                  : 'No se encontraron registros.'}
+              </EmptyRow>
             )}
             {/* Style cleanup, 2026-09-05 (client feedback) — dropped the
                 "Acciones" column + its "Ver detalle" drawer. The drawer's
