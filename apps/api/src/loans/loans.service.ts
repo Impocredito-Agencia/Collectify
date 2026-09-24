@@ -46,7 +46,12 @@ import {
   enrichInstallment,
   InstallmentWithCalculated,
 } from './installments/enrichInstallment';
+import { calculateDaysUntilDue } from './installments/installmentCalculations';
 import { sumPaymentsByInstallmentId } from './installments/paymentTotals';
+import {
+  calculateInterestTrueUpBreakdown,
+  InterestTrueUpBreakdown,
+} from './payoff/calculateInterestTrueUp';
 import {
   calculatePayoff,
   PayoffInstallmentInput,
@@ -89,6 +94,14 @@ export interface SchedulePreview {
 // data for pre-filling RefinanceLoanForm.tsx, not a new persisted concept.
 export interface RefinanceQuote {
   payoff: PayoffQuote;
+  // Part of payoff.totalInterestOwed that is only there because of the
+  // 5-day early-maturity window (an installment not yet due, treated as
+  // already caused) — i.e. what the quote would NOT include without that
+  // window. 0 when no installment falls inside it.
+  earlyWindowInterest: number;
+  // Which pending installments are inside that window (due within the next
+  // few days, not yet due) — lets the UI name them in its explanation.
+  earlyWindowInstallmentNumbers: number[];
   suggestedPrincipalAmount: number;
   concepts: LoanConceptAssignmentDto[];
   // Phase 23 — same carry-over as concepts above, filtered to the loan's
@@ -827,6 +840,7 @@ export class LoansService {
       this.paymentsRepository,
       pending.map((installment) => installment.id),
     );
+    const today = new Date();
     return calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
@@ -834,6 +848,10 @@ export class LoansService {
           conceptsByInstallmentId.get(installment.id) ?? [],
           totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
+      ),
+      today,
+      trueUpOptions(
+        await this.computeInterestTrueUp(id, pending.length, today),
       ),
     );
   }
@@ -862,6 +880,7 @@ export class LoansService {
       this.paymentsRepository,
       pending.map((installment) => installment.id),
     );
+    const today = new Date();
     const quote = calculatePayoff(
       pending.map((installment) =>
         toPayoffInstallmentInput(
@@ -870,18 +889,31 @@ export class LoansService {
           totalPaidByInstallmentId.get(installment.id) ?? 0,
         ),
       ),
+      today,
+      trueUpOptions(
+        await this.computeInterestTrueUp(id, pending.length, today),
+      ),
     );
 
     const paidAt = new Date().toISOString().slice(0, 10);
-    const payments = quote.installments.map((breakdown) =>
-      this.paymentsRepository.create({
+    // Each pending installment's own true-up already sits in its
+    // totalDue; only the unattributed remainder (from installments already
+    // paid) has no row of its own, so it rides on the first pending
+    // installment's payment — that way the payments still sum to exactly
+    // the quoted total.
+    const payments = quote.installments.map((breakdown, index) => {
+      const carriesTrueUp = index === 0 && quote.interestTrueUp !== 0;
+      return this.paymentsRepository.create({
         installmentId: breakdown.installmentId,
-        amountPaid: breakdown.totalDue,
+        amountPaid:
+          breakdown.totalDue + (carriesTrueUp ? quote.interestTrueUp : 0),
         paidAt,
-        observation: 'Liquidación anticipada',
+        observation: carriesTrueUp
+          ? 'Liquidación anticipada (incluye ajuste de interés causado)'
+          : 'Liquidación anticipada',
         imageUrl: null,
-      }),
-    );
+      });
+    });
     if (payments.length > 0) {
       await this.paymentsRepository.save(payments);
     }
@@ -893,6 +925,54 @@ export class LoansService {
     await this.loansRepository.update({ id }, { status: LoanStatus.Paid });
 
     return this.findOne(id);
+  }
+
+  // See calculateInterestTrueUp.ts. Needs the loan's FULL installment list
+  // (paid ones included), unlike calculatePayoff which only sees pending
+  // ones. A loan with nothing pending (already paid/refinanced) has nothing
+  // left to settle, so its quote stays empty like before.
+  private async computeInterestTrueUp(
+    loanId: string,
+    pendingCount: number,
+    today: Date,
+    options?: { earlyMaturityWindowDays?: number },
+  ): Promise<InterestTrueUpBreakdown> {
+    if (pendingCount === 0) {
+      return {
+        total: 0,
+        attributedByInstallmentNumber: new Map(),
+        unattributed: 0,
+      };
+    }
+    const installments = await this.installmentsRepository.find({
+      where: { loanId },
+      order: { installmentNumber: 'ASC' },
+    });
+    const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
+      installments.map((installment) => installment.id),
+    );
+    return calculateInterestTrueUpBreakdown(
+      installments.map((installment) => ({
+        installmentNumber: installment.installmentNumber,
+        dueDate: installment.dueDate,
+        status: installment.status,
+        isDownPayment: installment.isDownPayment,
+        amount: installment.amount,
+        principalPortion: installment.principalPortion,
+        percentageConcepts: (conceptsByInstallmentId.get(installment.id) ?? [])
+          .filter(
+            (concept) =>
+              concept.category === ConceptCategory.Corriente &&
+              concept.calculationType === ConceptCalculationType.Percentage,
+          )
+          .map((concept) => ({
+            value: concept.value,
+            computedAmount: concept.computedAmount,
+          })),
+      })),
+      today,
+      options,
+    );
   }
 
   private findPendingInstallments(loanId: string): Promise<Installment[]> {
@@ -944,16 +1024,44 @@ export class LoansService {
       this.paymentsRepository,
       pending.map((installment) => installment.id),
     );
-    const payoff = calculatePayoff(
-      pending.map((installment) =>
-        toPayoffInstallmentInput(
-          installment,
-          conceptsByInstallmentId.get(installment.id) ?? [],
-          totalPaidByInstallmentId.get(installment.id) ?? 0,
-        ),
+    const today = new Date();
+    const payoffInputs = pending.map((installment) =>
+      toPayoffInstallmentInput(
+        installment,
+        conceptsByInstallmentId.get(installment.id) ?? [],
+        totalPaidByInstallmentId.get(installment.id) ?? 0,
       ),
-      new Date(),
-      { earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS },
+    );
+    const payoff = calculatePayoff(payoffInputs, today, {
+      earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+      ...trueUpOptions(
+        await this.computeInterestTrueUp(id, pending.length, today, {
+          earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+        }),
+      ),
+    });
+
+    // Same quote without the window: the difference is exactly the interest
+    // that only entered because an installment is due within the next few
+    // days, so the UI can show it apart from interest that formally ran.
+    const payoffWithoutWindow = calculatePayoff(
+      payoffInputs,
+      today,
+      trueUpOptions(
+        await this.computeInterestTrueUp(id, pending.length, today),
+      ),
+    );
+    const earlyWindowInstallmentNumbers = pending
+      .filter(
+        (installment) =>
+          calculateDaysUntilDue(new Date(installment.dueDate), today) > 0 &&
+          calculateDaysUntilDue(new Date(installment.dueDate), today) <=
+            REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+      )
+      .map((installment) => installment.installmentNumber);
+    const earlyWindowInterest = Math.max(
+      0,
+      payoff.totalInterestOwed - payoffWithoutWindow.totalInterestOwed,
     );
 
     const firstInstallment = await this.installmentsRepository.findOne({
@@ -975,6 +1083,8 @@ export class LoansService {
 
     return {
       payoff,
+      earlyWindowInterest,
+      earlyWindowInstallmentNumbers,
       suggestedPrincipalAmount: payoff.totalDue,
       concepts: concepts
         .filter(
@@ -1665,6 +1775,18 @@ export class LoansService {
     }
     return error;
   }
+}
+
+// See calculateInterestTrueUpBreakdown — the per-installment share goes into
+// that row, only the remainder is carried as the quote-level interestTrueUp.
+function trueUpOptions(trueUp: InterestTrueUpBreakdown): {
+  interestTrueUp: number;
+  interestTrueUpByInstallment: Map<number, number>;
+} {
+  return {
+    interestTrueUp: trueUp.unattributed,
+    interestTrueUpByInstallment: trueUp.attributedByInstallmentNumber,
+  };
 }
 
 // Style cleanup, 2026-09-04 — now takes ALL of an installment's concepts

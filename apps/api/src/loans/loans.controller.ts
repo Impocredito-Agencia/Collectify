@@ -248,7 +248,7 @@ export class LoansController {
   @ApiOperation({
     summary: 'Quote how much it costs to close this loan out today',
     description:
-      "Never blindly sums remaining installment totals — implements the confirmed imputación rule (Colombian Civil Code Art. 1653, see docs/phases/PHASE_16_EARLY_PAYOFF.md). A matured installment (due today or already overdue) contributes its Phase 14 concept charges plus any moratory interest as 'interest', and its principalPortion as 'principal'. A not-yet-due installment contributes ONLY its principalPortion, at face value, with zero interest — no interest is ever charged for a period that hasn't happened yet. An initial installment (Phase 13) contributes only principal, never interest. Read-only; safe to call regardless of the loan's status. Each installment also carries a conceptBreakdown (style cleanup, 2026-09-04): one entry per corriente/moratorio concept actually charged, empty for a not-yet-due installment, purely descriptive alongside the existing interestApplied/principalApplied/totalDue totals (never changes them).",
+      "Never blindly sums remaining installment totals — implements the confirmed imputación rule (Colombian Civil Code Art. 1653, see docs/phases/PHASE_16_EARLY_PAYOFF.md). A matured installment (due today or already overdue) contributes its Phase 14 concept charges plus any moratory interest as 'interest', and its principalPortion as 'principal'. A not-yet-due installment contributes ONLY its principalPortion, at face value, with zero interest — no interest is ever charged for a period that hasn't happened yet. An initial installment (Phase 13) contributes only principal, never interest. On top of that, interestTrueUp (2026-09-23) adds the interest already caused to date that the flat, averaged cuotas hadn't collected yet (balance-proportional interest of every matured installment minus what was actually charged on them, minus interest already collected on paid-ahead cuotas; never negative) — included in totalInterestOwed and totalDue. The share belonging to a pending, already-due installment is placed inside that installment's own row (interestApplied and an 'Ajuste de interés causado' conceptBreakdown item); interestTrueUp on the quote is only the remainder that comes from already-paid installments. Read-only; safe to call regardless of the loan's status. Each installment also carries a conceptBreakdown (style cleanup, 2026-09-04): one entry per corriente/moratorio concept actually charged, empty for a not-yet-due installment, purely descriptive alongside the existing interestApplied/principalApplied/totalDue totals (never changes them).",
   })
   @ApiResponse({ status: 200, description: 'Returns the payoff quote.' })
   @ApiResponse({ status: 404, description: 'Loan not found.' })
@@ -263,7 +263,7 @@ export class LoansController {
     summary:
       'Settle the loan today for its full payoff quote, closing it out (admin or granted the loans module)',
     description:
-      "A separate, explicit flow from registering an ordinary payment — POST /installments/:id/payments and its one-payment-per-installment behavior are completely untouched. Always settles the FULL amount from GET /loans/:id/payoff-quote; there is no partial early payoff. Registers one real Payment row per still-pending installment (observation: 'Liquidación anticipada'), marks every installment and the loan 'paid'.",
+      "A separate, explicit flow from registering an ordinary payment — POST /installments/:id/payments and its one-payment-per-installment behavior are completely untouched. Always settles the FULL amount from GET /loans/:id/payoff-quote; there is no partial early payoff. Registers one real Payment row per still-pending installment (observation: 'Liquidación anticipada'; the quote's interestTrueUp rides on the first pending installment's payment so the payments still sum to the quoted total), marks every installment and the loan 'paid'.",
   })
   @ApiResponse({ status: 200, description: 'The loan was paid off.' })
   @ApiResponse({
@@ -301,6 +301,8 @@ export class LoansController {
       "suggestedPrincipalAmount reuses GET /loans/:id/payoff-quote's totalDue calculation, plus " +
       '(per docs/phases/PHASE_25_REFINANCE_OVERDUE.md) an installment due within the next 5 days ' +
       'also has its corriente interest folded in early, even though it is not yet actually ' +
+      'overdue, and the same interestTrueUp as the payoff quote is included in totalDue — ' +
+      'earlyWindowInterest reports how much of totalInterestOwed is there ONLY because of that 5-day window (0 when no installment is inside it), so the UI can show it apart from interest that formally ran — ' +
       'overdue — its moratory interest stays 0 since no mora has accrued yet. ' +
       "concepts carries over the old loan's first installment's concepts, " +
       'excluding any whose catalog type was since deleted.',

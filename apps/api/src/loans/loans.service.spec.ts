@@ -16,6 +16,7 @@ import {
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
 import { UsuryRateService } from '../usuryRates/usuryRates.service';
 
+import { generateAmortizationSchedule } from './amortization/generateSchedule';
 import { addDaysToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
@@ -2412,6 +2413,240 @@ describe('LoansService', () => {
         NotFoundException,
       );
       expect(paymentsRepository.count).not.toHaveBeenCalled();
+    });
+  });
+
+  // Interest true-up, 2026-09-23 (agreed with the human) — the worked
+  // example: 2.600.000 / 12 cuotas / 3,9% per period, flat cuota $271.600.
+  // 10 cuotas paid (all past due), cuotas 11 and 12 still pending and not
+  // yet due. Capital-only would be 433.333,30; the smoothed cuotas
+  // under-collected 84.417 of the interest already caused.
+  describe('interest true-up on payoff and refinance', () => {
+    const schedule = generateAmortizationSchedule(2600000, 12, [
+      {
+        conceptTypeId: null,
+        name: 'Intereses corrientes',
+        calculationType: ConceptCalculationType.Percentage,
+        value: 3.9,
+      },
+    ]);
+
+    // Cuotas 1-10 are due today or earlier (10 is due today), cuota 11 in
+    // 30 days and cuota 12 in 60.
+    function dueDateOf(installmentNumber: number): string {
+      return bogotaTodayPlusDays((installmentNumber - 11) * 30 + 30);
+    }
+
+    const allInstallments: Installment[] = schedule.map((generated) => ({
+      id: `inst-${generated.installmentNumber}`,
+      loanId: mockLoan.id,
+      loan: mockLoan,
+      installmentNumber: generated.installmentNumber,
+      amount: generated.amount,
+      principalPortion: generated.principalPortion,
+      dueDate: dueDateOf(generated.installmentNumber),
+      status:
+        generated.installmentNumber <= 10
+          ? InstallmentStatus.Paid
+          : InstallmentStatus.Pending,
+      isDownPayment: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    }));
+
+    const conceptRows = schedule.flatMap((generated) =>
+      generated.concepts.map(
+        (concept) =>
+          ({
+            id: `concept-${generated.installmentNumber}`,
+            installmentId: `inst-${generated.installmentNumber}`,
+            interestConceptTypeId: null,
+            nameSnapshot: concept.name,
+            calculationType: ConceptCalculationType.Percentage,
+            category: ConceptCategory.Corriente,
+            value: concept.value,
+            computedAmount: concept.computedAmount,
+          }) as LoanInstallmentConcept,
+      ),
+    );
+
+    beforeEach(() => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+      loansRepository.findOne.mockResolvedValue(null);
+      installmentsRepository.find.mockImplementation(
+        (options: { where: { status?: InstallmentStatus } }) =>
+          Promise.resolve(
+            options.where.status === InstallmentStatus.Pending
+              ? allInstallments.filter(
+                  (installment) =>
+                    installment.status === InstallmentStatus.Pending,
+                )
+              : allInstallments,
+          ),
+      );
+      installmentsRepository.findOne.mockResolvedValue(allInstallments[0]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue(conceptRows);
+    });
+
+    it('quotes capital plus the true-up for a payoff (433.333,30 + 84.417)', async () => {
+      const quote = await service.getPayoffQuote(mockLoan.id);
+
+      expect(quote.totalPrincipalOwed).toBeCloseTo(433333.3, 2);
+      expect(quote.interestTrueUp).toBe(84417);
+      expect(quote.totalDue).toBeCloseTo(433333.3 + 84417, 2);
+    });
+
+    it('registers payments that sum to the quoted total, true-up on the first pending cuota', async () => {
+      await service.payoff(mockLoan.id);
+
+      const created = paymentsRepository.create.mock.calls.map(
+        ([payment]: [{ installmentId: string; amountPaid: number }]) => payment,
+      );
+      const total = created.reduce(
+        (sum, payment) => sum + payment.amountPaid,
+        0,
+      );
+
+      expect(total).toBeCloseTo(433333.3 + 84417, 2);
+      expect(created[0]).toEqual(
+        expect.objectContaining({
+          installmentId: 'inst-11',
+          observation:
+            'Liquidación anticipada (incluye ajuste de interés causado)',
+        }),
+      );
+      expect(created[0].amountPaid).toBeCloseTo(216666.67 + 84417, 2);
+      expect(created[1].amountPaid).toBeCloseTo(216666.63, 2);
+    });
+
+    it('folds the true-up into the refinance suggested principal too', async () => {
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.payoff.interestTrueUp).toBeGreaterThanOrEqual(84417);
+      expect(quote.suggestedPrincipalAmount).toBe(quote.payoff.totalDue);
+    });
+
+    it('separates the interest that only entered through the 5-day window', async () => {
+      // Cuota 11 now falls due in 3 days: inside the refinance window, so
+      // its true interest (16.900) counts even though it is not yet due.
+      const shifted = allInstallments.map((installment) =>
+        installment.installmentNumber === 11
+          ? { ...installment, dueDate: bogotaTodayPlusDays(3) }
+          : installment,
+      );
+      installmentsRepository.find.mockImplementation(
+        (options: { where: { status?: InstallmentStatus } }) =>
+          Promise.resolve(
+            options.where.status === InstallmentStatus.Pending
+              ? shifted.filter(
+                  (installment) =>
+                    installment.status === InstallmentStatus.Pending,
+                )
+              : shifted,
+          ),
+      );
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      // Within a peso or two: the true-up is rounded to whole pesos.
+      expect(quote.earlyWindowInstallmentNumbers).toEqual([11]);
+      expect(quote.earlyWindowInterest).toBeCloseTo(16900, -1);
+      // Formal interest = everything else: the 10 matured cuotas' 84.417.
+      expect(
+        quote.payoff.totalInterestOwed - quote.earlyWindowInterest,
+      ).toBeCloseTo(84417, -1);
+    });
+
+    it('reports no window interest when no installment is inside the window', async () => {
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.earlyWindowInterest).toBe(0);
+      expect(quote.earlyWindowInstallmentNumbers).toEqual([]);
+    });
+
+    it('adds no true-up once nothing is pending (already paid/refinanced loan)', async () => {
+      installmentsRepository.find.mockImplementation(
+        (options: { where: { status?: InstallmentStatus } }) =>
+          Promise.resolve(
+            options.where.status === InstallmentStatus.Pending
+              ? []
+              : allInstallments.map((installment) => ({
+                  ...installment,
+                  status: InstallmentStatus.Paid,
+                })),
+          ),
+      );
+
+      const quote = await service.getPayoffQuote(mockLoan.id);
+
+      expect(quote.interestTrueUp).toBe(0);
+      expect(quote.totalDue).toBe(0);
+    });
+  });
+
+  // Préstamo #0911-like case (2026-09-23): 1.000.000 / 10 cuotas / 4,5%,
+  // nothing paid, cuota 1 overdue. Its real interest (45.000) must sit
+  // inside its own row, so the table rows add up to the total.
+  describe('interest true-up attributed to a pending overdue cuota', () => {
+    const schedule = generateAmortizationSchedule(1000000, 10, [
+      {
+        conceptTypeId: null,
+        name: 'Intereses corrientes',
+        calculationType: ConceptCalculationType.Percentage,
+        value: 4.5,
+      },
+    ]);
+    const installments: Installment[] = schedule.map((generated) => ({
+      id: `inst-${generated.installmentNumber}`,
+      loanId: mockLoan.id,
+      loan: mockLoan,
+      installmentNumber: generated.installmentNumber,
+      amount: generated.amount,
+      principalPortion: generated.principalPortion,
+      dueDate: bogotaTodayPlusDays(
+        generated.installmentNumber === 1
+          ? -11
+          : generated.installmentNumber * 30,
+      ),
+      status: InstallmentStatus.Pending,
+      isDownPayment: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    }));
+    const conceptRows = schedule.flatMap((generated) =>
+      generated.concepts.map(
+        (concept) =>
+          ({
+            id: `concept-${generated.installmentNumber}`,
+            installmentId: `inst-${generated.installmentNumber}`,
+            interestConceptTypeId: null,
+            nameSnapshot: concept.name,
+            calculationType: ConceptCalculationType.Percentage,
+            category: ConceptCategory.Corriente,
+            value: concept.value,
+            computedAmount: concept.computedAmount,
+          }) as LoanInstallmentConcept,
+      ),
+    );
+
+    beforeEach(() => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+      installmentsRepository.find.mockResolvedValue(installments);
+      loanInstallmentConceptsRepository.find.mockResolvedValue(conceptRows);
+    });
+
+    it('shows the real interest on the overdue row and leaves nothing unattributed', async () => {
+      const quote = await service.getPayoffQuote(mockLoan.id);
+
+      expect(quote.installments[0].interestApplied).toBeCloseTo(45000, 0);
+      expect(quote.interestTrueUp).toBe(0);
+      const rowsTotal = quote.installments.reduce(
+        (sum, item) => sum + item.totalDue,
+        0,
+      );
+      expect(rowsTotal).toBeCloseTo(quote.totalDue, 2);
     });
   });
 

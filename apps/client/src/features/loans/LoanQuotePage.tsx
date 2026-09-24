@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { DecimalInput } from '@/components/ui/DecimalInput';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { ChipButton } from '@/components/ui/ChipButton';
@@ -58,8 +59,11 @@ import type {
 // LoanForm.tsx/RefinanceLoanForm.tsx, defaulting to and capped at the usury
 // ceiling. No moratorio equivalent here (confirmed with the human): this
 // tool only ever quotes corriente concepts, see corrienteConceptTypes below.
-interface ConceptRow extends LoanConceptAssignment {
+// `value` is '' while the field is empty (see DecimalInput.tsx) — submit/
+// preview validation rejects an empty one before it ever reaches the api.
+interface ConceptRow extends Omit<LoanConceptAssignment, 'value'> {
   rowId: string;
+  value: number | '';
 }
 
 let nextRowId = 0;
@@ -179,6 +183,18 @@ export function LoanQuotePage() {
     if (!canCalculate) {
       return;
     }
+    // Empty value fields are allowed while editing (DecimalInput never
+    // forces a 0), but not when calculating.
+    if (corrienteInterestRate === '') {
+      setFormError('El valor de los intereses corrientes está vacío.');
+      return;
+    }
+    if (concepts.some((row) => row.value === '')) {
+      setFormError(
+        'Hay un cargo adicional con el valor vacío. Escribe un valor o quita el cargo.',
+      );
+      return;
+    }
     setFormError(null);
     try {
       const result = await previewSchedule.mutateAsync({
@@ -189,9 +205,9 @@ export function LoanQuotePage() {
         concepts: concepts.map(({ conceptTypeId, calculationType, value }) => ({
           conceptTypeId,
           calculationType,
-          value,
+          value: value === '' ? 0 : value,
         })),
-        corrienteInterestRate: corrienteInterestRate || undefined,
+        corrienteInterestRate,
       });
       setPreview(result);
     } catch {
@@ -412,20 +428,9 @@ export function LoanQuotePage() {
                     // `truncate` on Select's label span can do its job.
                     className="min-w-0 flex-1"
                   />
-                  <input
-                    type="number"
-                    min={0}
-                    // step="any" — a percentage concept's value can carry
-                    // more decimals than a native step="0.01" tolerates (see
-                    // MandatoryConceptRow.tsx's own comment for the full
-                    // explanation).
-                    step="any"
+                  <DecimalInput
                     value={row.value}
-                    onChange={(event) =>
-                      updateConceptRow(row.rowId, {
-                        value: parseFloat(event.target.value) || 0,
-                      })
-                    }
+                    onChange={(value) => updateConceptRow(row.rowId, { value })}
                     placeholder={
                       row.calculationType === ConceptCalculationType.Percentage
                         ? '%'

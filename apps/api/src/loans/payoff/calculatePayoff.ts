@@ -64,6 +64,11 @@ export interface PayoffInstallmentBreakdown {
 
 export interface PayoffQuote {
   installments: PayoffInstallmentBreakdown[];
+  // The part of the interest true-up (see calculateInterestTrueUp.ts) that
+  // could NOT be placed inside a pending installment's own row — it comes
+  // from installments already paid. Already included in
+  // totalInterestOwed/totalDue. 0 when not supplied.
+  interestTrueUp: number;
   totalInterestOwed: number;
   totalPrincipalOwed: number;
   totalDue: number;
@@ -84,6 +89,17 @@ export interface CalculatePayoffOptions {
   // function (the actual early-payoff endpoint) must keep omitting this
   // option so a real payoff quote is never inflated by not-yet-due cuotas.
   earlyMaturityWindowDays?: number;
+  // Computed by the caller from the loan's FULL installment list (this
+  // function only ever sees the pending ones) via calculateInterestTrueUp.
+  // Added on top of the per-installment interest. Defaults to 0.
+  interestTrueUp?: number;
+  // Optional: the share of the true-up that belongs to specific pending,
+  // matured installments (keyed by installmentNumber). It is added to that
+  // row's interestApplied/totalDue and listed in its conceptBreakdown, so
+  // the table rows add up to the quote total. NOT added on top of
+  // `interestTrueUp` — callers pass only the unattributed remainder there
+  // (see calculateInterestTrueUpBreakdown).
+  interestTrueUpByInstallment?: Map<number, number>;
 }
 
 // Colombian Civil Code Art. 1653 ("imputación del pago a intereses"): a
@@ -118,14 +134,17 @@ export function calculatePayoff(
   today: Date = new Date(),
   options: CalculatePayoffOptions = {},
 ): PayoffQuote {
-  const breakdown = installments.map((installment) =>
-    calculateInstallmentPayoff(installment, today, options),
-  );
+  const attributed = options.interestTrueUpByInstallment;
+  const breakdown = installments.map((installment) => {
+    const item = calculateInstallmentPayoff(installment, today, options);
+    const adjustment = attributed?.get(installment.installmentNumber) ?? 0;
+    return adjustment === 0 ? item : withTrueUpAdjustment(item, adjustment);
+  });
 
-  const totalInterestOwed = breakdown.reduce(
-    (sum, item) => sum + item.interestApplied,
-    0,
-  );
+  const interestTrueUp = options.interestTrueUp ?? 0;
+  const totalInterestOwed =
+    breakdown.reduce((sum, item) => sum + item.interestApplied, 0) +
+    interestTrueUp;
   const totalPrincipalOwed = breakdown.reduce(
     (sum, item) => sum + item.principalApplied,
     0,
@@ -133,9 +152,30 @@ export function calculatePayoff(
 
   return {
     installments: breakdown,
+    interestTrueUp,
     totalInterestOwed,
     totalPrincipalOwed,
     totalDue: totalInterestOwed + totalPrincipalOwed,
+  };
+}
+
+function withTrueUpAdjustment(
+  item: PayoffInstallmentBreakdown,
+  adjustment: number,
+): PayoffInstallmentBreakdown {
+  const interestApplied = Math.max(0, item.interestApplied + adjustment);
+  return {
+    ...item,
+    interestApplied,
+    totalDue: interestApplied + item.principalApplied,
+    conceptBreakdown: [
+      ...item.conceptBreakdown,
+      {
+        name: 'Ajuste de interés causado',
+        amount: adjustment,
+        category: ConceptCategory.Corriente,
+      },
+    ],
   };
 }
 
@@ -209,12 +249,13 @@ function calculateInstallmentPayoff(
   // exact same call (same inputs: installment.amount, moratoryInterest)
   // enrichInstallment.ts's own totalDue already uses — without this, a
   // payoff quote and the loan detail view disagreed on this installment's
-  // total by however much that rounding moved it (human report). Interest
-  // itself is deliberately left UNROUNDED here (interestApplied below),
-  // same convention enrichInstallment.ts follows for its own `interest`
-  // field — only the combined total gets rounded; principal silently
-  // absorbs that rounding delta (±$50), the same role it already plays
-  // once concept charges get folded into `amount` at schedule generation.
+  // total by however much that rounding moved it (human report).
+  //
+  // Changed, 2026-09-23 (human report: two loans with nothing paid showed a
+  // "saldo capital a la fecha" of 999.994 / 999.983 instead of 1.000.000) —
+  // that rounding delta (±$50 per matured installment) used to be absorbed
+  // by PRINCIPAL. It now lands on INTEREST instead, so principalApplied is
+  // always the real remaining capital while totalDue stays exactly the same.
   const roundedGrossTotal = calculateTotalDue(
     installment.amount,
     moratoryInterest,
@@ -226,19 +267,24 @@ function calculateInstallmentPayoff(
   // settles its interest before touching principal (Art. 1653), so it's
   // subtracted from grossInterest first; only whatever's left over after
   // that reduces principal.
-  const interestApplied = Math.max(0, grossInterest - totalPaid);
+  const interestBeforeRedistribution = Math.max(0, grossInterest - totalPaid);
   const principalCoveredByPriorPayment = Math.max(0, totalPaid - grossInterest);
-  const principalApplied = Math.max(
-    0,
-    roundedGrossPrincipal - principalCoveredByPriorPayment,
+  const totalDue =
+    interestBeforeRedistribution +
+    Math.max(0, roundedGrossPrincipal - principalCoveredByPriorPayment);
+
+  const principalApplied = Math.min(
+    totalDue,
+    Math.max(0, principalPortion - principalCoveredByPriorPayment),
   );
+  const interestApplied = totalDue - principalApplied;
 
   return {
     installmentId: installment.installmentId,
     installmentNumber: installment.installmentNumber,
     interestApplied,
     principalApplied,
-    totalDue: interestApplied + principalApplied,
+    totalDue,
     conceptBreakdown,
   };
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { DecimalInput } from '@/components/ui/DecimalInput';
 import { Button } from '@/components/ui/Button';
 import { ChipButton } from '@/components/ui/ChipButton';
 import { CloseButton } from '@/components/ui/CloseButton';
@@ -62,8 +63,11 @@ interface RefinanceLoanFormProps {
   onClose: () => void;
 }
 
-interface ConceptRow extends LoanConceptAssignment {
+// `value` is '' while the field is empty (see DecimalInput.tsx) — submit/
+// preview validation rejects an empty one before it ever reaches the api.
+interface ConceptRow extends Omit<LoanConceptAssignment, 'value'> {
   rowId: string;
+  value: number | '';
 }
 
 type FieldName =
@@ -129,6 +133,15 @@ function roundToNearestHundred(amount: number): number {
 // "type the exact figure by hand" decision: principalAmount and concepts
 // are now pre-filled from GET /loans/:id/refinance-quote, but both stay
 // fully editable — the admin keeps final say, exactly as Phase 6 required.
+function describeEarlyWindow(installmentNumbers: number[]): string {
+  const labels = installmentNumbers.map((number) => `#${number}`);
+  const subject =
+    labels.length === 1
+      ? `La cuota ${labels[0]} vence`
+      : `Las cuotas ${labels.slice(0, -1).join(', ')} y ${labels[labels.length - 1]} vencen`;
+  return `${subject} en los próximos 5 días. Aún no vence${labels.length === 1 ? '' : 'n'}, pero su interés se cobra ahora porque al refinanciar se toma como ya causado.`;
+}
+
 export function RefinanceLoanForm({
   oldLoanId,
   oldLoanClientId,
@@ -282,8 +295,12 @@ export function RefinanceLoanForm({
         // dialog. Pre-filled, still fully editable like every other field
         // this effect sets.
         if (quote.payoff.totalInterestOwed > 0) {
+          const formalInterest =
+            quote.payoff.totalInterestOwed - quote.earlyWindowInterest;
           setDescription(
-            `Refinanciación incluye ${formatCurrency(quote.payoff.totalInterestOwed)} de interés ya causado en cuotas vencidas o próximas a vencer.`,
+            quote.earlyWindowInterest > 0
+              ? `Refinanciación incluye ${formatCurrency(formalInterest)} de interés ya causado y ${formatCurrency(quote.earlyWindowInterest)} de interés de cuotas que vencen en los próximos 5 días.`
+              : `Refinanciación incluye ${formatCurrency(formalInterest)} de interés ya causado en cuotas vencidas.`,
           );
         }
       })
@@ -452,6 +469,25 @@ export function RefinanceLoanForm({
     ) {
       errors.moratoryConcepts = `Los intereses moratorios no pueden superar la tasa de usura vigente (${currentUsuryRate.ratePercentage}%).`;
     }
+    // Empty value fields are allowed while editing (DecimalInput never
+    // forces a 0), but not when submitting/previewing.
+    if (!errors.concepts) {
+      if (hasUsableUsuryRate && corrienteInterestRate === '') {
+        errors.concepts = 'El valor de los intereses corrientes está vacío.';
+      } else if (concepts.some((row) => row.value === '')) {
+        errors.concepts =
+          'Hay un cargo adicional con el valor vacío. Escribe un valor o quita el cargo.';
+      }
+    }
+    if (!errors.moratoryConcepts) {
+      if (hasUsableUsuryRate && moratoryInterestRate === '') {
+        errors.moratoryConcepts =
+          'El valor de los intereses moratorios está vacío.';
+      } else if (moratoryConcepts.some((row) => row.value === '')) {
+        errors.moratoryConcepts =
+          'Hay un cargo moratorio con el valor vacío. Escribe un valor o quita el cargo.';
+      }
+    }
     if (hasCoDebtor && !coDebtorClient) {
       errors.coDebtorClientId = 'Selecciona un cliente como codeudor.';
     } else if (
@@ -487,14 +523,16 @@ export function RefinanceLoanForm({
     concepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
-      value,
+      // Validated non-empty before this runs (see validate()).
+      value: value === '' ? 0 : value,
     }));
 
   const toMoratoryConceptAssignments = (): LoanConceptAssignment[] =>
     moratoryConcepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
-      value,
+      // Validated non-empty before this runs (see validate()).
+      value: value === '' ? 0 : value,
     }));
 
   const handlePreview = async () => {
@@ -810,7 +848,13 @@ export function RefinanceLoanForm({
                     Cómo se calculó el monto sugerido
                   </span>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div
+                    className={`grid grid-cols-1 gap-3 ${
+                      refinanceQuote.earlyWindowInterest > 0
+                        ? 'sm:grid-cols-3'
+                        : 'sm:grid-cols-2'
+                    }`}
+                  >
                     <div>
                       <p className="text-[10px] font-normal text-muted">
                         Capital pendiente
@@ -823,15 +867,39 @@ export function RefinanceLoanForm({
                     </div>
                     <div>
                       <p className="text-[10px] font-normal text-muted">
-                        Interés causado
+                        {refinanceQuote.earlyWindowInterest > 0
+                          ? 'Interés de cuotas vencidas'
+                          : 'Interés causado'}
                       </p>
                       <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
                         {formatCurrency(
-                          refinanceQuote.payoff.totalInterestOwed,
+                          refinanceQuote.payoff.totalInterestOwed -
+                            refinanceQuote.earlyWindowInterest,
                         )}
                       </p>
                     </div>
+                    {refinanceQuote.earlyWindowInterest > 0 && (
+                      <div>
+                        <p
+                          className="text-[10px] font-normal text-muted"
+                          title="Cuotas que aún no vencen pero vencen en los próximos 5 días: su interés se toma como ya causado al refinanciar."
+                        >
+                          Interés de cuota próxima a vencer
+                        </p>
+                        <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
+                          {formatCurrency(refinanceQuote.earlyWindowInterest)}
+                        </p>
+                      </div>
+                    )}
                   </div>
+
+                  {refinanceQuote.earlyWindowInterest > 0 && (
+                    <p className="text-[11px] text-muted">
+                      {describeEarlyWindow(
+                        refinanceQuote.earlyWindowInstallmentNumbers,
+                      )}
+                    </p>
+                  )}
 
                   {/* "suman" → "=" (client feedback, 2026-09-04): with two
                       figures below now instead of one, "suman" implied
@@ -993,19 +1061,10 @@ export function RefinanceLoanForm({
                         // instead of truncating.
                         className="min-w-0 flex-1"
                       />
-                      <input
-                        type="number"
-                        min={0}
-                        // step="any" — a percentage concept's value can
-                        // carry more decimals than a native step="0.01"
-                        // tolerates (see MandatoryConceptRow.tsx's own
-                        // comment for the full explanation).
-                        step="any"
+                      <DecimalInput
                         value={row.value}
-                        onChange={(event) =>
-                          updateConceptRow(row.rowId, {
-                            value: parseFloat(event.target.value) || 0,
-                          })
+                        onChange={(value) =>
+                          updateConceptRow(row.rowId, { value })
                         }
                         placeholder={
                           row.calculationType ===
@@ -1092,19 +1151,10 @@ export function RefinanceLoanForm({
                         // instead of truncating.
                         className="min-w-0 flex-1"
                       />
-                      <input
-                        type="number"
-                        min={0}
-                        // step="any" — a percentage concept's value can
-                        // carry more decimals than a native step="0.01"
-                        // tolerates (see MandatoryConceptRow.tsx's own
-                        // comment for the full explanation).
-                        step="any"
+                      <DecimalInput
                         value={row.value}
-                        onChange={(event) =>
-                          updateMoratoryConceptRow(row.rowId, {
-                            value: parseFloat(event.target.value) || 0,
-                          })
+                        onChange={(value) =>
+                          updateMoratoryConceptRow(row.rowId, { value })
                         }
                         placeholder={
                           row.calculationType ===

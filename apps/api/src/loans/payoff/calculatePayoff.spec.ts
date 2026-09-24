@@ -305,6 +305,7 @@ describe('calculatePayoff', () => {
 
     expect(quote).toEqual({
       installments: [],
+      interestTrueUp: 0,
       totalInterestOwed: 0,
       totalPrincipalOwed: 0,
       totalDue: 0,
@@ -710,11 +711,42 @@ describe('calculatePayoff', () => {
       // moratoryInterest = round(250000 * 0.05 / 30 * 13) = round(5416.67) = 5417
       // gross = 30000 + 5417 = 35417 -> rounds to 255417 -> nearest 100 = 255400
       // (the OLD, unrounded behavior would have quoted 255417 instead)
+      // Changed 2026-09-23: the 17-peso rounding delta now lands on
+      // INTEREST, so principal stays the real remaining capital — totalDue
+      // is unchanged.
       expect(quote.installments[0]).toMatchObject({
-        interestApplied: 35417,
-        principalApplied: 219983, // absorbs the 17-peso rounding delta
+        interestApplied: 35400,
+        principalApplied: 220000,
         totalDue: 255400,
       });
+    });
+
+    // Human report, 2026-09-23 — two loans of 1.000.000 with nothing paid
+    // showed a "saldo capital a la fecha" of 999.994 / 999.983.
+    it('keeps the remaining capital exact for an untouched loan with overdue cuotas', () => {
+      const cuotas = [1, 2, 3].map((number) =>
+        installment({
+          installmentId: `inst-${number}`,
+          installmentNumber: number,
+          amount: 107700,
+          principalPortion: 83333.33,
+          // Cuota 1 is 22 days overdue, cuota 2 is 13, cuota 3 not yet due.
+          dueDate: subDays(today, [22, 13, -30][number - 1])
+            .toISOString()
+            .slice(0, 10),
+          moratoryConcepts: [moratoryConceptAt5Percent],
+        }),
+      );
+
+      const quote = calculatePayoff(cuotas, today);
+
+      expect(quote.totalPrincipalOwed).toBeCloseTo(3 * 83333.33, 2);
+      // Rounding only ever moves interest, never capital.
+      expect(quote.installments[0].principalApplied).toBeCloseTo(83333.33, 2);
+      expect(quote.installments[1].principalApplied).toBeCloseTo(83333.33, 2);
+      // ...and each matured cuota's total is still the $100-rounded one.
+      expect(quote.installments[0].totalDue % 100).toBe(0);
+      expect(quote.installments[1].totalDue % 100).toBe(0);
     });
 
     it('nets totalPaid off the already-rounded total, same order as enrichInstallment', () => {
@@ -735,6 +767,107 @@ describe('calculatePayoff', () => {
       // sequence as enrichInstallment.ts's own totalDue, not rounded a
       // second time afterward.
       expect(quote.installments[0].totalDue).toBe(245400);
+    });
+  });
+  describe('interestTrueUp option', () => {
+    // 10 cuotas of the 2.600.000 / 12 / 3,9% loan are already paid, so only
+    // cuotas 11 and 12 (not yet due) are pending: capital only, 433.333,30,
+    // plus the 84.417 the smoothed cuotas under-collected (computed by the
+    // caller via calculateInterestTrueUp — agreed with the human 2026-09-23).
+    const pendingNotYetDue = [
+      installment({
+        installmentId: 'inst-11',
+        installmentNumber: 11,
+        amount: 271600,
+        principalPortion: 216666.67,
+        dueDate: '2026-08-15',
+      }),
+      installment({
+        installmentId: 'inst-12',
+        installmentNumber: 12,
+        amount: 271600,
+        principalPortion: 216666.63,
+        dueDate: '2026-09-15',
+      }),
+    ];
+    const today = new Date('2026-08-01T12:00:00Z');
+
+    it('adds the true-up on top of capital-only future installments', () => {
+      const quote = calculatePayoff(pendingNotYetDue, today, {
+        interestTrueUp: 84417,
+      });
+
+      expect(quote.totalPrincipalOwed).toBeCloseTo(433333.3, 2);
+      expect(quote.interestTrueUp).toBe(84417);
+      expect(quote.totalInterestOwed).toBe(84417);
+      expect(quote.totalDue).toBeCloseTo(433333.3 + 84417, 2);
+    });
+
+    it('does not touch any per-installment breakdown', () => {
+      const quote = calculatePayoff(pendingNotYetDue, today, {
+        interestTrueUp: 84417,
+      });
+
+      expect(quote.installments.map((item) => item.interestApplied)).toEqual([
+        0, 0,
+      ]);
+    });
+
+    it('defaults to 0 when not supplied (original behavior)', () => {
+      const quote = calculatePayoff(pendingNotYetDue, today);
+
+      expect(quote.interestTrueUp).toBe(0);
+      expect(quote.totalDue).toBeCloseTo(433333.3, 2);
+    });
+  });
+  describe('interestTrueUpByInstallment option', () => {
+    const today = new Date('2026-09-23T12:00:00Z');
+    const overdue = installment({
+      installmentId: 'inst-1',
+      installmentNumber: 1,
+      amount: 125000,
+      principalPortion: 100000,
+      dueDate: '2026-09-12',
+    });
+    const future = installment({
+      installmentId: 'inst-2',
+      installmentNumber: 2,
+      amount: 125000,
+      principalPortion: 100000,
+      dueDate: '2027-01-12',
+    });
+
+    it('adds the adjustment to that row and lists it as a corriente concept', () => {
+      const plain = calculatePayoff([overdue, future], today);
+      const quote = calculatePayoff([overdue, future], today, {
+        interestTrueUpByInstallment: new Map([[1, 20000]]),
+      });
+
+      const row = quote.installments[0];
+      expect(row.interestApplied).toBe(
+        plain.installments[0].interestApplied + 20000,
+      );
+      expect(row.totalDue).toBe(plain.installments[0].totalDue + 20000);
+      expect(row.conceptBreakdown).toContainEqual({
+        name: 'Ajuste de interés causado',
+        amount: 20000,
+        category: ConceptCategory.Corriente,
+      });
+      expect(quote.installments[1]).toEqual(plain.installments[1]);
+    });
+
+    it('keeps the rows adding up to the total when nothing is left unattributed', () => {
+      const quote = calculatePayoff([overdue, future], today, {
+        interestTrueUp: 0,
+        interestTrueUpByInstallment: new Map([[1, 20000]]),
+      });
+
+      const rowsTotal = quote.installments.reduce(
+        (sum, item) => sum + item.totalDue,
+        0,
+      );
+      expect(rowsTotal).toBe(quote.totalDue);
+      expect(quote.interestTrueUp).toBe(0);
     });
   });
 });

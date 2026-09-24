@@ -270,6 +270,14 @@ export interface PayoffInstallmentBreakdown {
 
 export interface PayoffQuote {
   installments: PayoffInstallmentBreakdown[];
+  // The part of the interest true-up (interest already caused to date that
+  // the flat, averaged cuotas hadn't collected) that comes from
+  // installments already paid, so it has no row in `installments`. The
+  // share belonging to a pending overdue cuota is inside that row instead
+  // (interestApplied/conceptBreakdown). Already included in
+  // totalInterestOwed/totalDue. See
+  // apps/api/src/loans/payoff/calculateInterestTrueUp.ts.
+  interestTrueUp: number;
   totalInterestOwed: number;
   totalPrincipalOwed: number;
   totalDue: number;
@@ -282,6 +290,12 @@ export interface PayoffQuote {
 // keeps full editing control over what actually gets submitted.
 export interface RefinanceQuote {
   payoff: PayoffQuote;
+  // Part of payoff.totalInterestOwed that is only included because an
+  // installment is due within the next few days (the refinance early-
+  // maturity window) rather than having formally run. 0 when none is.
+  earlyWindowInterest: number;
+  // Numbers of the pending installments inside that window.
+  earlyWindowInstallmentNumbers: number[];
   suggestedPrincipalAmount: number;
   concepts: LoanConceptAssignment[];
   // Phase 23 — same carry-over as concepts above, filtered to the loan's
