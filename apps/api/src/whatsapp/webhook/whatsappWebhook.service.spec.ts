@@ -8,6 +8,10 @@ import { In } from 'typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
+import {
+  WhatsappTicketStatus,
+  WhatsappTicketTriggerKind,
+} from '../entities/whatsappConversationTicket.entity';
 import { WhatsappConversationClosure } from '../entities/whatsappConversationClosure.entity';
 import {
   WhatsappInboundMessage,
@@ -63,7 +67,10 @@ describe('WhatsappWebhookService', () => {
   let whatsappOutboundLogService: { log: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
   let conversationStateService: { getActive: jest.Mock; clear: jest.Mock };
-  let conversationTicketService: { resolve: jest.Mock };
+  let conversationTicketService: {
+    resolve: jest.Mock;
+    findByClientId: jest.Mock;
+  };
   let whatsappMediaService: {
     downloadAndStore: jest.Mock;
     fetchMediaBytes: jest.Mock;
@@ -116,6 +123,7 @@ describe('WhatsappWebhookService', () => {
     };
     conversationTicketService = {
       resolve: jest.fn().mockResolvedValue(null),
+      findByClientId: jest.fn().mockResolvedValue(null),
     };
     // Defaults to "nothing to attach" — most tests below don't involve a
     // media message at all (mediaId stays null out of extractInboundEvents
@@ -1244,7 +1252,19 @@ describe('WhatsappWebhookService', () => {
   });
 
   describe('closeConversation', () => {
+    // Human report, 2026-09-23 — the closing message only goes out while
+    // the client is still waiting on an advisor they asked for.
+    const awaitingAdvisor = () => {
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+      conversationTicketService.findByClientId.mockResolvedValue({
+        clientId: 'client-1',
+        status: WhatsappTicketStatus.Pending,
+        triggerKind: WhatsappTicketTriggerKind.AdvisorRequested,
+      });
+    };
+
     it('sends the closing message and clears the conversation state', async () => {
+      awaitingAdvisor();
       whatsAppService.sendTextMessage.mockResolvedValue({
         sent: true,
         whatsappMessageId: null,
@@ -1263,6 +1283,7 @@ describe('WhatsappWebhookService', () => {
     });
 
     it('still clears state even when the closing message fails to send', async () => {
+      awaitingAdvisor();
       whatsAppService.sendTextMessage.mockResolvedValue({
         sent: false,
         whatsappMessageId: null,
@@ -1280,11 +1301,11 @@ describe('WhatsappWebhookService', () => {
     // trace in the conversation thread. sentByUserId is null: the admin
     // only triggered it, they didn't type this fixed message themselves.
     it('logs the closing message with no admin attribution', async () => {
+      awaitingAdvisor();
       whatsAppService.sendTextMessage.mockResolvedValue({
         sent: true,
         whatsappMessageId: null,
       });
-      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
 
       await service.closeConversation('573001234567');
 
@@ -1315,11 +1336,11 @@ describe('WhatsappWebhookService', () => {
     });
 
     it('still resolves the ticket even when the closing message fails to send', async () => {
+      awaitingAdvisor();
       whatsAppService.sendTextMessage.mockResolvedValue({
         sent: false,
         whatsappMessageId: null,
       });
-      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
 
       await service.closeConversation('573001234567');
 
@@ -1343,6 +1364,71 @@ describe('WhatsappWebhookService', () => {
     // Human report, 2026-09-13 — resolving a ticket doesn't require the
     // client-facing message, e.g. once the 24h session window has already
     // closed and a real send would just fail outright.
+    describe('when the client is not waiting on an advisor they asked for', () => {
+      it('sends nothing for a client with no ticket at all', async () => {
+        clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+        const result = await service.closeConversation('573001234567');
+
+        expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+        expect(whatsappOutboundLogService.log).not.toHaveBeenCalled();
+        expect(result).toBe(false);
+      });
+
+      it('sends nothing for an unrecognized number', async () => {
+        clientsRepository.findOne.mockResolvedValue(null);
+
+        await service.closeConversation('573001234567');
+
+        expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+        expect(conversationTicketService.findByClientId).not.toHaveBeenCalled();
+      });
+
+      it('sends nothing once the advisor request was already resolved', async () => {
+        clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+        conversationTicketService.findByClientId.mockResolvedValue({
+          clientId: 'client-1',
+          status: WhatsappTicketStatus.Resolved,
+          triggerKind: WhatsappTicketTriggerKind.AdvisorRequested,
+        });
+
+        await service.closeConversation('573001234567');
+
+        expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        WhatsappTicketTriggerKind.ReceiptImage,
+        WhatsappTicketTriggerKind.ReceiptDocument,
+        WhatsappTicketTriggerKind.FreeText,
+      ])('sends nothing for a pending %s ticket', async (triggerKind) => {
+        clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+        conversationTicketService.findByClientId.mockResolvedValue({
+          clientId: 'client-1',
+          status: WhatsappTicketStatus.Pending,
+          triggerKind,
+        });
+
+        await service.closeConversation('573001234567');
+
+        expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+      });
+
+      it('still clears state, records the closure and resolves the ticket', async () => {
+        clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+        await service.closeConversation('573001234567');
+
+        expect(conversationStateService.clear).toHaveBeenCalledWith(
+          '+573001234567',
+        );
+        expect(closuresRepository.upsert).toHaveBeenCalled();
+        expect(conversationTicketService.resolve).toHaveBeenCalledWith(
+          'client-1',
+        );
+      });
+    });
+
     // Human report, 2026-09-23 — any conversation can be closed now, not
     // only one with a hand-off ticket; keyed like findConversations'
     // contact_key so the list can join it back onto the right row.
@@ -1373,7 +1459,8 @@ describe('WhatsappWebhookService', () => {
     });
 
     describe('sendClosingMessage: false', () => {
-      it('skips sending the closing message entirely', async () => {
+      it('skips sending the closing message entirely, even for a client awaiting an advisor', async () => {
+        awaitingAdvisor();
         const result = await service.closeConversation('573001234567', false);
 
         expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();

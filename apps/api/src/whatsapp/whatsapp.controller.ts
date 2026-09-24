@@ -203,7 +203,7 @@ export class WhatsappController {
     summary:
       'Close any inbox conversation (admin or granted the messages module)',
     description:
-      "Marks the conversation closed (green in the inbox) until the client writes again — see docs/DATABASE.md's whatsapp_conversation_closures. Clears the self-service-menu state, so the client's next message gets the menu fresh instead of the bot staying silent — see docs/phases/PHASE_34_INTERACTIVE_MENU.md. Also resolves that client's WhatsappConversationTicket, if any. Sends the generic closing message unless sendClosingMessage is explicitly false — e.g. a conversation resolved outside WhatsApp, or one whose 24h session window already closed.",
+      "Marks the conversation closed (green in the inbox) until the client writes again — see docs/DATABASE.md's whatsapp_conversation_closures. Clears the self-service-menu state, so the client's next message gets the menu fresh instead of the bot staying silent — see docs/phases/PHASE_34_INTERACTIVE_MENU.md. Also resolves that client's WhatsappConversationTicket, if any. Sends the generic closing message ONLY when the client has a pending advisor_requested ticket (never otherwise, whatever sendClosingMessage says), and even then not when sendClosingMessage is explicitly false — e.g. a conversation resolved outside WhatsApp, or one whose 24h session window already closed.",
   })
   @ApiResponse({
     status: 201,

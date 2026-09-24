@@ -70,6 +70,14 @@ export class WhatsappConversationTicketService {
     return saved;
   }
 
+  // Human report, 2026-09-23 — lets closeConversation decide whether the
+  // client is still waiting on an advisor (see its own comment).
+  async findByClientId(
+    clientId: string,
+  ): Promise<WhatsappConversationTicket | null> {
+    return this.repository.findOneBy({ clientId });
+  }
+
   // Flat list, no pagination — the panel needs every ticket (not just a
   // recent window) to compute the pending badge/filter/FIFO ordering
   // client-side, and row volume here is inherently small (one row per

@@ -14,6 +14,10 @@ import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Configuration } from '../../config/configuration';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
+import {
+  WhatsappTicketStatus,
+  WhatsappTicketTriggerKind,
+} from '../entities/whatsappConversationTicket.entity';
 import { WhatsappConversationClosure } from '../entities/whatsappConversationClosure.entity';
 import { ConversationMenu } from '../entities/whatsappConversationState.entity';
 import {
@@ -893,7 +897,29 @@ export class WhatsappWebhookService {
     sendClosingMessage = true,
   ): Promise<boolean> {
     const phoneNumber = normalizeIncomingPhoneNumber(rawPhoneNumber);
-    const { sent, whatsappMessageId } = sendClosingMessage
+    // Matches either known number — see sendManualReply's identical
+    // comment.
+    const client = await this.clientsRepository.findOne({
+      where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
+    });
+    // Human report, 2026-09-23 — "el mensaje solo debe llegar si el cliente
+    // pidió hablar con el asesor recientemente, si no no debe enviarse".
+    // Any chat can be closed now (see WhatsappConversationClosure), mostly
+    // as the admin's own bookkeeping, and a client who never asked for
+    // anyone shouldn't get a "gracias por contactarnos" out of nowhere.
+    // "Recently" = their ticket is still pending with advisor_requested as
+    // its latest trigger, i.e. nobody has closed that request yet.
+    // Enforced here, not just in the panel — sendClosingMessage only ever
+    // narrows this further (the admin can still skip it), never widens it.
+    const ticket = client
+      ? await this.conversationTicketService.findByClientId(client.id)
+      : null;
+    const clientAwaitsAdvisor =
+      ticket?.status === WhatsappTicketStatus.Pending &&
+      ticket.triggerKind === WhatsappTicketTriggerKind.AdvisorRequested;
+    const shouldSendClosingMessage = sendClosingMessage && clientAwaitsAdvisor;
+
+    const { sent, whatsappMessageId } = shouldSendClosingMessage
       ? await this.whatsAppService.sendTextMessage(
           phoneNumber,
           CONVERSATION_CLOSED_MESSAGE,
@@ -903,15 +929,10 @@ export class WhatsappWebhookService {
     // record" reasoning as WhatsappOutboundLogService's own comment: this
     // closing message used to leave no trace in the conversation thread.
     // sentByUserId null since the admin only triggered it, they didn't
-    // type this fixed message themselves. Matches either known number —
-    // see sendManualReply's identical comment. Skipped entirely (not
-    // logged as a failed send) when sendClosingMessage is false — nothing
-    // was actually attempted, so there's nothing real to show in the
-    // thread.
-    const client = await this.clientsRepository.findOne({
-      where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
-    });
-    if (sendClosingMessage) {
+    // type this fixed message themselves. Skipped entirely (not logged as a
+    // failed send) when no closing message was attempted — nothing real to
+    // show in the thread.
+    if (shouldSendClosingMessage) {
       await this.whatsappOutboundLogService.log({
         clientId: client?.id ?? null,
         phoneNumber,
