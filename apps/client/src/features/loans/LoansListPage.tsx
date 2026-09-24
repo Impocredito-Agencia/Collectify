@@ -13,6 +13,7 @@ import { LoanRow } from '@/features/loans/LoanRow';
 import { LoanStatus } from '@/features/loans/loansApi';
 import { useCreateLoan, useLoans } from '@/features/loans/useLoans';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
+import { useSessionState } from '@/lib/useSessionState';
 import { useSortableColumn } from '@/lib/useSortableColumn';
 
 import type { LoanSummary } from '@/features/loans/loansApi';
@@ -83,9 +84,14 @@ export function LoansListPage() {
     user && (user.role === 'admin' || user.modules.includes('loans')),
   );
 
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [page, setPage] = useState(1);
+  // Human report, 2026-09-23 — kept across opening a pagaré and coming
+  // back, so a search doesn't have to be retyped; see useSessionState.
+  const [search, setSearch] = useSessionState('loans.list.search', '');
+  const [statusFilter, setStatusFilter] = useSessionState<StatusFilter>(
+    'loans.list.statusFilter',
+    'all',
+  );
+  const [page, setPage] = useSessionState('loans.list.page', 1);
   const [isCreating, setIsCreating] = useState(false);
 
   const { data, isLoading, isError } = useLoans({
@@ -108,7 +114,7 @@ export function LoansListPage() {
     direction: sortDirection,
     toggle: toggleSort,
     directionFor,
-  } = useSortableColumn<LoanSortColumn>();
+  } = useSortableColumn<LoanSortColumn>('loans.list.sort');
   const sortedLoans = sortColumn
     ? [...loans].sort(
         (a, b) =>

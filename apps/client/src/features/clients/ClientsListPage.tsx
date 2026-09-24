@@ -20,6 +20,7 @@ import {
   useUpdateClient,
 } from '@/features/clients/useClients';
 import { ApiError } from '@/lib/apiClient';
+import { useSessionState } from '@/lib/useSessionState';
 import { useSortableColumn } from '@/lib/useSortableColumn';
 
 import type { Client, ClientListItem } from '@/features/clients/clientsApi';
@@ -101,9 +102,14 @@ export function ClientsListPage() {
     user && (user.role === 'admin' || user.modules.includes('clients')),
   );
 
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
-  const [page, setPage] = useState(1);
+  // Human report, 2026-09-23 — kept across opening a client and coming
+  // back, so a search doesn't have to be retyped; see useSessionState.
+  const [search, setSearch] = useSessionState('clients.list.search', '');
+  const [statusFilter, setStatusFilter] = useSessionState<StatusFilter>(
+    'clients.list.statusFilter',
+    'active',
+  );
+  const [page, setPage] = useSessionState('clients.list.page', 1);
 
   const [editingClient, setEditingClient] = useState<Client | 'new' | null>(
     null,
@@ -162,7 +168,7 @@ export function ClientsListPage() {
     direction: sortDirection,
     toggle: toggleSort,
     directionFor,
-  } = useSortableColumn<ClientSortColumn>();
+  } = useSortableColumn<ClientSortColumn>('clients.list.sort');
   const sortedClients = sortColumn
     ? [...clients].sort(
         (a, b) =>
