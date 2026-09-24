@@ -237,9 +237,9 @@ export function AuditLogsPage() {
           <thead className="bg-input">
             <tr>
               <Th className="w-[210px]">Actor</Th>
-              <Th className="w-[270px]">Acción</Th>
+              <Th className="w-[324px]">Acción</Th>
               <Th>Entidad</Th>
-              <Th className="w-[160px]">Fecha</Th>
+              <Th className="w-[176px]">Fecha</Th>
             </tr>
           </thead>
           <tbody>
