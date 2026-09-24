@@ -233,6 +233,30 @@ export function LoanDetailPage() {
   const installmentsPaid = loan.installments.filter(
     (installment) => installment.status === InstallmentStatus.Paid,
   ).length;
+  // Human report, 2026-09-23 — the payment history's first column used to
+  // be a plain row counter (1, 2, 3…), which clients read as the cuota
+  // number and then couldn't find in the Cuotas table ("este número no
+  // coincide con el de la cuota cancelada"). It now shows the number of the
+  // cuota each payment went to, taken from the same installmentNumber the
+  // Cuotas table's "N°" column shows. A payment only carries its
+  // installmentId, so it's resolved here from this loan's own installments.
+  const installmentNumberById = new Map(
+    loan.installments.map((installment) => [
+      installment.id,
+      installment.installmentNumber,
+    ]),
+  );
+  // GET /loans/:id/payments orders by date only, so payments made the same
+  // day (a bulk payment across several cuotas) came back in arbitrary
+  // order — with cuota numbers now visible that read as shuffled. Same
+  // date first, then cuota number, then registration time.
+  const paymentsByDateThenCuota = [...(payments ?? [])].sort(
+    (a, b) =>
+      a.paidAt.localeCompare(b.paidAt) ||
+      (installmentNumberById.get(a.installmentId) ?? 0) -
+        (installmentNumberById.get(b.installmentId) ?? 0) ||
+      a.createdAt.localeCompare(b.createdAt),
+  );
   const overdueDays = pendingInstallments.reduce(
     (max, installment) => Math.max(max, installment.overdueDays),
     0,
@@ -565,7 +589,7 @@ export function LoanDetailPage() {
           <table className="w-full min-w-[760px]">
             <thead className="bg-input">
               <tr>
-                <Th className="w-10">#</Th>
+                <Th className="w-16">Cuota</Th>
                 <Th>Fecha</Th>
                 <Th>Monto</Th>
                 <Th>Observación</Th>
@@ -585,12 +609,14 @@ export function LoanDetailPage() {
                   </td>
                 </tr>
               )}
-              {(payments ?? []).map((payment, index) => (
+              {paymentsByDateThenCuota.map((payment) => (
                 <tr
                   key={payment.id}
                   className={`border-t border-border${payment.deletedAt ? ' opacity-50' : ''}`}
                 >
-                  <Td muted>{index + 1}</Td>
+                  <Td muted>
+                    {installmentNumberById.get(payment.installmentId) ?? '—'}
+                  </Td>
                   <Td>{formatDateOnly(payment.paidAt)}</Td>
                   <Td>{formatCurrency(payment.amountPaid)}</Td>
                   <Td muted>{payment.observation ?? '—'}</Td>
