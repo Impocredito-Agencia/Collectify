@@ -309,4 +309,20 @@ describe('AuditLogService', () => {
       expect(qb.orderBy).toHaveBeenCalledWith('actor.fullName', 'ASC');
     });
   });
+
+  describe('findActions', () => {
+    it('returns each distinct action with its entity type, by action', async () => {
+      qb.getRawMany.mockResolvedValue([
+        { action: 'client.create', entityType: 'client' },
+      ]);
+
+      const result = await service.findActions();
+
+      expect(result).toEqual([
+        { action: 'client.create', entityType: 'client' },
+      ]);
+      expect(qb.distinct).toHaveBeenCalledWith(true);
+      expect(qb.orderBy).toHaveBeenCalledWith('log.action', 'ASC');
+    });
+  });
 });

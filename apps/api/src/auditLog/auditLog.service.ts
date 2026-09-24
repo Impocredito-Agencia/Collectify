@@ -179,4 +179,19 @@ export class AuditLogService {
       .orderBy('actor.fullName', 'ASC')
       .getRawMany<{ id: string; fullName: string }>();
   }
+
+  // Feeds the "Acción"/"Entidad" filter dropdowns from what is ACTUALLY in the
+  // trail instead of a hardcoded list that has to be kept in sync with every
+  // new @Audit() call (the frontend's label map was chronically behind — see
+  // auditLogLabels.ts). Each action carries its entityType so the two
+  // dropdowns can narrow each other.
+  async findActions(): Promise<{ action: string; entityType: string }[]> {
+    return this.auditLogsRepository
+      .createQueryBuilder('log')
+      .select('log.action', 'action')
+      .addSelect('log.entityType', 'entityType')
+      .distinct(true)
+      .orderBy('log.action', 'ASC')
+      .getRawMany<{ action: string; entityType: string }>();
+  }
 }

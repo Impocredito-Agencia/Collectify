@@ -66,4 +66,23 @@ export class AuditLogController {
   findActors(): Promise<{ id: string; fullName: string }[]> {
     return this.auditLogService.findActors();
   }
+
+  @Get('actions')
+  @RequireModule(AppModule.AuditLog)
+  @ApiOperation({
+    summary:
+      'List the distinct actions (and their entity type) present in the audit trail (for the action/entity filters, admin or granted the audit_log module)',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Returns { action, entityType } for every action logged at least once.',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Requires the admin role or the audit_log module.',
+  })
+  findActions(): Promise<{ action: string; entityType: string }[]> {
+    return this.auditLogService.findActions();
+  }
 }
