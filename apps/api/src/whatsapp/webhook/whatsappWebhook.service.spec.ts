@@ -63,7 +63,10 @@ describe('WhatsappWebhookService', () => {
     update: jest.Mock;
   };
   let messageLogsRepository: { find: jest.Mock; update: jest.Mock };
-  let whatsAppService: { sendTextMessage: jest.Mock };
+  let whatsAppService: {
+    sendTextMessage: jest.Mock;
+    sendTemplateMessage: jest.Mock;
+  };
   let whatsappOutboundLogService: { log: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
   let conversationStateService: { getActive: jest.Mock; clear: jest.Mock };
@@ -108,7 +111,10 @@ describe('WhatsappWebhookService', () => {
       find: jest.fn().mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({ affected: 0 }),
     };
-    whatsAppService = { sendTextMessage: jest.fn() };
+    whatsAppService = {
+      sendTextMessage: jest.fn(),
+      sendTemplateMessage: jest.fn(),
+    };
     whatsappOutboundLogService = {
       log: jest.fn((params: Record<string, unknown>) =>
         Promise.resolve({ id: 'reply-1', ...params }),
@@ -1248,6 +1254,88 @@ describe('WhatsappWebhookService', () => {
       const result = await service.getConversationState('+573001234567');
 
       expect(result).toBe('handed_off_to_human');
+    });
+  });
+
+  describe('sendFollowUpTemplate', () => {
+    it("sends seguimiento_solicitud with the matched client's full name", async () => {
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: 'wamid.FOLLOW_UP',
+      });
+      clientsRepository.findOne.mockResolvedValue({
+        id: 'client-1',
+        firstName: 'Jhon Alex',
+        lastName: 'Castaño',
+      });
+
+      const result = await service.sendFollowUpTemplate(
+        '573001234567',
+        'user-1',
+      );
+
+      expect(clientsRepository.findOne).toHaveBeenCalledWith({
+        where: [
+          { phoneNumber: '+573001234567' },
+          { alternatePhoneNumber: '+573001234567' },
+        ],
+      });
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        '+573001234567',
+        'seguimiento_solicitud',
+        'es',
+        ['Jhon Alex Castaño'],
+      );
+      expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith({
+        clientId: 'client-1',
+        phoneNumber: '+573001234567',
+        messageContent:
+          'Cordial saludo, Jhon Alex Castaño.\n\n' +
+          'Seguimos atentos a su solicitud con IMPROCRÉDITO. Por favor, respóndanos a este mensaje para que un asesor pueda continuar ayudándole. 🤝',
+        sentByUserId: 'user-1',
+        sent: true,
+        whatsappMessageId: 'wamid.FOLLOW_UP',
+      });
+      expect(result).toBe(true);
+    });
+
+    it('greets an unrecognized number as Señor(a) and still logs it', async () => {
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: null,
+      });
+      clientsRepository.findOne.mockResolvedValue(null);
+
+      await service.sendFollowUpTemplate('+573001234567', 'user-1');
+
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        '+573001234567',
+        'seguimiento_solicitud',
+        'es',
+        ['Señor(a)'],
+      );
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ clientId: null, sentByUserId: 'user-1' }),
+      );
+    });
+
+    it('logs a failed send and returns false', async () => {
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: false,
+        whatsappMessageId: null,
+      });
+      clientsRepository.findOne.mockResolvedValue(null);
+
+      const result = await service.sendFollowUpTemplate(
+        '+573001234567',
+        'user-1',
+      );
+
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ sent: false }),
+      );
+      expect(result).toBe(false);
     });
   });
 

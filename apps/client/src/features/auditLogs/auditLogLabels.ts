@@ -68,6 +68,7 @@ export const ACTION_LABELS: Record<string, string> = {
   // 2026-09-03 coverage sweep (docs/DATABASE.md's "audit_logs" section):
   // reply, the two manual-send endpoints, and message_logs.retry.
   'whatsapp.reply': 'Respondió manualmente a un cliente por WhatsApp',
+  'whatsapp.followUp': 'Envió la plantilla de seguimiento por WhatsApp',
   'whatsapp.sendReminder': 'Envió manualmente un recordatorio de mora',
   'whatsapp.sendUpcomingDue':
     'Envió manualmente un recordatorio de cuota próxima',
