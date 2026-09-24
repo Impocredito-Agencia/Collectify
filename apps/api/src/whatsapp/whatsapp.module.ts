@@ -23,6 +23,7 @@ import { WhatsappManualReply } from './entities/whatsappManualReply.entity';
 import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { MessageLogsController } from './messageLogs/messageLogs.controller';
 import { MessageLogsService } from './messageLogs/messageLogs.service';
+import { MessageLogSubscriber } from './messageLogs/messageLog.subscriber';
 import { MessageTemplatesController } from './messageTemplates/messageTemplates.controller';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { NewLoanReminderService } from './newLoanReminder.service';
@@ -108,6 +109,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     WhatsappWebhookService,
     WhatsappMediaService,
     WhatsappInboundGateway,
+    MessageLogSubscriber,
     WhatsappConversationStateService,
     WhatsappConversationTicketService,
     SelfServiceMenuService,
