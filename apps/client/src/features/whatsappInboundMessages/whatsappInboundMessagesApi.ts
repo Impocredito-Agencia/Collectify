@@ -171,6 +171,17 @@ export const whatsappInboundMessagesApi = {
     return data.sent;
   },
 
+  // Human report, 2026-09-24 — sends the seguimiento_solicitud Meta
+  // template, which (unlike reply above) still reaches the client after
+  // their 24h window closed. See SendFollowUpButton.
+  sendFollowUp: async (phoneNumber: string): Promise<boolean> => {
+    const { data } = await apiClient.post<{ sent: boolean }>(
+      '/whatsapp/inbound-messages/follow-up',
+      { phoneNumber },
+    );
+    return data.sent;
+  },
+
   // Human report, 2026-09-14 (critical bug) — scoped to one conversation
   // (clientId, or fromPhoneNumber for an unrecognized number) instead of a
   // flat window shared across every conversation's replies — see

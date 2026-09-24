@@ -63,6 +63,20 @@ export function useReplyToInboundMessage() {
   });
 }
 
+// Human report, 2026-09-24 — same cache refresh as a manual reply: the
+// template shows up in the thread and moves the chat to the top.
+export function useSendFollowUp() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (phoneNumber: string) =>
+      whatsappInboundMessagesApi.sendFollowUp(phoneNumber),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['whatsappManualReplies'] });
+      queryClient.invalidateQueries({ queryKey: ['whatsappConversations'] });
+    },
+  });
+}
+
 // Human report, 2026-09-14 (critical bug) — scoped to one conversation now
 // (clientId, or fromPhoneNumber for an unrecognized number), same "shared
 // global budget" bug fix as useConversations above: a busy conversation's
