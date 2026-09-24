@@ -28,6 +28,11 @@ import {
   WhatsappManualReply,
   WhatsappManualReplyStatus,
 } from '../entities/whatsappManualReply.entity';
+import {
+  buildFollowUpTemplateMessage,
+  FOLLOW_UP_TEMPLATE_LANGUAGE_CODE,
+  FOLLOW_UP_TEMPLATE_NAME,
+} from '../followUpTemplate';
 import { CONVERSATION_CLOSED_MESSAGE } from '../selfServiceMenuMessages';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
@@ -796,6 +801,46 @@ export class WhatsappWebhookService {
       clientId: client?.id ?? null,
       phoneNumber,
       messageContent: message,
+      sentByUserId,
+      sent,
+      whatsappMessageId,
+    });
+
+    return sent;
+  }
+
+  // Human report, 2026-09-24 — the inbox's "Enviar seguimiento" button.
+  // Unlike sendManualReply this is a Meta template, so it reaches the
+  // client even after their 24h session window closed; their reply then
+  // reopens it for a normal manual reply. Works on any conversation,
+  // recognized number or not — see buildFollowUpTemplateMessage for the
+  // name fallback. Logged like a manual reply (sentByUserId = the admin
+  // who pressed the button), so it shows in the thread as theirs.
+  async sendFollowUpTemplate(
+    rawPhoneNumber: string,
+    sentByUserId: string,
+  ): Promise<boolean> {
+    const phoneNumber = normalizeIncomingPhoneNumber(rawPhoneNumber);
+    // Matches either known number — see sendManualReply's identical
+    // comment.
+    const client = await this.clientsRepository.findOne({
+      where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
+    });
+    const { bodyParameters, messageContent } =
+      buildFollowUpTemplateMessage(client);
+
+    const { sent, whatsappMessageId } =
+      await this.whatsAppService.sendTemplateMessage(
+        phoneNumber,
+        FOLLOW_UP_TEMPLATE_NAME,
+        FOLLOW_UP_TEMPLATE_LANGUAGE_CODE,
+        bodyParameters,
+      );
+
+    await this.whatsappOutboundLogService.log({
+      clientId: client?.id ?? null,
+      phoneNumber,
+      messageContent,
       sentByUserId,
       sent,
       whatsappMessageId,

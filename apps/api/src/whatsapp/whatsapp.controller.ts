@@ -158,6 +158,30 @@ export class WhatsappController {
     return { sent };
   }
 
+  @Post('inbound-messages/follow-up')
+  @Audit('whatsapp.followUp', 'whatsappReply')
+  @ApiOperation({
+    summary:
+      'Send the seguimiento_solicitud re-engagement template to a conversation (admin or granted the messages module)',
+    description:
+      'A Meta template, so unlike /inbound-messages/reply it also reaches a client whose 24h session window already closed. {{1}} is the matched client\'s full name, or "Señor(a)" for an unrecognized number. Logged to the conversation\'s thread like a manual reply.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns whether the send actually succeeded.',
+  })
+  @ApiResponse({ status: 400, description: 'phoneNumber missing.' })
+  async sendFollowUpTemplate(
+    @Body() dto: PhoneNumberDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<{ sent: boolean }> {
+    const sent = await this.whatsappWebhookService.sendFollowUpTemplate(
+      dto.phoneNumber,
+      currentUser.id,
+    );
+    return { sent };
+  }
+
   // Human report, 2026-09-14 — scoped to one conversation (clientId or
   // fromPhoneNumber) since findConversations replaced the old flat,
   // globally-capped fetch this used to back — see getManualReplies' own
