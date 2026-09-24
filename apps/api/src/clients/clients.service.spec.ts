@@ -39,6 +39,7 @@ describe('ClientsService', () => {
     softDelete: jest.Mock;
     find: jest.Mock;
     restore: jest.Mock;
+    update: jest.Mock;
   };
   let loansRepository: { count: jest.Mock; find: jest.Mock };
   let installmentsRepository: { find: jest.Mock };
@@ -74,6 +75,7 @@ describe('ClientsService', () => {
     documentIssueDate: null,
     email: null,
     alternatePhoneNumber: null,
+    mutedPhoneNumbers: [],
     homeAddress: null,
     workAddress: null,
     city: null,
@@ -114,6 +116,7 @@ describe('ClientsService', () => {
       softDelete: jest.fn(),
       find: jest.fn(),
       restore: jest.fn(),
+      update: jest.fn().mockResolvedValue(undefined),
     };
     loansRepository = {
       count: jest.fn().mockResolvedValue(0),
@@ -1517,6 +1520,121 @@ describe('ClientsService', () => {
         expect(
           clientMessageFrequenciesRepository.delete,
         ).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // Human report, 2026-09-23 — per-number "desactivar mensajes".
+  describe('message recipients', () => {
+    const clientWithNumbers: Client = {
+      ...mockClient,
+      phoneNumber: '+573001234567',
+      alternatePhoneNumber: '+573009876543',
+      mutedPhoneNumbers: ['+573009876543'],
+    };
+
+    describe('getMessageRecipients', () => {
+      it('lists primary, alternate and each active loan contact once, with muted state', async () => {
+        loansRepository.find.mockResolvedValue([
+          {
+            promissoryNoteNumber: '#900',
+            alternateContactName: 'Rosa Pérez',
+            alternateContactPhoneNumber: '+573005555555',
+          },
+          {
+            promissoryNoteNumber: '#901',
+            alternateContactName: 'Rosa Pérez',
+            alternateContactPhoneNumber: '+573005555555',
+          },
+        ]);
+
+        const recipients =
+          await service.getMessageRecipients(clientWithNumbers);
+
+        expect(recipients).toEqual([
+          {
+            phoneNumber: '+573001234567',
+            kind: 'primary',
+            contactName: null,
+            promissoryNoteNumbers: [],
+            muted: false,
+          },
+          {
+            phoneNumber: '+573009876543',
+            kind: 'alternate',
+            contactName: null,
+            promissoryNoteNumbers: [],
+            muted: true,
+          },
+          {
+            phoneNumber: '+573005555555',
+            kind: 'alternate_contact',
+            contactName: 'Rosa Pérez',
+            promissoryNoteNumbers: ['#900', '#901'],
+            muted: false,
+          },
+        ]);
+      });
+
+      it('only looks at active loans with a third-party contact', async () => {
+        await service.getMessageRecipients(clientWithNumbers);
+
+        expect(loansRepository.find).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              clientId: clientWithNumbers.id,
+              status: LoanStatus.Active,
+            }) as unknown,
+          }),
+        );
+      });
+    });
+
+    describe('setMutedPhoneNumbers', () => {
+      it('saves only the muted column and returns the updated recipients', async () => {
+        repository.findOneBy.mockResolvedValue(clientWithNumbers);
+
+        const recipients = await service.setMutedPhoneNumbers(
+          clientWithNumbers.id,
+          { phoneNumbers: ['+573001234567', '+573009876543'] },
+        );
+
+        expect(repository.update).toHaveBeenCalledWith(
+          { id: clientWithNumbers.id },
+          { mutedPhoneNumbers: ['+573001234567', '+573009876543'] },
+        );
+        expect(repository.save).not.toHaveBeenCalled();
+        expect(recipients.every((recipient) => recipient.muted)).toBe(true);
+      });
+
+      it('turns everything back on with an empty list', async () => {
+        repository.findOneBy.mockResolvedValue(clientWithNumbers);
+
+        const recipients = await service.setMutedPhoneNumbers(
+          clientWithNumbers.id,
+          { phoneNumbers: [] },
+        );
+
+        expect(recipients.some((recipient) => recipient.muted)).toBe(false);
+      });
+
+      it("rejects a number that isn't one of this client's recipients", async () => {
+        repository.findOneBy.mockResolvedValue(clientWithNumbers);
+
+        await expect(
+          service.setMutedPhoneNumbers(clientWithNumbers.id, {
+            phoneNumbers: ['+573112223344'],
+          }),
+        ).rejects.toThrow(BadRequestException);
+        expect(repository.update).not.toHaveBeenCalled();
+      });
+
+      it('throws NotFoundException when the client does not exist', async () => {
+        repository.findOneBy.mockResolvedValue(null);
+
+        await expect(
+          service.setMutedPhoneNumbers('missing-id', { phoneNumbers: [] }),
+        ).rejects.toThrow(NotFoundException);
       });
     });
   });

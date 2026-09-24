@@ -1,4 +1,7 @@
-import { getRecipientPhoneNumbers } from './clientRecipientPhoneNumbers';
+import {
+  excludeMutedPhoneNumbers,
+  getRecipientPhoneNumbers,
+} from './clientRecipientPhoneNumbers';
 
 describe('getRecipientPhoneNumbers', () => {
   it('returns just the primary number when there is no alternate', () => {
@@ -28,6 +31,31 @@ describe('getRecipientPhoneNumbers', () => {
         phoneNumber: '+573001234567',
         alternatePhoneNumber: '+573001234567',
       }),
+    ).toEqual(['+573001234567']);
+  });
+});
+
+// Human report, 2026-09-23 — per-number "desactivar mensajes".
+describe('excludeMutedPhoneNumbers', () => {
+  it('drops only the muted numbers', () => {
+    expect(
+      excludeMutedPhoneNumbers(['+573001234567', '+573009876543'], {
+        mutedPhoneNumbers: ['+573009876543'],
+      }),
+    ).toEqual(['+573001234567']);
+  });
+
+  it('returns an empty list when every number is muted', () => {
+    expect(
+      excludeMutedPhoneNumbers(['+573001234567'], {
+        mutedPhoneNumbers: ['+573001234567'],
+      }),
+    ).toEqual([]);
+  });
+
+  it('keeps everything when nothing is muted', () => {
+    expect(
+      excludeMutedPhoneNumbers(['+573001234567'], { mutedPhoneNumbers: [] }),
     ).toEqual(['+573001234567']);
   });
 });

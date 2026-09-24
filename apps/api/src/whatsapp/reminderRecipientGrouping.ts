@@ -1,6 +1,9 @@
 import { Client } from '../clients/entities/client.entity';
 
-import { getRecipientPhoneNumbers } from './clientRecipientPhoneNumbers';
+import {
+  excludeMutedPhoneNumbers,
+  getRecipientPhoneNumbers,
+} from './clientRecipientPhoneNumbers';
 import {
   OverdueInstallmentResult,
   UpcomingInstallmentResult,
@@ -60,7 +63,20 @@ export function groupInstallmentsByRecipient(
     });
   }
 
-  return groups;
+  // Human report, 2026-09-23 — muted numbers (Client.mutedPhoneNumbers)
+  // never receive a reminder; a group left with no one to send to is
+  // dropped entirely rather than sent to nobody. Another group can still
+  // go out — muting the client's own numbers doesn't silence a loan's
+  // third-party contact, or vice versa.
+  return groups
+    .map((group) => ({
+      ...group,
+      recipientPhoneNumbers: excludeMutedPhoneNumbers(
+        group.recipientPhoneNumbers,
+        client,
+      ),
+    }))
+    .filter((group) => group.recipientPhoneNumbers.length > 0);
 }
 
 // Human report, 2026-09-19 — a manual retry (MessageLogsService.dispatchRetry)

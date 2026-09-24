@@ -26,12 +26,14 @@ import { AppModule } from '../users/entities/userModulePermission.entity';
 import {
   ClientDetail,
   ClientListItem,
+  ClientMessageRecipient,
   ClientsService,
 } from './clients.service';
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
 import { SetClientMessageFrequencyDto } from './dto/setClientMessageFrequency.dto';
+import { SetClientMutedPhoneNumbersDto } from './dto/setClientMutedPhoneNumbers.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
 import { UpdateClientReferenceDto } from './dto/updateClientReference.dto';
 import { Client } from './entities/client.entity';
@@ -238,6 +240,39 @@ export class ClientsController {
   @ApiResponse({ status: 404, description: 'Client not found.' })
   clearMessageFrequency(@Param('id') id: string): Promise<void> {
     return this.clientsService.clearMessageFrequency(id);
+  }
+
+  // Human report, 2026-09-23 — turn collection reminders off per
+  // number (primary, alternate, or an active loan's third-party contact).
+  // Read side is GET /clients/:id's messageRecipients.
+  @Put(':id/muted-phone-numbers')
+  @RequireModule(AppModule.Clients)
+  @Audit('client.setMutedPhoneNumbers', 'client')
+  @ApiOperation({
+    summary:
+      "Set which of a client's numbers get no collection reminders (admin or granted the clients module)",
+    description:
+      'Replaces the full set of muted numbers (an empty array turns every number back on). ' +
+      'A muted number receives no overdue/upcoming-due reminder. It still receives the ' +
+      'new-loan notice and payment confirmations, and manual replies from the panel and the ' +
+      'bot answering an inbound message are unaffected.',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Returns the client's recipients with their updated muted state.",
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'A number does not belong to this client or their active loans.',
+  })
+  @ApiResponse({ status: 404, description: 'Client not found.' })
+  setMutedPhoneNumbers(
+    @Param('id') id: string,
+    @Body() dto: SetClientMutedPhoneNumbersDto,
+  ): Promise<ClientMessageRecipient[]> {
+    return this.clientsService.setMutedPhoneNumbers(id, dto);
   }
 
   // Human report, 2026-09-14 — saldo a favor: a client-level credit

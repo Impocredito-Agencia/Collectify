@@ -113,6 +113,33 @@ describe('PaymentConfirmationService', () => {
   });
 
   describe('sendPaymentConfirmation', () => {
+    // Human report, 2026-09-23 — "también deberían llegar mensajes de nuevo
+    // pagaré y de confirmación de pago": muting a number only stops
+    // collection reminders, never a payment confirmation.
+    it('still sends to a number whose reminders are turned off', async () => {
+      installmentsRepository.findOne.mockResolvedValue({
+        id: 'inst-1',
+        loanId: 'loan-1',
+        loan: {
+          ...loan,
+          client: { ...client, mutedPhoneNumbers: [client.phoneNumber] },
+        },
+        installmentNumber: 14,
+        amount: 300000,
+        dueDate: notYetDueDate,
+      });
+      installmentsRepository.count.mockResolvedValue(4);
+
+      await service.sendPaymentConfirmation('inst-1');
+
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        client.phoneNumber,
+        expect.any(String),
+        expect.any(String),
+        expect.any(Array),
+      );
+    });
+
     // Human report, 2026-09-19 — a loan with alternateContactPhoneNumber
     // set routes the confirmation to that contact instead of the
     // client's own number(s).
