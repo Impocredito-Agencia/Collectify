@@ -47,6 +47,11 @@ export const ACTION_LABELS: Record<string, string> = {
   'installment.updateDueDate': 'Cambió la fecha de cobro de una cuota',
   // Human report, 2026-09-09 — payment correction feature.
   'payment.void': 'Anuló un pago',
+  // Human report, 2026-09-23 — applies a client's saldo a favor to one of
+  // their pending installments (ClientCreditBanner's "Aplicar"). Added to
+  // the backend on 2026-09-14 but never here, so Auditoría showed the raw
+  // "payment.applyCredit".
+  'payment.applyCredit': 'Aplicó saldo a favor a una cuota',
   // Human report, 2026-09-10 — docs/DATABASE.md's 2026-09-03 coverage
   // sweep had already flagged "cron pause/resume/reschedule" (the
   // Plantillas tab's per-family Pausar/Reanudar/Guardar horario menu) as
