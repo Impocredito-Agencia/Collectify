@@ -27,6 +27,15 @@ export enum MessageType {
   SingleOverdueInstallmentWithSurcharge = 'una_cuota_vencida_en_mora',
   MultipleOverdueInstallments = 'varias_cuota_vencida',
   UpcomingAndOverdueMixed = 'proxima_vencer_y_vencida',
+  // Human report, 2026-09-23 — same three templates for a client whose
+  // mora is MORE than 30 days (see SEVERE_MORA_THRESHOLD_DAYS in
+  // reminderTemplateSelection.ts): they alone keep the "No afecte su
+  // historial crediticio" warning, now removed from the base versions
+  // above. Same parameters, in the same order, as each base template.
+  // The single-installment one's Meta name really does end in "_2".
+  SingleOverdueInstallmentWithSurchargeOver30Days = 'una_cuota_vencida_en_mora_30dias_2',
+  MultipleOverdueInstallmentsOver30Days = 'varias_cuota_vencida_30dias',
+  UpcomingAndOverdueMixedOver30Days = 'proxima_vencer_y_vencida_30dias',
   // Confirmación de pago
   PaymentConfirmation = 'confirmacion_pago',
   PaidInFull = 'pago_completo_paz_y_salvo',

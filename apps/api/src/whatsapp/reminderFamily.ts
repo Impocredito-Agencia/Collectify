@@ -22,12 +22,18 @@ export const OVERDUE_FAMILY_TYPES: MessageType[] = [
   MessageType.SingleOverdueInstallmentWithSurcharge,
   MessageType.MultipleOverdueInstallments,
   MessageType.UpcomingAndOverdueMixed,
+  // Human report, 2026-09-23 — appended, never prepended: WhatsappCronService
+  // reads this family's schedule off the FIRST entry.
+  MessageType.SingleOverdueInstallmentWithSurchargeOver30Days,
+  MessageType.MultipleOverdueInstallmentsOver30Days,
+  MessageType.UpcomingAndOverdueMixedOver30Days,
 ];
 
 export const UPCOMING_FAMILY_TYPES: MessageType[] = [
   MessageType.SingleUpcomingInstallment,
   MessageType.MultipleUpcomingInstallments,
   MessageType.UpcomingAndOverdueMixed,
+  MessageType.UpcomingAndOverdueMixedOver30Days,
 ];
 
 // Refinance shares this family's single schedule with ordinary new-loan

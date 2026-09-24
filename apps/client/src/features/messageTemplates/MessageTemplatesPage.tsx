@@ -83,7 +83,9 @@ const FAMILY_SCHEDULE_OWNER: Record<ReminderFamily, MessageType> = {
 const FAMILY_TYPES: Record<ReminderFamily, MessageType[]> = {
   [ReminderFamily.Overdue]: OVERDUE_FAMILY_TYPES,
   [ReminderFamily.UpcomingDue]: UPCOMING_FAMILY_TYPES.filter(
-    (type) => type !== MessageType.UpcomingAndOverdueMixed,
+    (type) =>
+      type !== MessageType.UpcomingAndOverdueMixed &&
+      type !== MessageType.UpcomingAndOverdueMixedOver30Days,
   ),
   [ReminderFamily.NewLoan]: NEW_LOAN_FAMILY_TYPES,
 };
