@@ -23,6 +23,7 @@ import {
   useClient,
   useDeleteClient,
   useSetClientMessageFrequency,
+  useSetClientMutedPhoneNumbers,
   useUpdateClient,
 } from '@/features/clients/useClients';
 import {
@@ -48,7 +49,10 @@ import {
 } from '@/lib/format';
 
 import type { ReactNode } from 'react';
-import type { ClientDetail } from '@/features/clients/clientsApi';
+import type {
+  ClientDetail,
+  ClientMessageRecipient,
+} from '@/features/clients/clientsApi';
 
 // Matches Figma frame 40:554 ("F-14 / Detalle cliente"). The loans section
 // was left as a placeholder when Phase 4 shipped — the loans feature
@@ -400,7 +404,10 @@ export function ClientDetailPage() {
                 onClick={async () => {
                   setSendError(null);
                   try {
-                    await sendReminder.mutateAsync(client.id);
+                    const logs = await sendReminder.mutateAsync(client.id);
+                    if (logs.length === 0) {
+                      setSendError(ALL_RECIPIENTS_MUTED_MESSAGE);
+                    }
                   } catch (err) {
                     setSendError(
                       err instanceof ApiError
@@ -419,7 +426,12 @@ export function ClientDetailPage() {
                 onClick={async () => {
                   setSendError(null);
                   try {
-                    await sendUpcomingDueReminder.mutateAsync(client.id);
+                    const logs = await sendUpcomingDueReminder.mutateAsync(
+                      client.id,
+                    );
+                    if (logs.length === 0) {
+                      setSendError(ALL_RECIPIENTS_MUTED_MESSAGE);
+                    }
                   } catch (err) {
                     setSendError(
                       err instanceof ApiError
@@ -882,7 +894,147 @@ function MessageFrequencySection({
           </div>
         )}
         {error && <p className="text-meta text-danger">{error}</p>}
+
+        <div className="border-t border-border" />
+        <MessageRecipientsList client={client} canManage={canManage} />
       </div>
+    </div>
+  );
+}
+
+// Human report, 2026-09-23 — a manual send comes back empty only when every
+// number that would have received it has messages turned off (see
+// MessageRecipientsList) — otherwise the API sends or errors.
+const ALL_RECIPIENTS_MUTED_MESSAGE =
+  'No se envió nada: los mensajes están desactivados para todos los números de este cliente.';
+
+const RECIPIENT_KIND_LABELS: Record<ClientMessageRecipient['kind'], string> = {
+  primary: 'Número principal',
+  alternate: 'Número secundario',
+  alternate_contact: 'Tercero',
+};
+
+function recipientLabel(recipient: ClientMessageRecipient): string {
+  if (recipient.kind !== 'alternate_contact') {
+    return RECIPIENT_KIND_LABELS[recipient.kind];
+  }
+  const notes = recipient.promissoryNoteNumbers.join(', ');
+  return `${RECIPIENT_KIND_LABELS.alternate_contact}${
+    recipient.contactName ? ` · ${recipient.contactName}` : ''
+  } (pagaré ${notes})`;
+}
+
+// Human report, 2026-09-23 — "desactivar envío de mensajes a ciertas
+// personas... número principal, número secundario, y el número de la
+// tercera persona... desactivar uno, dos o todos". One row per number
+// that can receive an automated message (see ClientMessageRecipient),
+// each switched on/off individually, plus a shortcut for all of them.
+// Saves the whole muted set on every click (PUT replaces it), so each
+// click is one self-contained change. Read-only without canManage, same
+// as the frequency controls above.
+function MessageRecipientsList({
+  client,
+  canManage,
+}: {
+  client: ClientDetail;
+  canManage: boolean;
+}) {
+  const setMuted = useSetClientMutedPhoneNumbers();
+  const [error, setError] = useState<string | null>(null);
+  const recipients = client.messageRecipients;
+  const mutedPhoneNumbers = recipients
+    .filter((recipient) => recipient.muted)
+    .map((recipient) => recipient.phoneNumber);
+  const allMuted = mutedPhoneNumbers.length === recipients.length;
+
+  const save = async (phoneNumbers: string[]) => {
+    setError(null);
+    try {
+      await setMuted.mutateAsync({ clientId: client.id, phoneNumbers });
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'No se pudo actualizar el envío de mensajes.',
+      );
+    }
+  };
+
+  const toggle = (recipient: ClientMessageRecipient) =>
+    void save(
+      recipient.muted
+        ? mutedPhoneNumbers.filter((n) => n !== recipient.phoneNumber)
+        : [...mutedPhoneNumbers, recipient.phoneNumber],
+    );
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-meta text-muted">
+          Números que reciben mensajes automáticos (recordatorios,
+          confirmaciones de pago, aviso de nuevo pagaré). Un número desactivado
+          no recibe ninguno; las respuestas manuales desde la bandeja no se ven
+          afectadas.
+        </p>
+        {canManage && recipients.length > 1 && (
+          <RowActionButton
+            onClick={() =>
+              void save(
+                allMuted
+                  ? []
+                  : recipients.map((recipient) => recipient.phoneNumber),
+              )
+            }
+            disabled={setMuted.isPending}
+            tone={allMuted ? undefined : 'subtle'}
+          >
+            {allMuted ? 'Activar todos' : 'Desactivar todos'}
+          </RowActionButton>
+        )}
+      </div>
+
+      <ul className="flex flex-col divide-y divide-border rounded border border-border">
+        {recipients.map((recipient) => (
+          <li
+            key={recipient.phoneNumber}
+            className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5"
+          >
+            <div className="flex min-w-0 flex-col">
+              <span className="text-meta text-subtle">
+                {recipientLabel(recipient)}
+              </span>
+              <span
+                className={`text-small ${
+                  recipient.muted ? 'text-muted line-through' : 'text-white'
+                }`}
+              >
+                {formatPhoneNumber(recipient.phoneNumber)}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span
+                className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${
+                  recipient.muted
+                    ? 'border-danger/40 text-danger'
+                    : 'border-success/40 text-success'
+                }`}
+              >
+                {recipient.muted ? 'Desactivado' : 'Activo'}
+              </span>
+              {canManage && (
+                <RowActionButton
+                  onClick={() => toggle(recipient)}
+                  disabled={setMuted.isPending}
+                  tone={recipient.muted ? undefined : 'subtle'}
+                >
+                  {recipient.muted ? 'Activar' : 'Desactivar'}
+                </RowActionButton>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {error && <p className="text-meta text-danger">{error}</p>}
     </div>
   );
 }

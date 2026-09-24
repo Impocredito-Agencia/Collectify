@@ -158,6 +158,22 @@ export function useClearClientMessageFrequency() {
   });
 }
 
+// Human report, 2026-09-23 — per-number "desactivar mensajes".
+export function useSetClientMutedPhoneNumbers() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      clientId,
+      phoneNumbers,
+    }: {
+      clientId: string;
+      phoneNumbers: string[];
+    }) => clientsApi.setMutedPhoneNumbers(clientId, phoneNumbers),
+    onSuccess: (_data, { clientId }) =>
+      queryClient.invalidateQueries({ queryKey: ['clients', clientId] }),
+  });
+}
+
 // Human report, 2026-09-14 — see ClientCreditBanner.tsx. Own query key
 // (not folded into ['clients', clientId], which carries the heavier
 // ClientDetail payload) so the banner can poll/invalidate this alone after

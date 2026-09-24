@@ -134,6 +134,19 @@ export interface ClientDetail extends Client {
   isMoraBlocked: boolean;
   references: ClientReference[];
   messageFrequency: ClientMessageFrequency | null;
+  messageRecipients: ClientMessageRecipient[];
+}
+
+// Human report, 2026-09-23 — every number that can receive an automated
+// WhatsApp message for this client, and whether it's been turned off.
+// Mirrors apps/api's ClientsService.ClientMessageRecipient.
+// alternate_contact = a loan's third party (not the co-debtor).
+export interface ClientMessageRecipient {
+  phoneNumber: string;
+  kind: 'primary' | 'alternate' | 'alternate_contact';
+  contactName: string | null;
+  promissoryNoteNumbers: string[];
+  muted: boolean;
 }
 
 // What GET /clients (list) returns per row — plain Client fields plus two
@@ -311,6 +324,19 @@ export const clientsApi = {
     referenceId: string,
   ): Promise<void> => {
     await apiClient.delete(`/clients/${clientId}/references/${referenceId}`);
+  },
+
+  // Human report, 2026-09-23 — replaces the client's full set of muted
+  // numbers; [] turns every number back on.
+  setMutedPhoneNumbers: async (
+    clientId: string,
+    phoneNumbers: string[],
+  ): Promise<ClientMessageRecipient[]> => {
+    const { data } = await apiClient.put<ClientMessageRecipient[]>(
+      `/clients/${clientId}/muted-phone-numbers`,
+      { phoneNumbers },
+    );
+    return data;
   },
 
   // Phase 27 — message frequency whitelist. setMessageFrequency both

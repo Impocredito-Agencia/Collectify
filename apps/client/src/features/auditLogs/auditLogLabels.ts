@@ -29,6 +29,8 @@ export const ACTION_LABELS: Record<string, string> = {
     'Configuró la frecuencia de mensajes de un cliente',
   'client.clearMessageFrequency':
     'Quitó la frecuencia personalizada de un cliente',
+  'client.setMutedPhoneNumbers':
+    'Cambió qué números de un cliente reciben mensajes automáticos',
   'loan.create': 'Creó un préstamo',
   'loan.update': 'Editó un préstamo',
   'loan.payoff': 'Liquidó un préstamo',
