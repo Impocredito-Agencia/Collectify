@@ -1,3 +1,5 @@
+import { DecimalInput } from '@/components/ui/DecimalInput';
+
 // Redesign, 2026-09-03 — this used to be the row for a catalog concept
 // flagged "mandatory usury-rate concept". That flag is gone: the loan's
 // own corriente/moratorio interest is now a system field, not a catalog
@@ -17,7 +19,7 @@ export function SystemInterestRateRow({
 }: {
   name: string;
   value: number | '';
-  onChange: (value: number) => void;
+  onChange: (value: number | '') => void;
   exceedsCeiling?: boolean;
 }) {
   return (
@@ -28,17 +30,9 @@ export function SystemInterestRateRow({
       <div className="flex h-[38px] flex-1 items-center rounded border border-border bg-input px-2.5 text-small text-white">
         {name}
       </div>
-      <input
-        type="number"
-        min={0}
-        // step="any" (not "0.01") — the monthly usury rate this value
-        // defaults to/is capped by can legitimately carry up to 4 decimals
-        // (annual→monthly conversion, ratePercentage's own DB scale). A
-        // fixed step="0.01" rejected the browser's own autofilled value
-        // some months, silently blocking submit before React ever saw it.
-        step="any"
+      <DecimalInput
         value={value}
-        onChange={(event) => onChange(parseFloat(event.target.value) || 0)}
+        onChange={onChange}
         title="Autocompletado con la tasa de usura vigente — puedes bajarlo, pero no superarlo."
         placeholder="%"
         className={`h-[38px] w-24 rounded border bg-input px-2.5 text-small text-white focus:outline-none ${

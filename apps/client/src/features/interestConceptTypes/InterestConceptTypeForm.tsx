@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { DecimalInput } from '@/components/ui/DecimalInput';
 import { Button } from '@/components/ui/Button';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { Field } from '@/components/ui/Field';
@@ -210,18 +211,11 @@ export function InterestConceptTypeForm({
         )}
 
         <Field label="Valor por defecto (opcional)">
-          <input
-            type="number"
-            min={0}
-            // step="any" — a percentage concept's value can carry more
-            // decimals than a native step="0.01" tolerates. The monthly
-            // usury rate this could be set close to already goes to 4
-            // decimals some months (annual→monthly conversion); a fixed
-            // step="0.01" rejected values like 2.3395 with no real
-            // business reason (style fix, 2026-09-03).
-            step="any"
-            value={defaultValue}
-            onChange={(event) => setDefaultValue(event.target.value)}
+          <DecimalInput
+            value={defaultValue === '' ? '' : Number(defaultValue)}
+            onChange={(value) =>
+              setDefaultValue(value === '' ? '' : String(value))
+            }
             className={inputClassName(false)}
           />
         </Field>

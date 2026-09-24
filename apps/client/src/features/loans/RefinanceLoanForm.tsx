@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { DecimalInput } from '@/components/ui/DecimalInput';
 import { Button } from '@/components/ui/Button';
 import { ChipButton } from '@/components/ui/ChipButton';
 import { CloseButton } from '@/components/ui/CloseButton';
@@ -62,8 +63,11 @@ interface RefinanceLoanFormProps {
   onClose: () => void;
 }
 
-interface ConceptRow extends LoanConceptAssignment {
+// `value` is '' while the field is empty (see DecimalInput.tsx) — submit/
+// preview validation rejects an empty one before it ever reaches the api.
+interface ConceptRow extends Omit<LoanConceptAssignment, 'value'> {
   rowId: string;
+  value: number | '';
 }
 
 type FieldName =
@@ -465,6 +469,25 @@ export function RefinanceLoanForm({
     ) {
       errors.moratoryConcepts = `Los intereses moratorios no pueden superar la tasa de usura vigente (${currentUsuryRate.ratePercentage}%).`;
     }
+    // Empty value fields are allowed while editing (DecimalInput never
+    // forces a 0), but not when submitting/previewing.
+    if (!errors.concepts) {
+      if (hasUsableUsuryRate && corrienteInterestRate === '') {
+        errors.concepts = 'El valor de los intereses corrientes está vacío.';
+      } else if (concepts.some((row) => row.value === '')) {
+        errors.concepts =
+          'Hay un cargo adicional con el valor vacío. Escribe un valor o quita el cargo.';
+      }
+    }
+    if (!errors.moratoryConcepts) {
+      if (hasUsableUsuryRate && moratoryInterestRate === '') {
+        errors.moratoryConcepts =
+          'El valor de los intereses moratorios está vacío.';
+      } else if (moratoryConcepts.some((row) => row.value === '')) {
+        errors.moratoryConcepts =
+          'Hay un cargo moratorio con el valor vacío. Escribe un valor o quita el cargo.';
+      }
+    }
     if (hasCoDebtor && !coDebtorClient) {
       errors.coDebtorClientId = 'Selecciona un cliente como codeudor.';
     } else if (
@@ -500,14 +523,16 @@ export function RefinanceLoanForm({
     concepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
-      value,
+      // Validated non-empty before this runs (see validate()).
+      value: value === '' ? 0 : value,
     }));
 
   const toMoratoryConceptAssignments = (): LoanConceptAssignment[] =>
     moratoryConcepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
-      value,
+      // Validated non-empty before this runs (see validate()).
+      value: value === '' ? 0 : value,
     }));
 
   const handlePreview = async () => {
@@ -1036,19 +1061,10 @@ export function RefinanceLoanForm({
                         // instead of truncating.
                         className="min-w-0 flex-1"
                       />
-                      <input
-                        type="number"
-                        min={0}
-                        // step="any" — a percentage concept's value can
-                        // carry more decimals than a native step="0.01"
-                        // tolerates (see MandatoryConceptRow.tsx's own
-                        // comment for the full explanation).
-                        step="any"
+                      <DecimalInput
                         value={row.value}
-                        onChange={(event) =>
-                          updateConceptRow(row.rowId, {
-                            value: parseFloat(event.target.value) || 0,
-                          })
+                        onChange={(value) =>
+                          updateConceptRow(row.rowId, { value })
                         }
                         placeholder={
                           row.calculationType ===
@@ -1135,19 +1151,10 @@ export function RefinanceLoanForm({
                         // instead of truncating.
                         className="min-w-0 flex-1"
                       />
-                      <input
-                        type="number"
-                        min={0}
-                        // step="any" — a percentage concept's value can
-                        // carry more decimals than a native step="0.01"
-                        // tolerates (see MandatoryConceptRow.tsx's own
-                        // comment for the full explanation).
-                        step="any"
+                      <DecimalInput
                         value={row.value}
-                        onChange={(event) =>
-                          updateMoratoryConceptRow(row.rowId, {
-                            value: parseFloat(event.target.value) || 0,
-                          })
+                        onChange={(value) =>
+                          updateMoratoryConceptRow(row.rowId, { value })
                         }
                         placeholder={
                           row.calculationType ===
