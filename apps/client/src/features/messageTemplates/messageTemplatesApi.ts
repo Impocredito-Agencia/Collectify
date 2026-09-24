@@ -1,7 +1,8 @@
 import { apiClient } from '@/lib/apiClient';
 
-// Matches apps/api/src/whatsapp/messageType.enum.ts exactly — 13 real,
-// Meta-approved templates as of Phase 33 (superseded the old 4-value
+// Matches apps/api/src/whatsapp/messageType.enum.ts exactly — 16 real
+// (13 as of Phase 33, plus the three *_30dias variants added 2026-09-23),
+// Meta-approved templates (Phase 33 superseded the old 4-value
 // catalog: new_loan/upcoming_due/overdue/account_summary, none of which
 // are valid values anymore — account_summary was retired outright, the
 // other three split into more specific variants). See
@@ -18,11 +19,16 @@ export enum MessageType {
   SingleOverdueInstallmentWithSurcharge = 'una_cuota_vencida_en_mora',
   MultipleOverdueInstallments = 'varias_cuota_vencida',
   UpcomingAndOverdueMixed = 'proxima_vencer_y_vencida',
+  // Human report, 2026-09-23 — only sent once the client's mora is MORE
+  // than 30 days; see apps/api's messageType.enum.ts.
+  SingleOverdueInstallmentWithSurchargeOver30Days = 'una_cuota_vencida_en_mora_30dias_2',
+  MultipleOverdueInstallmentsOver30Days = 'varias_cuota_vencida_30dias',
+  UpcomingAndOverdueMixedOver30Days = 'proxima_vencer_y_vencida_30dias',
   PaymentConfirmation = 'confirmacion_pago',
   PaidInFull = 'pago_completo_paz_y_salvo',
 }
 
-// Display order + Spanish labels for the 13 message types — shared across
+// Display order + Spanish labels for every message type — shared across
 // this page, MessageLogsPage, and ClientDetailPage/LoanDetailPage so the
 // wording is consistent everywhere a type shows up. Short labels; the
 // full literal name (matching docs/DATABASE.md's seeded `name` column) is
@@ -39,6 +45,9 @@ export const MESSAGE_TYPE_ORDER: MessageType[] = [
   MessageType.SingleOverdueInstallmentWithSurcharge,
   MessageType.MultipleOverdueInstallments,
   MessageType.UpcomingAndOverdueMixed,
+  MessageType.SingleOverdueInstallmentWithSurchargeOver30Days,
+  MessageType.MultipleOverdueInstallmentsOver30Days,
+  MessageType.UpcomingAndOverdueMixedOver30Days,
   MessageType.PaymentConfirmation,
   MessageType.PaidInFull,
 ];
@@ -58,6 +67,12 @@ export const MESSAGE_TYPE_LABELS: Record<MessageType, string> = {
     'Una cuota vencida con recargos',
   [MessageType.MultipleOverdueInstallments]: 'Varias cuotas vencidas',
   [MessageType.UpcomingAndOverdueMixed]: 'Próximas a vencer y vencidas',
+  [MessageType.SingleOverdueInstallmentWithSurchargeOver30Days]:
+    'Una cuota vencida con recargos — mora +30 días',
+  [MessageType.MultipleOverdueInstallmentsOver30Days]:
+    'Varias cuotas vencidas — mora +30 días',
+  [MessageType.UpcomingAndOverdueMixedOver30Days]:
+    'Próximas a vencer y vencidas — mora +30 días',
   [MessageType.PaymentConfirmation]: 'Confirmación de pago',
   [MessageType.PaidInFull]: 'Pago completo — paz y salvo',
 };
@@ -112,6 +127,9 @@ export const REMINDER_FAMILY_TYPES: MessageType[] = [
   MessageType.SingleOverdueInstallmentWithSurcharge,
   MessageType.MultipleOverdueInstallments,
   MessageType.UpcomingAndOverdueMixed,
+  MessageType.SingleOverdueInstallmentWithSurchargeOver30Days,
+  MessageType.MultipleOverdueInstallmentsOver30Days,
+  MessageType.UpcomingAndOverdueMixedOver30Days,
 ];
 
 // Split out of REMINDER_FAMILY_TYPES (2026-09-06) — mirrors
@@ -125,12 +143,16 @@ export const OVERDUE_FAMILY_TYPES: MessageType[] = [
   MessageType.SingleOverdueInstallmentWithSurcharge,
   MessageType.MultipleOverdueInstallments,
   MessageType.UpcomingAndOverdueMixed,
+  MessageType.SingleOverdueInstallmentWithSurchargeOver30Days,
+  MessageType.MultipleOverdueInstallmentsOver30Days,
+  MessageType.UpcomingAndOverdueMixedOver30Days,
 ];
 
 export const UPCOMING_FAMILY_TYPES: MessageType[] = [
   MessageType.SingleUpcomingInstallment,
   MessageType.MultipleUpcomingInstallments,
   MessageType.UpcomingAndOverdueMixed,
+  MessageType.UpcomingAndOverdueMixedOver30Days,
 ];
 
 // Templates are read-only content, editable only via a migration —
