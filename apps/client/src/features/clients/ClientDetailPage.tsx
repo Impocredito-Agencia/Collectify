@@ -906,7 +906,7 @@ function MessageFrequencySection({
 // number that would have received it has messages turned off (see
 // MessageRecipientsList) — otherwise the API sends or errors.
 const ALL_RECIPIENTS_MUTED_MESSAGE =
-  'No se envió nada: los mensajes están desactivados para todos los números de este cliente.';
+  'No se envió nada: los recordatorios de cobro están desactivados para todos los números de este cliente.';
 
 const RECIPIENT_KIND_LABELS: Record<ClientMessageRecipient['kind'], string> = {
   primary: 'Número principal',
@@ -926,8 +926,12 @@ function recipientLabel(recipient: ClientMessageRecipient): string {
 
 // Human report, 2026-09-23 — "desactivar envío de mensajes a ciertas
 // personas... número principal, número secundario, y el número de la
-// tercera persona... desactivar uno, dos o todos". One row per number
-// that can receive an automated message (see ClientMessageRecipient),
+// tercera persona... desactivar uno, dos o todos". Narrowed the same day:
+// only collection reminders stop — "también deberían llegar mensajes de
+// nuevo pagaré y de confirmación de pago, especifica esto en el front
+// para que se entienda", hence the explicit copy below and on every
+// turned-off row. One row per number that can receive a reminder (see
+// ClientMessageRecipient),
 // each switched on/off individually, plus a shortcut for all of them.
 // Saves the whole muted set on every click (PUT replaces it), so each
 // click is one self-contained change. Read-only without canManage, same
@@ -969,13 +973,24 @@ function MessageRecipientsList({
 
   return (
     <div className="flex flex-col gap-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-meta text-muted">
-          Números que reciben mensajes automáticos (recordatorios,
-          confirmaciones de pago, aviso de nuevo pagaré). Un número desactivado
-          no recibe ninguno; las respuestas manuales desde la bandeja no se ven
-          afectadas.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-small font-medium text-white">
+            Recordatorios de cobro por número
+          </span>
+          <p className="text-meta text-muted">
+            Desactivar un número solo detiene los{' '}
+            <span className="text-white">
+              recordatorios de cuotas vencidas y próximas a vencer
+            </span>
+            . Ese número{' '}
+            <span className="text-white">
+              sigue recibiendo el aviso de nuevo pagaré y las confirmaciones de
+              pago
+            </span>
+            , y se le puede seguir respondiendo desde la bandeja de WhatsApp.
+          </p>
+        </div>
         {canManage && recipients.length > 1 && (
           <RowActionButton
             onClick={() =>
@@ -988,7 +1003,9 @@ function MessageRecipientsList({
             disabled={setMuted.isPending}
             tone={allMuted ? undefined : 'subtle'}
           >
-            {allMuted ? 'Activar todos' : 'Desactivar todos'}
+            {allMuted
+              ? 'Activar recordatorios a todos'
+              : 'Desactivar recordatorios a todos'}
           </RowActionButton>
         )}
       </div>
@@ -1005,11 +1022,17 @@ function MessageRecipientsList({
               </span>
               <span
                 className={`text-small ${
-                  recipient.muted ? 'text-muted line-through' : 'text-white'
+                  recipient.muted ? 'text-muted' : 'text-white'
                 }`}
               >
                 {formatPhoneNumber(recipient.phoneNumber)}
               </span>
+              {recipient.muted && (
+                <span className="text-meta text-subtle">
+                  Sigue recibiendo: aviso de nuevo pagaré y confirmaciones de
+                  pago
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3">
               <span
@@ -1019,7 +1042,9 @@ function MessageRecipientsList({
                     : 'border-success/40 text-success'
                 }`}
               >
-                {recipient.muted ? 'Desactivado' : 'Activo'}
+                {recipient.muted
+                  ? 'Sin recordatorios de cobro'
+                  : 'Recibe recordatorios de cobro'}
               </span>
               {canManage && (
                 <RowActionButton
@@ -1027,7 +1052,9 @@ function MessageRecipientsList({
                   disabled={setMuted.isPending}
                   tone={recipient.muted ? undefined : 'subtle'}
                 >
-                  {recipient.muted ? 'Activar' : 'Desactivar'}
+                  {recipient.muted
+                    ? 'Activar recordatorios'
+                    : 'Desactivar recordatorios'}
                 </RowActionButton>
               )}
             </div>

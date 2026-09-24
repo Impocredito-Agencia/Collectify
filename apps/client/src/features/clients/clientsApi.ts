@@ -137,8 +137,8 @@ export interface ClientDetail extends Client {
   messageRecipients: ClientMessageRecipient[];
 }
 
-// Human report, 2026-09-23 — every number that can receive an automated
-// WhatsApp message for this client, and whether it's been turned off.
+// Human report, 2026-09-23 — every number that can receive a collection
+// reminder for this client, and whether reminders are turned off for it.
 // Mirrors apps/api's ClientsService.ClientMessageRecipient.
 // alternate_contact = a loan's third party (not the co-debtor).
 export interface ClientMessageRecipient {
