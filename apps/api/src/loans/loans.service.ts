@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   DataSource,
@@ -17,6 +19,7 @@ import {
 import { ClientsService } from '../clients/clients.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { countDecimalPlaces } from '../common/numberPrecision';
+import { Configuration } from '../config/configuration';
 import {
   ConceptCalculationType,
   ConceptCategory,
@@ -30,6 +33,7 @@ import {
   ConceptAssignment,
   generateAmortizationSchedule,
 } from './amortization/generateSchedule';
+import { AdjustPendingInstallmentsDto } from './dto/adjustPendingInstallments.dto';
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { LoanConceptAssignmentDto } from './dto/loanConceptAssignment.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
@@ -46,6 +50,7 @@ import {
   enrichInstallment,
   InstallmentWithCalculated,
 } from './installments/enrichInstallment';
+import { isInstallmentAdjustmentAllowed } from './installmentAdjustment';
 import { calculateDaysUntilDue } from './installments/installmentCalculations';
 import { sumPaymentsByInstallmentId } from './installments/paymentTotals';
 import {
@@ -126,6 +131,11 @@ export interface LoanDetail extends Loan {
   // plain getPayoffQuote() call here always agrees with what a refinance
   // quote would show for the same figure.
   currentPrincipalBalance: number;
+  // Human request, 2026-09-25 — whether PATCH
+  // /loans/:id/installments/amount-adjustment would accept this loan right
+  // now (see LoansConfig). Lets the admin panel show the action only on
+  // the pagarés it's actually unlocked for.
+  canAdjustPendingInstallments: boolean;
 }
 
 // Phase 28 — getPayments()'s return shape: imageUrl replaced with
@@ -271,6 +281,7 @@ export class LoansService {
     private readonly usuryRateService: UsuryRateService,
     private readonly clientsService: ClientsService,
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
   // Changed, 2026-09-09 (client decision) — mora is no longer a hard
@@ -739,6 +750,7 @@ export class LoansService {
       ),
       refinancedToLoanId: refinancedTo?.id ?? null,
       currentPrincipalBalance,
+      canAdjustPendingInstallments: this.canAdjustPendingInstallments(loan),
     };
   }
 
@@ -781,6 +793,86 @@ export class LoansService {
       loan.alternateContactPhoneNumber,
     );
     return this.loansRepository.save(loan);
+  }
+
+  // Human request, 2026-09-25 — see LoansConfig's comment. Adds the same
+  // amount to every still-pending installment, as capital: `amount` and
+  // `principalPortion` move together (so the cuota's concepts — its
+  // interest — are untouched), and the loan's principalAmount grows by the
+  // total added so it keeps matching the sum of its installments' capital.
+  // Deliberately sends nothing: no WhatsApp, no isNewLoan flip — the
+  // clients these loans belong to already know their real cuota. Paid and
+  // cancelled installments are never touched.
+  async adjustPendingInstallments(
+    id: string,
+    dto: AdjustPendingInstallmentsDto,
+  ): Promise<LoanDetail> {
+    const loan = await this.findLoanOrThrow(id);
+    if (!this.canAdjustPendingInstallments(loan)) {
+      throw new ForbiddenException(
+        'Adjusting installment amounts is not enabled for this loan.',
+      );
+    }
+
+    await this.dataSource.transaction(async (manager: EntityManager) => {
+      const installmentsRepository = manager.getRepository(Installment);
+      const pending = await installmentsRepository.find({
+        where: { loanId: id, status: InstallmentStatus.Pending },
+        order: { installmentNumber: 'ASC' },
+      });
+      if (pending.length === 0) {
+        throw new BadRequestException(
+          'This loan has no pending installments to adjust.',
+        );
+      }
+
+      const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
+        manager.getRepository(Payment),
+        pending.map((installment) => installment.id),
+      );
+      for (const installment of pending) {
+        const nextAmount = installment.amount + dto.amountPerInstallment;
+        const nextPrincipalPortion =
+          installment.principalPortion === null
+            ? null
+            : installment.principalPortion + dto.amountPerInstallment;
+        // A lowered cuota must still owe something beyond what's already
+        // been paid on it — otherwise it'd sit Pending with nothing left
+        // (or a negative balance) to collect.
+        const totalPaid = totalPaidByInstallmentId.get(installment.id) ?? 0;
+        if (
+          nextAmount <= totalPaid ||
+          (nextPrincipalPortion !== null && nextPrincipalPortion < 0)
+        ) {
+          throw new BadRequestException(
+            `Installment ${installment.installmentNumber} cannot be lowered by that much.`,
+          );
+        }
+        installment.amount = nextAmount;
+        installment.principalPortion = nextPrincipalPortion;
+      }
+      await installmentsRepository.save(pending);
+
+      await manager.getRepository(Loan).update(
+        { id },
+        {
+          principalAmount:
+            loan.principalAmount + dto.amountPerInstallment * pending.length,
+        },
+      );
+    });
+
+    return this.findOne(id);
+  }
+
+  private canAdjustPendingInstallments(loan: Loan): boolean {
+    return (
+      loan.status === LoanStatus.Active &&
+      isInstallmentAdjustmentAllowed(
+        loan.promissoryNoteNumber,
+        this.configService.get('loans', { infer: true }),
+      )
+    );
   }
 
   // Phase 30 — lets an admin remove a loan created by mistake, but only
