@@ -30,6 +30,7 @@ import {
   ConceptCalculationType,
   ConceptCategory,
 } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import { AdjustPendingInstallmentsDialog } from '@/features/loans/AdjustPendingInstallmentsDialog';
 import { DeleteLoanDialog } from '@/features/loans/DeleteLoanDialog';
 import { EditLoanDialog } from '@/features/loans/EditLoanDialog';
 import {
@@ -41,6 +42,7 @@ import { PayoffDialog } from '@/features/loans/PayoffDialog';
 import { RefinanceLoanForm } from '@/features/loans/RefinanceLoanForm';
 import { RescheduleDueDatesDialog } from '@/features/loans/RescheduleDueDatesDialog';
 import {
+  useAdjustPendingInstallments,
   useAlignInstallmentDueDay,
   useLoan,
   useLoanPayments,
@@ -105,6 +107,7 @@ export function LoanDetailPage() {
   const refinanceLoan = useRefinanceLoan();
   const removeLoan = useRemoveLoan();
   const alignInstallmentDueDay = useAlignInstallmentDueDay(id ?? '');
+  const adjustPendingInstallments = useAdjustPendingInstallments(id ?? '');
   const updateInstallmentDueDate = useUpdateInstallmentDueDate(id ?? '');
 
   // Phase 6: fetch whichever side of the refinance chain applies, purely
@@ -155,6 +158,7 @@ export function LoanDetailPage() {
   const [isPayingOff, setIsPayingOff] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReschedulingDueDates, setIsReschedulingDueDates] = useState(false);
+  const [isAdjustingInstallments, setIsAdjustingInstallments] = useState(false);
   // Phase 12 — click-to-enlarge for a payment's receipt photo. No Figma
   // frame exists for this (see DESIGN_TOKENS.md); just the payment's own
   // imageUrl, no extra fetch needed. Phase 21 reuses this same state for
@@ -355,6 +359,16 @@ export function LoanDetailPage() {
               className="shrink-0 whitespace-nowrap"
             >
               Editar fechas de cobro
+            </Button>
+          )}
+          {canManageLoan && loan.canAdjustPendingInstallments && (
+            <Button
+              variant="secondary"
+              disabled={pendingInstallments.length === 0}
+              onClick={() => setIsAdjustingInstallments(true)}
+              className="shrink-0 whitespace-nowrap"
+            >
+              Ajustar cuotas pendientes
             </Button>
           )}
           {canManageLoan && (
@@ -757,6 +771,17 @@ export function LoanDetailPage() {
           }
           onUpdateOne={(installmentId, dueDate) =>
             updateInstallmentDueDate.mutateAsync({ installmentId, dueDate })
+          }
+        />
+      )}
+
+      {isAdjustingInstallments && (
+        <AdjustPendingInstallmentsDialog
+          installments={pendingInstallments}
+          loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          onClose={() => setIsAdjustingInstallments(false)}
+          onConfirm={(amountPerInstallment) =>
+            adjustPendingInstallments.mutateAsync(amountPerInstallment)
           }
         />
       )}

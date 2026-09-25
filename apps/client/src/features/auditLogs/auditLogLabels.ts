@@ -41,6 +41,8 @@ export const ACTION_LABELS: Record<string, string> = {
   // Human report, 2026-09-22 — moves every pending installment of a loan
   // to the same day of the month (LoansController's bulk endpoint).
   'loan.alignInstallmentDueDay': 'Cambió el día de cobro de un préstamo',
+  'loan.adjustPendingInstallments':
+    'Ajustó el valor de las cuotas pendientes de un préstamo',
   'payment.register': 'Registró un pago',
   // Phase 28 — same gap: added when bulk payments shipped.
   'payment.registerBulk': 'Registró un pago sobre varias cuotas',
