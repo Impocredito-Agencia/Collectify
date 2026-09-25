@@ -86,6 +86,21 @@ export interface CronConfig {
   newLoanReminderExpression: string;
 }
 
+// Human request, 2026-09-25 — a narrow, opt-in exception to "a loan's
+// numbers are fixed at creation" (see UpdateLoanDto's comment): two loans
+// were loaded from the old Excel with every pending cuota $10.000 short,
+// the clients already know the real amount, and Refinanciar would send
+// them a WhatsApp for a correction they don't need to hear about. Both
+// switches must line up for PATCH /loans/:id/installments/amount-adjustment to
+// accept a loan — the flag AND the loan's pagaré being listed — so turning
+// the flag on never opens the whole loan book up to silent edits. Meant to
+// stay off (and the list empty) except while a specific correction is
+// being made.
+export interface LoansConfig {
+  installmentAdjustmentEnabled: boolean;
+  installmentAdjustmentPromissoryNotes: string[];
+}
+
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
@@ -93,6 +108,7 @@ export interface Configuration {
   whatsapp: WhatsappConfig;
   cloudinary: CloudinaryConfig;
   cron: CronConfig;
+  loans: LoansConfig;
 }
 
 export default (): Configuration => ({
@@ -158,5 +174,15 @@ export default (): Configuration => ({
     // gave when this was designed (2026-09-06).
     newLoanReminderExpression:
       process.env.NEW_LOAN_REMINDER_CRON ?? '0 10 * * 1',
+  },
+  loans: {
+    installmentAdjustmentEnabled:
+      process.env.LOAN_INSTALLMENT_ADJUSTMENT_ENABLED === 'true',
+    installmentAdjustmentPromissoryNotes: (
+      process.env.LOAN_INSTALLMENT_ADJUSTMENT_PROMISSORY_NOTES ?? ''
+    )
+      .split(',')
+      .map((promissoryNoteNumber) => promissoryNoteNumber.trim())
+      .filter((promissoryNoteNumber) => promissoryNoteNumber.length > 0),
   },
 });
