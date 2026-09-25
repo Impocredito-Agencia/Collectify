@@ -108,6 +108,10 @@ export interface LoanDetail extends Loan {
   // confuse with the "Saldo total (capital + incremento)" KPI (which does
   // include interest). See LoansService.findOne's own comment (api).
   currentPrincipalBalance: number;
+  // Human request, 2026-09-25 — true only while the api has this pagaré
+  // unlocked for a silent cuota correction (LOAN_INSTALLMENT_ADJUSTMENT_*
+  // env vars). Gates the "Ajustar cuotas pendientes" action.
+  canAdjustPendingInstallments: boolean;
 }
 
 export interface LoansQueryParams {
@@ -500,6 +504,21 @@ export const loansApi = {
     const { data } = await apiClient.patch<Installment[]>(
       `/loans/${id}/installments/due-day`,
       { dayOfMonth },
+    );
+    return data;
+  },
+
+  // Human request, 2026-09-25 — adds the same amount (as capital) to every
+  // still-pending installment of a loan the api has unlocked for it. Sends
+  // no WhatsApp message. Rejects with a 403 (ApiError) if the loan isn't
+  // unlocked — see LoanDetail.canAdjustPendingInstallments.
+  adjustPendingInstallments: async (
+    id: string,
+    amountPerInstallment: number,
+  ): Promise<LoanDetail> => {
+    const { data } = await apiClient.patch<LoanDetail>(
+      `/loans/${id}/installments/amount-adjustment`,
+      { amountPerInstallment },
     );
     return data;
   },

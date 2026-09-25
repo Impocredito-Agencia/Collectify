@@ -22,6 +22,7 @@ import { PaginatedResult } from '../common/interfaces/paginatedResult.interface'
 import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { AppModule } from '../users/entities/userModulePermission.entity';
 
+import { AdjustPendingInstallmentsDto } from './dto/adjustPendingInstallments.dto';
 import { AlignInstallmentDueDayDto } from './dto/alignInstallmentDueDay.dto';
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
@@ -242,6 +243,47 @@ export class LoansController {
     @Body() dto: AlignInstallmentDueDayDto,
   ): Promise<Installment[]> {
     return this.installmentsService.alignDueDay(id, dto);
+  }
+
+  // Human request, 2026-09-25 — the one exception to "a loan's numbers are
+  // fixed at creation" (see PATCH /loans/:id above), and only for the
+  // pagarés explicitly unlocked via LOAN_INSTALLMENT_ADJUSTMENT_ENABLED +
+  // LOAN_INSTALLMENT_ADJUSTMENT_PROMISSORY_NOTES. See LoansConfig in
+  // config/configuration.ts.
+  @Patch(':id/installments/amount-adjustment')
+  @RequireModule(AppModule.Loans)
+  @Audit('loan.adjustPendingInstallments', 'loan')
+  @ApiOperation({
+    summary:
+      'Add the same amount to every pending installment of an unlocked loan, without notifying the client (admin or granted the loans module)',
+    description:
+      "Only accepted while LOAN_INSTALLMENT_ADJUSTMENT_ENABLED is true AND the loan's pagaré is listed in " +
+      'LOAN_INSTALLMENT_ADJUSTMENT_PROMISSORY_NOTES, and only for an active loan — GET /loans/:id reports this ' +
+      "as canAdjustPendingInstallments. The amount is booked as capital: each pending installment's amount " +
+      "and principalPortion move together (its interest concepts are untouched), and the loan's " +
+      'principalAmount grows by the total added. Paid and cancelled installments are untouched. Sends no ' +
+      'WhatsApp message of any kind.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns the loan with its adjusted installments.',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'The loan has no pending installments, or a negative amount would leave an installment at or below what was already paid on it (or with negative capital).',
+  })
+  @ApiResponse({
+    status: 403,
+    description:
+      'Adjustment is switched off, the pagaré is not listed, or the loan is not active.',
+  })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  adjustPendingInstallments(
+    @Param('id') id: string,
+    @Body() dto: AdjustPendingInstallmentsDto,
+  ): Promise<LoanDetail> {
+    return this.loansService.adjustPendingInstallments(id, dto);
   }
 
   @Get(':id/payoff-quote')

@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
@@ -88,6 +90,7 @@ describe('LoansService', () => {
     findByIdIncludingDeleted: jest.Mock;
   };
   let dataSource: { transaction: jest.Mock };
+  let configService: { get: jest.Mock };
 
   // Optional catalog fees (Phase 14) — no longer anything to do with the
   // loan's own interest, which is system-generated (see LoansService.
@@ -248,6 +251,7 @@ describe('LoansService', () => {
                 if (entity === LoanInstallmentConcept) {
                   return loanInstallmentConceptsRepository;
                 }
+                if (entity === Payment) return paymentsRepository;
                 throw new Error(
                   `No mock repository registered for entity ${String(entity)}`,
                 );
@@ -256,6 +260,15 @@ describe('LoansService', () => {
             return work(manager);
           },
         ),
+    };
+
+    // Default: the installment-adjustment switch is off, as in production
+    // — only adjustPendingInstallments' own tests turn it on.
+    configService = {
+      get: jest.fn().mockReturnValue({
+        installmentAdjustmentEnabled: false,
+        installmentAdjustmentPromissoryNotes: [],
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -288,6 +301,7 @@ describe('LoansService', () => {
         },
         { provide: ClientsService, useValue: clientsService },
         { provide: DataSource, useValue: dataSource },
+        { provide: ConfigService, useValue: configService },
       ],
     }).compile();
 
@@ -2353,6 +2367,225 @@ describe('LoansService', () => {
         NotFoundException,
       );
       expect(installmentsRepository.find).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('adjustPendingInstallments', () => {
+    const pendingInstallment = (
+      overrides: Partial<Installment> = {},
+    ): Installment => ({
+      id: 'inst-1',
+      loanId: mockLoan.id,
+      loan: undefined as never,
+      installmentNumber: 1,
+      isDownPayment: false,
+      amount: 310000,
+      principalPortion: 300000,
+      dueDate: '2099-01-01',
+      status: InstallmentStatus.Pending,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      configService.get.mockReturnValue({
+        installmentAdjustmentEnabled: true,
+        installmentAdjustmentPromissoryNotes: ['743'],
+      });
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      loansRepository.findOne.mockResolvedValue(null);
+      loansRepository.update.mockResolvedValue({ affected: 1 });
+      installmentsRepository.save.mockImplementation((rows: unknown) =>
+        Promise.resolve(rows),
+      );
+    });
+
+    it('adds the amount to every pending installment, as capital, and grows the loan principal to match', async () => {
+      const first = pendingInstallment();
+      const second = pendingInstallment({
+        id: 'inst-2',
+        installmentNumber: 2,
+        dueDate: '2099-02-01',
+      });
+      installmentsRepository.find.mockResolvedValue([first, second]);
+
+      await service.adjustPendingInstallments(mockLoan.id, {
+        amountPerInstallment: 10000,
+      });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({
+          id: 'inst-1',
+          amount: 320000,
+          principalPortion: 310000,
+        }),
+        expect.objectContaining({
+          id: 'inst-2',
+          amount: 320000,
+          principalPortion: 310000,
+        }),
+      ]);
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: mockLoan.id },
+        { principalAmount: mockLoan.principalAmount + 20000 },
+      );
+    });
+
+    it('only loads pending installments — paid and cancelled ones are never touched', async () => {
+      installmentsRepository.find.mockResolvedValue([pendingInstallment()]);
+
+      await service.adjustPendingInstallments(mockLoan.id, {
+        amountPerInstallment: 10000,
+      });
+
+      expect(installmentsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { loanId: mockLoan.id, status: InstallmentStatus.Pending },
+        }),
+      );
+    });
+
+    it('leaves a legacy installment with no capital split as null, adjusting only its amount', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({ principalPortion: null }),
+      ]);
+
+      await service.adjustPendingInstallments(mockLoan.id, {
+        amountPerInstallment: 10000,
+      });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ amount: 320000, principalPortion: null }),
+      ]);
+    });
+
+    it('never touches the installment concepts (interest stays as generated)', async () => {
+      installmentsRepository.find.mockResolvedValue([pendingInstallment()]);
+
+      await service.adjustPendingInstallments(mockLoan.id, {
+        amountPerInstallment: 10000,
+      });
+
+      expect(loanInstallmentConceptsRepository.save).not.toHaveBeenCalled();
+      expect(loanInstallmentConceptsRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('accepts a negative amount to lower the installments', async () => {
+      installmentsRepository.find.mockResolvedValue([pendingInstallment()]);
+
+      await service.adjustPendingInstallments(mockLoan.id, {
+        amountPerInstallment: -10000,
+      });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ amount: 300000, principalPortion: 290000 }),
+      ]);
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: mockLoan.id },
+        { principalAmount: mockLoan.principalAmount - 10000 },
+      );
+    });
+
+    it('rejects lowering an installment to or below what was already paid on it', async () => {
+      installmentsRepository.find.mockResolvedValue([pendingInstallment()]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 300000 },
+      ]);
+
+      await expect(
+        service.adjustPendingInstallments(mockLoan.id, {
+          amountPerInstallment: -10000,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(installmentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects lowering an installment below zero capital', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({ amount: 310000, principalPortion: 5000 }),
+      ]);
+
+      await expect(
+        service.adjustPendingInstallments(mockLoan.id, {
+          amountPerInstallment: -10000,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a loan with no pending installments', async () => {
+      installmentsRepository.find.mockResolvedValue([]);
+
+      await expect(
+        service.adjustPendingInstallments(mockLoan.id, {
+          amountPerInstallment: 10000,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('refuses while the switch is off, even for a listed pagaré', async () => {
+      configService.get.mockReturnValue({
+        installmentAdjustmentEnabled: false,
+        installmentAdjustmentPromissoryNotes: ['743'],
+      });
+
+      await expect(
+        service.adjustPendingInstallments(mockLoan.id, {
+          amountPerInstallment: 10000,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses a pagaré that is not listed', async () => {
+      configService.get.mockReturnValue({
+        installmentAdjustmentEnabled: true,
+        installmentAdjustmentPromissoryNotes: ['1113'],
+      });
+
+      await expect(
+        service.adjustPendingInstallments(mockLoan.id, {
+          amountPerInstallment: 10000,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('refuses a loan that is no longer active', async () => {
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        status: LoanStatus.Refinanced,
+      });
+
+      await expect(
+        service.adjustPendingInstallments(mockLoan.id, {
+          amountPerInstallment: 10000,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      loansRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(
+        service.adjustPendingInstallments('missing-loan', {
+          amountPerInstallment: 10000,
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('reports the loan as adjustable in findOne only while it is unlocked', async () => {
+      installmentsRepository.find.mockResolvedValue([]);
+
+      const unlocked = await service.findOne(mockLoan.id);
+      configService.get.mockReturnValue({
+        installmentAdjustmentEnabled: false,
+        installmentAdjustmentPromissoryNotes: ['743'],
+      });
+      const locked = await service.findOne(mockLoan.id);
+
+      expect(unlocked.canAdjustPendingInstallments).toBe(true);
+      expect(locked.canAdjustPendingInstallments).toBe(false);
     });
   });
 

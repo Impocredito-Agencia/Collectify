@@ -126,3 +126,17 @@ export function useAlignInstallmentDueDay(loanId: string) {
     },
   });
 }
+
+// Human request, 2026-09-25 — silent cuota correction on an unlocked
+// pagaré. Same invalidation shape as useAlignInstallmentDueDay.
+export function useAdjustPendingInstallments(loanId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (amountPerInstallment: number) =>
+      loansApi.adjustPendingInstallments(loanId, amountPerInstallment),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['loans', loanId] });
+      queryClient.invalidateQueries({ queryKey: ['loans'] });
+    },
+  });
+}
