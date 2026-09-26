@@ -1723,6 +1723,119 @@ describe('LoansService', () => {
       });
     });
 
+    describe('sorting the whole list (not just the loaded page)', () => {
+      const loanFor = (
+        id: string,
+        firstName: string,
+        promissoryNoteNumber: string,
+      ): Loan => ({
+        ...mockLoan,
+        id,
+        promissoryNoteNumber,
+        client: { firstName, lastName: 'Prueba' } as never,
+      });
+
+      it('sorts by client name descending before paginating', async () => {
+        loansRepository.find.mockResolvedValue([
+          loanFor('l1', 'Ana', '#1'),
+          loanFor('l2', 'Mario', '#2'),
+          loanFor('l3', 'Zoe', '#3'),
+        ]);
+
+        const page1 = await service.findAll({
+          sortBy: 'clientFullName',
+          sortDirection: 'desc',
+          limit: 2,
+        });
+        const page2 = await service.findAll({
+          sortBy: 'clientFullName',
+          sortDirection: 'desc',
+          limit: 2,
+          page: 2,
+        });
+
+        expect(page1.items.map((l) => l.id)).toEqual(['l3', 'l2']);
+        expect(page2.items.map((l) => l.id)).toEqual(['l1']);
+        expect(page1.meta.total).toBe(3);
+      });
+
+      it('sorts by pagaré number descending, numerically', async () => {
+        loansRepository.find.mockResolvedValue([
+          loanFor('l1', 'Ana', '#2'),
+          loanFor('l2', 'Ana', '#101'),
+          loanFor('l3', 'Ana', '#30'),
+        ]);
+
+        const result = await service.findAll({
+          sortBy: 'promissoryNoteNumber',
+          sortDirection: 'desc',
+        });
+
+        expect(result.items.map((l) => l.promissoryNoteNumber)).toEqual([
+          '#101',
+          '#30',
+          '#2',
+        ]);
+      });
+
+      it('orders the entire list by a computed column (overdueDays), not just one page', async () => {
+        // l1 is first by pagaré number but current; l3 (last by number) is the
+        // one overdue. Sorted per-page it could never reach page 1.
+        loansRepository.find.mockResolvedValue([
+          loanFor('l1', 'Ana', '#1'),
+          loanFor('l2', 'Mario', '#2'),
+          loanFor('l3', 'Zoe', '#3'),
+        ]);
+        installmentsRepository.find.mockResolvedValue([
+          {
+            id: 'i3',
+            loanId: 'l3',
+            installmentNumber: 1,
+            amount: 100000,
+            principalPortion: 100000,
+            dueDate: '2020-01-01',
+            status: InstallmentStatus.Pending,
+            isDownPayment: false,
+          },
+        ]);
+
+        const result = await service.findAll({
+          sortBy: 'overdueDays',
+          sortDirection: 'desc',
+          limit: 1,
+        });
+
+        expect(result.items.map((l) => l.id)).toEqual(['l3']);
+        expect(result.items[0].overdueDays).toBeGreaterThan(0);
+        expect(result.meta.total).toBe(3);
+      });
+
+      it('sorts by the status label shown in the list ("Al día" before "En mora")', async () => {
+        loansRepository.find.mockResolvedValue([
+          loanFor('l1', 'Ana', '#1'),
+          loanFor('l2', 'Mario', '#2'),
+        ]);
+        installmentsRepository.find.mockResolvedValue([
+          {
+            id: 'i1',
+            loanId: 'l1',
+            installmentNumber: 1,
+            amount: 100000,
+            principalPortion: 100000,
+            dueDate: '2020-01-01',
+            status: InstallmentStatus.Pending,
+            isDownPayment: false,
+          },
+        ]);
+
+        const result = await service.findAll({ sortBy: 'status' });
+
+        // l1 is overdue ("En mora"), l2 is current ("Al día") — "Al día"
+        // sorts first alphabetically.
+        expect(result.items.map((l) => l.id)).toEqual(['l2', 'l1']);
+      });
+    });
+
     it('applies the search term as an OR across client name and promissory note number', async () => {
       loansRepository.find.mockResolvedValue([mockLoan]);
 

@@ -39,7 +39,7 @@ import {
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
 import { SetClientMutedPhoneNumbersDto } from './dto/setClientMutedPhoneNumbers.dto';
-import { QueryClientsDto } from './dto/queryClients.dto';
+import { ClientSortColumn, QueryClientsDto } from './dto/queryClients.dto';
 import { SetClientMessageFrequencyDto } from './dto/setClientMessageFrequency.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
 import { UpdateClientReferenceDto } from './dto/updateClientReference.dto';
@@ -292,14 +292,41 @@ export class ClientsService {
       // everything, false is filtered down to only soft-deleted rows below.
       withDeleted: query.isActive === 'all' || query.isActive === false,
     });
-    const items = matches.sort(compareClientsByName);
+    const direction = query.sortDirection === 'desc' ? -1 : 1;
+    const sortBy = query.sortBy ?? 'name';
 
-    const total = items.length;
+    // activeLoanCount/maxOverdueDays only exist after enrichment, so ordering
+    // the WHOLE list by them means enriching every match, not just the page
+    // — still a handful of batched queries (see enrichClientListItems), and
+    // only paid when the admin actually sorts by one of these two columns.
+    // Every other column sorts the plain rows first and enriches just the
+    // page. Ties always fall back to name A→Z whatever the direction, so the
+    // order is stable and predictable.
+    let pageItems: ClientListItem[];
+    let total: number;
     const start = (page - 1) * limit;
-    const pageItems = items.slice(start, start + limit);
+    if (sortBy === 'activeLoanCount' || sortBy === 'maxOverdueDays') {
+      const enriched = await this.enrichClientListItems(matches);
+      enriched.sort(
+        (a, b) =>
+          direction * (a[sortBy] - b[sortBy]) || compareClientsByName(a, b),
+      );
+      total = enriched.length;
+      pageItems = enriched.slice(start, start + limit);
+    } else {
+      matches.sort(
+        (a, b) =>
+          direction * compareClientsByColumn(a, b, sortBy) ||
+          compareClientsByName(a, b),
+      );
+      total = matches.length;
+      pageItems = await this.enrichClientListItems(
+        matches.slice(start, start + limit),
+      );
+    }
 
     return {
-      items: await this.enrichClientListItems(pageItems),
+      items: pageItems,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -892,6 +919,30 @@ function compareClientsByName(a: Client, b: Client): number {
     return firstNameCompare;
   }
   return compareFolded(a.lastName, b.lastName);
+}
+
+// Ascending comparator for the plain-row sort columns (the two computed ones
+// are handled where the enrichment happens, in findAll). name reuses the
+// folded compare above; documentNumber/phoneNumber use numeric collation so
+// "9" sorts before "10" — same behavior the list had when it sorted
+// client-side.
+function compareClientsByColumn(
+  a: Client,
+  b: Client,
+  column: Exclude<ClientSortColumn, 'activeLoanCount' | 'maxOverdueDays'>,
+): number {
+  switch (column) {
+    case 'name':
+      return compareClientsByName(a, b);
+    case 'documentNumber':
+      return a.documentNumber.localeCompare(b.documentNumber, 'es', {
+        numeric: true,
+      });
+    case 'phoneNumber':
+      return a.phoneNumber.localeCompare(b.phoneNumber, 'es', {
+        numeric: true,
+      });
+  }
 }
 
 function compareFolded(a: string, b: string): number {

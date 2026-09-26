@@ -38,7 +38,7 @@ import { CreateLoanDto } from './dto/createLoan.dto';
 import { LoanConceptAssignmentDto } from './dto/loanConceptAssignment.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { PreviewScheduleDto } from './dto/previewSchedule.dto';
-import { QueryLoansDto } from './dto/queryLoans.dto';
+import { LoanSortColumn, QueryLoansDto } from './dto/queryLoans.dto';
 import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { addMonthsToDateString, addWeeksToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
@@ -68,6 +68,9 @@ import {
 } from './promissoryNoteNumberSort';
 
 const DEFAULT_PAGE = 1;
+// How many loans findAll() summarizes at a time when it has to order the
+// whole list by a computed column (see LoansService.findAll).
+const SORT_SUMMARY_CHUNK_SIZE = 200;
 // 50, matching clients.service.ts's DEFAULT_PAGE_SIZE — see the same note
 // in dashboard.service.ts (style cleanup 2026-09-05).
 const DEFAULT_PAGE_SIZE = 50;
@@ -573,12 +576,64 @@ export class LoansService {
     // was removed comes back with `client: null` despite the non-null type —
     // hide those rather than crash summarize() on a null client.
     const visible = matches.filter((loan) => loan.client !== null);
-    const sorted = visible.sort(compareLoansByPromissoryNoteNumber);
 
-    const total = sorted.length;
+    const direction = query.sortDirection === 'desc' ? -1 : 1;
+    const sortBy: LoanSortColumn = query.sortBy ?? 'promissoryNoteNumber';
     const start = (page - 1) * limit;
-    const loans = sorted.slice(start, start + limit);
-    const items = await this.summarize(loans);
+
+    // Ordering is applied to the WHOLE result before the page is cut, so
+    // page 1 of a descending sort really holds the last rows of the list
+    // (human report, 2026-09-25 — the sort used to run client-side over just
+    // the loaded page). Ties always fall back to pagaré number ascending,
+    // whatever the direction, so the order is stable.
+    if (
+      sortBy === 'outstandingBalance' ||
+      sortBy === 'overdueDays' ||
+      sortBy === 'status'
+    ) {
+      // These columns only exist once installments are read and enriched, so
+      // ordering by them means summarizing every match, not just one page.
+      // Done in chunks — summarize() batches its installment/concept/payment
+      // lookups with IN (...) lists, and a chunk keeps those to a size
+      // Postgres handles comfortably however many loans match. Only paid
+      // when the admin actually sorts by one of these three columns.
+      const summaries: LoanSummary[] = [];
+      for (let i = 0; i < visible.length; i += SORT_SUMMARY_CHUNK_SIZE) {
+        summaries.push(
+          ...(await this.summarize(
+            visible.slice(i, i + SORT_SUMMARY_CHUNK_SIZE),
+          )),
+        );
+      }
+      summaries.sort(
+        (a, b) =>
+          direction * compareLoanSummariesByColumn(a, b, sortBy) ||
+          comparePromissoryNoteNumbers(
+            a.promissoryNoteNumber,
+            b.promissoryNoteNumber,
+          ),
+      );
+      return {
+        items: summaries.slice(start, start + limit),
+        meta: {
+          page,
+          limit,
+          total: summaries.length,
+          totalPages: Math.ceil(summaries.length / limit),
+        },
+      };
+    }
+
+    visible.sort(
+      (a, b) =>
+        direction *
+          (sortBy === 'clientFullName'
+            ? compareClientFullNames(a, b)
+            : compareLoansByPromissoryNoteNumber(a, b)) ||
+        compareLoansByPromissoryNoteNumber(a, b),
+    );
+    const total = visible.length;
+    const items = await this.summarize(visible.slice(start, start + limit));
 
     return {
       items,
@@ -1917,6 +1972,45 @@ function toPayoffInstallmentInput(
     })),
     totalPaid,
   };
+}
+
+function compareClientFullNames(a: Loan, b: Loan): number {
+  return `${a.client.firstName} ${a.client.lastName}`.localeCompare(
+    `${b.client.firstName} ${b.client.lastName}`,
+    'es',
+  );
+}
+
+// The label the loans list shows in its Estado column — mirrors the
+// frontend's estadoBadge() (loanStatusDisplay.ts) so sorting by "Estado"
+// orders by what is on screen ("Al día" < "En mora" < "Pagado" <
+// "Refinanciado"), not by the raw enum value.
+function loanStatusLabel(loan: {
+  status: LoanStatus;
+  overdueDays: number;
+}): string {
+  if (loan.status === LoanStatus.Paid) {
+    return 'Pagado';
+  }
+  if (loan.status === LoanStatus.Refinanced) {
+    return 'Refinanciado';
+  }
+  return loan.overdueDays > 0 ? 'En mora' : 'Al día';
+}
+
+function compareLoanSummariesByColumn(
+  a: LoanSummary,
+  b: LoanSummary,
+  column: 'outstandingBalance' | 'overdueDays' | 'status',
+): number {
+  switch (column) {
+    case 'outstandingBalance':
+      return a.outstandingBalance - b.outstandingBalance;
+    case 'overdueDays':
+      return a.overdueDays - b.overdueDays;
+    case 'status':
+      return loanStatusLabel(a).localeCompare(loanStatusLabel(b), 'es');
+  }
 }
 
 // Moved to promissoryNoteNumberSort.ts (2026-09-15) so the overdue-

@@ -703,6 +703,97 @@ describe('ClientsService', () => {
       });
     });
 
+    describe('sorting the whole list (not just the loaded page)', () => {
+      const clientWith = (
+        id: string,
+        firstName: string,
+        overrides: Partial<Client> = {},
+      ): Client => ({
+        ...mockClient,
+        id,
+        firstName,
+        lastName: 'Prueba',
+        ...overrides,
+      });
+
+      it('sorts by name descending before paginating, so page 1 holds the last names', async () => {
+        repository.find.mockResolvedValue([
+          clientWith('a', 'Ana'),
+          clientWith('m', 'Mario'),
+          clientWith('z', 'Zoe'),
+          clientWith('e', 'Elena'),
+        ]);
+
+        const page1 = await service.findAll({
+          sortBy: 'name',
+          sortDirection: 'desc',
+          limit: 2,
+        });
+        const page2 = await service.findAll({
+          sortBy: 'name',
+          sortDirection: 'desc',
+          limit: 2,
+          page: 2,
+        });
+
+        expect(page1.items.map((c) => c.firstName)).toEqual(['Zoe', 'Mario']);
+        expect(page2.items.map((c) => c.firstName)).toEqual(['Elena', 'Ana']);
+        expect(page1.meta.total).toBe(4);
+      });
+
+      it('sorts document numbers numerically ("9" before "10")', async () => {
+        repository.find.mockResolvedValue([
+          clientWith('a', 'Ana', { documentNumber: '10' }),
+          clientWith('b', 'Beto', { documentNumber: '9' }),
+        ]);
+
+        const result = await service.findAll({ sortBy: 'documentNumber' });
+
+        expect(result.items.map((c) => c.documentNumber)).toEqual(['9', '10']);
+      });
+
+      it('orders the entire list by a computed column (activeLoanCount), not just one page', async () => {
+        // Ana is alphabetically first but has no loans; Zoe (last A→Z) has the
+        // most. Sorted per-page this would put Ana first on page 1.
+        repository.find.mockResolvedValue([
+          clientWith('a', 'Ana'),
+          clientWith('m', 'Mario'),
+          clientWith('z', 'Zoe'),
+        ]);
+        loansRepository.find.mockResolvedValue([
+          { id: 'l1', clientId: 'z' },
+          { id: 'l2', clientId: 'z' },
+          { id: 'l3', clientId: 'm' },
+        ]);
+        installmentsRepository.find.mockResolvedValue([]);
+
+        const result = await service.findAll({
+          sortBy: 'activeLoanCount',
+          sortDirection: 'desc',
+          limit: 1,
+        });
+
+        expect(result.items.map((c) => c.firstName)).toEqual(['Zoe']);
+        expect(result.items[0].activeLoanCount).toBe(2);
+        expect(result.meta.total).toBe(3);
+      });
+
+      it('breaks ties by name ascending whatever the direction', async () => {
+        repository.find.mockResolvedValue([
+          clientWith('z', 'Zoe'),
+          clientWith('a', 'Ana'),
+        ]);
+        loansRepository.find.mockResolvedValue([]);
+
+        const result = await service.findAll({
+          sortBy: 'maxOverdueDays',
+          sortDirection: 'desc',
+        });
+
+        expect(result.items.map((c) => c.firstName)).toEqual(['Ana', 'Zoe']);
+      });
+    });
+
     it('filters to soft-deleted clients when isActive is false', async () => {
       repository.find.mockResolvedValue([]);
 
