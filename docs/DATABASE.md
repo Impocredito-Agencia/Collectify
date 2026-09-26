@@ -318,6 +318,8 @@ Added Phase 28 — lets a payment carry more than one receipt photo (clients oft
 
 Also added Phase 28: `POST /installments/payments/bulk` registers payments against several installments in one request (one amount entered individually per installment, not a total split across them — confirmed with the human). The batch requires **full** payment of every installment in it; a short amount rejects the entire request (rolled back atomically) before anything is persisted. Partial payment stays on the existing single-installment endpoint, which already supported it via multiple `payments` rows per installment.
 
+**Early payoff can attach a receipt, 2026-09-25** (human report — "Liquidar anticipadamente" had no way to attach the comprobante): `POST /loans/:id/payoff` takes an optional `{ imageUrls }` body (same contract as a payment's `imageUrls`: URLs already hosted, never bytes). A payoff registers one `payments` row per pending installment, so the same photos are written to `payment_images` once per row — one comprobante covers the whole settlement, and each row shows it in the loan's payment history. An empty body behaves as before.
+
 ### `interest_concept_types`
 
 Added Phase 14 — the admin-managed catalog of interest/fee concepts (e.g. "Interés remuneratorio", "Gastos de cobranza"). Confirmed with the human this must stay open-ended: the admin creates new concept types whenever needed, not a fixed/hardcoded list. See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`.
