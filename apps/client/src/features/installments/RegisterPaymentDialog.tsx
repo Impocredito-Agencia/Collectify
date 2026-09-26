@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency } from '@/lib/format';
 import { ImageUploadError, uploadPaymentReceipt } from '@/lib/imageUpload';
+import { maxWaivableMora, requiredPaymentWithWaiver } from '@/lib/moraWaiver';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { Installment } from '@/features/installments/installmentsApi';
@@ -37,6 +38,8 @@ interface RegisterPaymentDialogProps {
     paidAt: string;
     observation?: string;
     imageUrls?: string[];
+    moraWaivedAmount?: number;
+    moraWaiverReason?: string;
   }) => Promise<unknown>;
 }
 
@@ -96,7 +99,24 @@ export function RegisterPaymentDialog({
     paidAt: string;
     observation?: string;
     imageUrls?: string[];
+    moraWaivedAmount?: number;
+    moraWaiverReason?: string;
   } | null>(null);
+
+  // Human request, 2026-09-25 — forgiving part of the accrued mora together
+  // with this payment. Only offered when the cuota is charging mora
+  // (maxWaivable > 0), and only ever for a payment that settles the cuota
+  // completely: while a waiver is set the amount is not typed but computed
+  // as balance − waiver, exactly, and shown locked — never "pay a bit,
+  // forgive a bit, leave a balance". See lib/moraWaiver.ts.
+  const maxWaivable = maxWaivableMora(installment);
+  const [isWaiverOpen, setIsWaiverOpen] = useState(false);
+  const [moraWaiver, setMoraWaiver] = useState(0);
+  const [moraWaiverReason, setMoraWaiverReason] = useState('');
+  const waiverActive = isWaiverOpen && moraWaiver > 0;
+  const effectiveAmount = waiverActive
+    ? requiredPaymentWithWaiver(installment, moraWaiver)
+    : amountPaid;
 
   // Kept separate from the files themselves: each file is uploaded to
   // Cloudinary BEFORE the payment is submitted (per
@@ -163,7 +183,13 @@ export function RegisterPaymentDialog({
     event.preventDefault();
     setError(null);
 
-    const amount = amountPaid;
+    if (isWaiverOpen && moraWaiver > maxWaivable) {
+      setError(
+        `La mora a condonar no puede superar ${formatCurrency(maxWaivable)}.`,
+      );
+      return;
+    }
+    const amount = effectiveAmount;
     if (!(amount > 0)) {
       setError('El monto del pago debe ser mayor a 0.');
       return;
@@ -209,6 +235,12 @@ export function RegisterPaymentDialog({
       paidAt,
       observation: observation.trim() || undefined,
       imageUrls,
+      ...(waiverActive
+        ? {
+            moraWaivedAmount: moraWaiver,
+            moraWaiverReason: moraWaiverReason.trim() || undefined,
+          }
+        : {}),
     });
   };
 
@@ -249,9 +281,10 @@ export function RegisterPaymentDialog({
         <div className="flex gap-4">
           <Field label="Monto del pago">
             <CurrencyInput
-              value={amountPaid}
+              value={effectiveAmount}
               onChange={setAmountPaid}
               className={inputClassName}
+              disabled={waiverActive}
             />
             {/* Human report, 2026-09-09 — the field used to pre-fill this
                 exact figure; now it's shown here for reference only, so
@@ -269,6 +302,77 @@ export function RegisterPaymentDialog({
             />
           </Field>
         </div>
+
+        {maxWaivable > 0 &&
+          (isWaiverOpen ? (
+            <div className="flex flex-col gap-3 rounded border border-border bg-input/40 p-3.5">
+              <Field label="Mora a condonar (opcional)" layout="stack">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex-1">
+                    <CurrencyInput
+                      value={moraWaiver}
+                      onChange={setMoraWaiver}
+                      className={inputClassName}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setMoraWaiver(maxWaivable)}
+                  >
+                    Toda la mora
+                  </Button>
+                </div>
+                <span className="mt-1 text-meta text-muted">
+                  Máximo {formatCurrency(maxWaivable)} — la mora que se le está
+                  cobrando a esta cuota.
+                </span>
+              </Field>
+              <Field label="Motivo (opcional)" layout="stack">
+                <input
+                  value={moraWaiverReason}
+                  onChange={(event) => setMoraWaiverReason(event.target.value)}
+                  placeholder="Ej: pagó todo de contado"
+                  maxLength={500}
+                  className={inputClassName}
+                />
+              </Field>
+              {waiverActive && (
+                <p className="text-small text-muted">
+                  Se registrará un pago de{' '}
+                  <strong className="text-white">
+                    {formatCurrency(effectiveAmount)}
+                  </strong>{' '}
+                  y se condonarán{' '}
+                  <strong className="text-white">
+                    {formatCurrency(moraWaiver)}
+                  </strong>{' '}
+                  de mora. La cuota queda pagada por completo.
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-fit"
+                onClick={() => {
+                  setIsWaiverOpen(false);
+                  setMoraWaiver(0);
+                  setMoraWaiverReason('');
+                }}
+              >
+                Quitar condonación
+              </Button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-fit"
+              onClick={() => setIsWaiverOpen(true)}
+            >
+              Condonar mora
+            </Button>
+          ))}
 
         <Field label="Observación (opcional)">
           <textarea
@@ -387,6 +491,7 @@ export function RegisterPaymentDialog({
         <ConfirmRegisterPaymentDialog
           installment={installment}
           amountPaid={pendingInput.amountPaid}
+          moraWaived={pendingInput.moraWaivedAmount ?? 0}
           isSubmitting={isSubmitting}
           onCancel={() => setPendingInput(null)}
           onConfirm={() => {
@@ -414,12 +519,16 @@ const inputClassName =
 function ConfirmRegisterPaymentDialog({
   installment,
   amountPaid,
+  moraWaived,
   isSubmitting,
   onCancel,
   onConfirm,
 }: {
   installment: Installment;
   amountPaid: number;
+  // Mora forgiven together with this payment (0 = none) — it settles part
+  // of the balance just like cash does, see the waiver block above.
+  moraWaived: number;
   isSubmitting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -430,7 +539,7 @@ function ConfirmRegisterPaymentDialog({
   // pre-fill as "the amount that fully closes this cuota" — see
   // amountPaid's own comment above.
   const totalDue = Math.ceil(installment.totalDue);
-  const remainingAfter = Math.max(0, totalDue - amountPaid);
+  const remainingAfter = Math.max(0, totalDue - amountPaid - moraWaived);
   const willCloseCuota = remainingAfter === 0;
   // Human report, 2026-09-14 — a payment exceeding what this cuota owes is
   // no longer rejected: the backend caps this installment's own Payment at
@@ -438,7 +547,7 @@ function ConfirmRegisterPaymentDialog({
   // automatically (InstallmentsService.registerPayment). This is the one
   // place that has to say so before the fact — the backend never asks for
   // a second confirmation.
-  const excess = Math.max(0, amountPaid - totalDue);
+  const excess = Math.max(0, amountPaid + moraWaived - totalDue);
 
   return (
     <Modal maxWidth="max-w-[420px]">
@@ -448,7 +557,15 @@ function ConfirmRegisterPaymentDialog({
       <p className="mt-2.5 text-small text-muted">
         Vas a registrar un pago de{' '}
         <strong className="text-white">{formatCurrency(amountPaid)}</strong>{' '}
-        para la cuota {installment.installmentNumber}.
+        para la cuota {installment.installmentNumber}
+        {moraWaived > 0 && (
+          <>
+            , condonando{' '}
+            <strong className="text-white">{formatCurrency(moraWaived)}</strong>{' '}
+            de mora
+          </>
+        )}
+        .
       </p>
       <p className="mt-2 text-small text-muted">
         Con este pago, la cuota quedará{' '}

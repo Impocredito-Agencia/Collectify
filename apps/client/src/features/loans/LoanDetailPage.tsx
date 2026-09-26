@@ -680,6 +680,20 @@ export function LoanDetailPage() {
                       >
                         Vía saldo a favor
                       </StatusBadge>
+                    ) : payment.moraWaivedAmount > 0 ? (
+                      // Human request, 2026-09-25 — this payment forgave part
+                      // of the cuota's mora. Its amount stays the real cash
+                      // received; the forgiven part is only shown here (and
+                      // in Auditoría).
+                      <StatusBadge
+                        tone="neutral"
+                        title={
+                          payment.moraWaiverReason ?? 'Sin motivo indicado.'
+                        }
+                      >
+                        Mora condonada{' '}
+                        {formatCurrency(payment.moraWaivedAmount)}
+                      </StatusBadge>
                     ) : (
                       <span className="text-meta text-mid">—</span>
                     )}

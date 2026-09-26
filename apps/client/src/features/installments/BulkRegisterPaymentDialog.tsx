@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency } from '@/lib/format';
 import { ImageUploadError, uploadPaymentReceipt } from '@/lib/imageUpload';
+import { maxWaivableMora, requiredPaymentWithWaiver } from '@/lib/moraWaiver';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { BulkPaymentEntryInput } from '@/features/installments/installmentsApi';
@@ -36,6 +37,26 @@ interface RowState {
   installment: Installment;
   amountPaid: number;
   images: { file: File; previewUrl: string }[];
+  // Human request, 2026-09-25 — mora forgiven together with this cuota's
+  // payment, per row. While a waiver is set the row's amount isn't typed but
+  // computed as balance − waiver, exactly (each cuota of a batch must be
+  // settled to the peso — see lib/moraWaiver.ts and the server's
+  // assertValidMoraWaiver).
+  isWaiverOpen: boolean;
+  moraWaiver: number;
+  moraWaiverReason: string;
+}
+
+// What this row will actually pay: the typed amount, or — with a waiver set
+// — the balance minus the waiver.
+function rowAmount(row: RowState): number {
+  return row.isWaiverOpen && row.moraWaiver > 0
+    ? requiredPaymentWithWaiver(row.installment, row.moraWaiver)
+    : row.amountPaid;
+}
+
+function rowWaiver(row: RowState): number {
+  return row.isWaiverOpen && row.moraWaiver > 0 ? row.moraWaiver : 0;
 }
 
 // Phase 28 — pays several installments in one action. One shared date and
@@ -69,6 +90,9 @@ export function BulkRegisterPaymentDialog({
       installment,
       amountPaid: Math.ceil(installment.totalDue),
       images: [],
+      isWaiverOpen: false,
+      moraWaiver: 0,
+      moraWaiverReason: '',
     })),
   );
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +118,12 @@ export function BulkRegisterPaymentDialog({
   const setRowAmount = (index: number, amountPaid: number) => {
     setRows((current) =>
       current.map((row, i) => (i === index ? { ...row, amountPaid } : row)),
+    );
+  };
+
+  const updateRow = (index: number, patch: Partial<RowState>) => {
+    setRows((current) =>
+      current.map((row, i) => (i === index ? { ...row, ...patch } : row)),
     );
   };
 
@@ -148,10 +178,22 @@ export function BulkRegisterPaymentDialog({
       return;
     }
 
+    const overWaivedRow = rows.find(
+      (row) =>
+        row.isWaiverOpen && row.moraWaiver > maxWaivableMora(row.installment),
+    );
+    if (overWaivedRow) {
+      setError(
+        `La mora a condonar en la cuota ${overWaivedRow.installment.installmentNumber} no puede superar ${formatCurrency(maxWaivableMora(overWaivedRow.installment))}.`,
+      );
+      return;
+    }
+
     // Same full-payment rule the api enforces server-side — checked here
-    // too so the error surfaces before submit, not just from the api.
+    // too so the error surfaces before submit, not just from the api. Mora
+    // forgiven on a row counts toward settling it, like cash does.
     const shortRow = rows.find(
-      (row) => !(row.amountPaid >= row.installment.totalDue),
+      (row) => !(rowAmount(row) + rowWaiver(row) >= row.installment.totalDue),
     );
     if (shortRow) {
       setError(
@@ -174,10 +216,16 @@ export function BulkRegisterPaymentDialog({
         }
         entries.push({
           installmentId: row.installment.id,
-          amountPaid: row.amountPaid,
+          amountPaid: rowAmount(row),
           paidAt,
           observation: observation.trim() || undefined,
           imageUrls,
+          ...(rowWaiver(row) > 0
+            ? {
+                moraWaivedAmount: rowWaiver(row),
+                moraWaiverReason: row.moraWaiverReason.trim() || undefined,
+              }
+            : {}),
         });
       }
     } catch (err) {
@@ -260,11 +308,81 @@ export function BulkRegisterPaymentDialog({
               <div className="mt-2.5 flex flex-col gap-2.5">
                 <Field label="Monto del pago">
                   <CurrencyInput
-                    value={row.amountPaid}
+                    value={rowAmount(row)}
                     onChange={(value) => setRowAmount(index, value)}
                     className={inputClassName}
+                    disabled={rowWaiver(row) > 0}
                   />
                 </Field>
+                {maxWaivableMora(row.installment) > 0 &&
+                  (row.isWaiverOpen ? (
+                    <div className="flex flex-col gap-2.5 rounded border border-border bg-input/40 p-3">
+                      <Field label="Mora a condonar (opcional)">
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex-1">
+                            <CurrencyInput
+                              value={row.moraWaiver}
+                              onChange={(value) =>
+                                updateRow(index, { moraWaiver: value })
+                              }
+                              className={inputClassName}
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() =>
+                              updateRow(index, {
+                                moraWaiver: maxWaivableMora(row.installment),
+                              })
+                            }
+                          >
+                            Toda la mora
+                          </Button>
+                        </div>
+                        <span className="mt-1 text-meta text-muted">
+                          Máximo{' '}
+                          {formatCurrency(maxWaivableMora(row.installment))}
+                        </span>
+                      </Field>
+                      <Field label="Motivo (opcional)">
+                        <input
+                          value={row.moraWaiverReason}
+                          onChange={(event) =>
+                            updateRow(index, {
+                              moraWaiverReason: event.target.value,
+                            })
+                          }
+                          placeholder="Ej: pagó todo de contado"
+                          maxLength={500}
+                          className={inputClassName}
+                        />
+                      </Field>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="w-fit"
+                        onClick={() =>
+                          updateRow(index, {
+                            isWaiverOpen: false,
+                            moraWaiver: 0,
+                            moraWaiverReason: '',
+                          })
+                        }
+                      >
+                        Quitar condonación
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-fit"
+                      onClick={() => updateRow(index, { isWaiverOpen: true })}
+                    >
+                      Condonar mora
+                    </Button>
+                  ))}
                 <Field label="Fotos del comprobante (opcional)">
                   {row.images.length > 0 && (
                     <div className="flex flex-wrap items-center gap-3">
@@ -345,6 +463,10 @@ export function BulkRegisterPaymentDialog({
             (sum, entry) => sum + entry.amountPaid,
             0,
           )}
+          totalWaived={pendingEntries.reduce(
+            (sum, entry) => sum + (entry.moraWaivedAmount ?? 0),
+            0,
+          )}
           isSubmitting={isSubmitting}
           onCancel={() => setPendingEntries(null)}
           onConfirm={() => {
@@ -371,12 +493,15 @@ const inputClassName =
 function ConfirmBulkRegisterPaymentDialog({
   entryCount,
   total,
+  totalWaived,
   isSubmitting,
   onCancel,
   onConfirm,
 }: {
   entryCount: number;
   total: number;
+  // Total mora forgiven across the batch (0 = none) — not money received.
+  totalWaived: number;
   isSubmitting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -390,8 +515,18 @@ function ConfirmBulkRegisterPaymentDialog({
       </h2>
       <p className="mt-2.5 text-small text-muted">
         Vas a registrar {entryCount} pagos por un total de{' '}
-        <strong className="text-white">{formatCurrency(total)}</strong>,
-        saldando por completo cada una de esas cuotas.
+        <strong className="text-white">{formatCurrency(total)}</strong>
+        {totalWaived > 0 && (
+          <>
+            {' '}
+            y condonando{' '}
+            <strong className="text-white">
+              {formatCurrency(totalWaived)}
+            </strong>{' '}
+            de mora
+          </>
+        )}
+        , saldando por completo cada una de esas cuotas.
       </p>
       <p className="mt-2.5 text-small text-muted">
         Al confirmar, se le enviará automáticamente al cliente un mensaje de

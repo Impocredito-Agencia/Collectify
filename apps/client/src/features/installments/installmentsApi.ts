@@ -98,6 +98,12 @@ export interface CreatePaymentInput {
   paidAt: string;
   observation?: string;
   imageUrls?: string[];
+  // Human request, 2026-09-25 — mora forgiven together with this payment,
+  // in whole pesos. Only accepted when amountPaid + moraWaivedAmount settles
+  // the cuota exactly (the server rejects anything else); see
+  // lib/moraWaiver.ts for how the dialogs compute what to offer.
+  moraWaivedAmount?: number;
+  moraWaiverReason?: string;
   // Human report, 2026-09-11 — set by RegisterPaymentFromWhatsappModal so
   // the api can link this payment back to the WhatsApp comprobante it was
   // reviewed from — see whatsappInboundMessagesApi.ts's WhatsappInboundMessage.payment.
@@ -138,6 +144,11 @@ export interface Payment {
   // a client's saldo a favor (see ClientCreditBanner.tsx), not an ordinary
   // cash/transfer payment.
   fundedByCredit: boolean;
+  // Human request, 2026-09-25 — mora forgiven together with this payment
+  // (0 = none). amountPaid stays the real cash received; this is never
+  // money collected.
+  moraWaivedAmount: number;
+  moraWaiverReason: string | null;
 }
 
 export const installmentsApi = {
