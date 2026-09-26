@@ -182,6 +182,24 @@ export function calculateTotalDue(
 // recalculated live on every read use the exact same rounding rule,
 // instead of two separately-maintained copies that could quietly drift
 // apart.
+// The mora the system actually CHARGES on a cuota once the round-to-$100
+// convention above is applied: the rounded total minus the capital. Not the
+// raw accrued `interest` — that can differ by up to $50 (a small mora even
+// rounds away to 0), and a waiver has to be measured against what the cuota
+// really adds on top of its capital, or forgiving "all the mora" would leave
+// the client a few pesos short of (or over) the capital. Used by
+// InstallmentsService to cap a mora waiver, and mirrored by the frontend's
+// lib/moraWaiver.ts so the dialog offers exactly what the server accepts.
+export function calculateMoraCharged(
+  installmentAmount: number,
+  interest: number,
+): number {
+  return Math.max(
+    0,
+    calculateTotalDue(installmentAmount, interest) - installmentAmount,
+  );
+}
+
 export function roundToNearestHundred(value: number): number {
   return Math.round(value / 100) * 100;
 }

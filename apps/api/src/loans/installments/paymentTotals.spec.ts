@@ -60,4 +60,21 @@ describe('sumPaymentsByInstallmentId', () => {
 
     expect(result.has('inst-1')).toBe(false);
   });
+
+  // Human request, 2026-09-25 — mora forgiven together with a payment
+  // reduces what is still owed exactly like cash does, so it counts here.
+  // (Cash-collected figures read amountPaid directly and never this helper.)
+  it('counts mora forgiven with a payment as covered, alongside the cash paid', async () => {
+    paymentsRepository.find.mockResolvedValue([
+      { installmentId: 'inst-1', amountPaid: 100000 },
+      { installmentId: 'inst-1', amountPaid: 480000, moraWaivedAmount: 12000 },
+    ]);
+
+    const result = await sumPaymentsByInstallmentId(
+      paymentsRepository as unknown as Repository<Payment>,
+      ['inst-1'],
+    );
+
+    expect(result.get('inst-1')).toBe(592000);
+  });
 });

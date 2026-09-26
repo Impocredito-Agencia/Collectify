@@ -2,11 +2,13 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsDateString,
+  IsInt,
   IsOptional,
   IsPositive,
   IsString,
   IsUrl,
   IsUUID,
+  MaxLength,
 } from 'class-validator';
 
 export class CreatePaymentDto {
@@ -40,6 +42,26 @@ export class CreatePaymentDto {
   @IsArray()
   @IsUrl({}, { each: true })
   imageUrls?: string[];
+
+  // Human request, 2026-09-25 — see Payment.moraWaivedAmount. Whole pesos,
+  // and the server requires amountPaid + moraWaivedAmount to settle the
+  // cuota exactly (InstallmentsService.assertValidMoraWaiver), so a stale
+  // screen can never leave a peso short or over.
+  @ApiPropertyOptional({
+    example: 12300,
+    description:
+      'Mora forgiven together with this payment. Only allowed when the payment settles the cuota completely: amountPaid must equal the cuota balance minus this amount, exactly.',
+  })
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  moraWaivedAmount?: number;
+
+  @ApiPropertyOptional({ example: 'Pagó todo de contado' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  moraWaiverReason?: string;
 
   // Human report, 2026-09-11 — set by the "Registrar pago con este
   // comprobante" flow (WhatsApp inbox → RegisterPaymentFromWhatsappModal)

@@ -265,9 +265,16 @@ export class AuditLogInterceptor implements NestInterceptor {
         // set (see InstallmentsService.voidPayment()). Distinguishing the
         // label here means the mandatory reason is visible straight from
         // Auditoría, not just buried in metadata.body.
+        // Human request, 2026-09-25 — a payment that forgave mora says so
+        // right in the label, so it can't go unnoticed in Auditoría.
+        const waivedSuffix =
+          typeof entity.moraWaivedAmount === 'number' &&
+          entity.moraWaivedAmount > 0
+            ? ` (mora condonada ${this.formatCurrencyCop(entity.moraWaivedAmount)})`
+            : '';
         const base = entity.deletedAt
-          ? `Pago de ${amount}${dateSuffix} ANULADO — motivo: ${typeof entity.voidReason === 'string' ? entity.voidReason : 'sin especificar'}`
-          : `Pago de ${amount}${dateSuffix}`;
+          ? `Pago de ${amount}${dateSuffix}${waivedSuffix} ANULADO — motivo: ${typeof entity.voidReason === 'string' ? entity.voidReason : 'sin especificar'}`
+          : `Pago de ${amount}${dateSuffix}${waivedSuffix}`;
         // Added 2026-09-04 — see the installmentsRepository comment in the
         // constructor.
         const installmentId =
@@ -467,7 +474,19 @@ export class AuditLogInterceptor implements NestInterceptor {
       (sum, payment) => sum + (payment.amountPaid as number),
       0,
     );
-    const base = `Pago de ${this.formatCurrencyCop(totalAmount)} en ${validPayments.length} cuotas`;
+    const totalWaived = validPayments.reduce(
+      (sum, payment) =>
+        sum +
+        (typeof payment.moraWaivedAmount === 'number'
+          ? payment.moraWaivedAmount
+          : 0),
+      0,
+    );
+    const waivedSuffix =
+      totalWaived > 0
+        ? ` (mora condonada ${this.formatCurrencyCop(totalWaived)})`
+        : '';
+    const base = `Pago de ${this.formatCurrencyCop(totalAmount)}${waivedSuffix} en ${validPayments.length} cuotas`;
 
     const installmentIds = validPayments
       .map((payment) =>

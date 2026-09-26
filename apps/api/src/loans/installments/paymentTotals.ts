@@ -24,13 +24,19 @@ export async function sumPaymentsByInstallmentId(
 
   const payments = await paymentsRepository.find({
     where: { installmentId: In(installmentIds) },
-    select: { installmentId: true, amountPaid: true },
+    select: { installmentId: true, amountPaid: true, moraWaivedAmount: true },
   });
 
+  // amountPaid plus any mora forgiven together with the payment
+  // (Payment.moraWaivedAmount, 2026-09-25) — both reduce what is still owed,
+  // which is what every caller of this helper nets. Cash-collected figures
+  // must read amountPaid directly, never this.
   for (const payment of payments) {
     map.set(
       payment.installmentId,
-      (map.get(payment.installmentId) ?? 0) + payment.amountPaid,
+      (map.get(payment.installmentId) ?? 0) +
+        payment.amountPaid +
+        (payment.moraWaivedAmount ?? 0),
     );
   }
 

@@ -67,4 +67,36 @@ describe('CreatePaymentDto', () => {
     expect(errors[0].property).toBe('sourceWhatsappMessageId');
     expect(errors[0].constraints).toHaveProperty('isUuid');
   });
+
+  // Human request, 2026-09-25 — mora waiver fields.
+  it('accepts a whole-peso moraWaivedAmount with an optional reason', async () => {
+    const dto = plainToInstance(CreatePaymentDto, {
+      ...baseInput,
+      moraWaivedAmount: 12300,
+      moraWaiverReason: 'Pagó todo de contado',
+    });
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('rejects a fractional, zero or negative moraWaivedAmount', async () => {
+    for (const moraWaivedAmount of [12300.5, 0, -100]) {
+      const dto = plainToInstance(CreatePaymentDto, {
+        ...baseInput,
+        moraWaivedAmount,
+      });
+      const errors = await validate(dto);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].property).toBe('moraWaivedAmount');
+    }
+  });
+
+  it('rejects a moraWaiverReason over 500 characters', async () => {
+    const dto = plainToInstance(CreatePaymentDto, {
+      ...baseInput,
+      moraWaiverReason: 'x'.repeat(501),
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].property).toBe('moraWaiverReason');
+  });
 });

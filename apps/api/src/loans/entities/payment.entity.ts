@@ -68,6 +68,28 @@ export class Payment {
   @Column({ type: 'text', nullable: true })
   voidReason!: string | null;
 
+  // Human request, 2026-09-25 — mora the collector chose to forgive when
+  // this payment settled the cuota. Always goes WITH a payment (never on its
+  // own) and only when that payment closes the cuota, so `amountPaid` stays
+  // the real cash received and `amountPaid + moraWaivedAmount` is what the
+  // cuota's balance was reduced by. Being on the payment row means voiding
+  // the payment (see InstallmentsService.voidPayment) undoes the waiver with
+  // it: the cuota reopens with the mora owed again. 0 = nothing waived.
+  // Never counted as money collected — cash reports keep summing amountPaid.
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  moraWaivedAmount!: number;
+
+  // Optional free-text reason for the waiver. Only meaningful when
+  // moraWaivedAmount > 0.
+  @Column({ type: 'text', nullable: true })
+  moraWaiverReason!: string | null;
+
   // Human report, 2026-09-14 — set when this payment was created by
   // applying a client's saldo a favor (ClientCreditLedgerEntry, type
   // `applied`) rather than an actual cash/transfer amount received. Shown

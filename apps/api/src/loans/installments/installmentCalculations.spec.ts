@@ -3,6 +3,7 @@ import { addDays, subDays } from 'date-fns';
 import { ConceptCalculationType } from '../../interestConceptTypes/entities/interestConceptType.entity';
 
 import {
+  calculateMoraCharged,
   MORA_GRACE_PERIOD_DAYS,
   calculateDaysUntilDue,
   calculateMoratoryCharges,
@@ -366,6 +367,28 @@ describe('installmentCalculations', () => {
 
     it('rounds a larger accrued mora up to the next $100', () => {
       expect(calculateTotalDue(393000, 67)).toBe(393100);
+    });
+  });
+
+  // Human request, 2026-09-25 — the mora a waiver is measured against: what
+  // the rounded total actually adds on top of the capital.
+  describe('calculateMoraCharged', () => {
+    it('is the rounded total minus the capital, not the raw accrued interest', () => {
+      // 588000 + 12344.6 rounds to 600300 → 12300 charged, not 12344.6.
+      expect(calculateMoraCharged(588000, 12344.6)).toBe(12300);
+    });
+
+    it('is 0 when the accrued mora rounds away (under $50)', () => {
+      expect(calculateMoraCharged(588000, 40)).toBe(0);
+    });
+
+    it('is 0 with no mora', () => {
+      expect(calculateMoraCharged(588000, 0)).toBe(0);
+    });
+
+    it('forgiving all of it leaves exactly the capital to pay', () => {
+      const total = calculateTotalDue(588000, 12344.6);
+      expect(total - calculateMoraCharged(588000, 12344.6)).toBe(588000);
     });
   });
 });
