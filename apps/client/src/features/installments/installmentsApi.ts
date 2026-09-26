@@ -149,6 +149,12 @@ export interface Payment {
   // money collected.
   moraWaivedAmount: number;
   moraWaiverReason: string | null;
+  // Human request, 2026-09-26 — the saldo a favor this payment generated that
+  // is still standing (an excess the client handed over), and the saldo a
+  // favor it spent (a payment funded by credit). What voiding it would take
+  // back / give back — the void dialog warns with these.
+  creditGeneratedAmount: number;
+  creditSpentAmount: number;
 }
 
 export const installmentsApi = {

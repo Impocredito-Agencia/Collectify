@@ -73,6 +73,9 @@ export function useVoidPayment(loanId: string) {
       reason: string;
     }) => installmentsApi.voidPayment(paymentId, reason),
     onSuccess: () => {
+      // Voiding can take back or give back saldo a favor (2026-09-26), so the
+      // client's credit balance can change too.
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
       queryClient.invalidateQueries({ queryKey: ['installments'] });
       queryClient.invalidateQueries({ queryKey: ['loans', loanId] });
       queryClient.invalidateQueries({

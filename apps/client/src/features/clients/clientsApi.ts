@@ -381,6 +381,20 @@ export const clientsApi = {
     return data;
   },
 
+  // Human request, 2026-09-26 — "devolver al cliente": records that cash from
+  // the saldo a favor was handed back. Admin only. Returns the new balance.
+  // See ClientCreditBalanceService.refund and docs/DATABASE.md.
+  refundCredit: async (
+    clientId: string,
+    input: { amount: number; reason?: string },
+  ): Promise<{ balance: number }> => {
+    const { data } = await apiClient.post<{ balance: number }>(
+      `/clients/${clientId}/credit-balance/refund`,
+      input,
+    );
+    return data;
+  },
+
   // Human request, 2026-09-15 — front-desk lookup, see
   // ClientAccountStatusPanel.tsx's own comment. Mirrors the backend's
   // OverdueInstallmentResult/UpcomingInstallmentResult exactly (same

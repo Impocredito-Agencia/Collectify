@@ -27,6 +27,9 @@ export const ACTION_LABELS: Record<string, string> = {
   // setMessageFrequency" shown verbatim instead of translated).
   'client.setMessageFrequency':
     'Configuró la frecuencia de mensajes de un cliente',
+  // Human request, 2026-09-26 — cash from a client's saldo a favor handed
+  // back to them (POST /clients/:id/credit-balance/refund).
+  'client.refundCredit': 'Devolvió saldo a favor a un cliente',
   'client.clearMessageFrequency':
     'Quitó la frecuencia personalizada de un cliente',
   'client.setMutedPhoneNumbers':

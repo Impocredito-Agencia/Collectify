@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
+import { useAuth } from '@/features/auth/useAuth';
 import { ApplyClientCreditDialog } from '@/features/clients/ApplyClientCreditDialog';
+import { RefundClientCreditDialog } from '@/features/clients/RefundClientCreditDialog';
 import { useClientCreditBalance } from '@/features/clients/useClients';
 import { formatCurrency } from '@/lib/format';
 
@@ -31,6 +33,11 @@ export function ClientCreditBanner({
 }: ClientCreditBannerProps) {
   const { data } = useClientCreditBalance(clientId);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isRefundOpen, setIsRefundOpen] = useState(false);
+  // Human request, 2026-09-26 — returning cash to the client is admin-only,
+  // like voiding a payment (the endpoint is @Roles(Admin)).
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const balance = data?.balance ?? 0;
 
   if (balance <= 0) {
@@ -44,9 +51,21 @@ export function ClientCreditBanner({
         <strong className="text-white">{formatCurrency(balance)}</strong>,
         disponible para aplicar a cualquiera de sus cuotas pendientes.
       </span>
-      <Button className="shrink-0" onClick={() => setIsDialogOpen(true)}>
-        Aplicar
-      </Button>
+      <div className="flex shrink-0 items-center gap-2">
+        {isAdmin && (
+          <Button variant="secondary" onClick={() => setIsRefundOpen(true)}>
+            Devolver
+          </Button>
+        )}
+        <Button onClick={() => setIsDialogOpen(true)}>Aplicar</Button>
+      </div>
+      {isRefundOpen && (
+        <RefundClientCreditDialog
+          clientId={clientId}
+          balance={balance}
+          onClose={() => setIsRefundOpen(false)}
+        />
+      )}
       {isDialogOpen && (
         <ApplyClientCreditDialog
           clientId={clientId}
