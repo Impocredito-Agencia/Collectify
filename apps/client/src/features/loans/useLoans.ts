@@ -87,7 +87,8 @@ export function useRefinanceQuote() {
 export function usePayoffLoan() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: loansApi.payoff,
+    mutationFn: ({ id, imageUrls }: { id: string; imageUrls?: string[] }) =>
+      loansApi.payoff(id, { imageUrls }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
   });
 }

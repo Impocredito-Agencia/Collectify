@@ -469,8 +469,17 @@ export const loansApi = {
 
   // Separate, explicit flow from registering an ordinary payment — always
   // settles the FULL payoff quote, closing the loan out. Admin only.
-  payoff: async (id: string): Promise<LoanDetail> => {
-    const { data } = await apiClient.post<LoanDetail>(`/loans/${id}/payoff`);
+  //
+  // imageUrls (2026-09-25) — the payment receipt, already uploaded; the
+  // backend attaches the same photos to every payment the payoff registers.
+  payoff: async (
+    id: string,
+    input: { imageUrls?: string[] } = {},
+  ): Promise<LoanDetail> => {
+    const { data } = await apiClient.post<LoanDetail>(
+      `/loans/${id}/payoff`,
+      input,
+    );
     return data;
   },
 

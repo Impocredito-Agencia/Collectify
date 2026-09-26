@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
+import { Field } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
+import { ReceiptPhotosField } from '@/components/ui/ReceiptPhotosField';
 import { Td, Th } from '@/components/ui/Table';
 import { ConceptCategory } from '@/features/interestConceptTypes/interestConceptTypesApi';
 import { usePayoffQuote } from '@/features/loans/useLoans';
 import { formatCurrency } from '@/lib/format';
+import { ImageUploadError, uploadPaymentReceipt } from '@/lib/imageUpload';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type {
@@ -16,7 +19,9 @@ import type {
 interface PayoffDialogProps {
   loanId: string;
   loanLabel: string;
-  onConfirm: () => Promise<unknown>;
+  // imageUrls: the payment receipt photos, already uploaded (empty when the
+  // admin attached none).
+  onConfirm: (imageUrls: string[]) => Promise<unknown>;
   onClose: () => void;
 }
 
@@ -45,6 +50,9 @@ export function PayoffDialog({
   // warning; the actual POST /loans/:id/payoff call happens on the second
   // button below.
   const [isConfirmingFinal, setIsConfirmingFinal] = useState(false);
+  // Human report, 2026-09-25 — the payoff had no way to attach the payment
+  // receipt. Optional, same as on an ordinary payment.
+  const [receiptFiles, setReceiptFiles] = useState<File[]>([]);
 
   const payoffQuote = usePayoffQuote();
 
@@ -65,7 +73,24 @@ export function PayoffDialog({
     setConfirmError(null);
     setIsSubmitting(true);
     try {
-      await onConfirm();
+      // An upload failure must never let the payoff go through silently
+      // without the receipt the admin chose to attach — so every photo is
+      // uploaded first, and the payoff is aborted (nothing settled) if any
+      // one fails. Same rule as RegisterPaymentDialog.
+      const imageUrls: string[] = [];
+      for (const file of receiptFiles) {
+        try {
+          imageUrls.push(await uploadPaymentReceipt(file));
+        } catch (err) {
+          setConfirmError(
+            err instanceof ImageUploadError
+              ? err.message
+              : 'No se pudo subir una de las fotos del comprobante. Intenta de nuevo.',
+          );
+          return;
+        }
+      }
+      await onConfirm(imageUrls);
       onClose();
     } catch {
       setConfirmError('No se pudo liquidar el préstamo. Intenta de nuevo.');
@@ -266,6 +291,15 @@ export function PayoffDialog({
           )}
         </>
       )}
+
+      <div className="mt-5">
+        <Field label="Fotos del comprobante (opcional)" layout="stack">
+          <ReceiptPhotosField
+            onChange={setReceiptFiles}
+            disabled={isSubmitting}
+          />
+        </Field>
+      </div>
 
       {isConfirmingFinal && (
         <p
