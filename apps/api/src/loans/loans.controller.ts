@@ -25,6 +25,7 @@ import { AppModule } from '../users/entities/userModulePermission.entity';
 import { AdjustPendingInstallmentsDto } from './dto/adjustPendingInstallments.dto';
 import { AlignInstallmentDueDayDto } from './dto/alignInstallmentDueDay.dto';
 import { CreateLoanDto } from './dto/createLoan.dto';
+import { PayoffLoanDto } from './dto/payoffLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { PreviewScheduleDto } from './dto/previewSchedule.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
@@ -305,7 +306,7 @@ export class LoansController {
     summary:
       'Settle the loan today for its full payoff quote, closing it out (admin or granted the loans module)',
     description:
-      "A separate, explicit flow from registering an ordinary payment — POST /installments/:id/payments and its one-payment-per-installment behavior are completely untouched. Always settles the FULL amount from GET /loans/:id/payoff-quote; there is no partial early payoff. Registers one real Payment row per still-pending installment (observation: 'Liquidación anticipada'; the quote's interestTrueUp rides on the first pending installment's payment so the payments still sum to the quoted total), marks every installment and the loan 'paid'.",
+      "A separate, explicit flow from registering an ordinary payment — POST /installments/:id/payments and its one-payment-per-installment behavior are completely untouched. Always settles the FULL amount from GET /loans/:id/payoff-quote; there is no partial early payoff. Registers one real Payment row per still-pending installment (observation: 'Liquidación anticipada'; the quote's interestTrueUp rides on the first pending installment's payment so the payments still sum to the quoted total), marks every installment and the loan 'paid'. Optionally takes imageUrls — the payment receipt photos, attached to every payment the payoff registers.",
   })
   @ApiResponse({ status: 200, description: 'The loan was paid off.' })
   @ApiResponse({
@@ -313,8 +314,11 @@ export class LoansController {
     description: 'The loan is not active (already paid or refinanced).',
   })
   @ApiResponse({ status: 404, description: 'Loan not found.' })
-  payoff(@Param('id') id: string): Promise<LoanDetail> {
-    return this.loansService.payoff(id);
+  payoff(
+    @Param('id') id: string,
+    @Body() dto: PayoffLoanDto,
+  ): Promise<LoanDetail> {
+    return this.loansService.payoff(id, dto);
   }
 
   @Get(':id/payments')

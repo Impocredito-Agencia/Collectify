@@ -72,7 +72,11 @@ describe('LoansService', () => {
     save: jest.Mock;
     count: jest.Mock;
   };
-  let paymentImagesRepository: { find: jest.Mock };
+  let paymentImagesRepository: {
+    find: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+  };
   let loanInstallmentConceptsRepository: {
     create: jest.Mock;
     save: jest.Mock;
@@ -177,6 +181,8 @@ describe('LoansService', () => {
     };
     paymentImagesRepository = {
       find: jest.fn().mockResolvedValue([]),
+      create: jest.fn((dto: Record<string, unknown>) => dto),
+      save: jest.fn((images: unknown[]) => Promise.resolve(images)),
     };
     loanInstallmentConceptsRepository = {
       create: jest.fn((dto: Partial<LoanInstallmentConcept>) => dto),
@@ -3350,6 +3356,76 @@ describe('LoansService', () => {
         }),
       );
       expect(paymentsRepository.save).toHaveBeenCalled();
+    });
+
+    // Human report, 2026-09-25 — the payoff dialog had no way to attach the
+    // payment receipt.
+    describe('payment receipt photos', () => {
+      const futureDueDate = () => {
+        const date = new Date();
+        date.setFullYear(date.getFullYear() + 5);
+        return date.toISOString().slice(0, 10);
+      };
+      const twoPending = () => [
+        pendingInstallment({
+          id: 'inst-1',
+          installmentNumber: 1,
+          dueDate: futureDueDate(),
+        }),
+        pendingInstallment({
+          id: 'inst-2',
+          installmentNumber: 2,
+          dueDate: futureDueDate(),
+        }),
+      ];
+
+      it('attaches the same receipt photos to every payment the payoff registers', async () => {
+        installmentsRepository.find.mockResolvedValue(twoPending());
+        paymentsRepository.save.mockImplementation((payments: unknown[]) =>
+          Promise.resolve(
+            (payments as { installmentId: string }[]).map((payment, index) => ({
+              ...payment,
+              id: `payment-${index + 1}`,
+            })),
+          ),
+        );
+
+        await service.payoff(mockLoan.id, {
+          imageUrls: [
+            'https://res.cloudinary.com/x/receipt-1.jpg',
+            'https://res.cloudinary.com/x/receipt-2.jpg',
+          ],
+        });
+
+        expect(paymentImagesRepository.save).toHaveBeenCalledWith([
+          {
+            paymentId: 'payment-1',
+            imageUrl: 'https://res.cloudinary.com/x/receipt-1.jpg',
+          },
+          {
+            paymentId: 'payment-1',
+            imageUrl: 'https://res.cloudinary.com/x/receipt-2.jpg',
+          },
+          {
+            paymentId: 'payment-2',
+            imageUrl: 'https://res.cloudinary.com/x/receipt-1.jpg',
+          },
+          {
+            paymentId: 'payment-2',
+            imageUrl: 'https://res.cloudinary.com/x/receipt-2.jpg',
+          },
+        ]);
+      });
+
+      it('saves no images when none are given (empty body, as before)', async () => {
+        installmentsRepository.find.mockResolvedValue(twoPending());
+
+        await service.payoff(mockLoan.id);
+        await service.payoff(mockLoan.id, {});
+        await service.payoff(mockLoan.id, { imageUrls: [] });
+
+        expect(paymentImagesRepository.save).not.toHaveBeenCalled();
+      });
     });
 
     // Bug fix, 2026-09-15 (human report) — before this, payoff() recharged

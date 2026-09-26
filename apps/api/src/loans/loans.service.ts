@@ -38,6 +38,7 @@ import { CreateLoanDto } from './dto/createLoan.dto';
 import { LoanConceptAssignmentDto } from './dto/loanConceptAssignment.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { PreviewScheduleDto } from './dto/previewSchedule.dto';
+import { PayoffLoanDto } from './dto/payoffLoan.dto';
 import { LoanSortColumn, QueryLoansDto } from './dto/queryLoans.dto';
 import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { addMonthsToDateString, addWeeksToDateString } from './dueDateSchedule';
@@ -1008,7 +1009,7 @@ export class LoansService {
   // loan for its FULL quoted amount, closing it out entirely. Registers
   // one real Payment row per still-pending installment, so the payoff
   // leaves the same kind of historical record an ordinary payment would.
-  async payoff(id: string): Promise<LoanDetail> {
+  async payoff(id: string, dto: PayoffLoanDto = {}): Promise<LoanDetail> {
     const loan = await this.findLoanOrThrow(id);
     if (loan.status !== LoanStatus.Active) {
       throw new BadRequestException(
@@ -1062,7 +1063,23 @@ export class LoansService {
       });
     });
     if (payments.length > 0) {
-      await this.paymentsRepository.save(payments);
+      const savedPayments = await this.paymentsRepository.save(payments);
+      // Human report, 2026-09-25 — the receipt of the payoff. One comprobante
+      // covers the whole settlement, so the same photos go on every payment
+      // row it registers (same as a bulk payment across several cuotas), and
+      // each row shows them in the loan's payment history.
+      if (dto.imageUrls && dto.imageUrls.length > 0) {
+        await this.paymentImagesRepository.save(
+          savedPayments.flatMap((payment) =>
+            (dto.imageUrls ?? []).map((imageUrl) =>
+              this.paymentImagesRepository.create({
+                paymentId: payment.id,
+                imageUrl,
+              }),
+            ),
+          ),
+        );
+      }
     }
 
     await this.installmentsRepository.update(
