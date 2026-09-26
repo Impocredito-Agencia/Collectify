@@ -81,7 +81,15 @@ const POSTGRES_UNIQUE_VIOLATION = '23505';
 // "5" as MessageTemplate's upcomingDueReminderDays (Phase 9); kept as its
 // own named constant specifically so the two are never accidentally
 // conflated or refactored into sharing a value.
-const REFINANCE_EARLY_MATURITY_WINDOW_DAYS = 5;
+//
+// Extended, 2026-09-26 (human decision): this used to be refinance-only. It
+// now applies to early payoff too (getPayoffQuote()/payoff()), so
+// liquidating and refinancing the same loan on the same day charge the same
+// interest — with the window on one route only, the cheaper route was the
+// one to pick, which defeated the rule's own purpose (stopping people from
+// closing a loan just before a cuota falls due to skip that period's
+// interest). Both routes share ONE value on purpose, so they can't drift.
+const EARLY_MATURITY_WINDOW_DAYS = 5;
 
 export interface PreviewedInstallment {
   installmentNumber: number;
@@ -130,10 +138,10 @@ export interface LoanDetail extends Loan {
   // as owing more than the actual capital left. Reuses getPayoffQuote()
   // rather than a second implementation, per docs/phases/PHASE_17_REFINANCING_RECALC.md's
   // own precedent of never duplicating this math. `totalPrincipalOwed` is
-  // unaffected by the refinance-only earlyMaturityWindowDays option (see
-  // calculatePayoff.ts — principalApplied never depends on it), so the
-  // plain getPayoffQuote() call here always agrees with what a refinance
-  // quote would show for the same figure.
+  // unaffected by the earlyMaturityWindowDays option (see
+  // calculatePayoff.ts — principalApplied never depends on it), so this
+  // agrees with what a payoff or refinance quote shows for the same figure
+  // whether or not the window is applied.
   currentPrincipalBalance: number;
   // Human request, 2026-09-25 — whether PATCH
   // /loans/:id/installments/amount-adjustment would accept this loan right
@@ -972,7 +980,11 @@ export class LoansService {
   // docs/phases/PHASE_16_EARLY_PAYOFF.md — never blindly sums remaining
   // installment totals; a not-yet-due installment contributes only
   // principal, at face value, with zero interest (Colombian Civil Code
-  // Art. 1653, confirmed with the human). Read-only, safe to call on any
+  // Art. 1653, confirmed with the human) — EXCEPT one due within the next
+  // EARLY_MATURITY_WINDOW_DAYS days, which is treated as already matured and
+  // carries its interest too (human decision, 2026-09-26: the same window
+  // refinancing has used since Phase 25, so both routes charge the same).
+  // Read-only, safe to call on any
   // loan regardless of status (an already-paid/refinanced loan simply has
   // no pending installments, so the quote comes back empty).
   async getPayoffQuote(id: string): Promise<PayoffQuote> {
@@ -998,9 +1010,14 @@ export class LoansService {
         ),
       ),
       today,
-      trueUpOptions(
-        await this.computeInterestTrueUp(id, pending.length, today),
-      ),
+      {
+        earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+        ...trueUpOptions(
+          await this.computeInterestTrueUp(id, pending.length, today, {
+            earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+          }),
+        ),
+      },
     );
   }
 
@@ -1038,9 +1055,14 @@ export class LoansService {
         ),
       ),
       today,
-      trueUpOptions(
-        await this.computeInterestTrueUp(id, pending.length, today),
-      ),
+      {
+        earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+        ...trueUpOptions(
+          await this.computeInterestTrueUp(id, pending.length, today, {
+            earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+          }),
+        ),
+      },
     );
 
     const paidAt = new Date().toISOString().slice(0, 10);
@@ -1161,19 +1183,16 @@ export class LoansService {
   // count — excluding any whose catalog type was since deleted (no valid
   // id left to resubmit).
   //
-  // Phase 25 (confirmed with the human, reunión 2026-08-25): unlike a real
-  // payoff quote, this one passes earlyMaturityWindowDays so an
-  // installment due within the next REFINANCE_EARLY_MATURITY_WINDOW_DAYS
-  // days — not yet actually overdue — also has its corriente interest
-  // folded into suggestedPrincipalAmount ("de la cuarta cuota entran los
-  // intereses al capital también, así no haya llegado a su fecha de
-  // vencimiento como tal"). Its moratory interest stays 0, since it isn't
-  // actually in mora yet — calculatePayoff() enforces that on its own, see
-  // that function's own comment. This window is intentionally scoped to
-  // refinancing only: getPayoffQuote()/payoff() (the real early-payoff
-  // endpoints, Phase 16) must keep omitting this option so a client asking
-  // "what do I owe if I pay off today" is never shown a not-yet-due cuota's
-  // interest.
+  // Phase 25 (confirmed with the human, reunión 2026-08-25): this quote
+  // passes earlyMaturityWindowDays so an installment due within the next
+  // EARLY_MATURITY_WINDOW_DAYS days — not yet actually overdue — also has its
+  // corriente interest folded into suggestedPrincipalAmount ("de la cuarta
+  // cuota entran los intereses al capital también, así no haya llegado a su
+  // fecha de vencimiento como tal"). Its moratory interest stays 0, since it
+  // isn't actually in mora yet — calculatePayoff() enforces that on its own,
+  // see that function's own comment. Since 2026-09-26 the real early-payoff
+  // endpoints (getPayoffQuote()/payoff()) apply the same window — see
+  // EARLY_MATURITY_WINDOW_DAYS.
   async getRefinanceQuote(id: string): Promise<RefinanceQuote> {
     await this.findLoanOrThrow(id);
     const pending = await this.findPendingInstallments(id);
@@ -1197,10 +1216,10 @@ export class LoansService {
       ),
     );
     const payoff = calculatePayoff(payoffInputs, today, {
-      earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+      earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
       ...trueUpOptions(
         await this.computeInterestTrueUp(id, pending.length, today, {
-          earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+          earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
         }),
       ),
     });
@@ -1220,7 +1239,7 @@ export class LoansService {
         (installment) =>
           calculateDaysUntilDue(new Date(installment.dueDate), today) > 0 &&
           calculateDaysUntilDue(new Date(installment.dueDate), today) <=
-            REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+            EARLY_MATURITY_WINDOW_DAYS,
       )
       .map((installment) => installment.installmentNumber);
     const earlyWindowInterest = Math.max(

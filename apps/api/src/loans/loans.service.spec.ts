@@ -3027,6 +3027,79 @@ describe('LoansService', () => {
       loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
     });
 
+    // Human decision, 2026-09-26 — early payoff uses the same 5-day window
+    // refinancing has used since Phase 25: a cuota due within the next 5 days
+    // is treated as already matured, so liquidating and refinancing the same
+    // loan on the same day charge the same interest.
+    describe('early maturity window (same as refinancing)', () => {
+      it('includes the interest of a cuota due in exactly 5 days', async () => {
+        installmentsRepository.find.mockResolvedValue([
+          pendingInstallment({
+            amount: 300000,
+            principalPortion: 270000,
+            dueDate: bogotaTodayPlusDays(5),
+          }),
+        ]);
+
+        const quote = await service.getPayoffQuote(mockLoan.id);
+
+        // amount − principalPortion = 30000 of corriente interest.
+        expect(quote.totalInterestOwed).toBe(30000);
+        expect(quote.totalPrincipalOwed).toBe(270000);
+        expect(quote.totalDue).toBe(300000);
+      });
+
+      it('charges only the capital of a cuota due in 6 days (just outside the window)', async () => {
+        installmentsRepository.find.mockResolvedValue([
+          pendingInstallment({
+            amount: 300000,
+            principalPortion: 270000,
+            dueDate: bogotaTodayPlusDays(6),
+          }),
+        ]);
+
+        const quote = await service.getPayoffQuote(mockLoan.id);
+
+        expect(quote.totalInterestOwed).toBe(0);
+        expect(quote.totalDue).toBe(270000);
+      });
+
+      it('agrees with the refinance quote for the same loan on the same day', async () => {
+        installmentsRepository.find.mockResolvedValue([
+          pendingInstallment({
+            amount: 300000,
+            principalPortion: 270000,
+            dueDate: bogotaTodayPlusDays(3),
+          }),
+        ]);
+        installmentsRepository.findOne.mockResolvedValue(
+          pendingInstallment({ id: 'inst-1' }),
+        );
+
+        const payoffQuote = await service.getPayoffQuote(mockLoan.id);
+        const refinanceQuote = await service.getRefinanceQuote(mockLoan.id);
+
+        expect(payoffQuote.totalDue).toBe(refinanceQuote.payoff.totalDue);
+        expect(payoffQuote.totalInterestOwed).toBe(
+          refinanceQuote.payoff.totalInterestOwed,
+        );
+      });
+
+      it('leaves the "saldo capital a la fecha" untouched (principal never depends on the window)', async () => {
+        installmentsRepository.find.mockResolvedValue([
+          pendingInstallment({
+            amount: 300000,
+            principalPortion: 270000,
+            dueDate: bogotaTodayPlusDays(2),
+          }),
+        ]);
+
+        const quote = await service.getPayoffQuote(mockLoan.id);
+
+        expect(quote.totalPrincipalOwed).toBe(270000);
+      });
+    });
+
     it('quotes only interest/principal for still-pending installments', async () => {
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({ amount: 300000, principalPortion: 270000 }),
@@ -3356,6 +3429,51 @@ describe('LoansService', () => {
         }),
       );
       expect(paymentsRepository.save).toHaveBeenCalled();
+    });
+
+    // Human decision, 2026-09-26 — payoff() charges exactly what
+    // getPayoffQuote() quotes, including the 5-day window: a cuota due in 3
+    // days is settled for its capital AND its interest, not capital alone.
+    it('charges a cuota due within 5 days its interest too, matching the quote', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          id: 'inst-1',
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: bogotaTodayPlusDays(3),
+        }),
+      ]);
+
+      const quote = await service.getPayoffQuote(mockLoan.id);
+      await service.payoff(mockLoan.id);
+
+      expect(quote.totalDue).toBe(300000);
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          installmentId: 'inst-1',
+          amountPaid: 300000,
+        }),
+      );
+    });
+
+    it('still charges only the capital of a cuota due in more than 5 days', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          id: 'inst-1',
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: bogotaTodayPlusDays(6),
+        }),
+      ]);
+
+      await service.payoff(mockLoan.id);
+
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          installmentId: 'inst-1',
+          amountPaid: 270000,
+        }),
+      );
     });
 
     // Human report, 2026-09-25 — the payoff dialog had no way to attach the

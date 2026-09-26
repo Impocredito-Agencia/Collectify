@@ -269,7 +269,9 @@ export interface SchedulePreview {
 // installment contributes only principalApplied (its principalPortion),
 // at face value, with interestApplied 0; a matured (due/overdue)
 // installment's interestApplied includes both Phase 14 concept charges and
-// any moratory interest.
+// any moratory interest. Since 2026-09-26 "matured" also covers a cuota due
+// within the next 5 days (the same window refinancing has always used), so
+// a payoff and a refinance of the same loan charge the same interest.
 export interface PayoffInstallmentBreakdown {
   installmentId: string;
   installmentNumber: number;

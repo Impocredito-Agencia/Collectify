@@ -146,8 +146,9 @@ export function PayoffDialog({
       </h2>
       <p className="mt-2.5 text-small text-muted">
         {loanLabel} — esto cierra el préstamo por completo hoy. Lo ya causado
-        (mora y cargos adicionales de las cuotas vencidas) se cobra; las cuotas
-        futuras aún no vencidas se cobran solo por su capital.
+        (mora y cargos adicionales de las cuotas vencidas) se cobra, y también
+        los intereses de las cuotas que vencen en los próximos 5 días; las demás
+        cuotas futuras se cobran solo por su capital.
       </p>
 
       <div className="mt-5 border-t border-border" />
