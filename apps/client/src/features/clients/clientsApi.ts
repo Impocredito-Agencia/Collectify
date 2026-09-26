@@ -200,9 +200,20 @@ export interface ClientsQueryParams {
   // ClientsService.findAll/QueryClientsDto specifically to back the "Todos"
   // tab (see ClientsListPage.tsx).
   isActive?: boolean | 'all';
+  // Orders the WHOLE result server-side before it is paginated (see
+  // ClientsService.findAll) — not just the page on screen.
+  sortBy?: ClientSortColumn;
+  sortDirection?: 'asc' | 'desc';
   page?: number;
   limit?: number;
 }
+
+export type ClientSortColumn =
+  | 'name'
+  | 'documentNumber'
+  | 'phoneNumber'
+  | 'activeLoanCount'
+  | 'maxOverdueDays';
 
 export interface PaginatedClients {
   items: ClientListItem[];
@@ -258,6 +269,8 @@ export const clientsApi = {
     const { data, meta } = await apiClient.get<ClientListItem[]>('/clients', {
       search: params.search,
       isActive: params.isActive,
+      sortBy: params.sortBy,
+      sortDirection: params.sortDirection,
       page: params.page,
       limit: params.limit,
     });

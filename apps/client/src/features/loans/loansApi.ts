@@ -120,9 +120,20 @@ export interface LoansQueryParams {
   // Matches client name or promissory note number — added to
   // QueryLoansDto/LoansService.findAll for the Préstamos list's search box.
   search?: string;
+  // Orders the WHOLE result server-side before it is paginated (see
+  // LoansService.findAll) — not just the page on screen.
+  sortBy?: LoanSortColumn;
+  sortDirection?: 'asc' | 'desc';
   page?: number;
   limit?: number;
 }
+
+export type LoanSortColumn =
+  | 'promissoryNoteNumber'
+  | 'clientFullName'
+  | 'outstandingBalance'
+  | 'overdueDays'
+  | 'status';
 
 export interface PaginatedLoans {
   items: LoanSummary[];
@@ -389,6 +400,8 @@ export const loansApi = {
       clientId: params.clientId,
       status: params.status,
       search: params.search,
+      sortBy: params.sortBy,
+      sortDirection: params.sortDirection,
       page: params.page,
       limit: params.limit,
     });
