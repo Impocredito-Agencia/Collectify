@@ -58,7 +58,10 @@ describe('ClientsService', () => {
     findOneBy: jest.Mock;
     delete: jest.Mock;
   };
-  let clientCreditBalanceService: { getBalance: jest.Mock };
+  let clientCreditBalanceService: {
+    getBalance: jest.Mock;
+    refund: jest.Mock;
+  };
   let configService: { get: jest.Mock };
 
   const mockClient: Client = {
@@ -163,6 +166,7 @@ describe('ClientsService', () => {
     };
     clientCreditBalanceService = {
       getBalance: jest.fn().mockResolvedValue(0),
+      refund: jest.fn().mockResolvedValue({ balance: 0 }),
     };
     configService = {
       get: jest.fn().mockReturnValue({ upcomingDueReminderDays: 5 }),
@@ -1762,6 +1766,25 @@ describe('ClientsService', () => {
         BadRequestException,
       );
       expect(repository.restore).not.toHaveBeenCalled();
+    });
+  });
+
+  // Human request, 2026-09-26 — "devolver al cliente".
+  describe('refundCreditBalance', () => {
+    it('hands the amount and reason to the credit ledger and returns the new balance', async () => {
+      clientCreditBalanceService.refund.mockResolvedValue({ balance: 30000 });
+
+      const result = await service.refundCreditBalance('client-1', {
+        amount: 20000,
+        reason: 'Pidió el excedente',
+      });
+
+      expect(clientCreditBalanceService.refund).toHaveBeenCalledWith(
+        'client-1',
+        20000,
+        'Pidió el excedente',
+      );
+      expect(result).toEqual({ balance: 30000 });
     });
   });
 });

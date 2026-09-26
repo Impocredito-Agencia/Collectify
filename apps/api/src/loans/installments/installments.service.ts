@@ -594,6 +594,23 @@ export class InstallmentsService {
       payment.voidReason = dto.reason;
       const savedPayment = await paymentsRepository.save(payment);
 
+      // Human request, 2026-09-26 — the saldo a favor side of a void, inside
+      // the same transaction so a refusal rolls the whole void back:
+      //  - a payment FUNDED by credit gives the credit it spent back to the
+      //    client (no cash ever backed it);
+      //  - a payment that GENERATED credit (an excess) has that credit taken
+      //    back, or is refused if the client already used/received part of
+      //    it. Restoring first, so a credit-funded payment that also
+      //    recycled a leftover nets out correctly.
+      await this.clientCreditBalanceService.restoreCreditSpentBy(
+        paymentId,
+        manager,
+      );
+      await this.clientCreditBalanceService.reverseCreditGeneratedBy(
+        paymentId,
+        manager,
+      );
+
       const installment = payment.installment;
       // A Pending installment has nothing to reopen (this just stops
       // counting toward its balance, same as any other query). A

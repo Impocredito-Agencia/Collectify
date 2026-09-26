@@ -40,6 +40,7 @@ import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
 import { SetClientMutedPhoneNumbersDto } from './dto/setClientMutedPhoneNumbers.dto';
 import { ClientSortColumn, QueryClientsDto } from './dto/queryClients.dto';
+import { RefundClientCreditDto } from './dto/refundClientCredit.dto';
 import { SetClientMessageFrequencyDto } from './dto/setClientMessageFrequency.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
 import { UpdateClientReferenceDto } from './dto/updateClientReference.dto';
@@ -160,6 +161,21 @@ export class ClientsService {
   async getCreditBalance(clientId: string): Promise<{ balance: number }> {
     const balance = await this.clientCreditBalanceService.getBalance(clientId);
     return { balance };
+  }
+
+  // Human request, 2026-09-26 — "devolver al cliente": records handing part
+  // or all of the saldo a favor back in cash. The other way to take a credit
+  // off the books besides applying it; see ClientCreditBalanceService.refund.
+  // Not a "discard" — that money is the client's.
+  async refundCreditBalance(
+    clientId: string,
+    dto: RefundClientCreditDto,
+  ): Promise<{ balance: number }> {
+    return this.clientCreditBalanceService.refund(
+      clientId,
+      dto.amount,
+      dto.reason,
+    );
   }
 
   // Human request, 2026-09-15 — when a client walks into the office, the

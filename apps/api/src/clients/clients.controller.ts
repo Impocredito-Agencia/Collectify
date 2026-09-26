@@ -20,7 +20,9 @@ import {
 
 import { Audit } from '../auditLog/decorators/audit.decorator';
 import { RequireModule } from '../auth/decorators/requireModule.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import { UserRole } from '../users/entities/user.entity';
 import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import {
@@ -32,6 +34,7 @@ import {
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
+import { RefundClientCreditDto } from './dto/refundClientCredit.dto';
 import { SetClientMessageFrequencyDto } from './dto/setClientMessageFrequency.dto';
 import { SetClientMutedPhoneNumbersDto } from './dto/setClientMutedPhoneNumbers.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
@@ -295,6 +298,36 @@ export class ClientsController {
   })
   getCreditBalance(@Param('id') id: string): Promise<{ balance: number }> {
     return this.clientsService.getCreditBalance(id);
+  }
+
+  // Human request, 2026-09-26 — cash going back to the client, so admin only
+  // (@Roles, not @RequireModule), same as voiding a payment.
+  @Post(':id/credit-balance/refund')
+  @Roles(UserRole.Admin)
+  @Audit('client.refundCredit', 'client')
+  @ApiOperation({
+    summary:
+      "Return part or all of a client's saldo a favor in cash (admin only)",
+    description:
+      "Records that cash from the client's saldo a favor was handed back to them, " +
+      'deducting it from the balance. Cannot exceed the available balance. The only ' +
+      'way to take a credit off the books other than applying it to a cuota — it is ' +
+      'deliberately not a "discard", since that money belongs to the client.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns the new available balance.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'The amount exceeds the available balance.',
+  })
+  @ApiResponse({ status: 403, description: 'Requires the admin role.' })
+  refundCredit(
+    @Param('id') id: string,
+    @Body() dto: RefundClientCreditDto,
+  ): Promise<{ balance: number }> {
+    return this.clientsService.refundCreditBalance(id, dto);
   }
 
   // Human request, 2026-09-15 — front-desk lookup: everything a client

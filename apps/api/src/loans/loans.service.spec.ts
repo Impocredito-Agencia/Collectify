@@ -9,6 +9,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 
+import { ClientCreditBalanceService } from '../clients/clientCreditBalance.service';
 import { ClientsService } from '../clients/clients.service';
 import {
   ConceptCalculationType,
@@ -306,6 +307,12 @@ describe('LoansService', () => {
           useValue: usuryRateService,
         },
         { provide: ClientsService, useValue: clientsService },
+        {
+          provide: ClientCreditBalanceService,
+          useValue: {
+            summarizeCreditByPaymentId: jest.fn().mockResolvedValue(new Map()),
+          },
+        },
         { provide: DataSource, useValue: dataSource },
         { provide: ConfigService, useValue: configService },
       ],
@@ -2448,7 +2455,14 @@ describe('LoansService', () => {
       // Phase 28 — getPayments() now maps each payment (imageUrl replaced
       // with imageUrls), so the result is a new array, not the same
       // reference; compare by value instead.
-      expect(result).toEqual([{ ...payments[0], imageUrls: [] }]);
+      expect(result).toEqual([
+        {
+          ...payments[0],
+          imageUrls: [],
+          creditGeneratedAmount: 0,
+          creditSpentAmount: 0,
+        },
+      ]);
       expect(installmentsRepository.find).toHaveBeenCalledWith({
         where: { loanId: mockLoan.id },
         select: ['id'],

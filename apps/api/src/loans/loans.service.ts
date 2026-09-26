@@ -16,6 +16,7 @@ import {
   Repository,
 } from 'typeorm';
 
+import { ClientCreditBalanceService } from '../clients/clientCreditBalance.service';
 import { ClientsService } from '../clients/clients.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { countDecimalPlaces } from '../common/numberPrecision';
@@ -155,6 +156,12 @@ export interface LoanDetail extends Loan {
 // imageUrl column for a pre-migration row, see Payment entity).
 export interface PaymentWithImages extends Omit<Payment, 'imageUrl'> {
   imageUrls: string[];
+  // Human request, 2026-09-26 — the saldo a favor this payment generated
+  // that is still standing (an excess the client handed over), and the
+  // saldo a favor it spent (a payment funded by credit). What voiding it
+  // would take back / give back — see ClientCreditBalanceService.
+  creditGeneratedAmount: number;
+  creditSpentAmount: number;
 }
 
 // Added for the client's standalone "Préstamos" list screen (F-16/17),
@@ -292,6 +299,7 @@ export class LoansService {
     private readonly interestConceptTypesService: InterestConceptTypesService,
     private readonly usuryRateService: UsuryRateService,
     private readonly clientsService: ClientsService,
+    private readonly clientCreditBalanceService: ClientCreditBalanceService,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService<Configuration, true>,
   ) {}
@@ -1318,8 +1326,17 @@ export class LoansService {
       payments.map((payment) => payment.id),
     );
 
+    const creditByPaymentId =
+      await this.clientCreditBalanceService.summarizeCreditByPaymentId(
+        payments.map((payment) => payment.id),
+      );
+
     return payments.map(({ imageUrl, ...payment }) => ({
       ...payment,
+      // Human request, 2026-09-26 — what voiding this payment would do to the
+      // client's saldo a favor, so the void dialog can say so up front.
+      creditGeneratedAmount: creditByPaymentId.get(payment.id)?.generated ?? 0,
+      creditSpentAmount: creditByPaymentId.get(payment.id)?.spent ?? 0,
       // Phase 28 — payment_images is the real source now; imageUrl is only
       // a fallback for a pre-migration row that somehow still has nothing
       // in payment_images (the migration itself backfills every existing

@@ -24,13 +24,29 @@ import { Client } from './client.entity';
 // confirmed with the human, same "never silent/automatic" requirement
 // docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md already recorded for this.
 export enum ClientCreditLedgerEntryType {
+  // Adds to the balance: an excess payment left credit behind.
   Created = 'created',
+  // Subtracts: the credit was spent on a pending installment.
   Applied = 'applied',
+  // Subtracts — human request, 2026-09-26: the cash was handed back to the
+  // client ("devolver al cliente"). The honest way to take a credit off the
+  // books instead of discarding it: it records the money actually leaving,
+  // who did it and why (audit log + `note`).
+  Refunded = 'refunded',
+  // Subtracts — human request, 2026-09-26: the payment that generated a
+  // credit was voided (registered by mistake), so the credit it created is
+  // taken back. Linked through sourcePaymentId, like the `created` entry it
+  // undoes.
+  Reversed = 'reversed',
+  // Adds — human request, 2026-09-26: a credit-funded payment was voided, so
+  // the credit it had spent goes back to the client. Linked through
+  // resultingPaymentId, like the `applied` entry it undoes.
+  Restored = 'restored',
 }
 
 // Append-only, same convention as MessageLog/WhatsappInboundMessage — a
 // client's current available balance is derived by summing this table
-// (Created adds, Applied subtracts), never stored as a single mutable
+// (Created/Restored add; Applied/Refunded/Reversed subtract), never stored as a single mutable
 // running total, so there's always a full, auditable trail of exactly
 // which payment generated a credit and which installment absorbed it.
 @Entity('client_credit_ledger_entries')
@@ -82,6 +98,11 @@ export class ClientCreditLedgerEntry {
   @ManyToOne(() => Payment, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'resulting_payment_id' })
   resultingPayment!: Payment | null;
+
+  // Free text — the reason of a refund, or why an automatic reversal/
+  // restoration happened. Null for created/applied entries.
+  @Column({ type: 'text', nullable: true })
+  note!: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;

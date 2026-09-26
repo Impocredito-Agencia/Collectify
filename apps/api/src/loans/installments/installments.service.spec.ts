@@ -50,6 +50,8 @@ describe('InstallmentsService', () => {
     recordExcess: jest.Mock;
     recordApplication: jest.Mock;
     assertCanApply: jest.Mock;
+    restoreCreditSpentBy: jest.Mock;
+    reverseCreditGeneratedBy: jest.Mock;
   };
 
   // loan is typed `as never` (Installment.loan is a required relation, but
@@ -163,6 +165,8 @@ describe('InstallmentsService', () => {
       recordExcess: jest.fn().mockResolvedValue(undefined),
       recordApplication: jest.fn().mockResolvedValue(undefined),
       assertCanApply: jest.fn().mockResolvedValue(undefined),
+      restoreCreditSpentBy: jest.fn().mockResolvedValue(undefined),
+      reverseCreditGeneratedBy: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -1538,6 +1542,66 @@ describe('InstallmentsService', () => {
         where: { id: mockPayment.id },
         withDeleted: true,
         relations: { installment: true },
+      });
+    });
+
+    // Human request, 2026-09-26 — the saldo a favor side of a void.
+    describe('saldo a favor', () => {
+      it('gives back the credit a credit-funded payment spent, and takes back the credit a payment generated, inside the same transaction', async () => {
+        const mockPayment = makeMockPayment();
+        paymentsRepository.findOne.mockResolvedValue(mockPayment);
+        paymentsRepository.find.mockResolvedValue([]);
+        loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+        await service.voidPayment(mockPayment.id, voidDto);
+
+        expect(
+          clientCreditBalanceService.restoreCreditSpentBy,
+        ).toHaveBeenCalledWith(mockPayment.id, expect.anything());
+        expect(
+          clientCreditBalanceService.reverseCreditGeneratedBy,
+        ).toHaveBeenCalledWith(mockPayment.id, expect.anything());
+      });
+
+      it('restores before it reverses, so a credit-funded payment that also recycled a leftover nets out', async () => {
+        const order: string[] = [];
+        clientCreditBalanceService.restoreCreditSpentBy.mockImplementation(
+          () => {
+            order.push('restore');
+            return Promise.resolve();
+          },
+        );
+        clientCreditBalanceService.reverseCreditGeneratedBy.mockImplementation(
+          () => {
+            order.push('reverse');
+            return Promise.resolve();
+          },
+        );
+        const mockPayment = makeMockPayment();
+        paymentsRepository.findOne.mockResolvedValue(mockPayment);
+        paymentsRepository.find.mockResolvedValue([]);
+        loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+        await service.voidPayment(mockPayment.id, voidDto);
+
+        expect(order).toEqual(['restore', 'reverse']);
+      });
+
+      it('refuses the void — and never reopens the cuota — when the credit it generated was already used', async () => {
+        clientCreditBalanceService.reverseCreditGeneratedBy.mockRejectedValue(
+          new BadRequestException(
+            'Este pago generó $50000 de saldo a favor, pero al cliente solo le quedan $0 disponibles',
+          ),
+        );
+        const mockPayment = makeMockPayment();
+        paymentsRepository.findOne.mockResolvedValue(mockPayment);
+        paymentsRepository.find.mockResolvedValue([]);
+        loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+        await expect(
+          service.voidPayment(mockPayment.id, voidDto),
+        ).rejects.toThrow(/saldo a favor/);
+        expect(installmentsRepository.update).not.toHaveBeenCalled();
       });
     });
 
