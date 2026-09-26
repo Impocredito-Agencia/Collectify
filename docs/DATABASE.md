@@ -840,16 +840,17 @@ This single root cause turned out to affect every consumer of `enrichInstallment
 
 Added 2026-09-14 (human report, préstamo #1170's investigation) — a payment exceeding what an installment owes is accepted again (see the bug fix above), but the excess is no longer folded into that installment's own `Payment.amount_paid` (which must never exceed what it truly owed, or every `totalDue`/remaining-balance calculation elsewhere would be corrupted). Instead it's tracked here as a client-level credit ("saldo a favor"), deliberately usable against **any** pending installment of **any** of the client's loans (confirmed with the human), not scoped to the loan/cuota it came from.
 
-Append-only, same convention as `whatsapp_self_service_replies` — one row per credit event, never updated. A client's current available balance is `SUM(amount) WHERE type='created' − SUM(amount) WHERE type='applied'`, computed live (`ClientCreditBalanceService.getBalance`), not stored as a mutable running total.
+Append-only, same convention as `whatsapp_self_service_replies` — one row per credit event, never updated. A client's current available balance is `SUM(amount) WHERE type IN ('created','restored') − SUM(amount) WHERE type IN ('applied','refunded','reversed')`, computed live (`ClientCreditBalanceService.getBalance`), not stored as a mutable running total.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
 | `client_id` | UUID | FK → `clients.id`, `ON DELETE RESTRICT` — live financial state a cobrador/admin acts on, not a historical record that should go blank under a deleted client |
-| `type` | ENUM (`created`, `applied`) | `created` = a payment's excess became credit; `applied` = credit was spent against a specific installment |
+| `type` | ENUM (`created`, `applied`, `refunded`, `reversed`, `restored`) | `created` = a payment's excess became credit; `applied` = credit was spent against a specific installment; `refunded`, `reversed` and `restored` (added 2026-09-26) — see "Refund, and voiding a payment that touched a credit" below |
 | `amount` | DECIMAL(12,2) | |
 | `source_payment_id` | UUID, nullable | Set only for `created` — the (capped) `Payment` whose excess generated this credit. `ON DELETE RESTRICT`. |
 | `resulting_payment_id` | UUID, nullable | Set only for `applied` — the real `Payment` row (`funded_by_credit = true`) the application created against the destination installment. `ON DELETE RESTRICT`. |
+| `note` | TEXT, nullable | Added 2026-09-26 — the reason of a refund, or why an automatic reversal/restoration happened. Null for `created`/`applied`. |
 | `created_at` | TIMESTAMPTZ | |
 
 **Generating credit is automatic, applying it never is — confirmed with the human, matching `docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`'s original requirement that netting a saldo a favor against a future cuota be an explicit operator action, never silent/automatic, for audit-trail reasons.** `InstallmentsService.registerPayment` caps the `Payment` row at what the installment actually owed and calls `ClientCreditBalanceService.recordExcess()` for any leftover — no user action needed beyond confirming the payment (the confirm dialog will need to disclose this, see the "not yet built" note below). Applying credit is `POST /installments/:id/apply-credit` (`{ clientId, amount }`) — `InstallmentsService.applyCreditToInstallment` validates via `ClientCreditBalanceService.assertCanApply` (amount positive, installment actually belongs to that client, amount doesn't exceed the available balance), then delegates the actual money movement to `registerPayment` itself (`fundedByCredit: true`) rather than duplicating its close/cascade/WhatsApp-confirmation logic. If the applied amount exceeds what that installment still needed, `registerPayment`'s own excess handling recycles the leftover right back into a fresh credit — the correct outcome, not a bug.
