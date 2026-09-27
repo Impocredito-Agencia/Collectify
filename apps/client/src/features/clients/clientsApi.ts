@@ -200,9 +200,20 @@ export interface ClientsQueryParams {
   // ClientsService.findAll/QueryClientsDto specifically to back the "Todos"
   // tab (see ClientsListPage.tsx).
   isActive?: boolean | 'all';
+  // Orders the WHOLE result server-side before it is paginated (see
+  // ClientsService.findAll) — not just the page on screen.
+  sortBy?: ClientSortColumn;
+  sortDirection?: 'asc' | 'desc';
   page?: number;
   limit?: number;
 }
+
+export type ClientSortColumn =
+  | 'name'
+  | 'documentNumber'
+  | 'phoneNumber'
+  | 'activeLoanCount'
+  | 'maxOverdueDays';
 
 export interface PaginatedClients {
   items: ClientListItem[];
@@ -258,6 +269,8 @@ export const clientsApi = {
     const { data, meta } = await apiClient.get<ClientListItem[]>('/clients', {
       search: params.search,
       isActive: params.isActive,
+      sortBy: params.sortBy,
+      sortDirection: params.sortDirection,
       page: params.page,
       limit: params.limit,
     });
@@ -364,6 +377,20 @@ export const clientsApi = {
   getCreditBalance: async (clientId: string): Promise<{ balance: number }> => {
     const { data } = await apiClient.get<{ balance: number }>(
       `/clients/${clientId}/credit-balance`,
+    );
+    return data;
+  },
+
+  // Human request, 2026-09-26 — "devolver al cliente": records that cash from
+  // the saldo a favor was handed back. Admin only. Returns the new balance.
+  // See ClientCreditBalanceService.refund and docs/DATABASE.md.
+  refundCredit: async (
+    clientId: string,
+    input: { amount: number; reason?: string },
+  ): Promise<{ balance: number }> => {
+    const { data } = await apiClient.post<{ balance: number }>(
+      `/clients/${clientId}/credit-balance/refund`,
+      input,
     );
     return data;
   },

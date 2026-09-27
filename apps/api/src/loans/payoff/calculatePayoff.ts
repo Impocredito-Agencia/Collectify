@@ -82,12 +82,14 @@ export interface CalculatePayoffOptions {
   // también, así no haya llegado a su fecha de vencimiento como tal."
   // Deliberately NOT the same "5 días" as MessageTemplate's
   // upcomingDueReminderDays (Phase 9) — that only ever triggers a WhatsApp
-  // message and has no bearing on money; confirmed with the human this is
-  // a separate, refinance-only rule after an initial mix-up between the
-  // two. Defaults to 0 (today-or-past only), which is byte-for-byte the
-  // original Phase 16 payoff-quote behavior — every other caller of this
-  // function (the actual early-payoff endpoint) must keep omitting this
-  // option so a real payoff quote is never inflated by not-yet-due cuotas.
+  // message and has no bearing on money.
+  //
+  // Extended, 2026-09-26 (human decision): early payoff
+  // (getPayoffQuote()/payoff()) passes the same window now — it used to be
+  // refinance-only, which made the two ways of closing the same loan on the
+  // same day cost different interest. Both share LoansService's single
+  // EARLY_MATURITY_WINDOW_DAYS. Defaults to 0 (today-or-past only), the
+  // original Phase 16 behavior, for any caller that omits it.
   earlyMaturityWindowDays?: number;
   // Computed by the caller from the loan's FULL installment list (this
   // function only ever sees the pending ones) via calculateInterestTrueUp.

@@ -58,7 +58,10 @@ describe('ClientsService', () => {
     findOneBy: jest.Mock;
     delete: jest.Mock;
   };
-  let clientCreditBalanceService: { getBalance: jest.Mock };
+  let clientCreditBalanceService: {
+    getBalance: jest.Mock;
+    refund: jest.Mock;
+  };
   let configService: { get: jest.Mock };
 
   const mockClient: Client = {
@@ -163,6 +166,7 @@ describe('ClientsService', () => {
     };
     clientCreditBalanceService = {
       getBalance: jest.fn().mockResolvedValue(0),
+      refund: jest.fn().mockResolvedValue({ balance: 0 }),
     };
     configService = {
       get: jest.fn().mockReturnValue({ upcomingDueReminderDays: 5 }),
@@ -700,6 +704,97 @@ describe('ClientsService', () => {
       expect(repository.find).toHaveBeenCalledWith({
         where: {},
         withDeleted: false,
+      });
+    });
+
+    describe('sorting the whole list (not just the loaded page)', () => {
+      const clientWith = (
+        id: string,
+        firstName: string,
+        overrides: Partial<Client> = {},
+      ): Client => ({
+        ...mockClient,
+        id,
+        firstName,
+        lastName: 'Prueba',
+        ...overrides,
+      });
+
+      it('sorts by name descending before paginating, so page 1 holds the last names', async () => {
+        repository.find.mockResolvedValue([
+          clientWith('a', 'Ana'),
+          clientWith('m', 'Mario'),
+          clientWith('z', 'Zoe'),
+          clientWith('e', 'Elena'),
+        ]);
+
+        const page1 = await service.findAll({
+          sortBy: 'name',
+          sortDirection: 'desc',
+          limit: 2,
+        });
+        const page2 = await service.findAll({
+          sortBy: 'name',
+          sortDirection: 'desc',
+          limit: 2,
+          page: 2,
+        });
+
+        expect(page1.items.map((c) => c.firstName)).toEqual(['Zoe', 'Mario']);
+        expect(page2.items.map((c) => c.firstName)).toEqual(['Elena', 'Ana']);
+        expect(page1.meta.total).toBe(4);
+      });
+
+      it('sorts document numbers numerically ("9" before "10")', async () => {
+        repository.find.mockResolvedValue([
+          clientWith('a', 'Ana', { documentNumber: '10' }),
+          clientWith('b', 'Beto', { documentNumber: '9' }),
+        ]);
+
+        const result = await service.findAll({ sortBy: 'documentNumber' });
+
+        expect(result.items.map((c) => c.documentNumber)).toEqual(['9', '10']);
+      });
+
+      it('orders the entire list by a computed column (activeLoanCount), not just one page', async () => {
+        // Ana is alphabetically first but has no loans; Zoe (last A→Z) has the
+        // most. Sorted per-page this would put Ana first on page 1.
+        repository.find.mockResolvedValue([
+          clientWith('a', 'Ana'),
+          clientWith('m', 'Mario'),
+          clientWith('z', 'Zoe'),
+        ]);
+        loansRepository.find.mockResolvedValue([
+          { id: 'l1', clientId: 'z' },
+          { id: 'l2', clientId: 'z' },
+          { id: 'l3', clientId: 'm' },
+        ]);
+        installmentsRepository.find.mockResolvedValue([]);
+
+        const result = await service.findAll({
+          sortBy: 'activeLoanCount',
+          sortDirection: 'desc',
+          limit: 1,
+        });
+
+        expect(result.items.map((c) => c.firstName)).toEqual(['Zoe']);
+        expect(result.items[0].activeLoanCount).toBe(2);
+        expect(result.meta.total).toBe(3);
+      });
+
+      it('breaks ties by name ascending whatever the direction', async () => {
+        repository.find.mockResolvedValue([
+          clientWith('z', 'Zoe'),
+          clientWith('a', 'Ana'),
+        ]);
+        loansRepository.find.mockResolvedValue([]);
+
+        const result = await service.findAll({
+          sortBy: 'maxOverdueDays',
+          sortDirection: 'desc',
+        });
+
+        expect(result.items.map((c) => c.firstName)).toEqual(['Ana', 'Zoe']);
       });
     });
 
@@ -1671,6 +1766,25 @@ describe('ClientsService', () => {
         BadRequestException,
       );
       expect(repository.restore).not.toHaveBeenCalled();
+    });
+  });
+
+  // Human request, 2026-09-26 — "devolver al cliente".
+  describe('refundCreditBalance', () => {
+    it('hands the amount and reason to the credit ledger and returns the new balance', async () => {
+      clientCreditBalanceService.refund.mockResolvedValue({ balance: 30000 });
+
+      const result = await service.refundCreditBalance('client-1', {
+        amount: 20000,
+        reason: 'Pidió el excedente',
+      });
+
+      expect(clientCreditBalanceService.refund).toHaveBeenCalledWith(
+        'client-1',
+        20000,
+        'Pidió el excedente',
+      );
+      expect(result).toEqual({ balance: 30000 });
     });
   });
 });

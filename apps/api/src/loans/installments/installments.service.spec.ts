@@ -18,6 +18,7 @@ import { WhatsappInboundMessage } from '../../whatsapp/entities/whatsappInboundM
 import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
 
 import { enrichInstallment } from './enrichInstallment';
+import { calculateMoraCharged } from './installmentCalculations';
 import { InstallmentsService } from './installments.service';
 
 describe('InstallmentsService', () => {
@@ -49,6 +50,8 @@ describe('InstallmentsService', () => {
     recordExcess: jest.Mock;
     recordApplication: jest.Mock;
     assertCanApply: jest.Mock;
+    restoreCreditSpentBy: jest.Mock;
+    reverseCreditGeneratedBy: jest.Mock;
   };
 
   // loan is typed `as never` (Installment.loan is a required relation, but
@@ -162,6 +165,8 @@ describe('InstallmentsService', () => {
       recordExcess: jest.fn().mockResolvedValue(undefined),
       recordApplication: jest.fn().mockResolvedValue(undefined),
       assertCanApply: jest.fn().mockResolvedValue(undefined),
+      restoreCreditSpentBy: jest.fn().mockResolvedValue(undefined),
+      reverseCreditGeneratedBy: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -508,6 +513,177 @@ describe('InstallmentsService', () => {
         { id: overdueInstallment.id },
         { status: InstallmentStatus.Paid },
       );
+    });
+
+    // Human request, 2026-09-25 — a payment may forgive accrued mora, but
+    // only when it settles the cuota completely and to the exact peso.
+    describe('mora waiver', () => {
+      // Overdue for years with a real moratory concept, so there is real mora
+      // to forgive. Everything below is read back from the same functions the
+      // service uses, so the fixture can't drift from the interest formula.
+      const overdue: Installment = {
+        ...mockInstallment,
+        dueDate: '2025-01-01',
+      };
+      const moratoryConcept = {
+        installmentId: overdue.id,
+        category: ConceptCategory.Moratorio,
+        calculationType: ConceptCalculationType.Percentage,
+        nameSnapshot: 'Intereses moratorios',
+        value: 6,
+      };
+      beforeEach(() => {
+        installmentsRepository.findOne.mockResolvedValue(overdue);
+        loanInstallmentConceptsRepository.find.mockResolvedValue([
+          moratoryConcept,
+        ]);
+        mockInstallmentsFind([{ ...overdue, status: InstallmentStatus.Paid }]);
+      });
+
+      const concepts = [moratoryConcept] as never as LoanInstallmentConcept[];
+      const balance = (): number =>
+        enrichInstallment(overdue, concepts).totalDue;
+      const moraCharged = (): number =>
+        calculateMoraCharged(
+          overdue.amount,
+          enrichInstallment(overdue, concepts).interest,
+        );
+
+      it('closes the cuota when amountPaid + waiver settles it exactly, and records both', async () => {
+        const waiver = 10000;
+        const amountPaid = balance() - waiver;
+        paymentsRepository.find
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([{ amountPaid, moraWaivedAmount: waiver }]);
+
+        await service.registerPayment(overdue.id, {
+          amountPaid,
+          paidAt: '2026-01-05',
+          moraWaivedAmount: waiver,
+          moraWaiverReason: '  Pagó todo de contado  ',
+        });
+
+        expect(paymentsRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            amountPaid,
+            moraWaivedAmount: waiver,
+            moraWaiverReason: 'Pagó todo de contado',
+          }),
+        );
+        expect(installmentsRepository.update).toHaveBeenCalledWith(
+          { id: overdue.id },
+          { status: InstallmentStatus.Paid },
+        );
+        expect(clientCreditBalanceService.recordExcess).not.toHaveBeenCalled();
+      });
+
+      it('forgiving ALL the mora leaves exactly the capital to pay (no stray pesos)', async () => {
+        const amountPaid = balance() - moraCharged();
+        expect(amountPaid).toBe(overdue.amount);
+        paymentsRepository.find
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([
+            { amountPaid, moraWaivedAmount: moraCharged() },
+          ]);
+
+        await service.registerPayment(overdue.id, {
+          amountPaid,
+          paidAt: '2026-01-05',
+          moraWaivedAmount: moraCharged(),
+        });
+
+        expect(installmentsRepository.update).toHaveBeenCalledWith(
+          { id: overdue.id },
+          { status: InstallmentStatus.Paid },
+        );
+      });
+
+      it('rejects a payment one peso SHORT of balance − waiver (the cuota would stay open)', async () => {
+        paymentsRepository.find.mockResolvedValue([]);
+
+        await expect(
+          service.registerPayment(overdue.id, {
+            amountPaid: balance() - 10000 - 1,
+            paidAt: '2026-01-05',
+            moraWaivedAmount: 10000,
+          }),
+        ).rejects.toThrow(BadRequestException);
+        expect(paymentsRepository.save).not.toHaveBeenCalled();
+      });
+
+      it('rejects a payment one peso OVER balance − waiver (it must not silently become saldo a favor)', async () => {
+        paymentsRepository.find.mockResolvedValue([]);
+
+        await expect(
+          service.registerPayment(overdue.id, {
+            amountPaid: balance() - 10000 + 1,
+            paidAt: '2026-01-05',
+            moraWaivedAmount: 10000,
+          }),
+        ).rejects.toThrow(BadRequestException);
+        expect(paymentsRepository.save).not.toHaveBeenCalled();
+        expect(clientCreditBalanceService.recordExcess).not.toHaveBeenCalled();
+      });
+
+      it('rejects a waiver bigger than the mora actually being charged', async () => {
+        paymentsRepository.find.mockResolvedValue([]);
+        const waiver = moraCharged() + 1;
+
+        await expect(
+          service.registerPayment(overdue.id, {
+            amountPaid: balance() - waiver,
+            paidAt: '2026-01-05',
+            moraWaivedAmount: waiver,
+          }),
+        ).rejects.toThrow(/supera la mora/);
+        expect(paymentsRepository.save).not.toHaveBeenCalled();
+      });
+
+      it('rejects a waiver on a cuota that has no mora', async () => {
+        // mockInstallment is due far in the future — nothing accrued.
+        installmentsRepository.findOne.mockResolvedValue(mockInstallment);
+        paymentsRepository.find.mockResolvedValue([]);
+
+        await expect(
+          service.registerPayment(mockInstallment.id, {
+            amountPaid: mockInstallment.amount - 1,
+            paidAt: '2026-01-05',
+            moraWaivedAmount: 1,
+          }),
+        ).rejects.toThrow(/no tiene mora/);
+        expect(paymentsRepository.save).not.toHaveBeenCalled();
+      });
+
+      it('rejects a stale screen: mora grew since the amount was computed', async () => {
+        paymentsRepository.find.mockResolvedValue([]);
+        // What the screen computed yesterday, when the balance was $100 lower.
+        const yesterdaysAmount = balance() - 100 - 10000;
+
+        await expect(
+          service.registerPayment(overdue.id, {
+            amountPaid: yesterdaysAmount,
+            paidAt: '2026-01-05',
+            moraWaivedAmount: 10000,
+          }),
+        ).rejects.toThrow(/debe pagarse por exactamente/);
+        expect(paymentsRepository.save).not.toHaveBeenCalled();
+      });
+
+      it('records no waiver fields for an ordinary payment', async () => {
+        paymentsRepository.find.mockResolvedValue([]);
+
+        await service.registerPayment(overdue.id, {
+          amountPaid: 50000,
+          paidAt: '2026-01-05',
+        });
+
+        expect(paymentsRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            moraWaivedAmount: 0,
+            moraWaiverReason: null,
+          }),
+        );
+      });
     });
 
     // Phase 32 — defense in depth: rejecting this server-side, not just
@@ -1218,6 +1394,105 @@ describe('InstallmentsService', () => {
     });
   });
 
+  // Human request, 2026-09-25 — a bulk payment can forgive mora per cuota;
+  // each entry still has to settle its cuota exactly.
+  describe('registerBulkPayments mora waiver', () => {
+    const overdue: Installment = {
+      ...mockInstallment,
+      id: 'inst-overdue',
+      dueDate: '2025-01-01',
+    };
+    const concepts = [
+      {
+        installmentId: overdue.id,
+        category: ConceptCategory.Moratorio,
+        calculationType: ConceptCalculationType.Percentage,
+        nameSnapshot: 'Intereses moratorios',
+        value: 6,
+      },
+    ] as never as LoanInstallmentConcept[];
+    const balance = (): number => enrichInstallment(overdue, concepts).totalDue;
+
+    beforeEach(() => {
+      installmentsRepository.findOne.mockImplementation(
+        ({ where }: { where?: { id?: string } } = {}) =>
+          Promise.resolve(where?.id === overdue.id ? overdue : null),
+      );
+      paymentsRepository.find.mockResolvedValue([]);
+      paymentsRepository.save.mockImplementation((payment: Partial<Payment>) =>
+        Promise.resolve({ id: `payment-${payment.installmentId}`, ...payment }),
+      );
+      loanInstallmentConceptsRepository.find.mockResolvedValue(concepts);
+      installmentsRepository.find.mockImplementation(
+        ({ where }: { where?: Record<string, unknown> } = {}) => {
+          if (where?.id) {
+            return Promise.resolve([overdue]);
+          }
+          if (where?.installmentNumber) {
+            return Promise.resolve([]);
+          }
+          return Promise.resolve([{ ...overdue }]);
+        },
+      );
+    });
+
+    it('records the waiver on an entry that pays balance − waiver exactly', async () => {
+      const waiver = 12000;
+
+      await service.registerBulkPayments([
+        {
+          installmentId: overdue.id,
+          amountPaid: balance() - waiver,
+          paidAt: '2026-01-05',
+          moraWaivedAmount: waiver,
+          moraWaiverReason: 'Pago por lote de contado',
+        },
+      ]);
+
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amountPaid: balance() - waiver,
+          moraWaivedAmount: waiver,
+          moraWaiverReason: 'Pago por lote de contado',
+        }),
+      );
+      expect(installmentsRepository.update).toHaveBeenCalledWith(
+        { id: overdue.id },
+        { status: InstallmentStatus.Paid },
+      );
+    });
+
+    it('rejects an entry one peso off balance − waiver, in either direction', async () => {
+      for (const delta of [-1, 1]) {
+        await expect(
+          service.registerBulkPayments([
+            {
+              installmentId: overdue.id,
+              amountPaid: balance() - 12000 + delta,
+              paidAt: '2026-01-05',
+              moraWaivedAmount: 12000,
+            },
+          ]),
+        ).rejects.toThrow(BadRequestException);
+      }
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a waiver bigger than the mora being charged', async () => {
+      await expect(
+        service.registerBulkPayments([
+          {
+            installmentId: overdue.id,
+            amountPaid: 1,
+            paidAt: '2026-01-05',
+            moraWaivedAmount: balance(),
+          },
+        ]),
+      ).rejects.toThrow(BadRequestException);
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
   // Human report, 2026-09-09 — admin-only correction for a payment
   // registered by mistake. See voidPayment's own doc comment on the
   // service for the full design rationale.
@@ -1243,6 +1518,8 @@ describe('InstallmentsService', () => {
         updatedAt: new Date(),
         deletedAt: null,
         voidReason: null,
+        moraWaivedAmount: 0,
+        moraWaiverReason: null,
         fundedByCredit: false,
         installment: paidInstallment,
       };
@@ -1265,6 +1542,144 @@ describe('InstallmentsService', () => {
         where: { id: mockPayment.id },
         withDeleted: true,
         relations: { installment: true },
+      });
+    });
+
+    // Human request, 2026-09-26 — the saldo a favor side of a void.
+    describe('saldo a favor', () => {
+      it('gives back the credit a credit-funded payment spent, and takes back the credit a payment generated, inside the same transaction', async () => {
+        const mockPayment = makeMockPayment();
+        paymentsRepository.findOne.mockResolvedValue(mockPayment);
+        paymentsRepository.find.mockResolvedValue([]);
+        loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+        await service.voidPayment(mockPayment.id, voidDto);
+
+        expect(
+          clientCreditBalanceService.restoreCreditSpentBy,
+        ).toHaveBeenCalledWith(mockPayment.id, expect.anything());
+        expect(
+          clientCreditBalanceService.reverseCreditGeneratedBy,
+        ).toHaveBeenCalledWith(mockPayment.id, expect.anything());
+      });
+
+      it('restores before it reverses, so a credit-funded payment that also recycled a leftover nets out', async () => {
+        const order: string[] = [];
+        clientCreditBalanceService.restoreCreditSpentBy.mockImplementation(
+          () => {
+            order.push('restore');
+            return Promise.resolve();
+          },
+        );
+        clientCreditBalanceService.reverseCreditGeneratedBy.mockImplementation(
+          () => {
+            order.push('reverse');
+            return Promise.resolve();
+          },
+        );
+        const mockPayment = makeMockPayment();
+        paymentsRepository.findOne.mockResolvedValue(mockPayment);
+        paymentsRepository.find.mockResolvedValue([]);
+        loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+        await service.voidPayment(mockPayment.id, voidDto);
+
+        expect(order).toEqual(['restore', 'reverse']);
+      });
+
+      it('refuses the void — and never reopens the cuota — when the credit it generated was already used', async () => {
+        clientCreditBalanceService.reverseCreditGeneratedBy.mockRejectedValue(
+          new BadRequestException(
+            'Este pago generó $50000 de saldo a favor, pero al cliente solo le quedan $0 disponibles',
+          ),
+        );
+        const mockPayment = makeMockPayment();
+        paymentsRepository.findOne.mockResolvedValue(mockPayment);
+        paymentsRepository.find.mockResolvedValue([]);
+        loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+        await expect(
+          service.voidPayment(mockPayment.id, voidDto),
+        ).rejects.toThrow(/saldo a favor/);
+        expect(installmentsRepository.update).not.toHaveBeenCalled();
+      });
+    });
+
+    // Human request, 2026-09-25 — voiding one payment of a cuota that another
+    // payment closed WITH a mora waiver: that waiver still counts as covered,
+    // so the cuota must stay paid when the rest of it is still settled, and
+    // reopen when it is not.
+    describe('with a mora waiver on another payment of the same cuota', () => {
+      const overdue: Installment = {
+        ...mockInstallment,
+        dueDate: '2025-01-01',
+        status: InstallmentStatus.Paid,
+      };
+      const concepts = [
+        {
+          installmentId: overdue.id,
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 6,
+        },
+      ] as never as LoanInstallmentConcept[];
+      const balance = (): number =>
+        enrichInstallment(
+          { ...overdue, status: InstallmentStatus.Pending },
+          concepts,
+        ).totalDue;
+
+      const voidedPayment = (): Payment => ({
+        id: 'payment-void',
+        installmentId: overdue.id,
+        amountPaid: 1000,
+        paidAt: '2026-01-05',
+        observation: null,
+        imageUrl: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+        voidReason: null,
+        moraWaivedAmount: 0,
+        moraWaiverReason: null,
+        fundedByCredit: false,
+        installment: overdue,
+      });
+
+      beforeEach(() => {
+        loanInstallmentConceptsRepository.find.mockResolvedValue(concepts);
+      });
+
+      it('keeps the cuota paid when the remaining payment plus its waiver still settle it', async () => {
+        const waiver = 10000;
+        paymentsRepository.findOne.mockResolvedValue(voidedPayment());
+        paymentsRepository.find.mockResolvedValue([
+          {
+            amountPaid: balance() - waiver,
+            moraWaivedAmount: waiver,
+          },
+        ]);
+
+        await service.voidPayment('payment-void', voidDto);
+
+        expect(installmentsRepository.update).not.toHaveBeenCalled();
+      });
+
+      it('reopens the cuota when the payment that carried the waiver is the one voided (mora is owed again)', async () => {
+        paymentsRepository.findOne.mockResolvedValue({
+          ...voidedPayment(),
+          amountPaid: balance() - 10000,
+          moraWaivedAmount: 10000,
+        });
+        paymentsRepository.find.mockResolvedValue([]);
+
+        await service.voidPayment('payment-void', voidDto);
+
+        expect(installmentsRepository.update).toHaveBeenCalledWith(
+          { id: overdue.id },
+          { status: InstallmentStatus.Pending },
+        );
       });
     });
 

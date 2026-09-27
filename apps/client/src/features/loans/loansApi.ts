@@ -120,9 +120,20 @@ export interface LoansQueryParams {
   // Matches client name or promissory note number — added to
   // QueryLoansDto/LoansService.findAll for the Préstamos list's search box.
   search?: string;
+  // Orders the WHOLE result server-side before it is paginated (see
+  // LoansService.findAll) — not just the page on screen.
+  sortBy?: LoanSortColumn;
+  sortDirection?: 'asc' | 'desc';
   page?: number;
   limit?: number;
 }
+
+export type LoanSortColumn =
+  | 'promissoryNoteNumber'
+  | 'clientFullName'
+  | 'outstandingBalance'
+  | 'overdueDays'
+  | 'status';
 
 export interface PaginatedLoans {
   items: LoanSummary[];
@@ -258,7 +269,9 @@ export interface SchedulePreview {
 // installment contributes only principalApplied (its principalPortion),
 // at face value, with interestApplied 0; a matured (due/overdue)
 // installment's interestApplied includes both Phase 14 concept charges and
-// any moratory interest.
+// any moratory interest. Since 2026-09-26 "matured" also covers a cuota due
+// within the next 5 days (the same window refinancing has always used), so
+// a payoff and a refinance of the same loan charge the same interest.
 export interface PayoffInstallmentBreakdown {
   installmentId: string;
   installmentNumber: number;
@@ -389,6 +402,8 @@ export const loansApi = {
       clientId: params.clientId,
       status: params.status,
       search: params.search,
+      sortBy: params.sortBy,
+      sortDirection: params.sortDirection,
       page: params.page,
       limit: params.limit,
     });
@@ -456,8 +471,17 @@ export const loansApi = {
 
   // Separate, explicit flow from registering an ordinary payment — always
   // settles the FULL payoff quote, closing the loan out. Admin only.
-  payoff: async (id: string): Promise<LoanDetail> => {
-    const { data } = await apiClient.post<LoanDetail>(`/loans/${id}/payoff`);
+  //
+  // imageUrls (2026-09-25) — the payment receipt, already uploaded; the
+  // backend attaches the same photos to every payment the payoff registers.
+  payoff: async (
+    id: string,
+    input: { imageUrls?: string[] } = {},
+  ): Promise<LoanDetail> => {
+    const { data } = await apiClient.post<LoanDetail>(
+      `/loans/${id}/payoff`,
+      input,
+    );
     return data;
   },
 

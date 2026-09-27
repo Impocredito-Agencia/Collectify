@@ -680,6 +680,20 @@ export function LoanDetailPage() {
                       >
                         Vía saldo a favor
                       </StatusBadge>
+                    ) : payment.moraWaivedAmount > 0 ? (
+                      // Human request, 2026-09-25 — this payment forgave part
+                      // of the cuota's mora. Its amount stays the real cash
+                      // received; the forgiven part is only shown here (and
+                      // in Auditoría).
+                      <StatusBadge
+                        tone="neutral"
+                        title={
+                          payment.moraWaiverReason ?? 'Sin motivo indicado.'
+                        }
+                      >
+                        Mora condonada{' '}
+                        {formatCurrency(payment.moraWaivedAmount)}
+                      </StatusBadge>
                     ) : (
                       <span className="text-meta text-mid">—</span>
                     )}
@@ -761,7 +775,9 @@ export function LoanDetailPage() {
           loanId={loan.id}
           loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
           onClose={() => setIsPayingOff(false)}
-          onConfirm={() => payoffLoan.mutateAsync(loan.id)}
+          onConfirm={(imageUrls) =>
+            payoffLoan.mutateAsync({ id: loan.id, imageUrls })
+          }
         />
       )}
 
@@ -903,6 +919,29 @@ function VoidPaymentDialog({
         como pagada, la cuota (y el préstamo, si había quedado marcado como
         pagado) volverán a quedar activos con el saldo real pendiente.
       </p>
+      {/* Human request, 2026-09-26 — what voiding does to the client's saldo a
+          favor. The server refuses the void (and says why) if the credit this
+          payment generated was already used or returned. */}
+      {payment.creditGeneratedAmount > 0 && (
+        <p className="mt-2.5 text-small text-muted">
+          Este pago generó{' '}
+          <strong className="text-white">
+            {formatCurrency(payment.creditGeneratedAmount)}
+          </strong>{' '}
+          de saldo a favor: al anularlo, ese saldo también se retira. Si el
+          cliente ya lo usó o se le devolvió, no se podrá anular hasta deshacer
+          eso primero.
+        </p>
+      )}
+      {payment.creditSpentAmount > 0 && (
+        <p className="mt-2.5 text-small text-muted">
+          Este pago se cubrió con{' '}
+          <strong className="text-white">
+            {formatCurrency(payment.creditSpentAmount)}
+          </strong>{' '}
+          de saldo a favor: al anularlo, ese saldo vuelve al cliente.
+        </p>
+      )}
 
       <div className="mt-4 flex flex-col gap-1.5">
         <label className="text-label text-muted" htmlFor="void-payment-reason">

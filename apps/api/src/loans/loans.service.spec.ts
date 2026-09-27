@@ -9,6 +9,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 
+import { ClientCreditBalanceService } from '../clients/clientCreditBalance.service';
 import { ClientsService } from '../clients/clients.service';
 import {
   ConceptCalculationType,
@@ -72,7 +73,11 @@ describe('LoansService', () => {
     save: jest.Mock;
     count: jest.Mock;
   };
-  let paymentImagesRepository: { find: jest.Mock };
+  let paymentImagesRepository: {
+    find: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+  };
   let loanInstallmentConceptsRepository: {
     create: jest.Mock;
     save: jest.Mock;
@@ -177,6 +182,8 @@ describe('LoansService', () => {
     };
     paymentImagesRepository = {
       find: jest.fn().mockResolvedValue([]),
+      create: jest.fn((dto: Record<string, unknown>) => dto),
+      save: jest.fn((images: unknown[]) => Promise.resolve(images)),
     };
     loanInstallmentConceptsRepository = {
       create: jest.fn((dto: Partial<LoanInstallmentConcept>) => dto),
@@ -300,6 +307,12 @@ describe('LoansService', () => {
           useValue: usuryRateService,
         },
         { provide: ClientsService, useValue: clientsService },
+        {
+          provide: ClientCreditBalanceService,
+          useValue: {
+            summarizeCreditByPaymentId: jest.fn().mockResolvedValue(new Map()),
+          },
+        },
         { provide: DataSource, useValue: dataSource },
         { provide: ConfigService, useValue: configService },
       ],
@@ -1723,6 +1736,119 @@ describe('LoansService', () => {
       });
     });
 
+    describe('sorting the whole list (not just the loaded page)', () => {
+      const loanFor = (
+        id: string,
+        firstName: string,
+        promissoryNoteNumber: string,
+      ): Loan => ({
+        ...mockLoan,
+        id,
+        promissoryNoteNumber,
+        client: { firstName, lastName: 'Prueba' } as never,
+      });
+
+      it('sorts by client name descending before paginating', async () => {
+        loansRepository.find.mockResolvedValue([
+          loanFor('l1', 'Ana', '#1'),
+          loanFor('l2', 'Mario', '#2'),
+          loanFor('l3', 'Zoe', '#3'),
+        ]);
+
+        const page1 = await service.findAll({
+          sortBy: 'clientFullName',
+          sortDirection: 'desc',
+          limit: 2,
+        });
+        const page2 = await service.findAll({
+          sortBy: 'clientFullName',
+          sortDirection: 'desc',
+          limit: 2,
+          page: 2,
+        });
+
+        expect(page1.items.map((l) => l.id)).toEqual(['l3', 'l2']);
+        expect(page2.items.map((l) => l.id)).toEqual(['l1']);
+        expect(page1.meta.total).toBe(3);
+      });
+
+      it('sorts by pagaré number descending, numerically', async () => {
+        loansRepository.find.mockResolvedValue([
+          loanFor('l1', 'Ana', '#2'),
+          loanFor('l2', 'Ana', '#101'),
+          loanFor('l3', 'Ana', '#30'),
+        ]);
+
+        const result = await service.findAll({
+          sortBy: 'promissoryNoteNumber',
+          sortDirection: 'desc',
+        });
+
+        expect(result.items.map((l) => l.promissoryNoteNumber)).toEqual([
+          '#101',
+          '#30',
+          '#2',
+        ]);
+      });
+
+      it('orders the entire list by a computed column (overdueDays), not just one page', async () => {
+        // l1 is first by pagaré number but current; l3 (last by number) is the
+        // one overdue. Sorted per-page it could never reach page 1.
+        loansRepository.find.mockResolvedValue([
+          loanFor('l1', 'Ana', '#1'),
+          loanFor('l2', 'Mario', '#2'),
+          loanFor('l3', 'Zoe', '#3'),
+        ]);
+        installmentsRepository.find.mockResolvedValue([
+          {
+            id: 'i3',
+            loanId: 'l3',
+            installmentNumber: 1,
+            amount: 100000,
+            principalPortion: 100000,
+            dueDate: '2020-01-01',
+            status: InstallmentStatus.Pending,
+            isDownPayment: false,
+          },
+        ]);
+
+        const result = await service.findAll({
+          sortBy: 'overdueDays',
+          sortDirection: 'desc',
+          limit: 1,
+        });
+
+        expect(result.items.map((l) => l.id)).toEqual(['l3']);
+        expect(result.items[0].overdueDays).toBeGreaterThan(0);
+        expect(result.meta.total).toBe(3);
+      });
+
+      it('sorts by the status label shown in the list ("Al día" before "En mora")', async () => {
+        loansRepository.find.mockResolvedValue([
+          loanFor('l1', 'Ana', '#1'),
+          loanFor('l2', 'Mario', '#2'),
+        ]);
+        installmentsRepository.find.mockResolvedValue([
+          {
+            id: 'i1',
+            loanId: 'l1',
+            installmentNumber: 1,
+            amount: 100000,
+            principalPortion: 100000,
+            dueDate: '2020-01-01',
+            status: InstallmentStatus.Pending,
+            isDownPayment: false,
+          },
+        ]);
+
+        const result = await service.findAll({ sortBy: 'status' });
+
+        // l1 is overdue ("En mora"), l2 is current ("Al día") — "Al día"
+        // sorts first alphabetically.
+        expect(result.items.map((l) => l.id)).toEqual(['l2', 'l1']);
+      });
+    });
+
     it('applies the search term as an OR across client name and promissory note number', async () => {
       loansRepository.find.mockResolvedValue([mockLoan]);
 
@@ -2329,7 +2455,14 @@ describe('LoansService', () => {
       // Phase 28 — getPayments() now maps each payment (imageUrl replaced
       // with imageUrls), so the result is a new array, not the same
       // reference; compare by value instead.
-      expect(result).toEqual([{ ...payments[0], imageUrls: [] }]);
+      expect(result).toEqual([
+        {
+          ...payments[0],
+          imageUrls: [],
+          creditGeneratedAmount: 0,
+          creditSpentAmount: 0,
+        },
+      ]);
       expect(installmentsRepository.find).toHaveBeenCalledWith({
         where: { loanId: mockLoan.id },
         select: ['id'],
@@ -2908,6 +3041,79 @@ describe('LoansService', () => {
       loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
     });
 
+    // Human decision, 2026-09-26 — early payoff uses the same 5-day window
+    // refinancing has used since Phase 25: a cuota due within the next 5 days
+    // is treated as already matured, so liquidating and refinancing the same
+    // loan on the same day charge the same interest.
+    describe('early maturity window (same as refinancing)', () => {
+      it('includes the interest of a cuota due in exactly 5 days', async () => {
+        installmentsRepository.find.mockResolvedValue([
+          pendingInstallment({
+            amount: 300000,
+            principalPortion: 270000,
+            dueDate: bogotaTodayPlusDays(5),
+          }),
+        ]);
+
+        const quote = await service.getPayoffQuote(mockLoan.id);
+
+        // amount − principalPortion = 30000 of corriente interest.
+        expect(quote.totalInterestOwed).toBe(30000);
+        expect(quote.totalPrincipalOwed).toBe(270000);
+        expect(quote.totalDue).toBe(300000);
+      });
+
+      it('charges only the capital of a cuota due in 6 days (just outside the window)', async () => {
+        installmentsRepository.find.mockResolvedValue([
+          pendingInstallment({
+            amount: 300000,
+            principalPortion: 270000,
+            dueDate: bogotaTodayPlusDays(6),
+          }),
+        ]);
+
+        const quote = await service.getPayoffQuote(mockLoan.id);
+
+        expect(quote.totalInterestOwed).toBe(0);
+        expect(quote.totalDue).toBe(270000);
+      });
+
+      it('agrees with the refinance quote for the same loan on the same day', async () => {
+        installmentsRepository.find.mockResolvedValue([
+          pendingInstallment({
+            amount: 300000,
+            principalPortion: 270000,
+            dueDate: bogotaTodayPlusDays(3),
+          }),
+        ]);
+        installmentsRepository.findOne.mockResolvedValue(
+          pendingInstallment({ id: 'inst-1' }),
+        );
+
+        const payoffQuote = await service.getPayoffQuote(mockLoan.id);
+        const refinanceQuote = await service.getRefinanceQuote(mockLoan.id);
+
+        expect(payoffQuote.totalDue).toBe(refinanceQuote.payoff.totalDue);
+        expect(payoffQuote.totalInterestOwed).toBe(
+          refinanceQuote.payoff.totalInterestOwed,
+        );
+      });
+
+      it('leaves the "saldo capital a la fecha" untouched (principal never depends on the window)', async () => {
+        installmentsRepository.find.mockResolvedValue([
+          pendingInstallment({
+            amount: 300000,
+            principalPortion: 270000,
+            dueDate: bogotaTodayPlusDays(2),
+          }),
+        ]);
+
+        const quote = await service.getPayoffQuote(mockLoan.id);
+
+        expect(quote.totalPrincipalOwed).toBe(270000);
+      });
+    });
+
     it('quotes only interest/principal for still-pending installments', async () => {
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({ amount: 300000, principalPortion: 270000 }),
@@ -3237,6 +3443,121 @@ describe('LoansService', () => {
         }),
       );
       expect(paymentsRepository.save).toHaveBeenCalled();
+    });
+
+    // Human decision, 2026-09-26 — payoff() charges exactly what
+    // getPayoffQuote() quotes, including the 5-day window: a cuota due in 3
+    // days is settled for its capital AND its interest, not capital alone.
+    it('charges a cuota due within 5 days its interest too, matching the quote', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          id: 'inst-1',
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: bogotaTodayPlusDays(3),
+        }),
+      ]);
+
+      const quote = await service.getPayoffQuote(mockLoan.id);
+      await service.payoff(mockLoan.id);
+
+      expect(quote.totalDue).toBe(300000);
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          installmentId: 'inst-1',
+          amountPaid: 300000,
+        }),
+      );
+    });
+
+    it('still charges only the capital of a cuota due in more than 5 days', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          id: 'inst-1',
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: bogotaTodayPlusDays(6),
+        }),
+      ]);
+
+      await service.payoff(mockLoan.id);
+
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          installmentId: 'inst-1',
+          amountPaid: 270000,
+        }),
+      );
+    });
+
+    // Human report, 2026-09-25 — the payoff dialog had no way to attach the
+    // payment receipt.
+    describe('payment receipt photos', () => {
+      const futureDueDate = () => {
+        const date = new Date();
+        date.setFullYear(date.getFullYear() + 5);
+        return date.toISOString().slice(0, 10);
+      };
+      const twoPending = () => [
+        pendingInstallment({
+          id: 'inst-1',
+          installmentNumber: 1,
+          dueDate: futureDueDate(),
+        }),
+        pendingInstallment({
+          id: 'inst-2',
+          installmentNumber: 2,
+          dueDate: futureDueDate(),
+        }),
+      ];
+
+      it('attaches the same receipt photos to every payment the payoff registers', async () => {
+        installmentsRepository.find.mockResolvedValue(twoPending());
+        paymentsRepository.save.mockImplementation((payments: unknown[]) =>
+          Promise.resolve(
+            (payments as { installmentId: string }[]).map((payment, index) => ({
+              ...payment,
+              id: `payment-${index + 1}`,
+            })),
+          ),
+        );
+
+        await service.payoff(mockLoan.id, {
+          imageUrls: [
+            'https://res.cloudinary.com/x/receipt-1.jpg',
+            'https://res.cloudinary.com/x/receipt-2.jpg',
+          ],
+        });
+
+        expect(paymentImagesRepository.save).toHaveBeenCalledWith([
+          {
+            paymentId: 'payment-1',
+            imageUrl: 'https://res.cloudinary.com/x/receipt-1.jpg',
+          },
+          {
+            paymentId: 'payment-1',
+            imageUrl: 'https://res.cloudinary.com/x/receipt-2.jpg',
+          },
+          {
+            paymentId: 'payment-2',
+            imageUrl: 'https://res.cloudinary.com/x/receipt-1.jpg',
+          },
+          {
+            paymentId: 'payment-2',
+            imageUrl: 'https://res.cloudinary.com/x/receipt-2.jpg',
+          },
+        ]);
+      });
+
+      it('saves no images when none are given (empty body, as before)', async () => {
+        installmentsRepository.find.mockResolvedValue(twoPending());
+
+        await service.payoff(mockLoan.id);
+        await service.payoff(mockLoan.id, {});
+        await service.payoff(mockLoan.id, { imageUrls: [] });
+
+        expect(paymentImagesRepository.save).not.toHaveBeenCalled();
+      });
     });
 
     // Bug fix, 2026-09-15 (human report) — before this, payoff() recharged

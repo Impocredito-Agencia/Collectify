@@ -10,6 +10,9 @@ interface CurrencyInputProps {
   onChange: (value: number) => void;
   className: string;
   placeholder?: string;
+  // Read-only display of a computed amount (e.g. a payment amount fixed by
+  // a mora waiver) — greyed out and not editable.
+  disabled?: boolean;
 }
 
 // Real-time "$1.000.000"-style formatting for every manually-typed
@@ -43,6 +46,7 @@ export function CurrencyInput({
   onChange,
   className,
   placeholder = '$0',
+  disabled = false,
 }: CurrencyInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -67,7 +71,8 @@ export function CurrencyInput({
       value={displayValue}
       onChange={handleChange}
       placeholder={placeholder}
-      className={className}
+      disabled={disabled}
+      className={`${className}${disabled ? ' cursor-not-allowed opacity-60' : ''}`}
     />
   );
 }

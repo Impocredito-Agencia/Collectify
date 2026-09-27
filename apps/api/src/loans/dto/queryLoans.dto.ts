@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -10,6 +11,15 @@ import {
 } from 'class-validator';
 
 import { LoanStatus } from '../entities/loan.entity';
+
+export const LOAN_SORT_COLUMNS = [
+  'promissoryNoteNumber',
+  'clientFullName',
+  'outstandingBalance',
+  'overdueDays',
+  'status',
+] as const;
+export type LoanSortColumn = (typeof LOAN_SORT_COLUMNS)[number];
 
 export class QueryLoansDto {
   @ApiPropertyOptional()
@@ -32,6 +42,24 @@ export class QueryLoansDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({
+    enum: LOAN_SORT_COLUMNS,
+    description:
+      'Column to order the WHOLE result by before paginating (default: ' +
+      'promissoryNoteNumber). Applied server-side so page 1 really holds ' +
+      'the first rows of the entire list, not just of the page that ' +
+      'happened to be loaded. `status` orders by the label the list shows ' +
+      '("Al día"/"En mora"/"Pagado"/"Refinanciado").',
+  })
+  @IsOptional()
+  @IsIn(LOAN_SORT_COLUMNS)
+  sortBy?: LoanSortColumn;
+
+  @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'asc' })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortDirection?: 'asc' | 'desc';
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()

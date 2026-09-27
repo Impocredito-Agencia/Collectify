@@ -4,11 +4,13 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
+  IsInt,
   IsOptional,
   IsPositive,
   IsString,
   IsUUID,
   IsUrl,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 
@@ -40,6 +42,26 @@ export class BulkPaymentEntryDto {
   @IsArray()
   @IsUrl({}, { each: true })
   imageUrls?: string[];
+
+  // Human request, 2026-09-25 — see Payment.moraWaivedAmount. Per entry: each
+  // cuota of the batch may forgive part of its own mora, and the entry then
+  // pays that cuota's balance minus the waiver, exactly
+  // (InstallmentsService.assertValidMoraWaiver).
+  @ApiPropertyOptional({
+    example: 12300,
+    description:
+      "Mora forgiven together with this cuota's payment, in whole pesos. amountPaid must equal the cuota balance minus this amount, exactly.",
+  })
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  moraWaivedAmount?: number;
+
+  @ApiPropertyOptional({ example: 'Pagó todo de contado' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  moraWaiverReason?: string;
 }
 
 // Confirmed with the human: a bulk action requires FULL payment of every

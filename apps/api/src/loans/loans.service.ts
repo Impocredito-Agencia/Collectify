@@ -16,6 +16,7 @@ import {
   Repository,
 } from 'typeorm';
 
+import { ClientCreditBalanceService } from '../clients/clientCreditBalance.service';
 import { ClientsService } from '../clients/clients.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { countDecimalPlaces } from '../common/numberPrecision';
@@ -38,7 +39,8 @@ import { CreateLoanDto } from './dto/createLoan.dto';
 import { LoanConceptAssignmentDto } from './dto/loanConceptAssignment.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { PreviewScheduleDto } from './dto/previewSchedule.dto';
-import { QueryLoansDto } from './dto/queryLoans.dto';
+import { PayoffLoanDto } from './dto/payoffLoan.dto';
+import { LoanSortColumn, QueryLoansDto } from './dto/queryLoans.dto';
 import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { addMonthsToDateString, addWeeksToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
@@ -68,6 +70,9 @@ import {
 } from './promissoryNoteNumberSort';
 
 const DEFAULT_PAGE = 1;
+// How many loans findAll() summarizes at a time when it has to order the
+// whole list by a computed column (see LoansService.findAll).
+const SORT_SUMMARY_CHUNK_SIZE = 200;
 // 50, matching clients.service.ts's DEFAULT_PAGE_SIZE — see the same note
 // in dashboard.service.ts (style cleanup 2026-09-05).
 const DEFAULT_PAGE_SIZE = 50;
@@ -77,7 +82,15 @@ const POSTGRES_UNIQUE_VIOLATION = '23505';
 // "5" as MessageTemplate's upcomingDueReminderDays (Phase 9); kept as its
 // own named constant specifically so the two are never accidentally
 // conflated or refactored into sharing a value.
-const REFINANCE_EARLY_MATURITY_WINDOW_DAYS = 5;
+//
+// Extended, 2026-09-26 (human decision): this used to be refinance-only. It
+// now applies to early payoff too (getPayoffQuote()/payoff()), so
+// liquidating and refinancing the same loan on the same day charge the same
+// interest — with the window on one route only, the cheaper route was the
+// one to pick, which defeated the rule's own purpose (stopping people from
+// closing a loan just before a cuota falls due to skip that period's
+// interest). Both routes share ONE value on purpose, so they can't drift.
+const EARLY_MATURITY_WINDOW_DAYS = 5;
 
 export interface PreviewedInstallment {
   installmentNumber: number;
@@ -126,10 +139,10 @@ export interface LoanDetail extends Loan {
   // as owing more than the actual capital left. Reuses getPayoffQuote()
   // rather than a second implementation, per docs/phases/PHASE_17_REFINANCING_RECALC.md's
   // own precedent of never duplicating this math. `totalPrincipalOwed` is
-  // unaffected by the refinance-only earlyMaturityWindowDays option (see
-  // calculatePayoff.ts — principalApplied never depends on it), so the
-  // plain getPayoffQuote() call here always agrees with what a refinance
-  // quote would show for the same figure.
+  // unaffected by the earlyMaturityWindowDays option (see
+  // calculatePayoff.ts — principalApplied never depends on it), so this
+  // agrees with what a payoff or refinance quote shows for the same figure
+  // whether or not the window is applied.
   currentPrincipalBalance: number;
   // Human request, 2026-09-25 — whether PATCH
   // /loans/:id/installments/amount-adjustment would accept this loan right
@@ -143,6 +156,12 @@ export interface LoanDetail extends Loan {
 // imageUrl column for a pre-migration row, see Payment entity).
 export interface PaymentWithImages extends Omit<Payment, 'imageUrl'> {
   imageUrls: string[];
+  // Human request, 2026-09-26 — the saldo a favor this payment generated
+  // that is still standing (an excess the client handed over), and the
+  // saldo a favor it spent (a payment funded by credit). What voiding it
+  // would take back / give back — see ClientCreditBalanceService.
+  creditGeneratedAmount: number;
+  creditSpentAmount: number;
 }
 
 // Added for the client's standalone "Préstamos" list screen (F-16/17),
@@ -280,6 +299,7 @@ export class LoansService {
     private readonly interestConceptTypesService: InterestConceptTypesService,
     private readonly usuryRateService: UsuryRateService,
     private readonly clientsService: ClientsService,
+    private readonly clientCreditBalanceService: ClientCreditBalanceService,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService<Configuration, true>,
   ) {}
@@ -573,12 +593,64 @@ export class LoansService {
     // was removed comes back with `client: null` despite the non-null type —
     // hide those rather than crash summarize() on a null client.
     const visible = matches.filter((loan) => loan.client !== null);
-    const sorted = visible.sort(compareLoansByPromissoryNoteNumber);
 
-    const total = sorted.length;
+    const direction = query.sortDirection === 'desc' ? -1 : 1;
+    const sortBy: LoanSortColumn = query.sortBy ?? 'promissoryNoteNumber';
     const start = (page - 1) * limit;
-    const loans = sorted.slice(start, start + limit);
-    const items = await this.summarize(loans);
+
+    // Ordering is applied to the WHOLE result before the page is cut, so
+    // page 1 of a descending sort really holds the last rows of the list
+    // (human report, 2026-09-25 — the sort used to run client-side over just
+    // the loaded page). Ties always fall back to pagaré number ascending,
+    // whatever the direction, so the order is stable.
+    if (
+      sortBy === 'outstandingBalance' ||
+      sortBy === 'overdueDays' ||
+      sortBy === 'status'
+    ) {
+      // These columns only exist once installments are read and enriched, so
+      // ordering by them means summarizing every match, not just one page.
+      // Done in chunks — summarize() batches its installment/concept/payment
+      // lookups with IN (...) lists, and a chunk keeps those to a size
+      // Postgres handles comfortably however many loans match. Only paid
+      // when the admin actually sorts by one of these three columns.
+      const summaries: LoanSummary[] = [];
+      for (let i = 0; i < visible.length; i += SORT_SUMMARY_CHUNK_SIZE) {
+        summaries.push(
+          ...(await this.summarize(
+            visible.slice(i, i + SORT_SUMMARY_CHUNK_SIZE),
+          )),
+        );
+      }
+      summaries.sort(
+        (a, b) =>
+          direction * compareLoanSummariesByColumn(a, b, sortBy) ||
+          comparePromissoryNoteNumbers(
+            a.promissoryNoteNumber,
+            b.promissoryNoteNumber,
+          ),
+      );
+      return {
+        items: summaries.slice(start, start + limit),
+        meta: {
+          page,
+          limit,
+          total: summaries.length,
+          totalPages: Math.ceil(summaries.length / limit),
+        },
+      };
+    }
+
+    visible.sort(
+      (a, b) =>
+        direction *
+          (sortBy === 'clientFullName'
+            ? compareClientFullNames(a, b)
+            : compareLoansByPromissoryNoteNumber(a, b)) ||
+        compareLoansByPromissoryNoteNumber(a, b),
+    );
+    const total = visible.length;
+    const items = await this.summarize(visible.slice(start, start + limit));
 
     return {
       items,
@@ -916,7 +988,11 @@ export class LoansService {
   // docs/phases/PHASE_16_EARLY_PAYOFF.md — never blindly sums remaining
   // installment totals; a not-yet-due installment contributes only
   // principal, at face value, with zero interest (Colombian Civil Code
-  // Art. 1653, confirmed with the human). Read-only, safe to call on any
+  // Art. 1653, confirmed with the human) — EXCEPT one due within the next
+  // EARLY_MATURITY_WINDOW_DAYS days, which is treated as already matured and
+  // carries its interest too (human decision, 2026-09-26: the same window
+  // refinancing has used since Phase 25, so both routes charge the same).
+  // Read-only, safe to call on any
   // loan regardless of status (an already-paid/refinanced loan simply has
   // no pending installments, so the quote comes back empty).
   async getPayoffQuote(id: string): Promise<PayoffQuote> {
@@ -942,9 +1018,14 @@ export class LoansService {
         ),
       ),
       today,
-      trueUpOptions(
-        await this.computeInterestTrueUp(id, pending.length, today),
-      ),
+      {
+        earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+        ...trueUpOptions(
+          await this.computeInterestTrueUp(id, pending.length, today, {
+            earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+          }),
+        ),
+      },
     );
   }
 
@@ -953,7 +1034,7 @@ export class LoansService {
   // loan for its FULL quoted amount, closing it out entirely. Registers
   // one real Payment row per still-pending installment, so the payoff
   // leaves the same kind of historical record an ordinary payment would.
-  async payoff(id: string): Promise<LoanDetail> {
+  async payoff(id: string, dto: PayoffLoanDto = {}): Promise<LoanDetail> {
     const loan = await this.findLoanOrThrow(id);
     if (loan.status !== LoanStatus.Active) {
       throw new BadRequestException(
@@ -982,9 +1063,14 @@ export class LoansService {
         ),
       ),
       today,
-      trueUpOptions(
-        await this.computeInterestTrueUp(id, pending.length, today),
-      ),
+      {
+        earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+        ...trueUpOptions(
+          await this.computeInterestTrueUp(id, pending.length, today, {
+            earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+          }),
+        ),
+      },
     );
 
     const paidAt = new Date().toISOString().slice(0, 10);
@@ -1007,7 +1093,23 @@ export class LoansService {
       });
     });
     if (payments.length > 0) {
-      await this.paymentsRepository.save(payments);
+      const savedPayments = await this.paymentsRepository.save(payments);
+      // Human report, 2026-09-25 — the receipt of the payoff. One comprobante
+      // covers the whole settlement, so the same photos go on every payment
+      // row it registers (same as a bulk payment across several cuotas), and
+      // each row shows them in the loan's payment history.
+      if (dto.imageUrls && dto.imageUrls.length > 0) {
+        await this.paymentImagesRepository.save(
+          savedPayments.flatMap((payment) =>
+            (dto.imageUrls ?? []).map((imageUrl) =>
+              this.paymentImagesRepository.create({
+                paymentId: payment.id,
+                imageUrl,
+              }),
+            ),
+          ),
+        );
+      }
     }
 
     await this.installmentsRepository.update(
@@ -1089,19 +1191,16 @@ export class LoansService {
   // count — excluding any whose catalog type was since deleted (no valid
   // id left to resubmit).
   //
-  // Phase 25 (confirmed with the human, reunión 2026-08-25): unlike a real
-  // payoff quote, this one passes earlyMaturityWindowDays so an
-  // installment due within the next REFINANCE_EARLY_MATURITY_WINDOW_DAYS
-  // days — not yet actually overdue — also has its corriente interest
-  // folded into suggestedPrincipalAmount ("de la cuarta cuota entran los
-  // intereses al capital también, así no haya llegado a su fecha de
-  // vencimiento como tal"). Its moratory interest stays 0, since it isn't
-  // actually in mora yet — calculatePayoff() enforces that on its own, see
-  // that function's own comment. This window is intentionally scoped to
-  // refinancing only: getPayoffQuote()/payoff() (the real early-payoff
-  // endpoints, Phase 16) must keep omitting this option so a client asking
-  // "what do I owe if I pay off today" is never shown a not-yet-due cuota's
-  // interest.
+  // Phase 25 (confirmed with the human, reunión 2026-08-25): this quote
+  // passes earlyMaturityWindowDays so an installment due within the next
+  // EARLY_MATURITY_WINDOW_DAYS days — not yet actually overdue — also has its
+  // corriente interest folded into suggestedPrincipalAmount ("de la cuarta
+  // cuota entran los intereses al capital también, así no haya llegado a su
+  // fecha de vencimiento como tal"). Its moratory interest stays 0, since it
+  // isn't actually in mora yet — calculatePayoff() enforces that on its own,
+  // see that function's own comment. Since 2026-09-26 the real early-payoff
+  // endpoints (getPayoffQuote()/payoff()) apply the same window — see
+  // EARLY_MATURITY_WINDOW_DAYS.
   async getRefinanceQuote(id: string): Promise<RefinanceQuote> {
     await this.findLoanOrThrow(id);
     const pending = await this.findPendingInstallments(id);
@@ -1125,10 +1224,10 @@ export class LoansService {
       ),
     );
     const payoff = calculatePayoff(payoffInputs, today, {
-      earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+      earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
       ...trueUpOptions(
         await this.computeInterestTrueUp(id, pending.length, today, {
-          earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+          earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
         }),
       ),
     });
@@ -1148,7 +1247,7 @@ export class LoansService {
         (installment) =>
           calculateDaysUntilDue(new Date(installment.dueDate), today) > 0 &&
           calculateDaysUntilDue(new Date(installment.dueDate), today) <=
-            REFINANCE_EARLY_MATURITY_WINDOW_DAYS,
+            EARLY_MATURITY_WINDOW_DAYS,
       )
       .map((installment) => installment.installmentNumber);
     const earlyWindowInterest = Math.max(
@@ -1227,8 +1326,17 @@ export class LoansService {
       payments.map((payment) => payment.id),
     );
 
+    const creditByPaymentId =
+      await this.clientCreditBalanceService.summarizeCreditByPaymentId(
+        payments.map((payment) => payment.id),
+      );
+
     return payments.map(({ imageUrl, ...payment }) => ({
       ...payment,
+      // Human request, 2026-09-26 — what voiding this payment would do to the
+      // client's saldo a favor, so the void dialog can say so up front.
+      creditGeneratedAmount: creditByPaymentId.get(payment.id)?.generated ?? 0,
+      creditSpentAmount: creditByPaymentId.get(payment.id)?.spent ?? 0,
       // Phase 28 — payment_images is the real source now; imageUrl is only
       // a fallback for a pre-migration row that somehow still has nothing
       // in payment_images (the migration itself backfills every existing
@@ -1917,6 +2025,45 @@ function toPayoffInstallmentInput(
     })),
     totalPaid,
   };
+}
+
+function compareClientFullNames(a: Loan, b: Loan): number {
+  return `${a.client.firstName} ${a.client.lastName}`.localeCompare(
+    `${b.client.firstName} ${b.client.lastName}`,
+    'es',
+  );
+}
+
+// The label the loans list shows in its Estado column — mirrors the
+// frontend's estadoBadge() (loanStatusDisplay.ts) so sorting by "Estado"
+// orders by what is on screen ("Al día" < "En mora" < "Pagado" <
+// "Refinanciado"), not by the raw enum value.
+function loanStatusLabel(loan: {
+  status: LoanStatus;
+  overdueDays: number;
+}): string {
+  if (loan.status === LoanStatus.Paid) {
+    return 'Pagado';
+  }
+  if (loan.status === LoanStatus.Refinanced) {
+    return 'Refinanciado';
+  }
+  return loan.overdueDays > 0 ? 'En mora' : 'Al día';
+}
+
+function compareLoanSummariesByColumn(
+  a: LoanSummary,
+  b: LoanSummary,
+  column: 'outstandingBalance' | 'overdueDays' | 'status',
+): number {
+  switch (column) {
+    case 'outstandingBalance':
+      return a.outstandingBalance - b.outstandingBalance;
+    case 'overdueDays':
+      return a.overdueDays - b.overdueDays;
+    case 'status':
+      return loanStatusLabel(a).localeCompare(loanStatusLabel(b), 'es');
+  }
 }
 
 // Moved to promissoryNoteNumberSort.ts (2026-09-15) so the overdue-

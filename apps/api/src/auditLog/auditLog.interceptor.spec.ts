@@ -514,6 +514,83 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
+    // Human request, 2026-09-25 — a payment that forgave mora says so in its
+    // label, so a waiver can't go unnoticed in Auditoría.
+    it('mentions the forgiven mora in a payment label, single and bulk', async () => {
+      reflector.get.mockReturnValue({
+        action: 'payment.register',
+        entityType: 'payment',
+      });
+      const single = buildCallHandler(
+        of({
+          id: 'payment-1',
+          amountPaid: 588000,
+          paidAt: '2026-09-25',
+          moraWaivedAmount: 12300,
+        }),
+      );
+      await firstValueFrom(
+        await interceptor.intercept(
+          buildContext({ user: { id: 'user-1' }, params: { id: 'i-1' } }),
+          single,
+        ),
+      );
+      await flushPromises();
+      expect(auditLogService.record).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringMatching(
+            /\(mora condonada .*12\.300\)/,
+          ) as unknown,
+        }),
+      );
+
+      reflector.get.mockReturnValue({
+        action: 'payment.registerBulk',
+        entityType: 'payment',
+      });
+      const bulk = buildCallHandler(
+        of([
+          { id: 'p-1', amountPaid: 500000, moraWaivedAmount: 10000 },
+          { id: 'p-2', amountPaid: 500000, moraWaivedAmount: 2000 },
+        ]),
+      );
+      await firstValueFrom(
+        await interceptor.intercept(
+          buildContext({ user: { id: 'user-1' }, params: {} }),
+          bulk,
+        ),
+      );
+      await flushPromises();
+      expect(auditLogService.record).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.stringMatching(
+            /\(mora condonada .*12\.000\).* en 2 cuotas/,
+          ) as unknown,
+        }),
+      );
+    });
+
+    it('says nothing about mora when none was forgiven', async () => {
+      reflector.get.mockReturnValue({
+        action: 'payment.register',
+        entityType: 'payment',
+      });
+      await firstValueFrom(
+        await interceptor.intercept(
+          buildContext({ user: { id: 'user-1' }, params: { id: 'i-1' } }),
+          buildCallHandler(
+            of({ id: 'payment-1', amountPaid: 588000, moraWaivedAmount: 0 }),
+          ),
+        ),
+      );
+      await flushPromises();
+      expect(auditLogService.record).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          entityLabel: expect.not.stringContaining('condonada') as unknown,
+        }),
+      );
+    });
+
     it('falls back to the plain amount/date payment label when the installment lookup finds nothing', async () => {
       reflector.get.mockReturnValue({
         action: 'payment.register',

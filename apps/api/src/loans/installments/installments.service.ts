@@ -37,6 +37,7 @@ import {
   enrichInstallment,
   InstallmentWithCalculated,
 } from './enrichInstallment';
+import { calculateMoraCharged } from './installmentCalculations';
 import { sumPaymentsByInstallmentId } from './paymentTotals';
 
 const DEFAULT_PAGE = 1;
@@ -211,12 +212,29 @@ export class InstallmentsService {
       this.loanInstallmentConceptsRepository,
     );
     const maxPayable = Math.ceil(remainingBalance);
+    // Human request, 2026-09-25 — a payment may forgive part of the accrued
+    // mora, but only if it settles the cuota completely. Validated here
+    // against the server's own numbers at this very moment, so a screen left
+    // open since yesterday (mora has grown since) is rejected, never applied.
+    const moraWaived = dto.moraWaivedAmount ?? 0;
+    if (moraWaived > 0) {
+      await this.assertValidMoraWaiver(
+        installment,
+        maxPayable,
+        moraWaived,
+        dto.amountPaid,
+        this.loanInstallmentConceptsRepository,
+      );
+    }
     const amountToRecord = Math.min(dto.amountPaid, maxPayable);
     const excess = dto.amountPaid - amountToRecord;
 
     const payment = this.paymentsRepository.create({
       installmentId,
       amountPaid: amountToRecord,
+      moraWaivedAmount: moraWaived,
+      moraWaiverReason:
+        moraWaived > 0 ? (dto.moraWaiverReason?.trim() ?? null) || null : null,
       paidAt: dto.paidAt,
       observation: dto.observation ?? null,
       // imageUrl is deprecated as of Phase 28 — no longer written for new
@@ -437,20 +455,39 @@ export class InstallmentsService {
             loanInstallmentConceptsRepository,
           );
           const maxPayable = Math.ceil(remainingBalance);
-          if (entry.amountPaid < maxPayable) {
-            throw new BadRequestException(
-              `El monto para la cuota ${installment.installmentNumber} (id ${installment.id}) no cubre su saldo pendiente total, capital más mora ($${maxPayable}) — un pago por lotes debe saldar cada cuota por completo. Usa el flujo de pago individual para un abono parcial.`,
+          // Human request, 2026-09-25 — the same mora waiver a single payment
+          // accepts (see assertValidMoraWaiver), per entry: the entry pays
+          // the cuota's balance minus what is forgiven, exactly.
+          const moraWaived = entry.moraWaivedAmount ?? 0;
+          if (moraWaived > 0) {
+            await this.assertValidMoraWaiver(
+              installment,
+              maxPayable,
+              moraWaived,
+              entry.amountPaid,
+              loanInstallmentConceptsRepository,
             );
           }
-          if (entry.amountPaid > maxPayable) {
+          const requiredPayment = maxPayable - moraWaived;
+          if (entry.amountPaid < requiredPayment) {
             throw new BadRequestException(
-              `El monto para la cuota ${installment.installmentNumber} (id ${installment.id}) supera su saldo pendiente ($${maxPayable}).`,
+              `El monto para la cuota ${installment.installmentNumber} (id ${installment.id}) no cubre su saldo pendiente total, capital más mora ($${requiredPayment}) — un pago por lotes debe saldar cada cuota por completo. Usa el flujo de pago individual para un abono parcial.`,
+            );
+          }
+          if (entry.amountPaid > requiredPayment) {
+            throw new BadRequestException(
+              `El monto para la cuota ${installment.installmentNumber} (id ${installment.id}) supera su saldo pendiente ($${requiredPayment}).`,
             );
           }
 
           const payment = paymentsRepository.create({
             installmentId: entry.installmentId,
             amountPaid: entry.amountPaid,
+            moraWaivedAmount: moraWaived,
+            moraWaiverReason:
+              moraWaived > 0
+                ? (entry.moraWaiverReason?.trim() ?? null) || null
+                : null,
             paidAt: entry.paidAt,
             observation: entry.observation ?? null,
             imageUrl: null,
@@ -556,6 +593,23 @@ export class InstallmentsService {
       payment.deletedAt = new Date();
       payment.voidReason = dto.reason;
       const savedPayment = await paymentsRepository.save(payment);
+
+      // Human request, 2026-09-26 — the saldo a favor side of a void, inside
+      // the same transaction so a refusal rolls the whole void back:
+      //  - a payment FUNDED by credit gives the credit it spent back to the
+      //    client (no cash ever backed it);
+      //  - a payment that GENERATED credit (an excess) has that credit taken
+      //    back, or is refused if the client already used/received part of
+      //    it. Restoring first, so a credit-funded payment that also
+      //    recycled a leftover nets out correctly.
+      await this.clientCreditBalanceService.restoreCreditSpentBy(
+        paymentId,
+        manager,
+      );
+      await this.clientCreditBalanceService.reverseCreditGeneratedBy(
+        paymentId,
+        manager,
+      );
 
       const installment = payment.installment;
       // A Pending installment has nothing to reopen (this just stops
@@ -744,6 +798,53 @@ export class InstallmentsService {
     return enrichInstallment(installment, concepts, totalPaid).totalDue;
   }
 
+  // Human request, 2026-09-25 (rules confirmed with the human): a payment may
+  // forgive accrued mora, in whole pesos, only when that payment settles the
+  // cuota COMPLETELY — never "pay a bit, forgive a bit, leave a balance".
+  // Checked against the server's own figures at the moment of the request:
+  //  - the waiver can't exceed the mora the cuota is actually charging (see
+  //    calculateMoraCharged: the rounded total minus capital, so forgiving
+  //    "all the mora" leaves exactly the capital still owed), and always
+  //    leaves at least $1 to pay;
+  //  - amountPaid must equal balance − waiver EXACTLY. Not "at least": a
+  //    peso short would leave the cuota open, and a peso over would quietly
+  //    become saldo a favor — both are rejected instead, with the current
+  //    figures in the message. This is also what protects a screen left open
+  //    since the day before: mora has grown, the numbers no longer match, the
+  //    payment is refused rather than applied.
+  private async assertValidMoraWaiver(
+    installment: Installment,
+    maxPayable: number,
+    moraWaived: number,
+    amountPaid: number,
+    loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
+  ): Promise<void> {
+    const concepts = await loanInstallmentConceptsRepository.find({
+      where: { installmentId: installment.id },
+    });
+    const moraCharged = calculateMoraCharged(
+      installment.amount,
+      enrichInstallment(installment, concepts, 0).interest,
+    );
+    const maxWaivable = Math.min(moraCharged, maxPayable - 1);
+    if (maxWaivable < 1) {
+      throw new BadRequestException(
+        `La cuota ${installment.installmentNumber} no tiene mora que condonar.`,
+      );
+    }
+    if (moraWaived > maxWaivable) {
+      throw new BadRequestException(
+        `La mora a condonar en la cuota ${installment.installmentNumber} ($${moraWaived}) supera la mora que se le está cobrando ($${maxWaivable}).`,
+      );
+    }
+    const requiredPayment = maxPayable - moraWaived;
+    if (amountPaid !== requiredPayment) {
+      throw new BadRequestException(
+        `Con una condonación de $${moraWaived}, la cuota ${installment.installmentNumber} debe pagarse por exactamente $${requiredPayment} (saldo actual $${maxPayable}). Vuelve a abrir el pago: el saldo pudo haber cambiado.`,
+      );
+    }
+  }
+
   private async savePaymentImages(
     paymentId: string,
     imageUrls: string[] | undefined,
@@ -764,10 +865,18 @@ export class InstallmentsService {
   ): Promise<number> {
     const payments = await paymentsRepository.find({
       where: { installmentId },
-      select: { amountPaid: true },
+      select: { amountPaid: true, moraWaivedAmount: true },
     });
 
-    return payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
+    // What has been COVERED on this installment: cash received plus any mora
+    // forgiven together with a payment (Payment.moraWaivedAmount). It feeds
+    // the "is the balance settled?" decisions below (closing a cuota,
+    // reopening one after a void) — not any cash-collected figure.
+    return payments.reduce(
+      (sum, payment) =>
+        sum + payment.amountPaid + (payment.moraWaivedAmount ?? 0),
+      0,
+    );
   }
 
   // Returns whether this call is what just fully paid off the loan — lets

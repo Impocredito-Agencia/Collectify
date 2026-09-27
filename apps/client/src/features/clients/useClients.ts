@@ -186,6 +186,26 @@ export function useClientCreditBalance(clientId: string) {
   });
 }
 
+// Human request, 2026-09-26 — see RefundClientCreditDialog.tsx.
+export function useRefundClientCredit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      clientId,
+      amount,
+      reason,
+    }: {
+      clientId: string;
+      amount: number;
+      reason?: string;
+    }) => clientsApi.refundCredit(clientId, { amount, reason }),
+    onSuccess: (_data, { clientId }) =>
+      queryClient.invalidateQueries({
+        queryKey: ['clients', clientId, 'credit-balance'],
+      }),
+  });
+}
+
 // Human request, 2026-09-15 — see ClientAccountStatusPanel.tsx. Own query
 // key for the same reason useClientCreditBalance's does: this can go stale
 // the moment a payment is registered against one of the client's

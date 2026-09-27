@@ -5,10 +5,11 @@ export type SortDirection = 'asc' | 'desc';
 // Shared column-sort state for a list page's table (human report,
 // 2026-09-22 — Clientes/Préstamos: "que se pueda filtrar por columna...
 // que se organice según esa columna de menor a mayor y si la vuelve a
-// tocar de mayor a menor"). Sorts client-side over whatever page of rows
-// is currently loaded — the list's own server-side pagination/search/
-// status filters are untouched by this, it only reorders what's already
-// on screen. Generic over `T`, the column-key union each page defines for
+// tocar de mayor a menor"). Only holds WHICH column and direction — the
+// page passes them to the list query as sortBy/sortDirection so the
+// server orders the whole result before paginating (2026-09-25: it used
+// to reorder just the loaded page client-side, so Z→A still started with
+// an "E"). Generic over `T`, the column-key union each page defines for
 // its own table (see ClientsListPage.tsx/LoansListPage.tsx call sites).
 //
 // storageKey (human report, 2026-09-23) — when set, the sort survives
