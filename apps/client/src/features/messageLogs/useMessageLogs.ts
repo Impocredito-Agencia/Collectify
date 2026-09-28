@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 
 import { messageLogsApi } from '@/features/messageLogs/messageLogsApi';
 
@@ -8,6 +13,10 @@ export function useMessageLogs(params: MessageLogsQueryParams) {
   return useQuery({
     queryKey: ['messageLogs', params],
     queryFn: () => messageLogsApi.getAll(params),
+    // Human report, 2026-09-27 — keeps the previous page on screen while a
+    // new one loads instead of flashing "Cargando…" and losing the pager;
+    // see useClients.ts's identical fix for the full explanation.
+    placeholderData: keepPreviousData,
   });
 }
 
