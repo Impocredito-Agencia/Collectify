@@ -3,11 +3,12 @@ interface StatCardProps {
   value: string;
   // Human request, 2026-09-27 — LoanDetailPage's "Total vencido hoy" needs
   // to stand out from the other, neutral figures around it (a cobrador
-  // scanning the page for what to actually collect), rather than blend in
-  // as one more equally-weighted number. Same danger tokens StatusBadge's
-  // own 'danger' tone already uses — reusing the app's existing semantic
-  // color instead of inventing a new one. Defaults to 'default', so every
-  // existing call site is unaffected.
+  // scanning the page for what to actually collect). First tried tinting
+  // the whole card (border+background+label+value) — human feedback:
+  // "muy llamativa", deja nomas el número en rojo, de resto los mismos
+  // colores que las demás — so 'danger' only tints the value now; the
+  // card's border/background/label stay identical to 'default'. Defaults
+  // to 'default', so every existing call site is unaffected.
   tone?: 'default' | 'danger';
 }
 
@@ -21,13 +22,7 @@ interface StatCardProps {
 // app (there will be more) reuses this instead of a third copy.
 export function StatCard({ label, value, tone = 'default' }: StatCardProps) {
   return (
-    <div
-      className={
-        tone === 'danger'
-          ? 'rounded border border-danger bg-danger-bg p-5'
-          : 'rounded border border-border bg-surface p-5'
-      }
-    >
+    <div className="rounded border border-border bg-surface p-5">
       {/* Style cleanup, 2026-09-04 — briefly reserved 2 lines' worth of
           height here after "Incremento consolidado en caso de mora" wrapped
           in LoanDetailPage's 6-column grid and pushed that card's value out
@@ -35,11 +30,7 @@ export function StatCard({ label, value, tone = 'default' }: StatCardProps) {
           "Incremento en mora" (see GLOSSARY.md) — every label in the app
           fits on one line now, so cards stay at their natural, smaller
           height instead of reserving space no longer needed. */}
-      <p
-        className={`text-small ${tone === 'danger' ? 'text-danger' : 'text-muted'}`}
-      >
-        {label}
-      </p>
+      <p className="text-small text-muted">{label}</p>
       <p
         className={`mt-1 text-kpi font-light ${tone === 'danger' ? 'text-danger' : 'text-white'}`}
       >

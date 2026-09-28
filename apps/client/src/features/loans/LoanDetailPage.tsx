@@ -465,9 +465,10 @@ export function LoanDetailPage() {
       <ClientCreditBanner clientId={loan.clientId} loanId={loan.id} />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        {/* Human request, 2026-09-27 — placed first and in the danger tone
-            so it's the first thing a cobrador sees when opening this loan
-            to collect, rather than one more neutral figure among the rest. */}
+        {/* Human request, 2026-09-27 — placed first so it's the first thing
+            a cobrador sees when opening this loan to collect; only the
+            figure itself turns red (via tone="danger") when something is
+            actually overdue, the card otherwise matches the rest. */}
         <StatCard
           label="Total vencido hoy"
           value={formatCurrency(totalOverdueOnThisLoan)}
