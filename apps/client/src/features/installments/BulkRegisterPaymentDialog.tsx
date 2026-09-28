@@ -442,6 +442,19 @@ export function BulkRegisterPaymentDialog({
 
         <div className="mt-2.5 border-t border-border" />
 
+        {/* Human request, 2026-09-27 — the total only showed up in the
+            second, confirm-and-send dialog; a cobrador tallying several
+            cuotas at once wants it visible here too, live as amounts/
+            condonaciones change, not just right before sending. Same sum
+            ConfirmBulkRegisterPaymentDialog computes from the submitted
+            entries below, so the two numbers can never disagree. */}
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-small text-muted">Total a pagar</span>
+          <span className="text-[16px] font-medium text-white">
+            {formatCurrency(rows.reduce((sum, row) => sum + rowAmount(row), 0))}
+          </span>
+        </div>
+
         <div className="mt-2 flex items-center justify-end gap-3">
           <Button variant="secondary" onClick={onClose}>
             Cancelar
