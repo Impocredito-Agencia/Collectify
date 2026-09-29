@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 
 import { loansApi } from '@/features/loans/loansApi';
 
@@ -19,6 +24,10 @@ export function useLoans(params: LoansQueryParams) {
   return useQuery({
     queryKey: ['loans', params],
     queryFn: () => loansApi.getAll(params),
+    // Human report, 2026-09-27 — keeps the previous page on screen while a
+    // new one loads instead of flashing "Cargando…" and losing the pager;
+    // see useClients.ts's identical fix for the full explanation.
+    placeholderData: keepPreviousData,
   });
 }
 

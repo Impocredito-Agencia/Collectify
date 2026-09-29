@@ -1,6 +1,15 @@
 interface StatCardProps {
   label: string;
   value: string;
+  // Human request, 2026-09-27 — LoanDetailPage's "Total vencido hoy" needs
+  // to stand out from the other, neutral figures around it (a cobrador
+  // scanning the page for what to actually collect). First tried tinting
+  // the whole card (border+background+label+value) — human feedback:
+  // "muy llamativa", deja nomas el número en rojo, de resto los mismos
+  // colores que las demás — so 'danger' only tints the value now; the
+  // card's border/background/label stay identical to 'default'. Defaults
+  // to 'default', so every existing call site is unaffected.
+  tone?: 'default' | 'danger';
 }
 
 // KPI/metric card (style cleanup, 2026-09-02) — DashboardPage's stats grid
@@ -11,7 +20,7 @@ interface StatCardProps {
 // copy-pasted into two files instead of shared once. One import here
 // instead, so any future "cards with a label and a big number" spot in the
 // app (there will be more) reuses this instead of a third copy.
-export function StatCard({ label, value }: StatCardProps) {
+export function StatCard({ label, value, tone = 'default' }: StatCardProps) {
   return (
     <div className="rounded border border-border bg-surface p-5">
       {/* Style cleanup, 2026-09-04 — briefly reserved 2 lines' worth of
@@ -22,7 +31,11 @@ export function StatCard({ label, value }: StatCardProps) {
           fits on one line now, so cards stay at their natural, smaller
           height instead of reserving space no longer needed. */}
       <p className="text-small text-muted">{label}</p>
-      <p className="mt-1 text-kpi font-light text-white">{value}</p>
+      <p
+        className={`mt-1 text-kpi font-light ${tone === 'danger' ? 'text-danger' : 'text-white'}`}
+      >
+        {value}
+      </p>
     </div>
   );
 }

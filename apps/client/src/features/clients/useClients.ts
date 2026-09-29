@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 
 import { clientsApi } from '@/features/clients/clientsApi';
 
@@ -25,6 +30,18 @@ export function useClients(
   return useQuery({
     queryKey: ['clients', params],
     queryFn: () => clientsApi.getAll(params),
+    // Human report, 2026-09-27 — sorting/paging/searching changes the query
+    // key, and without this, react-query drops `data` to undefined for the
+    // moment the new key has no cache yet: the table flips to "Cargando…",
+    // "Mostrando X de Y"/the pager disappear (both read off `meta`, itself
+    // part of `data`), and the header snaps back up — then everything
+    // reflows again once the real page lands. Keeping the previous page's
+    // rows on screen during that gap (`isFetching` still tells the caller a
+    // fetch is in flight, if a subtler "refreshing" indicator is ever
+    // wanted) removes the flash entirely. Same fix applied to every other
+    // paginated table's query — see useLoans/useAuditLogs/useMessageLogs/
+    // useOverdueClients.
+    placeholderData: keepPreviousData,
     // Spread conditionally, not `refetchOnWindowFocus: options?.x` directly
     // — react-query's defaultQueryOptions shallow-merges this object over
     // queryClient.ts's app-wide defaults, so an explicit `undefined` key

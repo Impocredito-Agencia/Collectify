@@ -234,6 +234,17 @@ export function LoanDetailPage() {
     (sum, installment) => sum + installment.totalDue,
     0,
   );
+  // Human request, 2026-09-27 — "lo que se le está cobrando al cliente a la
+  // fecha": before this, answering that meant opening the Cuotas table and
+  // adding up capital + incremento + moratorio by hand for every row
+  // already en mora. totalDue already nets in exactly that (see
+  // enrichInstallment.ts) — this just sums it across the overdue rows,
+  // same "capital + interés acumulado" definition ClientDetailPage's own
+  // "En mora" stat card and Estado de cuenta panel already use, just
+  // scoped to this one pagaré instead of every loan a client has.
+  const totalOverdueOnThisLoan = pendingInstallments
+    .filter((installment) => installment.overdueDays > 0)
+    .reduce((sum, installment) => sum + installment.totalDue, 0);
   const installmentsPaid = loan.installments.filter(
     (installment) => installment.status === InstallmentStatus.Paid,
   ).length;
@@ -453,7 +464,16 @@ export function LoanDetailPage() {
 
       <ClientCreditBanner clientId={loan.clientId} loanId={loan.id} />
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        {/* Human request, 2026-09-27 — placed first so it's the first thing
+            a cobrador sees when opening this loan to collect; only the
+            figure itself turns red (via tone="danger") when something is
+            actually overdue, the card otherwise matches the rest. */}
+        <StatCard
+          label="Total vencido hoy"
+          value={formatCurrency(totalOverdueOnThisLoan)}
+          tone={totalOverdueOnThisLoan > 0 ? 'danger' : 'default'}
+        />
         <StatCard
           label="Capital original sin incremento"
           value={formatCurrency(loan.principalAmount)}
