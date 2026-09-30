@@ -137,9 +137,9 @@ function describeEarlyWindow(installmentNumbers: number[]): string {
   const labels = installmentNumbers.map((number) => `#${number}`);
   const subject =
     labels.length === 1
-      ? `La cuota ${labels[0]} vence`
-      : `Las cuotas ${labels.slice(0, -1).join(', ')} y ${labels[labels.length - 1]} vencen`;
-  return `${subject} en los próximos 5 días. Aún no vence${labels.length === 1 ? '' : 'n'}, pero su interés se cobra ahora porque al refinanciar se toma como ya causado.`;
+      ? `La cuota ${labels[0]} aún no vence`
+      : `Las cuotas ${labels.slice(0, -1).join(', ')} y ${labels[labels.length - 1]} aún no vencen`;
+  return `${subject}, pero su periodo ya lleva más de 5 días corriendo, así que su interés se cobra ahora porque al refinanciar se toma como ya causado.`;
 }
 
 export function RefinanceLoanForm({
@@ -299,7 +299,7 @@ export function RefinanceLoanForm({
             quote.payoff.totalInterestOwed - quote.earlyWindowInterest;
           setDescription(
             quote.earlyWindowInterest > 0
-              ? `Refinanciación incluye ${formatCurrency(formalInterest)} de interés ya causado y ${formatCurrency(quote.earlyWindowInterest)} de interés de cuotas que vencen en los próximos 5 días.`
+              ? `Refinanciación incluye ${formatCurrency(formalInterest)} de interés ya causado y ${formatCurrency(quote.earlyWindowInterest)} de interés de cuotas aún no vencidas cuyo periodo ya lleva más de 5 días corriendo.`
               : `Refinanciación incluye ${formatCurrency(formalInterest)} de interés ya causado en cuotas vencidas.`,
           );
         }
@@ -335,7 +335,8 @@ export function RefinanceLoanForm({
 
   // Phase 25 QoL — which specific installments of the old loan are the
   // ones contributing interés ya causado to the new principal (overdue, or
-  // within the 5-day early-maturity window). A matured/near-due
+  // whose period has run for the grace period — see
+  // INTEREST_ACCRUAL_GRACE_DAYS in loans.service.ts). A matured
   // installment always has interestApplied > 0; one that's genuinely not
   // due yet always has interestApplied === 0 — see calculatePayoff.ts.
   // Surfaced in ConfirmRefinanceDialog for traceability.
@@ -882,9 +883,9 @@ export function RefinanceLoanForm({
                       <div>
                         <p
                           className="text-[10px] font-normal text-muted"
-                          title="Cuotas que aún no vencen pero vencen en los próximos 5 días: su interés se toma como ya causado al refinanciar."
+                          title="Cuotas que aún no vencen, pero cuyo periodo ya lleva más de 5 días corriendo: su interés se toma como ya causado al refinanciar."
                         >
-                          Interés de cuota próxima a vencer
+                          Interés de cuota aún no vencida
                         </p>
                         <p className="mt-1.5 flex h-[42px] items-center rounded border border-border bg-input px-3.5 text-control text-white">
                           {formatCurrency(refinanceQuote.earlyWindowInterest)}
