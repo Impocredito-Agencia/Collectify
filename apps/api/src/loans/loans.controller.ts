@@ -328,7 +328,9 @@ export class LoansController {
       'Joins across every installment belonging to this loan — payments are ' +
       'stored per installment, not per loan (docs/DATABASE.md). Each payment ' +
       'includes imageUrls (Phase 28) — a payment can carry more than one ' +
-      'receipt photo.',
+      'receipt photo — and sourceWhatsappMessage (id, clientId, receivedAt) ' +
+      'when the payment was registered from a WhatsApp comprobante, null ' +
+      'otherwise.',
   })
   @ApiResponse({ status: 200, description: "Returns the loan's payments." })
   @ApiResponse({ status: 404, description: 'Loan not found.' })

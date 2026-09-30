@@ -18,6 +18,7 @@ import {
 } from '../interestConceptTypes/entities/interestConceptType.entity';
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
 import { UsuryRateService } from '../usuryRates/usuryRates.service';
+import { WhatsappInboundMessage } from '../whatsapp/entities/whatsappInboundMessage.entity';
 
 import { generateAmortizationSchedule } from './amortization/generateSchedule';
 import { addDaysToDateString } from './dueDateSchedule';
@@ -73,6 +74,7 @@ describe('LoansService', () => {
     save: jest.Mock;
     count: jest.Mock;
   };
+  let whatsappInboundMessagesRepository: { find: jest.Mock };
   let paymentImagesRepository: {
     find: jest.Mock;
     create: jest.Mock;
@@ -179,6 +181,9 @@ describe('LoansService', () => {
       create: jest.fn((dto: Partial<Payment>) => dto),
       save: jest.fn((payments: unknown[]) => Promise.resolve(payments)),
       count: jest.fn(),
+    };
+    whatsappInboundMessagesRepository = {
+      find: jest.fn().mockResolvedValue([]),
     };
     paymentImagesRepository = {
       find: jest.fn().mockResolvedValue([]),
@@ -293,6 +298,10 @@ describe('LoansService', () => {
         {
           provide: getRepositoryToken(PaymentImage),
           useValue: paymentImagesRepository,
+        },
+        {
+          provide: getRepositoryToken(WhatsappInboundMessage),
+          useValue: whatsappInboundMessagesRepository,
         },
         {
           provide: getRepositoryToken(LoanInstallmentConcept),
@@ -2461,6 +2470,7 @@ describe('LoansService', () => {
           imageUrls: [],
           creditGeneratedAmount: 0,
           creditSpentAmount: 0,
+          sourceWhatsappMessage: null,
         },
       ]);
       expect(installmentsRepository.find).toHaveBeenCalledWith({
@@ -2483,6 +2493,46 @@ describe('LoansService', () => {
       );
     });
 
+    it('links a payment back to the WhatsApp message it was registered from, earliest message winning', async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      installmentsRepository.find.mockResolvedValue([{ id: 'installment-1' }]);
+      paymentsRepository.find.mockResolvedValue([
+        { id: 'payment-1', installmentId: 'installment-1', amountPaid: 200 },
+        { id: 'payment-2', installmentId: 'installment-1', amountPaid: 300 },
+      ]);
+      const firstReceivedAt = new Date('2026-09-20T10:00:00Z');
+      whatsappInboundMessagesRepository.find.mockResolvedValue([
+        {
+          id: 'message-1',
+          paymentId: 'payment-1',
+          clientId: 'client-1',
+          receivedAt: firstReceivedAt,
+        },
+        {
+          id: 'message-2',
+          paymentId: 'payment-1',
+          clientId: 'client-1',
+          receivedAt: new Date('2026-09-21T10:00:00Z'),
+        },
+      ]);
+
+      const result = await service.getPayments(mockLoan.id);
+
+      expect(result[0].sourceWhatsappMessage).toEqual({
+        id: 'message-1',
+        clientId: 'client-1',
+        receivedAt: firstReceivedAt,
+      });
+      expect(result[1].sourceWhatsappMessage).toBeNull();
+      const [[callArg]] = whatsappInboundMessagesRepository.find.mock.calls as [
+        [{ where: { paymentId: { _value: string[] } } }],
+      ];
+      expect(callArg.where.paymentId._value).toEqual([
+        'payment-1',
+        'payment-2',
+      ]);
+    });
+
     it('returns an empty array without querying payments when the loan has no installments', async () => {
       loansRepository.findOneBy.mockResolvedValue(mockLoan);
       installmentsRepository.find.mockResolvedValue([]);
@@ -2491,6 +2541,7 @@ describe('LoansService', () => {
 
       expect(result).toEqual([]);
       expect(paymentsRepository.find).not.toHaveBeenCalled();
+      expect(whatsappInboundMessagesRepository.find).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when the loan does not exist', async () => {
