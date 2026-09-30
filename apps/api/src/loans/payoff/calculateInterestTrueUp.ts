@@ -1,4 +1,7 @@
-import { calculateDaysUntilDue } from '../installments/installmentCalculations';
+import {
+  calculateDaysUntilDue,
+  calculateOverdueDays,
+} from '../installments/installmentCalculations';
 import { InstallmentStatus } from '../entities/installment.entity';
 
 export interface TrueUpPercentageConcept {
@@ -11,6 +14,11 @@ export interface TrueUpPercentageConcept {
 export interface TrueUpInstallmentInput {
   installmentNumber: number;
   dueDate: string;
+  // Human correction, 2026-09-30 — same meaning as PayoffInstallmentInput.
+  // periodStartDate (calculatePayoff.ts): the previous installment's own
+  // dueDate, or the loan's disbursedAt for the first installment. Anchors
+  // CalculateInterestTrueUpOptions.interestAccrualGraceDays below.
+  periodStartDate: string;
   status: InstallmentStatus;
   isDownPayment: boolean;
   amount: number;
@@ -21,7 +29,12 @@ export interface TrueUpInstallmentInput {
 }
 
 export interface CalculateInterestTrueUpOptions {
-  earlyMaturityWindowDays?: number;
+  // See PayoffInstallmentInput/CalculatePayoffOptions.interestAccrualGraceDays
+  // in calculatePayoff.ts for the full story (human correction, 2026-09-30)
+  // — counts forward from periodStartDate, not backward from dueDate.
+  // Omitted entirely (not 0), an installment only matures on/after its own
+  // dueDate, same as before this option existed.
+  interestAccrualGraceDays?: number;
 }
 
 // The amortization smoothing (see generateSchedule.ts) charges the same
@@ -64,7 +77,7 @@ export function calculateInterestTrueUpBreakdown(
     )
     .sort((a, b) => a.installmentNumber - b.installmentNumber);
 
-  const window = options.earlyMaturityWindowDays ?? 0;
+  const graceDays = options.interestAccrualGraceDays;
   let balanceBefore = amortizing.reduce(
     (sum, installment) =>
       sum + (installment.principalPortion ?? installment.amount),
@@ -75,8 +88,13 @@ export function calculateInterestTrueUpBreakdown(
   let pendingExact = 0;
   const pendingDifferences = new Map<number, number>();
   for (const installment of amortizing) {
-    const hasMatured =
-      calculateDaysUntilDue(new Date(installment.dueDate), today) <= window;
+    const dueDateReached =
+      calculateDaysUntilDue(new Date(installment.dueDate), today) === 0;
+    const maturedByGrace =
+      graceDays !== undefined &&
+      calculateOverdueDays(new Date(installment.periodStartDate), today) >=
+        graceDays;
+    const hasMatured = dueDateReached || maturedByGrace;
     const charged = installment.percentageConcepts.reduce(
       (sum, concept) => sum + concept.computedAmount,
       0,

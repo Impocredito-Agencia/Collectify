@@ -2944,25 +2944,18 @@ describe('LoansService', () => {
       expect(quote.suggestedPrincipalAmount).toBe(quote.payoff.totalDue);
     });
 
-    it('separates the interest that only entered through the 5-day window', async () => {
-      // Cuota 11 now falls due in 3 days: inside the refinance window, so
-      // its true interest (16.900) counts even though it is not yet due.
+    it('separates the interest that only entered through the grace period', async () => {
+      // Cuota 11's period starts when cuota 10 becomes due (see
+      // buildPeriodStartDates). Shifting cuota 10 back 5 days means cuota
+      // 11's own period has now run for exactly the grace period — even
+      // though cuota 11 itself is still 30 days from its own due date — so
+      // its true interest (16.900) counts as an "early" inclusion.
       const shifted = allInstallments.map((installment) =>
-        installment.installmentNumber === 11
-          ? { ...installment, dueDate: bogotaTodayPlusDays(3) }
+        installment.installmentNumber === 10
+          ? { ...installment, dueDate: bogotaTodayPlusDays(-5) }
           : installment,
       );
-      installmentsRepository.find.mockImplementation(
-        (options: { where: { status?: InstallmentStatus } }) =>
-          Promise.resolve(
-            options.where.status === InstallmentStatus.Pending
-              ? shifted.filter(
-                  (installment) =>
-                    installment.status === InstallmentStatus.Pending,
-                )
-              : shifted,
-          ),
-      );
+      installmentsRepository.find.mockResolvedValue(shifted);
 
       const quote = await service.getRefinanceQuote(mockLoan.id);
 
@@ -3092,17 +3085,24 @@ describe('LoansService', () => {
       loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
     });
 
-    // Human decision, 2026-09-26 — early payoff uses the same 5-day window
-    // refinancing has used since Phase 25: a cuota due within the next 5 days
-    // is treated as already matured, so liquidating and refinancing the same
-    // loan on the same day charge the same interest.
-    describe('early maturity window (same as refinancing)', () => {
-      it('includes the interest of a cuota due in exactly 5 days', async () => {
+    // Human decision, 2026-09-26 — early payoff uses the same grace-period
+    // rule refinancing has used since Phase 25, corrected 2026-09-30: a
+    // cuota whose period started at least 5 days ago is treated as already
+    // matured, so liquidating and refinancing the same loan on the same day
+    // charge the same interest.
+    describe('interest accrual grace period (same as refinancing)', () => {
+      it('includes the interest of a cuota whose period started exactly 5 days ago', async () => {
+        loansRepository.findOneBy.mockResolvedValue({
+          ...mockLoan,
+          disbursedAt: bogotaTodayPlusDays(-5),
+        });
         installmentsRepository.find.mockResolvedValue([
           pendingInstallment({
             amount: 300000,
             principalPortion: 270000,
-            dueDate: bogotaTodayPlusDays(5),
+            // Weeks away — genuinely not yet due; only the period-start
+            // grace period should be what matures this installment.
+            dueDate: bogotaTodayPlusDays(60),
           }),
         ]);
 
@@ -3114,12 +3114,16 @@ describe('LoansService', () => {
         expect(quote.totalDue).toBe(300000);
       });
 
-      it('charges only the capital of a cuota due in 6 days (just outside the window)', async () => {
+      it('charges only the capital of a cuota whose period started 4 days ago (still inside the grace period)', async () => {
+        loansRepository.findOneBy.mockResolvedValue({
+          ...mockLoan,
+          disbursedAt: bogotaTodayPlusDays(-4),
+        });
         installmentsRepository.find.mockResolvedValue([
           pendingInstallment({
             amount: 300000,
             principalPortion: 270000,
-            dueDate: bogotaTodayPlusDays(6),
+            dueDate: bogotaTodayPlusDays(60),
           }),
         ]);
 
@@ -3150,7 +3154,7 @@ describe('LoansService', () => {
         );
       });
 
-      it('leaves the "saldo capital a la fecha" untouched (principal never depends on the window)', async () => {
+      it('leaves the "saldo capital a la fecha" untouched (principal never depends on the grace period)', async () => {
         installmentsRepository.find.mockResolvedValue([
           pendingInstallment({
             amount: 300000,
@@ -3172,12 +3176,13 @@ describe('LoansService', () => {
 
       const quote = await service.getPayoffQuote(mockLoan.id);
 
+      // Style cleanup, 2026-09-30 — now fetches the loan's FULL installment
+      // list (not status-filtered), so periodStartDate can be computed from
+      // the previous installment's dueDate too; still filters to Pending
+      // in memory before building the quote.
       expect(installmentsRepository.find).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: {
-            loanId: mockLoan.id,
-            status: InstallmentStatus.Pending,
-          },
+          where: { loanId: mockLoan.id },
         }),
       );
       expect(quote.totalPrincipalOwed).toBe(270000);
@@ -3246,9 +3251,16 @@ describe('LoansService', () => {
 
     it('suggests the payoff quote total as the new principal', async () => {
       // Far in the future — deterministic "not yet due", so the quote's
-      // total is exactly principalPortion, regardless of when this test runs.
+      // total is exactly principalPortion, regardless of when this test
+      // runs. Disbursed today too (installment #1's period starts at
+      // disbursedAt — see buildPeriodStartDates), so the grace period
+      // hasn't elapsed either.
       const futureDueDate = new Date();
       futureDueDate.setFullYear(futureDueDate.getFullYear() + 5);
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        disbursedAt: bogotaTodayPlusDays(0),
+      });
 
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
@@ -3274,6 +3286,10 @@ describe('LoansService', () => {
     it('nets an existing partial payment off the suggested principal', async () => {
       const futureDueDate = new Date();
       futureDueDate.setFullYear(futureDueDate.getFullYear() + 5);
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        disbursedAt: bogotaTodayPlusDays(0),
+      });
 
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
@@ -3347,7 +3363,11 @@ describe('LoansService', () => {
     // near-due installments no longer block refinancing — instead, their
     // accrued interest is folded directly into suggestedPrincipalAmount.
     // These four tests replace the old blockedByPendingInstallments ones.
-    it('does not add extra interest for an installment beyond the 5-day early-maturity window', async () => {
+    it('does not add extra interest for an installment whose period only just started', async () => {
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        disbursedAt: bogotaTodayPlusDays(0),
+      });
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
           amount: 300000,
@@ -3364,12 +3384,19 @@ describe('LoansService', () => {
       expect(quote.suggestedPrincipalAmount).toBe(270000);
     });
 
-    it('folds an installment due within 5 days into the new principal, corriente interest only (not yet actually overdue)', async () => {
+    it('folds an installment into the new principal once its period has run for the grace period, corriente interest only (not yet actually overdue)', async () => {
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        disbursedAt: bogotaTodayPlusDays(-5),
+      });
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
           amount: 300000,
           principalPortion: 270000,
-          dueDate: bogotaTodayPlusDays(4),
+          // Weeks away — genuinely not yet due; only the grace period
+          // (5 days since disbursedAt, installment #1's period start)
+          // should be what folds this in.
+          dueDate: bogotaTodayPlusDays(25),
         }),
       ]);
       installmentsRepository.findOne.mockResolvedValue(
@@ -3380,7 +3407,7 @@ describe('LoansService', () => {
 
       // principalPortion (270000) + corriente interest already baked into
       // the cuota (300000 - 270000 = 30000) + 0 moratory, since no real
-      // mora has accrued yet (overdueDays is still 0 four days out).
+      // mora has accrued yet (overdueDays is still 0 weeks out).
       expect(quote.suggestedPrincipalAmount).toBe(300000);
     });
 
@@ -3471,9 +3498,15 @@ describe('LoansService', () => {
     it('registers a payment per pending installment for the quoted total', async () => {
       // Far in the future — deterministic "not yet due", so the quoted
       // amount is exactly principalPortion with zero interest, regardless
-      // of when this test actually runs.
+      // of when this test actually runs. Disbursed today too, so the
+      // grace period (counted from installment #1's period start,
+      // disbursedAt) hasn't elapsed either.
       const futureDueDate = new Date();
       futureDueDate.setFullYear(futureDueDate.getFullYear() + 5);
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        disbursedAt: bogotaTodayPlusDays(0),
+      });
 
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
@@ -3496,16 +3529,22 @@ describe('LoansService', () => {
       expect(paymentsRepository.save).toHaveBeenCalled();
     });
 
-    // Human decision, 2026-09-26 — payoff() charges exactly what
-    // getPayoffQuote() quotes, including the 5-day window: a cuota due in 3
-    // days is settled for its capital AND its interest, not capital alone.
-    it('charges a cuota due within 5 days its interest too, matching the quote', async () => {
+    // Human decision, 2026-09-26, corrected 2026-09-30 — payoff() charges
+    // exactly what getPayoffQuote() quotes, including the grace period: a
+    // cuota whose period has run for 5+ days is settled for its capital AND
+    // its interest, not capital alone, even if its own due date is weeks
+    // away.
+    it('charges a cuota past its grace period its interest too, matching the quote', async () => {
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        disbursedAt: bogotaTodayPlusDays(-5),
+      });
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
           id: 'inst-1',
           amount: 300000,
           principalPortion: 270000,
-          dueDate: bogotaTodayPlusDays(3),
+          dueDate: bogotaTodayPlusDays(25),
         }),
       ]);
 
@@ -3521,13 +3560,17 @@ describe('LoansService', () => {
       );
     });
 
-    it('still charges only the capital of a cuota due in more than 5 days', async () => {
+    it('still charges only the capital of a cuota whose period started less than 5 days ago', async () => {
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        disbursedAt: bogotaTodayPlusDays(-4),
+      });
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
           id: 'inst-1',
           amount: 300000,
           principalPortion: 270000,
-          dueDate: bogotaTodayPlusDays(6),
+          dueDate: bogotaTodayPlusDays(25),
         }),
       ]);
 
@@ -3618,6 +3661,10 @@ describe('LoansService', () => {
     it('nets an existing partial payment before registering the payoff payment', async () => {
       const futureDueDate = new Date();
       futureDueDate.setFullYear(futureDueDate.getFullYear() + 5);
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        disbursedAt: bogotaTodayPlusDays(0),
+      });
 
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({

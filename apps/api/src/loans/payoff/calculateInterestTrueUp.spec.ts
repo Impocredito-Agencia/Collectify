@@ -37,6 +37,10 @@ function buildLoan(
   return schedule.map((generated) => ({
     installmentNumber: generated.installmentNumber,
     dueDate: dueDateOf(generated.installmentNumber),
+    // Each installment's period starts when the previous one became due —
+    // dueDateOf(0) stands in for the loan's disbursement date, one period
+    // before cuota 1.
+    periodStartDate: dueDateOf(generated.installmentNumber - 1),
     status: statuses[generated.installmentNumber] ?? InstallmentStatus.Pending,
     isDownPayment: false,
     amount: generated.amount,
@@ -110,21 +114,43 @@ describe('calculateInterestTrueUp', () => {
     ).toBe(0);
   });
 
-  it('counts a not-yet-due installment inside the refinance early-maturity window', () => {
+  // Human correction, 2026-09-30 — the grace period counts forward from
+  // when the installment's OWN period started (its previous cuota's
+  // dueDate — 2026-07-15 for cuota 11, see dueDateOf's own comment), not
+  // backward from its dueDate (2026-08-15, still a month away here).
+  it('counts a not-yet-due installment once its own period has run for interestAccrualGraceDays days', () => {
     const loan = buildLoan(paidThrough(10));
-    // Cuota 11 is due 2026-08-15: 3 days away, inside a 5-day window.
-    const today = new Date('2026-08-12T12:00:00Z');
+    const fourDaysIntoCuota11 = new Date('2026-07-19T12:00:00Z');
+    const fiveDaysIntoCuota11 = new Date('2026-07-20T12:00:00Z');
 
-    const withoutWindow = calculateInterestTrueUp(loan, today);
-    const withWindow = calculateInterestTrueUp(loan, today, {
-      earlyMaturityWindowDays: 5,
-    });
+    const stillInsideGrace = calculateInterestTrueUp(
+      loan,
+      fourDaysIntoCuota11,
+      {
+        interestAccrualGraceDays: 5,
+      },
+    );
+    const graceJustElapsed = calculateInterestTrueUp(
+      loan,
+      fiveDaysIntoCuota11,
+      {
+        interestAccrualGraceDays: 5,
+      },
+    );
 
     // Cuota 11's true interest is 16.900 vs 54.933,33 charged:
     // 84.416,70 + 16.900 - 54.933,33 = 46.383,37 — reported as the sum of
     // its independently rounded parts, 84.417 - 38.033.
-    expect(withoutWindow).toBe(84417);
-    expect(withWindow).toBe(46384);
+    expect(stillInsideGrace).toBe(84417);
+    expect(graceJustElapsed).toBe(46384);
+  });
+
+  it('has no effect when omitted, even weeks into a not-yet-due installment’s period', () => {
+    const loan = buildLoan(paidThrough(10));
+
+    expect(
+      calculateInterestTrueUp(loan, new Date('2026-08-12T12:00:00Z')),
+    ).toBe(84417);
   });
 
   it('ignores the down payment installment and cancelled installments', () => {
@@ -133,6 +159,7 @@ describe('calculateInterestTrueUp', () => {
       {
         installmentNumber: 0,
         dueDate: '2025-09-01',
+        periodStartDate: '2025-08-01',
         status: InstallmentStatus.Paid,
         isDownPayment: true,
         amount: 500000,
@@ -143,6 +170,7 @@ describe('calculateInterestTrueUp', () => {
       {
         installmentNumber: 13,
         dueDate: '2026-01-01',
+        periodStartDate: '2025-12-01',
         status: InstallmentStatus.Cancelled,
         isDownPayment: false,
         amount: 999999,

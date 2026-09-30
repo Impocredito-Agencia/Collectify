@@ -54,7 +54,10 @@ import {
   InstallmentWithCalculated,
 } from './installments/enrichInstallment';
 import { isInstallmentAdjustmentAllowed } from './installmentAdjustment';
-import { calculateDaysUntilDue } from './installments/installmentCalculations';
+import {
+  calculateDaysUntilDue,
+  calculateOverdueDays,
+} from './installments/installmentCalculations';
 import { sumPaymentsByInstallmentId } from './installments/paymentTotals';
 import {
   calculateInterestTrueUpBreakdown,
@@ -78,20 +81,32 @@ const SORT_SUMMARY_CHUNK_SIZE = 200;
 // in dashboard.service.ts (style cleanup 2026-09-05).
 const DEFAULT_PAGE_SIZE = 50;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
-// Phase 25 (confirmed with the human, reunión 2026-08-25) — see
-// getRefinanceQuote()'s own comment for the full explanation. Not the same
-// "5" as MessageTemplate's upcomingDueReminderDays (Phase 9); kept as its
-// own named constant specifically so the two are never accidentally
-// conflated or refactored into sharing a value.
+// Phase 25 (confirmed with the human, reunión 2026-08-25), extended
+// 2026-09-26 to cover early payoff too — see getRefinanceQuote()'s own
+// comment. Not the same "5" as MessageTemplate's upcomingDueReminderDays
+// (Phase 9); kept as its own named constant specifically so the two are
+// never accidentally conflated or refactored into sharing a value.
 //
-// Extended, 2026-09-26 (human decision): this used to be refinance-only. It
-// now applies to early payoff too (getPayoffQuote()/payoff()), so
-// liquidating and refinancing the same loan on the same day charge the same
-// interest — with the window on one route only, the cheaper route was the
-// one to pick, which defeated the rule's own purpose (stopping people from
-// closing a loan just before a cuota falls due to skip that period's
-// interest). Both routes share ONE value on purpose, so they can't drift.
-const EARLY_MATURITY_WINDOW_DAYS = 5;
+// Corrected, 2026-09-30 (human correction) — the original implementation
+// counted these 5 days backward from dueDate ("matured once due within the
+// next 5 days"). The client's actual rule counts forward from when the
+// installment's PERIOD STARTED instead (the previous installment's dueDate,
+// or the loan's disbursedAt for the first one — see
+// buildPeriodStartDates below): once this many days have passed since then,
+// the cuota's corriente interest is treated as fully caused, even though it
+// may not be due for weeks. The old backward-counting version left a cliff
+// at day 6: paying off 6+ days before a cuota fell due skipped that cuota's
+// interest completely, which was exactly the loophole this rule exists to
+// close ("si un cliente paga todo faltando 6 días, se libraría de esos
+// intereses"). Worked example: a cuota due October 5th, whose previous
+// cuota was due September 5th, has its interest treated as fully caused
+// from September 10th onward — not just the 5 days right before October 5.
+// Renamed from EARLY_MATURITY_WINDOW_DAYS to match (was named after the old,
+// wrong "before maturity" framing). Still shared by both routes, so
+// liquidating and refinancing the same loan on the same day cost the same
+// interest — with the rule on one route only, the cheaper route would be
+// the one to pick, defeating its own purpose.
+const INTEREST_ACCRUAL_GRACE_DAYS = 5;
 
 export interface PreviewedInstallment {
   installmentNumber: number;
@@ -113,13 +128,15 @@ export interface SchedulePreview {
 // data for pre-filling RefinanceLoanForm.tsx, not a new persisted concept.
 export interface RefinanceQuote {
   payoff: PayoffQuote;
-  // Part of payoff.totalInterestOwed that is only there because of the
-  // 5-day early-maturity window (an installment not yet due, treated as
-  // already caused) — i.e. what the quote would NOT include without that
-  // window. 0 when no installment falls inside it.
+  // Part of payoff.totalInterestOwed that is only there because of
+  // INTEREST_ACCRUAL_GRACE_DAYS (an installment not yet due, treated as
+  // already caused because enough days have passed since its period
+  // started) — i.e. what the quote would NOT include without that rule.
+  // 0 when no installment is matured this way.
   earlyWindowInterest: number;
-  // Which pending installments are inside that window (due within the next
-  // few days, not yet due) — lets the UI name them in its explanation.
+  // Which pending installments are matured this way — not yet actually
+  // due, but caught by INTEREST_ACCRUAL_GRACE_DAYS — lets the UI name them
+  // in its explanation.
   earlyWindowInstallmentNumbers: number[];
   suggestedPrincipalAmount: number;
   concepts: LoanConceptAssignmentDto[];
@@ -140,10 +157,10 @@ export interface LoanDetail extends Loan {
   // as owing more than the actual capital left. Reuses getPayoffQuote()
   // rather than a second implementation, per docs/phases/PHASE_17_REFINANCING_RECALC.md's
   // own precedent of never duplicating this math. `totalPrincipalOwed` is
-  // unaffected by the earlyMaturityWindowDays option (see
+  // unaffected by the interestAccrualGraceDays option (see
   // calculatePayoff.ts — principalApplied never depends on it), so this
   // agrees with what a payoff or refinance quote shows for the same figure
-  // whether or not the window is applied.
+  // whether or not that option is applied.
   currentPrincipalBalance: number;
   // Human request, 2026-09-25 — whether PATCH
   // /loans/:id/installments/amount-adjustment would accept this loan right
@@ -444,7 +461,7 @@ export class LoansService {
     // entirely rather than left as a dead-code no-op, per the phase doc's
     // explicit "the block is removed entirely." What used to be rejected is
     // now handled by folding the overdue (and near-due, see
-    // getRefinanceQuote's earlyMaturityWindowDays) installments' accrued
+    // getRefinanceQuote's interestAccrualGraceDays) installments' accrued
     // interest into the new principal instead — see getRefinanceQuote()
     // below. refinance() itself still just accepts whatever
     // principalAmount/concepts the admin actually submits, unchanged.
@@ -815,12 +832,22 @@ export class LoansService {
     const pendingInstallments = installments.filter(
       (installment) => installment.status === InstallmentStatus.Pending,
     );
+    // periodStartDate has no bearing on totalPrincipalOwed (see
+    // calculatePayoff.ts's own note — principalApplied never depends on
+    // maturity) but the field is required on every PayoffInstallmentInput,
+    // so it's still computed correctly here rather than faked.
+    const periodStartDates = buildPeriodStartDates(
+      installments,
+      loan.disbursedAt,
+    );
     const currentPrincipalBalance = calculatePayoff(
       pendingInstallments.map((installment) =>
         toPayoffInstallmentInput(
           installment,
           conceptsByInstallmentId.get(installment.id) ?? [],
           totalPaidByInstallmentId.get(installment.id) ?? 0,
+          periodStartDates.get(installment.installmentNumber) ??
+            loan.disbursedAt,
         ),
       ),
     ).totalPrincipalOwed;
@@ -1003,18 +1030,25 @@ export class LoansService {
   // docs/phases/PHASE_16_EARLY_PAYOFF.md — never blindly sums remaining
   // installment totals; a not-yet-due installment contributes only
   // principal, at face value, with zero interest (Colombian Civil Code
-  // Art. 1653, confirmed with the human) — EXCEPT one due within the next
-  // EARLY_MATURITY_WINDOW_DAYS days, which is treated as already matured and
-  // carries its interest too (human decision, 2026-09-26: the same window
-  // refinancing has used since Phase 25, so both routes charge the same).
-  // Read-only, safe to call on any
-  // loan regardless of status (an already-paid/refinanced loan simply has
-  // no pending installments, so the quote comes back empty).
+  // Art. 1653, confirmed with the human) — EXCEPT one whose period started
+  // at least INTEREST_ACCRUAL_GRACE_DAYS days ago, which is treated as
+  // already matured and carries its interest too (human decision,
+  // 2026-09-26: the same rule refinancing has used since Phase 25, so both
+  // routes charge the same; corrected 2026-09-30, see that constant's own
+  // comment). Read-only, safe to call on any loan regardless of status (an
+  // already-paid/refinanced loan simply has no pending installments, so the
+  // quote comes back empty).
   async getPayoffQuote(id: string): Promise<PayoffQuote> {
-    await this.findLoanOrThrow(id);
-    const pending = await this.findPendingInstallments(id);
+    const loan = await this.findLoanOrThrow(id);
+    const installments = await this.installmentsRepository.find({
+      where: { loanId: id },
+      order: { installmentNumber: 'ASC' },
+    });
+    const pending = installments.filter(
+      (installment) => installment.status === InstallmentStatus.Pending,
+    );
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
-      pending.map((installment) => installment.id),
+      installments.map((installment) => installment.id),
     );
     // Bug fix, 2026-09-15 — see PayoffInstallmentInput.totalPaid's own
     // comment: without this, a Pending installment with a prior partial
@@ -1023,6 +1057,10 @@ export class LoansService {
       this.paymentsRepository,
       pending.map((installment) => installment.id),
     );
+    const periodStartDates = buildPeriodStartDates(
+      installments,
+      loan.disbursedAt,
+    );
     const today = new Date();
     return calculatePayoff(
       pending.map((installment) =>
@@ -1030,15 +1068,21 @@ export class LoansService {
           installment,
           conceptsByInstallmentId.get(installment.id) ?? [],
           totalPaidByInstallmentId.get(installment.id) ?? 0,
+          periodStartDates.get(installment.installmentNumber) ??
+            loan.disbursedAt,
         ),
       ),
       today,
       {
-        earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+        interestAccrualGraceDays: INTEREST_ACCRUAL_GRACE_DAYS,
         ...trueUpOptions(
-          await this.computeInterestTrueUp(id, pending.length, today, {
-            earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
-          }),
+          this.computeInterestTrueUp(
+            installments,
+            conceptsByInstallmentId,
+            periodStartDates,
+            today,
+            { interestAccrualGraceDays: INTEREST_ACCRUAL_GRACE_DAYS },
+          ),
         ),
       },
     );
@@ -1057,9 +1101,15 @@ export class LoansService {
       );
     }
 
-    const pending = await this.findPendingInstallments(id);
+    const installments = await this.installmentsRepository.find({
+      where: { loanId: id },
+      order: { installmentNumber: 'ASC' },
+    });
+    const pending = installments.filter(
+      (installment) => installment.status === InstallmentStatus.Pending,
+    );
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
-      pending.map((installment) => installment.id),
+      installments.map((installment) => installment.id),
     );
     // Bug fix, 2026-09-15 — see getPayoffQuote's identical addition above;
     // payoff() has its own separate calculatePayoff() call and needed the
@@ -1068,6 +1118,10 @@ export class LoansService {
       this.paymentsRepository,
       pending.map((installment) => installment.id),
     );
+    const periodStartDates = buildPeriodStartDates(
+      installments,
+      loan.disbursedAt,
+    );
     const today = new Date();
     const quote = calculatePayoff(
       pending.map((installment) =>
@@ -1075,15 +1129,21 @@ export class LoansService {
           installment,
           conceptsByInstallmentId.get(installment.id) ?? [],
           totalPaidByInstallmentId.get(installment.id) ?? 0,
+          periodStartDates.get(installment.installmentNumber) ??
+            loan.disbursedAt,
         ),
       ),
       today,
       {
-        earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+        interestAccrualGraceDays: INTEREST_ACCRUAL_GRACE_DAYS,
         ...trueUpOptions(
-          await this.computeInterestTrueUp(id, pending.length, today, {
-            earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
-          }),
+          this.computeInterestTrueUp(
+            installments,
+            conceptsByInstallmentId,
+            periodStartDates,
+            today,
+            { interestAccrualGraceDays: INTEREST_ACCRUAL_GRACE_DAYS },
+          ),
         ),
       },
     );
@@ -1140,30 +1200,36 @@ export class LoansService {
   // (paid ones included), unlike calculatePayoff which only sees pending
   // ones. A loan with nothing pending (already paid/refinanced) has nothing
   // left to settle, so its quote stays empty like before.
-  private async computeInterestTrueUp(
-    loanId: string,
-    pendingCount: number,
+  //
+  // Style cleanup, 2026-09-30 — used to take loanId/pendingCount and fetch
+  // its own copy of `installments`/`conceptsByInstallmentId`; now takes
+  // them already fetched, since every call site now needs that same full
+  // list itself anyway (to build periodStartDates for the new
+  // interestAccrualGraceDays rule) — one shared query instead of two.
+  private computeInterestTrueUp(
+    installments: Installment[],
+    conceptsByInstallmentId: Map<string, LoanInstallmentConcept[]>,
+    periodStartDates: Map<number, string>,
     today: Date,
-    options?: { earlyMaturityWindowDays?: number },
-  ): Promise<InterestTrueUpBreakdown> {
-    if (pendingCount === 0) {
+    options?: { interestAccrualGraceDays?: number },
+  ): InterestTrueUpBreakdown {
+    const hasPending = installments.some(
+      (installment) => installment.status === InstallmentStatus.Pending,
+    );
+    if (!hasPending) {
       return {
         total: 0,
         attributedByInstallmentNumber: new Map(),
         unattributed: 0,
       };
     }
-    const installments = await this.installmentsRepository.find({
-      where: { loanId },
-      order: { installmentNumber: 'ASC' },
-    });
-    const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
-      installments.map((installment) => installment.id),
-    );
     return calculateInterestTrueUpBreakdown(
       installments.map((installment) => ({
         installmentNumber: installment.installmentNumber,
         dueDate: installment.dueDate,
+        periodStartDate:
+          periodStartDates.get(installment.installmentNumber) ??
+          installment.dueDate,
         status: installment.status,
         isDownPayment: installment.isDownPayment,
         amount: installment.amount,
@@ -1184,13 +1250,6 @@ export class LoansService {
     );
   }
 
-  private findPendingInstallments(loanId: string): Promise<Installment[]> {
-    return this.installmentsRepository.find({
-      where: { loanId, status: InstallmentStatus.Pending },
-      order: { installmentNumber: 'ASC' },
-    });
-  }
-
   // Suggests what to pre-fill when refinancing — per
   // docs/phases/PHASE_17_REFINANCING_RECALC.md "Resolved", this reopens
   // Phase 6's manual-entry decision but keeps the field editable, so this
@@ -1206,21 +1265,28 @@ export class LoansService {
   // count — excluding any whose catalog type was since deleted (no valid
   // id left to resubmit).
   //
-  // Phase 25 (confirmed with the human, reunión 2026-08-25): this quote
-  // passes earlyMaturityWindowDays so an installment due within the next
-  // EARLY_MATURITY_WINDOW_DAYS days — not yet actually overdue — also has its
-  // corriente interest folded into suggestedPrincipalAmount ("de la cuarta
-  // cuota entran los intereses al capital también, así no haya llegado a su
-  // fecha de vencimiento como tal"). Its moratory interest stays 0, since it
-  // isn't actually in mora yet — calculatePayoff() enforces that on its own,
-  // see that function's own comment. Since 2026-09-26 the real early-payoff
-  // endpoints (getPayoffQuote()/payoff()) apply the same window — see
-  // EARLY_MATURITY_WINDOW_DAYS.
+  // Phase 25 (confirmed with the human, reunión 2026-08-25), corrected
+  // 2026-09-30: this quote passes interestAccrualGraceDays so an
+  // installment whose period started at least INTEREST_ACCRUAL_GRACE_DAYS
+  // days ago — not yet actually overdue — also has its corriente interest
+  // folded into suggestedPrincipalAmount ("de la cuarta cuota entran los
+  // intereses al capital también, así no haya llegado a su fecha de
+  // vencimiento como tal"). Its moratory interest stays 0, since it isn't
+  // actually in mora yet — calculatePayoff() enforces that on its own, see
+  // that function's own comment. Since 2026-09-26 the real early-payoff
+  // endpoints (getPayoffQuote()/payoff()) apply the same rule — see
+  // INTEREST_ACCRUAL_GRACE_DAYS.
   async getRefinanceQuote(id: string): Promise<RefinanceQuote> {
-    await this.findLoanOrThrow(id);
-    const pending = await this.findPendingInstallments(id);
+    const loan = await this.findLoanOrThrow(id);
+    const installments = await this.installmentsRepository.find({
+      where: { loanId: id },
+      order: { installmentNumber: 'ASC' },
+    });
+    const pending = installments.filter(
+      (installment) => installment.status === InstallmentStatus.Pending,
+    );
     const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
-      pending.map((installment) => installment.id),
+      installments.map((installment) => installment.id),
     );
     // Bug fix, 2026-09-15 — see getPayoffQuote's identical addition:
     // suggestedPrincipalAmount reuses this same engine, so it had the same
@@ -1230,40 +1296,61 @@ export class LoansService {
       this.paymentsRepository,
       pending.map((installment) => installment.id),
     );
+    const periodStartDates = buildPeriodStartDates(
+      installments,
+      loan.disbursedAt,
+    );
     const today = new Date();
     const payoffInputs = pending.map((installment) =>
       toPayoffInstallmentInput(
         installment,
         conceptsByInstallmentId.get(installment.id) ?? [],
         totalPaidByInstallmentId.get(installment.id) ?? 0,
+        periodStartDates.get(installment.installmentNumber) ?? loan.disbursedAt,
       ),
     );
     const payoff = calculatePayoff(payoffInputs, today, {
-      earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
+      interestAccrualGraceDays: INTEREST_ACCRUAL_GRACE_DAYS,
       ...trueUpOptions(
-        await this.computeInterestTrueUp(id, pending.length, today, {
-          earlyMaturityWindowDays: EARLY_MATURITY_WINDOW_DAYS,
-        }),
+        this.computeInterestTrueUp(
+          installments,
+          conceptsByInstallmentId,
+          periodStartDates,
+          today,
+          { interestAccrualGraceDays: INTEREST_ACCRUAL_GRACE_DAYS },
+        ),
       ),
     });
 
-    // Same quote without the window: the difference is exactly the interest
-    // that only entered because an installment is due within the next few
-    // days, so the UI can show it apart from interest that formally ran.
+    // Same quote without the rule: the difference is exactly the interest
+    // that only entered because an installment's period started long
+    // enough ago, so the UI can show it apart from interest that formally
+    // ran (dueDate actually reached).
     const payoffWithoutWindow = calculatePayoff(
       payoffInputs,
       today,
       trueUpOptions(
-        await this.computeInterestTrueUp(id, pending.length, today),
+        this.computeInterestTrueUp(
+          installments,
+          conceptsByInstallmentId,
+          periodStartDates,
+          today,
+        ),
       ),
     );
     const earlyWindowInstallmentNumbers = pending
-      .filter(
-        (installment) =>
-          calculateDaysUntilDue(new Date(installment.dueDate), today) > 0 &&
-          calculateDaysUntilDue(new Date(installment.dueDate), today) <=
-            EARLY_MATURITY_WINDOW_DAYS,
-      )
+      .filter((installment) => {
+        if (calculateDaysUntilDue(new Date(installment.dueDate), today) === 0) {
+          return false; // already actually due/overdue — not an "early" case
+        }
+        const periodStart =
+          periodStartDates.get(installment.installmentNumber) ??
+          loan.disbursedAt;
+        return (
+          calculateOverdueDays(new Date(periodStart), today) >=
+          INTEREST_ACCRUAL_GRACE_DAYS
+        );
+      })
       .map((installment) => installment.installmentNumber);
     const earlyWindowInterest = Math.max(
       0,
@@ -2045,10 +2132,14 @@ function trueUpOptions(trueUp: InterestTrueUpBreakdown): {
 // totalPaid (bug fix, 2026-09-15) — see PayoffInstallmentInput.totalPaid's
 // own comment; defaults to 0 for a not-yet-fetched figure, but every
 // caller below now passes the real one via sumPaymentsByInstallmentId.
+// periodStartDate (human correction, 2026-09-30) — see
+// PayoffInstallmentInput.periodStartDate's own comment; every caller below
+// computes it via buildPeriodStartDates.
 function toPayoffInstallmentInput(
   installment: Installment,
   concepts: LoanInstallmentConcept[] = [],
   totalPaid = 0,
+  periodStartDate = installment.dueDate,
 ): PayoffInstallmentInput {
   const corrienteConcepts = concepts.filter(
     (concept) => concept.category === ConceptCategory.Corriente,
@@ -2062,6 +2153,7 @@ function toPayoffInstallmentInput(
     amount: installment.amount,
     principalPortion: installment.principalPortion,
     dueDate: installment.dueDate,
+    periodStartDate,
     moratoryConcepts: moratoryConcepts.map((concept) => ({
       name: concept.nameSnapshot,
       calculationType: concept.calculationType,
@@ -2073,6 +2165,29 @@ function toPayoffInstallmentInput(
     })),
     totalPaid,
   };
+}
+
+// Human correction, 2026-09-30 — see INTEREST_ACCRUAL_GRACE_DAYS's own
+// comment for the full story. An installment's period "starts" when the
+// PREVIOUS installment (in installmentNumber order, cuota inicial
+// included) becomes due — or, for the very first installment on the loan,
+// when it was disbursed. Built from the loan's FULL installment list (not
+// just pending ones), so a pending installment's period start can
+// correctly be a PAID installment's due date.
+function buildPeriodStartDates(
+  installments: { installmentNumber: number; dueDate: string }[],
+  disbursedAt: string,
+): Map<number, string> {
+  const sorted = [...installments].sort(
+    (a, b) => a.installmentNumber - b.installmentNumber,
+  );
+  const periodStartDates = new Map<number, string>();
+  let previousDueDate = disbursedAt;
+  for (const installment of sorted) {
+    periodStartDates.set(installment.installmentNumber, previousDueDate);
+    previousDueDate = installment.dueDate;
+  }
+  return periodStartDates;
 }
 
 function compareClientFullNames(a: Loan, b: Loan): number {

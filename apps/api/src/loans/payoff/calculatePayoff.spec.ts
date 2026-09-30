@@ -39,6 +39,10 @@ function installment(
     amount: 300000,
     principalPortion: 270000,
     dueDate: '2026-01-01',
+    // Irrelevant whenever interestAccrualGraceDays is omitted (the vast
+    // majority of tests below) — only the "interestAccrualGraceDays
+    // option" describe block overrides this to something meaningful.
+    periodStartDate: '2026-01-01',
     moratoryConcepts: [],
     ...overrides,
   };
@@ -312,95 +316,87 @@ describe('calculatePayoff', () => {
     });
   });
 
-  // Phase 25 (confirmed with the human, reunión 2026-08-25) —
-  // LoansService.getRefinanceQuote() passes earlyMaturityWindowDays: 5 so a
-  // not-yet-due installment within that window is folded into the new
-  // principal too. The real early-payoff endpoints (getPayoffQuote/payoff)
-  // must never pass this option, so the default (omitted) behavior stays
-  // byte-for-byte the original Phase 16 rule — the first case below.
-  describe('earlyMaturityWindowDays option', () => {
-    it('has no effect when omitted — a not-yet-due installment within 5 days still owes zero interest', () => {
+  // Phase 25 (reunión 2026-08-25), corrected 2026-09-30 (human correction —
+  // see loans.service.ts's INTEREST_ACCRUAL_GRACE_DAYS for the full story).
+  // LoansService.getRefinanceQuote()/getPayoffQuote()/payoff() all pass
+  // interestAccrualGraceDays: 5 so an installment whose PERIOD started at
+  // least 5 days ago is folded into the quote too, even though it isn't
+  // due for possibly weeks — the real rule counts forward from
+  // periodStartDate, not backward from dueDate (the old, wrong version had
+  // a cliff: paying off 6+ days before a cuota fell due skipped its
+  // interest entirely).
+  describe('interestAccrualGraceDays option', () => {
+    it('has no effect when omitted — a not-yet-due installment whose period started long ago still owes zero interest', () => {
       const today = new Date('2026-01-01T12:00:00Z');
-      const inFourDays = addDays(today, 4).toISOString().slice(0, 10);
+      const farFuture = addDays(today, 20).toISOString().slice(0, 10);
+      const longAgo = subDays(today, 100).toISOString().slice(0, 10);
 
       const quote = calculatePayoff(
         [
           installment({
-            dueDate: inFourDays,
+            dueDate: farFuture,
+            periodStartDate: longAgo,
             amount: 300000,
             principalPortion: 270000,
           }),
         ],
         today,
-        // no options passed — must match Phase 16's real payoff behavior
+        // no options passed — maturity falls back to dueDate alone
       );
 
       expect(quote.installments[0].interestApplied).toBe(0);
       expect(quote.installments[0].totalDue).toBe(270000);
     });
 
-    it('folds in only the corriente interest for an installment within the window, not yet actually overdue', () => {
-      const today = new Date('2026-01-01T12:00:00Z');
-      const inFourDays = addDays(today, 4).toISOString().slice(0, 10);
+    // The exact worked example confirmed with the human, 2026-09-30: a
+    // cuota due October 5th, whose previous cuota was due September 5th
+    // (so its period started September 5th), has its interest treated as
+    // fully caused from September 10th on — not just the last 5 days
+    // before October 5.
+    it('folds in the corriente interest once the grace period has passed since the period started, weeks before the cuota is even due', () => {
+      const periodStart = '2026-09-05';
+      const dueDate = '2026-10-05';
+      const today = new Date('2026-09-10T12:00:00Z'); // exactly 5 days after periodStart
 
       const quote = calculatePayoff(
         [
           installment({
-            dueDate: inFourDays,
+            dueDate,
+            periodStartDate: periodStart,
             amount: 300000,
             principalPortion: 270000,
           }),
         ],
         today,
-        { earlyMaturityWindowDays: 5 },
+        { interestAccrualGraceDays: 5 },
       );
 
-      // conceptsInterest (30000) only — overdueDays is still 0 four days
-      // out, so moratory interest naturally computes to 0.
+      // conceptsInterest (30000) only — overdueDays against the real
+      // dueDate is still 0 almost a month out, so moratory interest
+      // naturally computes to 0.
       expect(quote.installments[0].interestApplied).toBeCloseTo(30000, 6);
       expect(quote.installments[0].totalDue).toBeCloseTo(300000, 6);
     });
 
-    it('includes an installment due in exactly 5 days — inclusive boundary', () => {
-      const today = new Date('2026-01-01T12:00:00Z');
-      const inFiveDays = addDays(today, 5).toISOString().slice(0, 10);
-
+    it('excludes the same cuota one day earlier — still inside the 5-day grace period', () => {
       const quote = calculatePayoff(
         [
           installment({
-            dueDate: inFiveDays,
+            dueDate: '2026-10-05',
+            periodStartDate: '2026-09-05',
             amount: 300000,
             principalPortion: 270000,
           }),
         ],
-        today,
-        { earlyMaturityWindowDays: 5 },
-      );
-
-      expect(quote.installments[0].interestApplied).toBeCloseTo(30000, 6);
-    });
-
-    it('excludes an installment due in 6 days — just outside the window', () => {
-      const today = new Date('2026-01-01T12:00:00Z');
-      const inSixDays = addDays(today, 6).toISOString().slice(0, 10);
-
-      const quote = calculatePayoff(
-        [
-          installment({
-            dueDate: inSixDays,
-            amount: 300000,
-            principalPortion: 270000,
-          }),
-        ],
-        today,
-        { earlyMaturityWindowDays: 5 },
+        new Date('2026-09-09T12:00:00Z'), // 4 days after periodStart
+        { interestAccrualGraceDays: 5 },
       );
 
       expect(quote.installments[0].interestApplied).toBe(0);
       expect(quote.installments[0].totalDue).toBe(270000);
     });
 
-    it('still applies full corriente and moratory interest for an already-overdue installment, window or not', () => {
+    it('still applies full corriente and moratory interest for an already-overdue installment, grace period or not', () => {
       const today = new Date('2026-01-11T12:00:00Z');
       const dueDate = subDays(today, 10).toISOString().slice(0, 10);
 
@@ -408,18 +404,22 @@ describe('calculatePayoff', () => {
         [
           installment({
             dueDate,
+            // Period started the same day it became due — an edge case,
+            // but the plain dueDateReached check must still win regardless.
+            periodStartDate: dueDate,
             amount: 300000,
             principalPortion: 270000,
             moratoryConcepts: [moratoryConceptAt6Percent],
           }),
         ],
         today,
-        { earlyMaturityWindowDays: 5 },
+        { interestAccrualGraceDays: 5 },
       );
 
       // Same as the very first test in this file (concepts 30000 + moratory
-      // 6000 = 36000) — the window only ever adds coverage for not-yet-due
-      // installments, it never changes how an already-overdue one is priced.
+      // 6000 = 36000) — the grace period only ever adds coverage for
+      // not-yet-due installments, it never changes how an already-overdue
+      // one is priced.
       expect(quote.installments[0].interestApplied).toBeCloseTo(36000, 6);
     });
   });
