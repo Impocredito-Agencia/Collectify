@@ -155,6 +155,16 @@ export interface Payment {
   // back / give back — the void dialog warns with these.
   creditGeneratedAmount: number;
   creditSpentAmount: number;
+  // Human request, 2026-09-29 — the WhatsApp message whose comprobante this
+  // payment was registered from (RegisterPaymentFromWhatsappModal), so the
+  // payment history can link back to that conversation. Null otherwise.
+  sourceWhatsappMessage: SourceWhatsappMessage | null;
+}
+
+export interface SourceWhatsappMessage {
+  id: string;
+  clientId: string | null;
+  receivedAt: string;
 }
 
 export const installmentsApi = {

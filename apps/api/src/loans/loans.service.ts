@@ -30,6 +30,7 @@ import {
   CurrentUsuryRate,
   UsuryRateService,
 } from '../usuryRates/usuryRates.service';
+import { WhatsappInboundMessage } from '../whatsapp/entities/whatsappInboundMessage.entity';
 import {
   ConceptAssignment,
   generateAmortizationSchedule,
@@ -162,6 +163,18 @@ export interface PaymentWithImages extends Omit<Payment, 'imageUrl'> {
   // would take back / give back — see ClientCreditBalanceService.
   creditGeneratedAmount: number;
   creditSpentAmount: number;
+  // Human request, 2026-09-29 — the WhatsApp message whose comprobante
+  // this payment was registered from ("Registrar pago con este
+  // comprobante", see WhatsappInboundMessage.paymentId), so the loan's
+  // payment history can link back to that conversation. Null for a
+  // payment registered any other way.
+  sourceWhatsappMessage: SourceWhatsappMessage | null;
+}
+
+export interface SourceWhatsappMessage {
+  id: string;
+  clientId: string | null;
+  receivedAt: Date;
 }
 
 // Added for the client's standalone "Préstamos" list screen (F-16/17),
@@ -296,6 +309,8 @@ export class LoansService {
     private readonly paymentImagesRepository: Repository<PaymentImage>,
     @InjectRepository(LoanInstallmentConcept)
     private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
+    @InjectRepository(WhatsappInboundMessage)
+    private readonly whatsappInboundMessagesRepository: Repository<WhatsappInboundMessage>,
     private readonly interestConceptTypesService: InterestConceptTypesService,
     private readonly usuryRateService: UsuryRateService,
     private readonly clientsService: ClientsService,
@@ -1325,6 +1340,10 @@ export class LoansService {
     const imageUrlsByPaymentId = await this.findImageUrlsByPaymentId(
       payments.map((payment) => payment.id),
     );
+    const sourceMessageByPaymentId =
+      await this.findSourceWhatsappMessageByPaymentId(
+        payments.map((payment) => payment.id),
+      );
 
     const creditByPaymentId =
       await this.clientCreditBalanceService.summarizeCreditByPaymentId(
@@ -1343,7 +1362,36 @@ export class LoansService {
       // one, so this should be rare in practice). See PaymentImage entity.
       imageUrls:
         imageUrlsByPaymentId.get(payment.id) ?? (imageUrl ? [imageUrl] : []),
+      sourceWhatsappMessage: sourceMessageByPaymentId.get(payment.id) ?? null,
     }));
+  }
+
+  // Same bulk-fetch-by-parent-ids pattern as findImageUrlsByPaymentId
+  // below. A comprobante is linked to at most one payment, but nothing
+  // stops two messages pointing at the same one — the earliest wins.
+  private async findSourceWhatsappMessageByPaymentId(
+    paymentIds: string[],
+  ): Promise<Map<string, SourceWhatsappMessage>> {
+    const map = new Map<string, SourceWhatsappMessage>();
+    if (paymentIds.length === 0) {
+      return map;
+    }
+
+    const messages = await this.whatsappInboundMessagesRepository.find({
+      where: { paymentId: In(paymentIds) },
+      select: ['id', 'paymentId', 'clientId', 'receivedAt'],
+      order: { receivedAt: 'ASC' },
+    });
+    for (const message of messages) {
+      if (message.paymentId && !map.has(message.paymentId)) {
+        map.set(message.paymentId, {
+          id: message.id,
+          clientId: message.clientId,
+          receivedAt: message.receivedAt,
+        });
+      }
+    }
+    return map;
   }
 
   // Groups a page of payments' PaymentImage rows by paymentId in one query

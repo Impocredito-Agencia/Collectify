@@ -95,6 +95,12 @@ export function LoanDetailPage() {
   // can otherwise have — mirrors the backend's own @Roles(UserRole.Admin)
   // on PATCH /installments/payments/:id/void (not @RequireModule).
   const isAdmin = user?.role === 'admin';
+  // Human request, 2026-09-29 — the "vía WhatsApp" marker on a payment only
+  // links to the inbox for someone who can open it. Mirrors
+  // RequirePermission.tsx's check on /mensajes-entrantes.
+  const canViewInbox = Boolean(
+    user && (user.role === 'admin' || user.modules.includes('messages')),
+  );
 
   const { data: loan, isLoading, isError } = useLoan(id ?? '');
   const { data: client } = useClient(loan?.clientId ?? '');
@@ -680,6 +686,21 @@ export function LoanDetailPage() {
                     ) : (
                       <span className="text-meta text-mid">—</span>
                     )}
+                    {payment.sourceWhatsappMessage &&
+                      (canViewInbox &&
+                      payment.sourceWhatsappMessage.clientId ? (
+                        <Link
+                          to={`/mensajes-entrantes?cliente=${payment.sourceWhatsappMessage.clientId}`}
+                          title={`Comprobante recibido por WhatsApp el ${new Date(payment.sourceWhatsappMessage.receivedAt).toLocaleString('es-CO')}`}
+                          className="mt-1 block text-meta text-subtle underline hover:text-white"
+                        >
+                          vía WhatsApp
+                        </Link>
+                      ) : (
+                        <span className="mt-1 block text-meta text-subtle">
+                          vía WhatsApp
+                        </span>
+                      ))}
                   </Td>
                   <Td>
                     {payment.deletedAt ? (

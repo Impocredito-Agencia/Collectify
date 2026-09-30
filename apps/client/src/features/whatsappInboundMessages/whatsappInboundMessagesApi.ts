@@ -97,7 +97,10 @@ export interface WhatsappInboundMessage {
     paidAt: string;
     installment: {
       installmentNumber: number;
+      // id added 2026-09-29 (human request) so the badge can link to the
+      // pagaré itself.
       loan: {
+        id: string;
         promissoryNoteNumber: string;
       };
     };
