@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
@@ -495,6 +496,30 @@ export function WhatsappInboundMessagesPage() {
   const { data: pendingConversationSummaries } = useConversationsForClientIds(
     ticketFilter === 'pending' ? pendingTickets.map((t) => t.clientId) : [],
   );
+
+  // Human request, 2026-09-29 — ?cliente=<clientId> deep-links straight
+  // into that client's conversation (the loan detail's "vía WhatsApp"
+  // marker on a payment registered from a comprobante). Fetched through
+  // the same by-client-ids source as the "Pendientes" tab, since the
+  // conversation may not be on the currently loaded page. The param is
+  // dropped once applied so closing/switching conversations isn't undone.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkedClientId = searchParams.get('cliente');
+  const { data: deepLinkedSummaries } = useConversationsForClientIds(
+    deepLinkedClientId ? [deepLinkedClientId] : [],
+  );
+  useEffect(() => {
+    if (!deepLinkedClientId || !deepLinkedSummaries) {
+      return;
+    }
+    const summary = deepLinkedSummaries.find(
+      (candidate) => candidate.clientId === deepLinkedClientId,
+    );
+    if (summary) {
+      setSelectedConversation(toConversationSummaryEntry(summary));
+    }
+    setSearchParams({}, { replace: true });
+  }, [deepLinkedClientId, deepLinkedSummaries, setSearchParams]);
 
   const visibleConversations = useMemo(() => {
     if (ticketFilter === 'pending') {
@@ -1244,9 +1269,14 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
         <p className="text-small text-success">
           ✅ Ya registrado — pago de{' '}
           {formatCurrency(message.payment.amountPaid)} a la cuota{' '}
-          {message.payment.installment.installmentNumber} del pagaré{' '}
-          {message.payment.installment.loan.promissoryNoteNumber} el{' '}
-          {formatDateOnly(message.payment.paidAt)}
+          {message.payment.installment.installmentNumber} del{' '}
+          <Link
+            to={`/prestamos/${message.payment.installment.loan.id}`}
+            className="underline hover:text-white"
+          >
+            pagaré {message.payment.installment.loan.promissoryNoteNumber}
+          </Link>{' '}
+          el {formatDateOnly(message.payment.paidAt)}
         </p>
       )}
       {canRegisterPayment && (
