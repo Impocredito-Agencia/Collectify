@@ -47,24 +47,36 @@ export class UsuryRateService {
     private readonly repository: Repository<UsuryRate>,
   ) {}
 
-  // `today` injectable for tests (defaults to the real clock) — same
+  // Bug fix, 2026-09-30 (human report, production) — used to take the
+  // single most recent row ever inserted, with no upper bound. Entering a
+  // future month's rate ahead of time (the Superintendencia sometimes
+  // publishes early, and nothing stops an admin from registering it the
+  // moment it's out) made THAT future row "vigente" immediately, before
+  // its own month had even started — "Tasa vigente (Octubre de 2026)"
+  // showing while today is still September — and simultaneously flagged
+  // `isStale: true` against it (October ≠ September), surfacing "la tasa
+  // de septiembre todavía no se ha ingresado" even though September's own
+  // rate was sitting right there in the history table, just shadowed by
+  // the newer row. Fixed by bounding the query to rows on or before the
+  // current month — same `LessThanOrEqual` pattern getRateForMonth already
+  // uses for historical lookups — so a future-dated row sits in history
+  // inert until its own month actually arrives, instead of jumping the
+  // queue. `today` injectable for tests (defaults to the real clock), same
   // convention as calculatePayoff/calculateOverdueDays elsewhere in this
   // codebase.
   async getCurrentRate(
     today: Date = new Date(),
   ): Promise<CurrentUsuryRate | null> {
-    // findOne() requires a `where` clause in this TypeORM version — find()
-    // with take: 1 is the correct way to fetch "the single most recent row"
-    // with no filter.
-    const [latest] = await this.repository.find({
+    const currentMonth = currentYearMonth(today);
+    const latest = await this.repository.findOne({
+      where: { effectiveMonth: LessThanOrEqual(`${currentMonth}-01`) },
       order: { effectiveMonth: 'DESC' },
-      take: 1,
     });
     if (!latest) return null;
 
     return {
       ...latest,
-      isStale: latest.effectiveMonth.slice(0, 7) !== currentYearMonth(today),
+      isStale: latest.effectiveMonth.slice(0, 7) !== currentMonth,
     };
   }
 

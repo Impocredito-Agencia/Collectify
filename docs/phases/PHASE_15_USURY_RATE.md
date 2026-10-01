@@ -42,7 +42,7 @@ These answers are final for this phase — do not revisit them without a new con
 
 ### Stale-rate alert (confirmed with the client — publication timing follow-up)
 Since the SFC doesn't publish on a fixed day (see domain research above), a day-based reminder isn't reliable. Instead:
-- [x] `GET /api/v1/usury-rates/current`'s response includes `isStale: boolean` — true when the most recent row's `effective_month` is not the current calendar month (i.e. nobody has entered this month's certified rate yet, whether it's the 1st or the 20th). Computed on read by comparing `effective_month` to today's year-month, not stored.
+- [x] `GET /api/v1/usury-rates/current`'s response includes `isStale: boolean` — true when the most recent row's `effective_month` is not the current calendar month (i.e. nobody has entered this month's certified rate yet, whether it's the 1st or the 20th). Computed on read by comparing `effective_month` to today's year-month, not stored. **Two bugs fixed here 2026-09-30** — see `docs/DATABASE.md`'s notes of that date: the comparison used raw UTC instead of Bogotá time, and separately, "the most recent row" had no upper bound, so registering a future month's rate ahead of time made it "vigente" before its own month started.
 - [x] No cron/scheduled job needed for this — it's a plain computed comparison, checked whenever the admin loads the relevant screen.
 
 ### Enforcement
