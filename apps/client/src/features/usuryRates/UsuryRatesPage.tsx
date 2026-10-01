@@ -33,6 +33,25 @@ const SUPERFINANCIERA_RATE_URL =
 const SUPERFINANCIERA_CONVERTER_URL =
   'https://www.superfinanciera.gov.co/publicaciones/61554/consumidor-financieroinformacion-generalsimulador-de-conversion-de-tasas-de-interes-61554/';
 
+// Bug fix, 2026-09-30 (human report) — the "Mes certificado" field used to
+// default to `new Date().toISOString().slice(0, 7)`, the browser's raw UTC
+// year-month. Every evening in Bogotá (7pm onward, once UTC has already
+// rolled to the next calendar day) this pre-filled the NEXT month instead
+// of the current one — same class of bug as the stale-rate flag, fixed
+// server-side in usuryRates.service.ts's currentYearMonth. formatToParts
+// (not a locale string) so this doesn't depend on a particular locale's
+// field ordering.
+function bogotaYearMonth(date: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  return `${year}-${month}`;
+}
+
 // Admin-only settings screen for Colombia's usury ceiling (Phase 15) — see
 // docs/phases/PHASE_15_USURY_RATE.md. Unlike interest concept types, rates
 // are append-only history (no edit/deactivate): entering a new month's
@@ -47,9 +66,7 @@ export function UsuryRatesPage() {
   const { data: history, isLoading: isLoadingHistory } = useUsuryRateHistory();
   const setRate = useSetUsuryRate();
 
-  const [effectiveMonth, setEffectiveMonth] = useState(
-    new Date().toISOString().slice(0, 7),
-  );
+  const [effectiveMonth, setEffectiveMonth] = useState(bogotaYearMonth());
   // Bug fix, 2026-09-03 — was ratePercentage (the monthly figure, computed
   // by hand before typing it in). Now this holds the raw annual rate as
   // published; monthlyPreview below shows what the app will actually store
@@ -186,6 +203,13 @@ export function UsuryRatesPage() {
               {new Date().toLocaleDateString('es-CO', {
                 month: 'long',
                 year: 'numeric',
+                // Bug fix, 2026-09-30 — without this, a viewer's machine
+                // set to a timezone ahead of Bogotá (e.g. UTC) could show
+                // the next month's name here while `isStale` itself (now
+                // fixed server-side too, see usuryRates.service.ts) still
+                // correctly means Bogotá's current month. Forcing the same
+                // timezone on both sides keeps them from ever disagreeing.
+                timeZone: 'America/Bogota',
               })}{' '}
               todavía no se ha ingresado. Regístrala abajo apenas la
               Superintendencia la publique — la fecha de publicación varía cada

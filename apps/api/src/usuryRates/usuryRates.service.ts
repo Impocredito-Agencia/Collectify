@@ -23,8 +23,21 @@ function toMonthStart(dateString: string): string {
   return `${dateString.slice(0, 7)}-01`;
 }
 
-function currentYearMonth(): string {
-  return new Date().toISOString().slice(0, 7);
+// Bug fix, 2026-09-30 (human report) — compared effectiveMonth against the
+// raw UTC year-month, so the last few hours of every Bogotá calendar day
+// (from 7pm Bogotá to midnight UTC) were already read as the NEXT month on
+// the server, wrongly flagging the just-entered current month's rate as
+// stale. Same fixed UTC-5 shift used throughout this codebase for this
+// exact class of bug — see installmentCalculations.ts's
+// BOGOTA_UTC_OFFSET_MS and businessHours.ts's identical constant; Colombia
+// has no DST, so a plain arithmetic shift is enough. `today` is injectable
+// for tests, same convention as calculatePayoff/calculateOverdueDays.
+const BOGOTA_UTC_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+function currentYearMonth(today: Date = new Date()): string {
+  return new Date(today.getTime() - BOGOTA_UTC_OFFSET_MS)
+    .toISOString()
+    .slice(0, 7);
 }
 
 @Injectable()
@@ -34,7 +47,12 @@ export class UsuryRateService {
     private readonly repository: Repository<UsuryRate>,
   ) {}
 
-  async getCurrentRate(): Promise<CurrentUsuryRate | null> {
+  // `today` injectable for tests (defaults to the real clock) — same
+  // convention as calculatePayoff/calculateOverdueDays elsewhere in this
+  // codebase.
+  async getCurrentRate(
+    today: Date = new Date(),
+  ): Promise<CurrentUsuryRate | null> {
     // findOne() requires a `where` clause in this TypeORM version — find()
     // with take: 1 is the correct way to fetch "the single most recent row"
     // with no filter.
@@ -46,7 +64,7 @@ export class UsuryRateService {
 
     return {
       ...latest,
-      isStale: latest.effectiveMonth.slice(0, 7) !== currentYearMonth(),
+      isStale: latest.effectiveMonth.slice(0, 7) !== currentYearMonth(today),
     };
   }
 
