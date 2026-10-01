@@ -370,30 +370,31 @@ describe('LoansService', () => {
       await service.create(createDto);
 
       // Capital fijo — 900000/3 = 300000 principal every installment.
-      // Corriente interest (defaults to the mocked 20% usury ceiling) on
-      // the true declining balance (900000, 600000, 300000) would be
-      // 180000/120000/60000 — but confirmed with the human 2026-09-04
-      // (matching the client's Excel): those get averaged into one flat
-      // "cuota con interés" of 120000 every installment
-      // ((180000+120000+60000)/3), rounded to the nearest $1,000 (already
-      // exact here). So every installment totals 420000, not a declining
-      // 480000/420000/360000.
+      // Corriente interest (defaults to a round 2% since 2026-09-30, see
+      // DEFAULT_INTEREST_RATE_PERCENTAGE — well below the mocked 20% usury
+      // ceiling) on the true declining balance (900000, 600000, 300000)
+      // would be 18000/12000/6000 — but confirmed with the human
+      // 2026-09-04 (matching the client's Excel): those get averaged into
+      // one flat "cuota con interés" of 12000 every installment
+      // ((18000+12000+6000)/3), rounded to the nearest $1,000 (already
+      // exact here). So every installment totals 312000, not a declining
+      // 318000/312000/306000.
       expect(installmentsRepository.save).toHaveBeenCalledWith([
         expect.objectContaining({
           installmentNumber: 1,
-          amount: 420000,
+          amount: 312000,
           principalPortion: 300000,
           dueDate: '2026-02-01',
         }),
         expect.objectContaining({
           installmentNumber: 2,
-          amount: 420000,
+          amount: 312000,
           principalPortion: 300000,
           dueDate: '2026-03-01',
         }),
         expect.objectContaining({
           installmentNumber: 3,
-          amount: 420000,
+          amount: 312000,
           principalPortion: 300000,
           dueDate: '2026-04-01',
         }),
@@ -975,18 +976,42 @@ describe('LoansService', () => {
       });
     });
 
-    // Redesign, 2026-09-03 — corrienteInterestRate/moratoryInterestRate
-    // default to, and are capped at, the current usury ceiling (20% in
-    // the default beforeEach mock). "Editable solo hacia abajo" —
-    // confirmed with the human.
+    // Redesign, 2026-09-03 — corrienteInterestRate/moratoryInterestRate are
+    // always capped at the current usury ceiling (20% in the default
+    // beforeEach mock). "Editable solo hacia abajo [del techo]" — confirmed
+    // with the human. Human request, 2026-09-30 — when omitted, they no
+    // longer default to that ceiling itself; see the next two tests.
     describe('system-generated interest field', () => {
-      it('defaults corrienteInterestRate/moratoryInterestRate to the usury ceiling when omitted', async () => {
+      it('defaults corrienteInterestRate/moratoryInterestRate to a round 2% when omitted, well below the usury ceiling', async () => {
         await service.create(createDto);
 
         const calls = loanInstallmentConceptsRepository.save.mock
           .calls as unknown[][];
         const savedRows = calls[0][0] as Array<{ value: number }>;
-        expect(savedRows.every((row) => row.value === 20)).toBe(true);
+        expect(savedRows.every((row) => row.value === 2)).toBe(true);
+      });
+
+      // Human request, 2026-09-30 — the round 2% default is purely a
+      // convenience; it must never be allowed to outrank the certified
+      // rate on a month where that rate itself lands below 2% (cobrar por
+      // encima de la tasa de usura es delito, Art. 305 Código Penal).
+      it('falls back to the usury ceiling instead of 2% on a month whose certified rate is lower', async () => {
+        usuryRateService.getCurrentRate.mockResolvedValue({
+          id: 'rate-low',
+          effectiveMonth: '2026-07-01',
+          ratePercentage: 1.5,
+          createdBy: null,
+          createdByUser: null,
+          createdAt: new Date(),
+          isStale: false,
+        });
+
+        await service.create(createDto);
+
+        const calls = loanInstallmentConceptsRepository.save.mock
+          .calls as unknown[][];
+        const savedRows = calls[0][0] as Array<{ value: number }>;
+        expect(savedRows.every((row) => row.value === 1.5)).toBe(true);
       });
 
       it('rejects when corrienteInterestRate exceeds the usury ceiling', async () => {
@@ -1085,13 +1110,14 @@ describe('LoansService', () => {
         }),
       );
       // Capital fijo — 600000/2 = 300000 principal each installment. True
-      // declining corriente interest (600000 then 300000 balance * 20%)
-      // is 120000/60000 — averaged into a flat 90000/installment
-      // ((120000+60000)/2), so both installments total 390000, not a
-      // declining 420000/360000.
+      // declining corriente interest (600000 then 300000 balance * 2% —
+      // the round default since 2026-09-30, well below the mocked 20%
+      // ceiling) is 12000/6000 — averaged into a flat 9000/installment
+      // ((12000+6000)/2), so both installments total 309000, not a
+      // declining 312000/306000.
       expect(installmentsRepository.save).toHaveBeenCalledWith([
-        expect.objectContaining({ installmentNumber: 1, amount: 390000 }),
-        expect.objectContaining({ installmentNumber: 2, amount: 390000 }),
+        expect.objectContaining({ installmentNumber: 1, amount: 309000 }),
+        expect.objectContaining({ installmentNumber: 2, amount: 309000 }),
       ]);
     });
 

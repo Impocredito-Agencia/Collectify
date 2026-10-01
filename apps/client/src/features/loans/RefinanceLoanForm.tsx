@@ -31,7 +31,10 @@ import {
   usePreviewSchedule,
   useRefinanceQuote,
 } from '@/features/loans/useLoans';
-import { exceedsUsuryCeiling } from '@/features/loans/usuryCeiling';
+import {
+  defaultInterestRate,
+  exceedsUsuryCeiling,
+} from '@/features/loans/usuryCeiling';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
 import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { ApiError } from '@/lib/apiClient';
@@ -260,8 +263,9 @@ export function RefinanceLoanForm({
   useEffect(() => {
     if (currentUsuryRate && !hasPrefilledInterestRates.current) {
       hasPrefilledInterestRates.current = true;
-      setCorrienteInterestRate(currentUsuryRate.ratePercentage);
-      setMoratoryInterestRate(currentUsuryRate.ratePercentage);
+      const defaultRate = defaultInterestRate(currentUsuryRate.ratePercentage);
+      setCorrienteInterestRate(defaultRate);
+      setMoratoryInterestRate(defaultRate);
     }
   }, [currentUsuryRate]);
 

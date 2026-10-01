@@ -108,6 +108,27 @@ const POSTGRES_UNIQUE_VIOLATION = '23505';
 // the one to pick, defeating its own purpose.
 const INTEREST_ACCRUAL_GRACE_DAYS = 5;
 
+// Human request, 2026-09-30 (paraphrased) — the certified usury ceiling is
+// a decimal figure that changes month to month (e.g. 2.1176% for October
+// 2026), which made every loan's corriente/moratory concepts carry extra
+// decimals the client had to factor into hand-calculated cargos
+// adicionales. A round, whole-number default removes that friction for the
+// common case, while every field stays exactly as editable as before —
+// nothing here changes what the admin CAN type, only what the field starts
+// with when left untouched.
+//
+// Math.min in resolveInterestRate below, not a plain substitution — this
+// is a hard legal ceiling (cobrar por encima de la tasa de usura es delito,
+// Art. 305 Código Penal), so the default can never be allowed to outrank
+// the certified rate. On a month where the certified rate itself is below
+// this value, Math.min silently falls back to that lower, real ceiling
+// instead of overshooting it — a mathematical guarantee (the minimum of
+// two numbers can never exceed either one), not a conditional that could
+// be coded wrong. assertInterestRateWithinCeiling below re-checks the
+// final resolved rate regardless of where it came from, as a second,
+// independent backstop against the same mistake.
+const DEFAULT_INTEREST_RATE_PERCENTAGE = 2;
+
 export interface PreviewedInstallment {
   installmentNumber: number;
   dueDate: string;
@@ -270,8 +291,9 @@ interface PersistLoanParams {
   moratoryConcepts: LoanConceptAssignmentDto[];
   // Redesign, 2026-09-03 — the loan's own corriente/moratorio interest,
   // system-generated rather than a catalog pick (see
-  // resolveConceptsWithInterest). Omitted means "use the current usury
-  // ceiling"; never allowed above it either way.
+  // resolveConceptsWithInterest). Omitted means "use
+  // DEFAULT_INTEREST_RATE_PERCENTAGE, or the current usury ceiling if that
+  // ceiling is itself lower"; never allowed above the ceiling either way.
   corrienteInterestRate?: number;
   moratoryInterestRate?: number;
   // Redesign, 2026-09-03 — the down payment ("cuota inicial") the client
@@ -1933,11 +1955,13 @@ export class LoansService {
 
   // Redesign, 2026-09-03 — the loan's own corriente/moratorio interest is
   // no longer picked from the catalog; it's built here directly from the
-  // request's corrienteInterestRate/moratoryInterestRate (defaulting to,
-  // and capped at, the current usury ceiling — "editable solo hacia
-  // abajo", confirmed with the human). Wraps resolveConcepts/
-  // resolveMoratoryConcepts, which still resolve any optional catalog
-  // fees the admin picked on top.
+  // request's corrienteInterestRate/moratoryInterestRate, capped at the
+  // current usury ceiling and always editable downward too ("editable
+  // solo hacia abajo [del techo]", confirmed with the human) — omitted
+  // defaults to DEFAULT_INTEREST_RATE_PERCENTAGE instead of the ceiling
+  // itself since 2026-09-30 (see that constant's own comment). Wraps
+  // resolveConcepts/resolveMoratoryConcepts, which still resolve any
+  // optional catalog fees the admin picked on top.
   private async resolveConceptsWithInterest(
     concepts: LoanConceptAssignmentDto[],
     moratoryConcepts: LoanConceptAssignmentDto[],
@@ -1996,7 +2020,12 @@ export class LoansService {
     ceiling: number,
     label: string,
   ): number {
-    const rate = requested ?? ceiling;
+    // See DEFAULT_INTEREST_RATE_PERCENTAGE's own comment — Math.min can
+    // never resolve above `ceiling`, so a month whose certified rate is
+    // itself below the round default falls back to that real ceiling
+    // instead.
+    const rate =
+      requested ?? Math.min(DEFAULT_INTEREST_RATE_PERCENTAGE, ceiling);
     this.assertInterestRateWithinCeiling(rate, ceiling, label);
     return rate;
   }

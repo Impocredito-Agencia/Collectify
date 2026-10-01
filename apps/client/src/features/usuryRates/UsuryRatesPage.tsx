@@ -227,16 +227,26 @@ export function UsuryRatesPage() {
           Registrar nueva tasa mensual
         </span>
         {/* Client question, 2026-09-03 — "¿el valor va a ponerse para
-            ambas cosas?". Yes, by construction: LoansService forces every
-            percentage-type concept (Corriente y Moratorio) to this exact
-            monthly value, never an admin-typed one — see
-            resolveConcepts/resolveMoratoryConcepts, Phase 24. This is
-            purely explanatory copy; the underlying behavior already
-            existed before this note was added. */}
+            ambas cosas?". Yes: this is the one legal ceiling for both
+            Corriente y Moratorio (Art. 884 del Código de Comercio), never
+            calculated separately — see resolveConcepts/
+            resolveMoratoryConcepts, Phase 24.
+            Updated 2026-09-30 (human request, paraphrased) — since the
+            round-2%-default change (see usuryCeiling.ts's
+            defaultInterestRate), this rate is no longer what gets applied
+            automatically; it's only ever the LIMIT a loan's interest can't
+            cross. Registering it here exactly as the Superintendencia
+            certifies it still matters just as much as before — it's what
+            every loan's rate gets capped against, whatever number ends up
+            on that loan. */}
         <p className="-mt-1 text-small text-muted">
-          Esta tasa mensual se aplica automáticamente tanto a los cargos
-          corrientes como a los moratorios — es el mismo techo legal para ambos
-          (Art. 884 del Código de Comercio), no se calcula por separado.
+          Sigue registrando aquí la tasa exactamente como la certifica la
+          Superintendencia, mes a mes — eso no cambia. Lo que sí cambia: al
+          crear o refinanciar un préstamo, los intereses corrientes y moratorios
+          ya no se autocompletan con esta tasa exacta, sino con un 2% redondo
+          (para facilitar el cálculo de cargos adicionales), y esta tasa
+          certificada queda como el techo — se puede subir hasta ella o bajar
+          hasta donde quieran en cada préstamo.
         </p>
         <div className="flex items-end gap-3">
           <div className="flex flex-1 flex-col gap-1.5">

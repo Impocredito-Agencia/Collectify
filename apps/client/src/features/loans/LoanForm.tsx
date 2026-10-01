@@ -35,7 +35,10 @@ import {
   useNextPromissoryNoteNumber,
   usePreviewSchedule,
 } from '@/features/loans/useLoans';
-import { exceedsUsuryCeiling } from '@/features/loans/usuryCeiling';
+import {
+  defaultInterestRate,
+  exceedsUsuryCeiling,
+} from '@/features/loans/usuryCeiling';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
 import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { ApiError } from '@/lib/apiClient';
@@ -292,17 +295,18 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const createConceptType = useCreateInterestConceptType();
   const previewSchedule = usePreviewSchedule();
   // Redesign, 2026-09-03 — corrienteInterestRate/moratoryInterestRate
-  // (below) default to this ceiling and can only be edited downward, never
-  // above it (validated client-side via exceedsUsuryCeiling, and again
-  // server-side). A missing/stale rate still blocks submission entirely
-  // (StaleUsuryRateBanner explains why).
+  // (below) default to a round rate capped at this ceiling (see
+  // defaultInterestRate, usuryCeiling.ts) and can be edited anywhere
+  // between 0 and the ceiling, never above it (validated client-side via
+  // exceedsUsuryCeiling, and again server-side). A missing/stale rate still
+  // blocks submission entirely (StaleUsuryRateBanner explains why).
   const { data: currentUsuryRate } = useCurrentUsuryRate();
   const hasUsableUsuryRate = Boolean(
     currentUsuryRate && !currentUsuryRate.isStale,
   );
-  // Starts empty and pre-fills to the ceiling once, same "only once, stays
-  // editable after" guard as suggestedPromissoryNoteNumber above, so it
-  // doesn't clobber a value the admin already lowered by hand if this
+  // Starts empty and pre-fills to the default rate once, same "only once,
+  // stays editable after" guard as suggestedPromissoryNoteNumber above, so
+  // it doesn't clobber a value the admin already changed by hand if this
   // query ever refetches.
   const [corrienteInterestRate, setCorrienteInterestRate] = useState<
     number | ''
@@ -314,8 +318,9 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   useEffect(() => {
     if (currentUsuryRate && !hasPrefilledInterestRates.current) {
       hasPrefilledInterestRates.current = true;
-      setCorrienteInterestRate(currentUsuryRate.ratePercentage);
-      setMoratoryInterestRate(currentUsuryRate.ratePercentage);
+      const defaultRate = defaultInterestRate(currentUsuryRate.ratePercentage);
+      setCorrienteInterestRate(defaultRate);
+      setMoratoryInterestRate(defaultRate);
     }
   }, [currentUsuryRate]);
 
