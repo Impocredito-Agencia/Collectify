@@ -57,12 +57,13 @@ describe('UsuryRateService', () => {
     });
 
     it('marks isStale false when the latest row matches the current month', async () => {
-      const currentMonth = new Date().toISOString().slice(0, 7);
       repository.find.mockResolvedValue([
-        makeRate({ effectiveMonth: `${currentMonth}-01` }),
+        makeRate({ effectiveMonth: '2026-09-01' }),
       ]);
 
-      const result = await service.getCurrentRate();
+      const result = await service.getCurrentRate(
+        new Date('2026-09-15T12:00:00Z'),
+      );
 
       expect(result?.isStale).toBe(false);
     });
@@ -73,6 +74,37 @@ describe('UsuryRateService', () => {
       ]);
 
       const result = await service.getCurrentRate();
+
+      expect(result?.isStale).toBe(true);
+    });
+
+    // Bug fix, 2026-09-30 (human report) — comparing against the raw UTC
+    // year-month made every evening in Bogotá (7pm onward, once UTC has
+    // already rolled to the next calendar day) flag the just-entered
+    // current month's rate as stale a few hours early. "2026-10-01T02:00Z"
+    // is 2026-09-30 9pm in Bogotá (UTC-5) — still September there, even
+    // though the UTC date is already October 1st.
+    it('is not fooled by Bogotá still being in the current month after UTC has already rolled to the next one', async () => {
+      repository.find.mockResolvedValue([
+        makeRate({ effectiveMonth: '2026-09-01' }),
+      ]);
+
+      const result = await service.getCurrentRate(
+        new Date('2026-10-01T02:00:00Z'),
+      );
+
+      expect(result?.isStale).toBe(false);
+    });
+
+    it('rolls over to the new month once it is genuinely October in Bogotá too', async () => {
+      repository.find.mockResolvedValue([
+        makeRate({ effectiveMonth: '2026-09-01' }),
+      ]);
+
+      // 2026-10-01T06:00Z is 2026-10-01 1am in Bogotá — genuinely October.
+      const result = await service.getCurrentRate(
+        new Date('2026-10-01T06:00:00Z'),
+      );
 
       expect(result?.isStale).toBe(true);
     });

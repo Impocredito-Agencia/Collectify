@@ -33,6 +33,25 @@ const SUPERFINANCIERA_RATE_URL =
 const SUPERFINANCIERA_CONVERTER_URL =
   'https://www.superfinanciera.gov.co/publicaciones/61554/consumidor-financieroinformacion-generalsimulador-de-conversion-de-tasas-de-interes-61554/';
 
+// Bug fix, 2026-09-30 (human report) — the "Mes certificado" field used to
+// default to `new Date().toISOString().slice(0, 7)`, the browser's raw UTC
+// year-month. Every evening in Bogotá (7pm onward, once UTC has already
+// rolled to the next calendar day) this pre-filled the NEXT month instead
+// of the current one — same class of bug as the stale-rate flag, fixed
+// server-side in usuryRates.service.ts's currentYearMonth. formatToParts
+// (not a locale string) so this doesn't depend on a particular locale's
+// field ordering.
+function bogotaYearMonth(date: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  return `${year}-${month}`;
+}
+
 // Admin-only settings screen for Colombia's usury ceiling (Phase 15) — see
 // docs/phases/PHASE_15_USURY_RATE.md. Unlike interest concept types, rates
 // are append-only history (no edit/deactivate): entering a new month's
@@ -47,9 +66,7 @@ export function UsuryRatesPage() {
   const { data: history, isLoading: isLoadingHistory } = useUsuryRateHistory();
   const setRate = useSetUsuryRate();
 
-  const [effectiveMonth, setEffectiveMonth] = useState(
-    new Date().toISOString().slice(0, 7),
-  );
+  const [effectiveMonth, setEffectiveMonth] = useState(bogotaYearMonth());
   // Bug fix, 2026-09-03 — was ratePercentage (the monthly figure, computed
   // by hand before typing it in). Now this holds the raw annual rate as
   // published; monthlyPreview below shows what the app will actually store
@@ -186,6 +203,13 @@ export function UsuryRatesPage() {
               {new Date().toLocaleDateString('es-CO', {
                 month: 'long',
                 year: 'numeric',
+                // Bug fix, 2026-09-30 — without this, a viewer's machine
+                // set to a timezone ahead of Bogotá (e.g. UTC) could show
+                // the next month's name here while `isStale` itself (now
+                // fixed server-side too, see usuryRates.service.ts) still
+                // correctly means Bogotá's current month. Forcing the same
+                // timezone on both sides keeps them from ever disagreeing.
+                timeZone: 'America/Bogota',
               })}{' '}
               todavía no se ha ingresado. Regístrala abajo apenas la
               Superintendencia la publique — la fecha de publicación varía cada
@@ -203,16 +227,26 @@ export function UsuryRatesPage() {
           Registrar nueva tasa mensual
         </span>
         {/* Client question, 2026-09-03 — "¿el valor va a ponerse para
-            ambas cosas?". Yes, by construction: LoansService forces every
-            percentage-type concept (Corriente y Moratorio) to this exact
-            monthly value, never an admin-typed one — see
-            resolveConcepts/resolveMoratoryConcepts, Phase 24. This is
-            purely explanatory copy; the underlying behavior already
-            existed before this note was added. */}
+            ambas cosas?". Yes: this is the one legal ceiling for both
+            Corriente y Moratorio (Art. 884 del Código de Comercio), never
+            calculated separately — see resolveConcepts/
+            resolveMoratoryConcepts, Phase 24.
+            Updated 2026-09-30 (human request, paraphrased) — since the
+            round-2%-default change (see usuryCeiling.ts's
+            defaultInterestRate), this rate is no longer what gets applied
+            automatically; it's only ever the LIMIT a loan's interest can't
+            cross. Registering it here exactly as the Superintendencia
+            certifies it still matters just as much as before — it's what
+            every loan's rate gets capped against, whatever number ends up
+            on that loan. */}
         <p className="-mt-1 text-small text-muted">
-          Esta tasa mensual se aplica automáticamente tanto a los cargos
-          corrientes como a los moratorios — es el mismo techo legal para ambos
-          (Art. 884 del Código de Comercio), no se calcula por separado.
+          Sigue registrando aquí la tasa exactamente como la certifica la
+          Superintendencia, mes a mes — eso no cambia. Lo que sí cambia: al
+          crear o refinanciar un préstamo, los intereses corrientes y moratorios
+          ya no se autocompletan con esta tasa exacta, sino con un 2% redondo
+          (para facilitar el cálculo de cargos adicionales), y esta tasa
+          certificada queda como el techo — se puede subir hasta ella o bajar
+          hasta donde quieran en cada préstamo.
         </p>
         <div className="flex items-end gap-3">
           <div className="flex flex-1 flex-col gap-1.5">

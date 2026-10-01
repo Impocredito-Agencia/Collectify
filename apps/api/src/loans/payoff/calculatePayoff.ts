@@ -24,6 +24,13 @@ export interface PayoffInstallmentInput {
   // means zero moratory interest for that installment, same as
   // calculateMoratoryCharges's own behavior for an empty array.
   moratoryConcepts: MoratoryConceptAssignment[];
+  // Human correction, 2026-09-30 — when this installment's period began:
+  // the previous installment's own dueDate, or the loan's disbursedAt for
+  // the very first installment on the loan. Anchors
+  // CalculatePayoffOptions.interestAccrualGraceDays — see that option's
+  // own comment. Irrelevant (any value works) when that option is
+  // omitted, since maturity then falls back to dueDate alone.
+  periodStartDate: string;
   // Style cleanup, 2026-09-04 (client feedback — the payoff dialog's table
   // was "too simple", no per-cargo detail) — the corriente (Phase 14)
   // charges already stored on this installment at schedule-generation
@@ -75,22 +82,31 @@ export interface PayoffQuote {
 }
 
 export interface CalculatePayoffOptions {
-  // Phase 25 — LoansService.getRefinanceQuote() passes 5 here so an
-  // installment due within the next 5 days (not yet actually overdue) is
-  // also folded into the new principal, per the confirmed rule (reunión
-  // 2026-08-25): "de la cuarta cuota entran los intereses al capital
-  // también, así no haya llegado a su fecha de vencimiento como tal."
-  // Deliberately NOT the same "5 días" as MessageTemplate's
-  // upcomingDueReminderDays (Phase 9) — that only ever triggers a WhatsApp
-  // message and has no bearing on money.
+  // Phase 25 (reunión 2026-08-25), corrected 2026-09-30 (human correction —
+  // see loans.service.ts's INTEREST_ACCRUAL_GRACE_DAYS for the full story).
+  // Originally implemented — wrongly — as a window counting backward from
+  // dueDate ("matured once due within the next N days"), which left a cliff
+  // at N+1 days out where an installment still owed zero interest: paying
+  // off 6 days before a cuota fell due skipped that cuota's interest
+  // entirely, exactly the loophole this option exists to close. The
+  // confirmed rule instead counts FORWARD from when the installment's
+  // period started (see PayoffInstallmentInput.periodStartDate): once this
+  // many days have passed since then, its corriente interest is treated as
+  // fully caused even though the cuota itself isn't due for possibly
+  // weeks — only the first `interestAccrualGraceDays` days of each period
+  // are free of interest. Moratory interest is untouched either way — it
+  // still only starts once the cuota is genuinely overdue (dueDate-based,
+  // see calculateInstallmentPayoff below).
   //
-  // Extended, 2026-09-26 (human decision): early payoff
-  // (getPayoffQuote()/payoff()) passes the same window now — it used to be
-  // refinance-only, which made the two ways of closing the same loan on the
-  // same day cost different interest. Both share LoansService's single
-  // EARLY_MATURITY_WINDOW_DAYS. Defaults to 0 (today-or-past only), the
-  // original Phase 16 behavior, for any caller that omits it.
-  earlyMaturityWindowDays?: number;
+  // Both LoansService.getRefinanceQuote() and the real early-payoff routes
+  // (getPayoffQuote()/payoff()) pass the same LoansService
+  // INTEREST_ACCRUAL_GRACE_DAYS, so closing a loan the same day never costs
+  // different interest depending on which route is used. Omitted entirely
+  // (not 0 — 0 would make every installment matured from the first instant
+  // of its period, which is never what's wanted), maturity falls back to
+  // dueDate alone — the original Phase 16 rule, still always in effect on
+  // top of whatever this option adds.
+  interestAccrualGraceDays?: number;
   // Computed by the caller from the loan's FULL installment list (this
   // function only ever sees the pending ones) via calculateInterestTrueUp.
   // Added on top of the per-installment interest. Defaults to 0.
@@ -115,9 +131,10 @@ export interface CalculatePayoffOptions {
 //   - A not-yet-due installment contributes only its principalPortion, at
 //     face value, with ZERO interest — no moratory interest (none has
 //     accrued) and no concept charges either (they cover a period that
-//     hasn't happened yet). This is still true even inside the
-//     `earlyMaturityWindowDays` window below — see that option's own
-//     comment for why only the concept/corriente portion is added there.
+//     hasn't happened yet). This is still true even once
+//     `interestAccrualGraceDays` below has elapsed since the period
+//     started — see that option's own comment for why only the
+//     concept/corriente portion is added there.
 //   - A matured installment (due today or already overdue) contributes its
 //     full concept charges plus any moratory interest, in addition to its
 //     principal.
@@ -190,21 +207,25 @@ function calculateInstallmentPayoff(
   const totalPaid = installment.totalPaid ?? 0;
 
   const dueDate = new Date(installment.dueDate);
-  // 0 once the due date is today or has already passed — same "matured"
-  // check calculateOverdueDays itself effectively uses, kept consistent
-  // with the codebase's existing timezone-safe date-diff engine rather
-  // than a fresh Date comparison (see installmentCalculations.ts's own
-  // note on computing whole Bogotá calendar days — bug fixed 2026-09-04,
-  // see that file and docs/DATABASE.md's note of that date). With the
-  // default earlyMaturityWindowDays of 0, this is exactly the original
-  // Phase 16 check (daysUntilDue === 0). A non-zero window (Phase 25)
-  // widens "matured" to include a not-yet-due installment within that many
-  // days — calculateOverdueDays still correctly returns 0 for it below, so
-  // its moratory interest comes out to 0 naturally, with no extra branching
-  // needed to keep this rule "corriente only."
-  const hasMatured =
-    calculateDaysUntilDue(dueDate, today) <=
-    (options.earlyMaturityWindowDays ?? 0);
+  // The original Phase 16 rule: matured once the due date is today or has
+  // already passed. calculateDaysUntilDue floors at 0, so "=== 0" covers
+  // both "due today" and "overdue" in one check — same timezone-safe
+  // Bogotá-calendar-day engine used throughout this file rather than a
+  // fresh Date comparison (see installmentCalculations.ts's own note, bug
+  // fixed 2026-09-04, and docs/DATABASE.md's note of that date). Always in
+  // effect, regardless of interestAccrualGraceDays below.
+  const dueDateReached = calculateDaysUntilDue(dueDate, today) === 0;
+  // Human correction, 2026-09-30 — see CalculatePayoffOptions.
+  // interestAccrualGraceDays's own comment for the full story: counts
+  // forward from the period's start, not backward from dueDate. Omitted
+  // entirely (not 0), this never fires and hasMatured falls back to
+  // dueDateReached alone.
+  const graceDays = options.interestAccrualGraceDays;
+  const maturedByGrace =
+    graceDays !== undefined &&
+    calculateOverdueDays(new Date(installment.periodStartDate), today) >=
+      graceDays;
+  const hasMatured = dueDateReached || maturedByGrace;
 
   if (!hasMatured) {
     // Bug fix, 2026-09-15 — a not-yet-due installment can still carry a

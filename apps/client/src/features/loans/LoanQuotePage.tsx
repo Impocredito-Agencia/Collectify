@@ -22,7 +22,10 @@ import {
 import { InstallmentFrequency } from '@/features/loans/loansApi';
 import { SystemInterestRateRow } from '@/features/loans/MandatoryConceptRow';
 import { usePreviewSchedule } from '@/features/loans/useLoans';
-import { exceedsUsuryCeiling } from '@/features/loans/usuryCeiling';
+import {
+  defaultInterestRate,
+  exceedsUsuryCeiling,
+} from '@/features/loans/usuryCeiling';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
 import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
@@ -110,8 +113,10 @@ export function LoanQuotePage() {
 
   // Redesign, 2026-09-03 — same system-generated corriente interest field
   // as LoanForm.tsx/RefinanceLoanForm.tsx (corrienteInterestRate), defaults
-  // to and is capped at the usury ceiling. No moratory equivalent here —
-  // this tool only quotes corriente concepts, see the comment above
+  // to a round rate capped at the usury ceiling (see defaultInterestRate,
+  // usuryCeiling.ts) and is capped at that ceiling if edited upward. No
+  // moratory equivalent here — this tool only quotes corriente concepts,
+  // see the comment above
   // corrienteConceptTypes below.
   const [corrienteInterestRate, setCorrienteInterestRate] = useState<
     number | ''
@@ -120,7 +125,9 @@ export function LoanQuotePage() {
   useEffect(() => {
     if (currentUsuryRate && !hasPrefilledInterestRate.current) {
       hasPrefilledInterestRate.current = true;
-      setCorrienteInterestRate(currentUsuryRate.ratePercentage);
+      setCorrienteInterestRate(
+        defaultInterestRate(currentUsuryRate.ratePercentage),
+      );
     }
   }, [currentUsuryRate]);
   const exceedsCeiling = Boolean(
