@@ -55,7 +55,7 @@ import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
 import { NEW_LOAN_FAMILY_TYPES } from '@/features/messageTemplates/messageTemplatesApi';
 import { ApiError } from '@/lib/apiClient';
-import { formatCurrency, formatDateOnly } from '@/lib/format';
+import { formatCurrency, formatDateOnly, isPdfUrl } from '@/lib/format';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type {
@@ -663,25 +663,41 @@ export function LoanDetailPage() {
                   <Td>
                     {payment.imageUrls.length > 0 ? (
                       <div className="flex items-center gap-1.5">
-                        {payment.imageUrls.map((imageUrl, imageIndex) => (
-                          <button
-                            key={imageUrl}
-                            type="button"
-                            onClick={() =>
-                              setEnlargedImage({
-                                url: imageUrl,
-                                alt: `Comprobante ${imageIndex + 1} del pago del ${formatDateOnly(payment.paidAt)}`,
-                              })
-                            }
-                            className="block"
-                          >
-                            <img
-                              src={imageUrl}
-                              alt={`Comprobante ${imageIndex + 1} del pago del ${formatDateOnly(payment.paidAt)}`}
-                              className="h-8 w-8 rounded border border-border object-cover hover:border-subtle"
-                            />
-                          </button>
-                        ))}
+                        {payment.imageUrls.map((imageUrl, imageIndex) =>
+                          // A comprobante registered from a PDF the client
+                          // sent over WhatsApp — an <img>/lightbox can't
+                          // render it, so it opens in a new tab instead.
+                          isPdfUrl(imageUrl) ? (
+                            <a
+                              key={imageUrl}
+                              href={imageUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={`Abrir comprobante ${imageIndex + 1} del pago del ${formatDateOnly(payment.paidAt)} (PDF)`}
+                              className="flex h-8 w-8 items-center justify-center rounded border border-border bg-input text-[9px] text-muted hover:border-subtle hover:text-white"
+                            >
+                              PDF
+                            </a>
+                          ) : (
+                            <button
+                              key={imageUrl}
+                              type="button"
+                              onClick={() =>
+                                setEnlargedImage({
+                                  url: imageUrl,
+                                  alt: `Comprobante ${imageIndex + 1} del pago del ${formatDateOnly(payment.paidAt)}`,
+                                })
+                              }
+                              className="block"
+                            >
+                              <img
+                                src={imageUrl}
+                                alt={`Comprobante ${imageIndex + 1} del pago del ${formatDateOnly(payment.paidAt)}`}
+                                className="h-8 w-8 rounded border border-border object-cover hover:border-subtle"
+                              />
+                            </button>
+                          ),
+                        )}
                       </div>
                     ) : (
                       <span className="text-meta text-mid">—</span>
