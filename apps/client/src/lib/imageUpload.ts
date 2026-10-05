@@ -22,11 +22,13 @@
  * instead of two photos — see docs/phases/PHASE_21_CLIENT_PROFILE.md
  * "Uploads"). Cloudinary's `/image/upload` endpoint only accepts raster
  * images; PDFs need `resource_type: 'auto'` against the generic `/auto/
- * upload` endpoint instead, which detects image vs. raw automatically. The
- * payment-receipt path is image-only and unchanged in behavior — it's kept
- * on the narrower `/image/upload` endpoint rather than switched to `auto`,
- * so a non-image file picked by mistake still fails fast instead of
- * silently uploading as a raw resource.
+ * upload` endpoint instead, which detects image vs. raw automatically.
+ *
+ * The payment-receipt path was image-only until 2026-10-05 (human report —
+ * a comprobante is often a PDF the bank generates, not a photo). It now
+ * goes through `auto` too, but still fails fast on anything that isn't an
+ * image or a PDF (see uploadPaymentReceipt) instead of silently uploading
+ * it as a raw resource.
  */
 
 import { apiClient, ApiError } from '@/lib/apiClient';
@@ -111,12 +113,19 @@ async function uploadToCloudinary(
 // api and client docs are explicit about that), so this is only called
 // when the collector actually picked a file — never a required step.
 export async function uploadPaymentReceipt(file: File): Promise<string> {
+  // The picker's own accept="image/*,application/pdf" is only a hint — a
+  // user can still switch it to "all files" or drop something else in.
+  if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+    throw new ImageUploadError(
+      `"${file.name}" no es una foto ni un PDF. El comprobante debe ser una imagen o un PDF.`,
+    );
+  }
   return uploadToCloudinary(
     file,
     'payment-receipts',
-    'image',
-    'La subida de imágenes no está configurada (faltan las credenciales de Cloudinary en el api).',
-    'No se pudo subir la foto del comprobante. Intenta de nuevo.',
+    'auto',
+    'La subida de archivos no está configurada (faltan las credenciales de Cloudinary en el api).',
+    'No se pudo subir el comprobante. Intenta de nuevo.',
   );
 }
 
