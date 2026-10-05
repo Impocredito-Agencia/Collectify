@@ -50,6 +50,27 @@ describe('ReceiptPhotosField', () => {
     );
   });
 
+  it('accepts a PDF comprobante and shows it as a link to the file, not a thumbnail', () => {
+    const onChange = vi.fn();
+    const { container } = render(<ReceiptPhotosField onChange={onChange} />);
+    const pdf = new File(['%PDF'], 'transferencia.pdf', {
+      type: 'application/pdf',
+    });
+
+    pickFiles(container, [pdf]);
+
+    expect(onChange).toHaveBeenLastCalledWith([pdf]);
+    expect(
+      screen
+        .getByRole('link', { name: 'Abrir transferencia.pdf' })
+        .getAttribute('href'),
+    ).toBe('blob:preview-1');
+    expect(screen.queryByAltText('Vista previa del comprobante')).toBeNull();
+    expect(
+      container.querySelector('input[type="file"]')?.getAttribute('accept'),
+    ).toBe('image/*,application/pdf');
+  });
+
   it('starts empty and does not call back until something is picked', () => {
     const onChange = vi.fn();
     render(<ReceiptPhotosField onChange={onChange} />);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
+import { ReceiptFilePreview } from '@/components/ui/ReceiptFilePreview';
 
 import type { ChangeEvent } from 'react';
 
@@ -19,7 +20,8 @@ interface ReceiptPhotosFieldProps {
   disabled?: boolean;
 }
 
-// The "pick photos of the comprobante, see thumbnails, remove one" control,
+// The "pick photos (or PDFs) of the comprobante, see thumbnails, remove one"
+// control,
 // for dialogs that just need the files (PayoffDialog). RegisterPaymentDialog
 // and BulkRegisterPaymentDialog each keep their own copy of this same
 // behavior because they also carry per-row/pre-attached photo state — left
@@ -78,10 +80,9 @@ export function ReceiptPhotosField({
               key={photo.previewUrl}
               className="flex flex-col items-center gap-1"
             >
-              <img
-                src={photo.previewUrl}
-                alt="Vista previa del comprobante"
-                className="h-[42px] w-[42px] rounded border border-border object-cover"
+              <ReceiptFilePreview
+                file={photo.file}
+                previewUrl={photo.previewUrl}
               />
               <button
                 type="button"
@@ -98,7 +99,7 @@ export function ReceiptPhotosField({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf"
         multiple
         onChange={handleFileChange}
         className="hidden"
@@ -110,7 +111,7 @@ export function ReceiptPhotosField({
         disabled={disabled}
         className="w-fit"
       >
-        Agregar foto
+        Agregar foto o PDF
       </Button>
     </div>
   );
