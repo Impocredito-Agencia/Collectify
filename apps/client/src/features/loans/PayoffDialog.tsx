@@ -85,7 +85,7 @@ export function PayoffDialog({
           setConfirmError(
             err instanceof ImageUploadError
               ? err.message
-              : 'No se pudo subir una de las fotos del comprobante. Intenta de nuevo.',
+              : 'No se pudo subir uno de los archivos del comprobante. Intenta de nuevo.',
           );
           return;
         }
@@ -295,7 +295,7 @@ export function PayoffDialog({
       )}
 
       <div className="mt-5">
-        <Field label="Fotos del comprobante (opcional)" layout="stack">
+        <Field label="Comprobante: fotos o PDF (opcional)" layout="stack">
           <ReceiptPhotosField
             onChange={setReceiptFiles}
             disabled={isSubmitting}

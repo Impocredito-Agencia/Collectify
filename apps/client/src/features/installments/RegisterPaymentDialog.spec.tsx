@@ -126,3 +126,80 @@ describe('RegisterPaymentDialog — mora waiver', () => {
     expect(screen.getByText('Condonar mora')).toBeTruthy();
   });
 });
+
+// The comprobante a client sent over WhatsApp, already re-hosted (see
+// RegisterPaymentFromWhatsappModal) — it can be a photo or a PDF.
+describe('RegisterPaymentDialog — comprobante pre-attached from WhatsApp', () => {
+  const pdfUrl =
+    'https://res.cloudinary.com/demo/image/upload/v1/whatsapp-media/abc.pdf';
+  const photoUrl =
+    'https://res.cloudinary.com/demo/image/upload/v1/whatsapp-media/abc.jpg';
+
+  function renderWithComprobante(url: string) {
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
+    render(
+      <RegisterPaymentDialog
+        installment={noMoraInstallment}
+        loanLabel="#0907 — Nicolas"
+        initialImageUrls={[url]}
+        onClose={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    return onConfirm;
+  }
+
+  it('shows a PDF comprobante as a link to the file, not as a broken image', () => {
+    renderWithComprobante(pdfUrl);
+
+    const link = screen.getByRole('link', {
+      name: 'Abrir comprobante de WhatsApp (PDF)',
+    });
+    expect(link.getAttribute('href')).toBe(pdfUrl);
+    expect(screen.queryByAltText('Comprobante de WhatsApp')).toBeNull();
+  });
+
+  it('still shows a photo comprobante as a thumbnail', () => {
+    renderWithComprobante(photoUrl);
+
+    expect(
+      screen.getByAltText('Comprobante de WhatsApp').getAttribute('src'),
+    ).toBe(photoUrl);
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('saves the PDF comprobante with the payment', async () => {
+    const onConfirm = renderWithComprobante(pdfUrl);
+
+    fireEvent.change(screen.getAllByRole('textbox')[0], {
+      target: { value: '588000' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Sí, registrar pago' }),
+    );
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ imageUrls: [pdfUrl] }),
+    );
+  });
+
+  it('leaves the PDF out when the collector removes it', async () => {
+    const onConfirm = renderWithComprobante(pdfUrl);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar' }));
+    expect(screen.queryByRole('link')).toBeNull();
+
+    fireEvent.change(screen.getAllByRole('textbox')[0], {
+      target: { value: '588000' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Sí, registrar pago' }),
+    );
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    expect(onConfirm.mock.calls[0][0].imageUrls).toBeUndefined();
+  });
+});
