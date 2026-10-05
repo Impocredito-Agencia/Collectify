@@ -5,6 +5,7 @@ import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { Field } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
+import { ReceiptFilePreview } from '@/components/ui/ReceiptFilePreview';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, isPdfUrl } from '@/lib/format';
 import { ImageUploadError, uploadPaymentReceipt } from '@/lib/imageUpload';
@@ -218,7 +219,7 @@ export function RegisterPaymentDialog({
         setUploadError(
           err instanceof ImageUploadError
             ? err.message
-            : 'No se pudo subir una de las fotos del comprobante. Intenta de nuevo.',
+            : 'No se pudo subir uno de los archivos del comprobante. Intenta de nuevo.',
         );
         setIsUploadingImage(false);
         return;
@@ -388,7 +389,7 @@ export function RegisterPaymentDialog({
           />
         </Field>
 
-        <Field label="Fotos del comprobante (opcional)">
+        <Field label="Comprobante: fotos o PDF (opcional)">
           {preAttachedImageUrls.length > 0 && (
             <div className="flex flex-wrap items-center gap-3">
               {preAttachedImageUrls.map((url, index) => (
@@ -435,10 +436,9 @@ export function RegisterPaymentDialog({
                   key={image.previewUrl}
                   className="relative flex flex-col items-center gap-1"
                 >
-                  <img
-                    src={image.previewUrl}
-                    alt="Vista previa del comprobante"
-                    className="h-[42px] w-[42px] rounded border border-border object-cover"
+                  <ReceiptFilePreview
+                    file={image.file}
+                    previewUrl={image.previewUrl}
                   />
                   <button
                     type="button"
@@ -461,7 +461,7 @@ export function RegisterPaymentDialog({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf"
             multiple
             onChange={handleFileChange}
             className="hidden"
@@ -472,7 +472,7 @@ export function RegisterPaymentDialog({
             onClick={() => fileInputRef.current?.click()}
             className="w-fit"
           >
-            Agregar foto
+            Agregar foto o PDF
           </Button>
           {uploadError && (
             <p className="text-small text-danger" role="alert">
@@ -495,7 +495,7 @@ export function RegisterPaymentDialog({
           </Button>
           <Button type="submit" disabled={isSubmitting || isUploadingImage}>
             {isUploadingImage
-              ? 'Subiendo foto…'
+              ? 'Subiendo comprobante…'
               : isSubmitting
                 ? 'Registrando…'
                 : 'Registrar pago'}

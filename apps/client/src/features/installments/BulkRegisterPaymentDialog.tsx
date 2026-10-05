@@ -5,6 +5,7 @@ import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { Field } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
+import { ReceiptFilePreview } from '@/components/ui/ReceiptFilePreview';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency } from '@/lib/format';
 import { ImageUploadError, uploadPaymentReceipt } from '@/lib/imageUpload';
@@ -232,7 +233,7 @@ export function BulkRegisterPaymentDialog({
       setError(
         err instanceof ImageUploadError
           ? err.message
-          : 'No se pudo subir una de las fotos del comprobante. Intenta de nuevo.',
+          : 'No se pudo subir uno de los archivos del comprobante. Intenta de nuevo.',
       );
       setIsUploadingImages(false);
       return;
@@ -383,7 +384,7 @@ export function BulkRegisterPaymentDialog({
                       Condonar mora
                     </Button>
                   ))}
-                <Field label="Fotos del comprobante (opcional)">
+                <Field label="Comprobante: fotos o PDF (opcional)">
                   {row.images.length > 0 && (
                     <div className="flex flex-wrap items-center gap-3">
                       {row.images.map((image, imageIndex) => (
@@ -391,10 +392,9 @@ export function BulkRegisterPaymentDialog({
                           key={image.previewUrl}
                           className="flex flex-col items-center gap-1"
                         >
-                          <img
-                            src={image.previewUrl}
-                            alt="Vista previa del comprobante"
-                            className="h-[42px] w-[42px] rounded border border-border object-cover"
+                          <ReceiptFilePreview
+                            file={image.file}
+                            previewUrl={image.previewUrl}
                           />
                           <button
                             type="button"
@@ -415,7 +415,7 @@ export function BulkRegisterPaymentDialog({
                       fileInputRefs.current[index] = el;
                     }}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,application/pdf"
                     multiple
                     onChange={(event) => handleFileChange(index, event)}
                     className="hidden"
@@ -426,7 +426,7 @@ export function BulkRegisterPaymentDialog({
                     onClick={() => fileInputRefs.current[index]?.click()}
                     className="w-fit"
                   >
-                    Agregar foto
+                    Agregar foto o PDF
                   </Button>
                 </Field>
               </div>
@@ -461,7 +461,7 @@ export function BulkRegisterPaymentDialog({
           </Button>
           <Button type="submit" disabled={isSubmitting || isUploadingImages}>
             {isUploadingImages
-              ? 'Subiendo fotos…'
+              ? 'Subiendo comprobantes…'
               : isSubmitting
                 ? 'Registrando…'
                 : `Registrar ${installments.length} pagos`}
