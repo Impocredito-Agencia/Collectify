@@ -6,7 +6,7 @@ import { DatePicker } from '@/components/ui/DatePicker';
 import { Field } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
 import { ApiError } from '@/lib/apiClient';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrency, isPdfUrl } from '@/lib/format';
 import { ImageUploadError, uploadPaymentReceipt } from '@/lib/imageUpload';
 import { maxWaivableMora, requiredPaymentWithWaiver } from '@/lib/moraWaiver';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -396,11 +396,27 @@ export function RegisterPaymentDialog({
                   key={url}
                   className="relative flex flex-col items-center gap-1"
                 >
-                  <img
-                    src={url}
-                    alt="Comprobante de WhatsApp"
-                    className="h-[42px] w-[42px] rounded border border-border object-cover"
-                  />
+                  {/* A comprobante the client sent over WhatsApp as a PDF
+                      can't render as an <img> — same "PDF" tile that
+                      opens the file in a new tab as ClientDetailPage's
+                      DocumentThumbnail. */}
+                  {isPdfUrl(url) ? (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="Abrir comprobante de WhatsApp (PDF)"
+                      className="flex h-[42px] w-[42px] items-center justify-center rounded border border-border bg-input text-meta text-muted hover:border-subtle hover:text-white"
+                    >
+                      PDF
+                    </a>
+                  ) : (
+                    <img
+                      src={url}
+                      alt="Comprobante de WhatsApp"
+                      className="h-[42px] w-[42px] rounded border border-border object-cover"
+                    />
+                  )}
                   <button
                     type="button"
                     onClick={() => handleRemovePreAttachedImage(index)}
