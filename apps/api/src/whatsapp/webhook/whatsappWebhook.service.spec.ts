@@ -1,12 +1,17 @@
 import { createHmac } from 'crypto';
 
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { In } from 'typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
+import { BankAccountService } from '../bankAccount.service';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import {
   WhatsappTicketStatus,
@@ -68,6 +73,7 @@ describe('WhatsappWebhookService', () => {
     sendTemplateMessage: jest.Mock;
   };
   let whatsappOutboundLogService: { log: jest.Mock };
+  let bankAccountService: { get: jest.Mock };
   let selfServiceMenuService: { handleInboundEvent: jest.Mock };
   let conversationStateService: { getActive: jest.Mock; clear: jest.Mock };
   let conversationTicketService: {
@@ -119,6 +125,13 @@ describe('WhatsappWebhookService', () => {
       log: jest.fn((params: Record<string, unknown>) =>
         Promise.resolve({ id: 'reply-1', ...params }),
       ),
+    };
+    bankAccountService = {
+      get: jest.fn().mockResolvedValue({
+        bankAccount: null,
+        messagePreview: null,
+        updatedAt: null,
+      }),
     };
     selfServiceMenuService = {
       handleInboundEvent: jest.fn().mockResolvedValue(undefined),
@@ -180,6 +193,7 @@ describe('WhatsappWebhookService', () => {
           useValue: conversationTicketService,
         },
         { provide: WhatsappMediaService, useValue: whatsappMediaService },
+        { provide: BankAccountService, useValue: bankAccountService },
       ],
     }).compile();
 
@@ -1336,6 +1350,99 @@ describe('WhatsappWebhookService', () => {
         expect.objectContaining({ sent: false }),
       );
       expect(result).toBe(false);
+    });
+  });
+
+  describe('sendBankAccountTemplate', () => {
+    const configuredBankAccount = () =>
+      bankAccountService.get.mockResolvedValue({
+        bankAccount: 'Bancolombia Ahorros No. 123-456 / Alejandro Martinez',
+        messagePreview: 'ignored',
+        updatedAt: new Date(),
+      });
+
+    it('sends cuenta_bancaria with the configured account and logs it', async () => {
+      configuredBankAccount();
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: 'wamid.BANK_ACCOUNT',
+      });
+      clientsRepository.findOne.mockResolvedValue({ id: 'client-1' });
+
+      const result = await service.sendBankAccountTemplate(
+        '573001234567',
+        'user-1',
+      );
+
+      expect(clientsRepository.findOne).toHaveBeenCalledWith({
+        where: [
+          { phoneNumber: '+573001234567' },
+          { alternatePhoneNumber: '+573001234567' },
+        ],
+      });
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalledWith(
+        '+573001234567',
+        'cuenta_bancaria',
+        'es',
+        ['Bancolombia Ahorros No. 123-456 / Alejandro Martinez'],
+      );
+      expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith({
+        clientId: 'client-1',
+        phoneNumber: '+573001234567',
+        messageContent:
+          'Podrás enviar el dinero de tu cuota a la siguiente cuenta bancaria, o llave BRE-B, es muy importante que leas y escribas los datos con atención:\n\n' +
+          'Bancolombia Ahorros No. 123-456 / Alejandro Martinez\n\n' +
+          'Una vez realizado, debes enviar tu comprobante de forma clara y legible para que podamos dar procedencia a tu pago, proceso que puede tardar hasta 24 horas. Gracias!',
+        sentByUserId: 'user-1',
+        sent: true,
+        whatsappMessageId: 'wamid.BANK_ACCOUNT',
+      });
+      expect(result).toBe(true);
+    });
+
+    it('still sends to a number that matches no client', async () => {
+      configuredBankAccount();
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: true,
+        whatsappMessageId: null,
+      });
+      clientsRepository.findOne.mockResolvedValue(null);
+
+      await service.sendBankAccountTemplate('+573001234567', 'user-1');
+
+      expect(whatsAppService.sendTemplateMessage).toHaveBeenCalled();
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ clientId: null, sentByUserId: 'user-1' }),
+      );
+    });
+
+    it('logs a failed send and returns false', async () => {
+      configuredBankAccount();
+      whatsAppService.sendTemplateMessage.mockResolvedValue({
+        sent: false,
+        whatsappMessageId: null,
+      });
+      clientsRepository.findOne.mockResolvedValue(null);
+
+      const result = await service.sendBankAccountTemplate(
+        '+573001234567',
+        'user-1',
+      );
+
+      expect(whatsappOutboundLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ sent: false }),
+      );
+      expect(result).toBe(false);
+    });
+
+    it('refuses to send while no bank account is configured', async () => {
+      await expect(
+        service.sendBankAccountTemplate('+573001234567', 'user-1'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
+      expect(whatsappOutboundLogService.log).not.toHaveBeenCalled();
     });
   });
 

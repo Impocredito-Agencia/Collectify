@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -13,6 +14,12 @@ import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Configuration } from '../../config/configuration';
+import { BankAccountService } from '../bankAccount.service';
+import {
+  BANK_ACCOUNT_TEMPLATE_LANGUAGE_CODE,
+  BANK_ACCOUNT_TEMPLATE_NAME,
+  buildBankAccountTemplateMessage,
+} from '../bankAccountTemplate';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import {
   WhatsappTicketStatus,
@@ -196,6 +203,7 @@ export class WhatsappWebhookService {
     private readonly conversationTicketService: WhatsappConversationTicketService,
     private readonly whatsappMediaService: WhatsappMediaService,
     private readonly whatsappOutboundLogService: WhatsappOutboundLogService,
+    private readonly bankAccountService: BankAccountService,
   ) {}
 
   // Meta's one-time verification handshake — echoes hub.challenge back only
@@ -834,6 +842,51 @@ export class WhatsappWebhookService {
         phoneNumber,
         FOLLOW_UP_TEMPLATE_NAME,
         FOLLOW_UP_TEMPLATE_LANGUAGE_CODE,
+        bodyParameters,
+      );
+
+    await this.whatsappOutboundLogService.log({
+      clientId: client?.id ?? null,
+      phoneNumber,
+      messageContent,
+      sentByUserId,
+      sent,
+      whatsappMessageId,
+    });
+
+    return sent;
+  }
+
+  // Human request, 2026-10-09 — the inbox's "Enviar cuenta bancaria"
+  // button. Same shape as sendFollowUpTemplate above (a Meta template, so
+  // it goes out at any time, logged like a manual reply), except {{1}} is
+  // the account an admin entered from the panel — see BankAccountService.
+  // Refuses to send rather than deliver a message with nowhere to pay.
+  async sendBankAccountTemplate(
+    rawPhoneNumber: string,
+    sentByUserId: string,
+  ): Promise<boolean> {
+    const { bankAccount } = await this.bankAccountService.get();
+    if (!bankAccount) {
+      throw new BadRequestException(
+        'Todavía no hay una cuenta bancaria configurada. Ingrésala en Plantillas de mensaje.',
+      );
+    }
+
+    const phoneNumber = normalizeIncomingPhoneNumber(rawPhoneNumber);
+    // Matches either known number — see sendManualReply's identical
+    // comment.
+    const client = await this.clientsRepository.findOne({
+      where: [{ phoneNumber }, { alternatePhoneNumber: phoneNumber }],
+    });
+    const { bodyParameters, messageContent } =
+      buildBankAccountTemplateMessage(bankAccount);
+
+    const { sent, whatsappMessageId } =
+      await this.whatsAppService.sendTemplateMessage(
+        phoneNumber,
+        BANK_ACCOUNT_TEMPLATE_NAME,
+        BANK_ACCOUNT_TEMPLATE_LANGUAGE_CODE,
         bodyParameters,
       );
 

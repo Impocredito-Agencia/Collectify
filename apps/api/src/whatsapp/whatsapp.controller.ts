@@ -182,6 +182,33 @@ export class WhatsappController {
     return { sent };
   }
 
+  @Post('inbound-messages/bank-account')
+  @Audit('whatsapp.sendBankAccount', 'whatsappReply')
+  @ApiOperation({
+    summary:
+      'Send the cuenta_bancaria template to a conversation (admin or granted the messages module)',
+    description:
+      "A Meta template, so it reaches the client at any time, 24h session window open or not. {{1}} is the account set via PUT /bank-account — preview the exact text with GET /bank-account first. Logged to the conversation's thread like a manual reply.",
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns whether the send actually succeeded.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'phoneNumber missing, or no bank account configured yet.',
+  })
+  async sendBankAccountTemplate(
+    @Body() dto: PhoneNumberDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<{ sent: boolean }> {
+    const sent = await this.whatsappWebhookService.sendBankAccountTemplate(
+      dto.phoneNumber,
+      currentUser.id,
+    );
+    return { sent };
+  }
+
   // Human report, 2026-09-14 — scoped to one conversation (clientId or
   // fromPhoneNumber) since findConversations replaced the old flat,
   // globally-capped fetch this used to back — see getManualReplies' own
