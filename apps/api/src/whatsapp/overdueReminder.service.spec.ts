@@ -337,6 +337,10 @@ describe('OverdueReminderService', () => {
           installmentId: 'inst-1',
         }),
       ]);
+      // The single-cuota body already names the cuota — no desglose stored.
+      expect(messageLogsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ breakdownContent: null }),
+      );
     });
 
     it('sends the 30-day MultipleOverdueInstallments variant across several loans (fixtures are past 30 days)', async () => {
@@ -355,6 +359,13 @@ describe('OverdueReminderService', () => {
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.MultipleOverdueInstallmentsOver30Days,
       );
+      // Human report, 2026-10-09 — the template only reports a count and
+      // a summed total, so the cuota-by-cuota desglose is stored with it.
+      const [[savedLog]] = messageLogsRepository.create.mock.calls as [
+        [{ breakdownContent: string | null }],
+      ];
+      expect(savedLog.breakdownContent).toContain('Pagaré #959:');
+      expect(savedLog.breakdownContent?.match(/Cuota No\. /g)).toHaveLength(2);
     });
 
     it('sends the 30-day UpcomingAndOverdueMixed variant when the client has both (fixtures are past 30 days)', async () => {

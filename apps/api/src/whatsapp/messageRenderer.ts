@@ -293,13 +293,14 @@ export function calculateAccountSummaryTotal(
     .reduce((sum, item) => sum + item.totalDue, 0);
 }
 
-export function renderAccountSummaryMessage(
-  templateContent: string,
-  clientFullName: string,
+// The per-pagaré, per-cuota list on its own — shared by the self-service
+// desglose below and by reminderBreakdown.ts's internal snapshot of what
+// an aggregated reminder covered.
+export function renderInstallmentsBreakdownList(
   installments: AccountSummaryInstallmentForMessage[],
 ): string {
   const groups = groupByPromissoryNote(installments);
-  const installmentsList = Array.from(groups.entries())
+  return Array.from(groups.entries())
     .map(([promissoryNoteNumber, groupInstallments]) => {
       const lines = groupInstallments
         .map(renderAccountSummaryInstallmentLine)
@@ -310,6 +311,14 @@ export function renderAccountSummaryMessage(
       return `Pagaré ${formatPromissoryNoteLabel(promissoryNoteNumber)}:\n\n${lines}`;
     })
     .join('\n\n');
+}
+
+export function renderAccountSummaryMessage(
+  templateContent: string,
+  clientFullName: string,
+  installments: AccountSummaryInstallmentForMessage[],
+): string {
+  const installmentsList = renderInstallmentsBreakdownList(installments);
   const grandTotal = formatCurrency(calculateAccountSummaryTotal(installments));
 
   return templateContent
