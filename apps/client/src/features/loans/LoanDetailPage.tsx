@@ -46,6 +46,7 @@ import {
   useAlignInstallmentDueDay,
   useLoan,
   useLoanPayments,
+  useLoanPayoffQuote,
   usePayoffLoan,
   useRefinanceLoan,
   useRemoveLoan,
@@ -105,6 +106,11 @@ export function LoanDetailPage() {
   const { data: loan, isLoading, isError } = useLoan(id ?? '');
   const { data: client } = useClient(loan?.clientId ?? '');
   const { data: payments } = useLoanPayments(id ?? '');
+  const isActiveLoan = loan?.status === LoanStatus.Active;
+  const { data: payoffQuote, isError: isPayoffQuoteError } = useLoanPayoffQuote(
+    id ?? '',
+    isActiveLoan,
+  );
   const registerPayment = useRegisterPayment(id ?? '');
   const registerBulkPayments = useRegisterBulkPayments(id ?? '');
   const voidPayment = useVoidPayment(id ?? '');
@@ -470,7 +476,13 @@ export function LoanDetailPage() {
 
       <ClientCreditBanner clientId={loan.clientId} loanId={loan.id} />
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      {/* 7 cards while the loan is active (the payoff card below), 6
+          otherwise — 4 + 3 reads better than 6 + 1 orphaned on its own row. */}
+      <div
+        className={`grid grid-cols-2 gap-4 sm:grid-cols-3 ${
+          isActiveLoan ? 'lg:grid-cols-4' : 'lg:grid-cols-6'
+        }`}
+      >
         {/* Human request, 2026-09-27 — placed first so it's the first thing
             a cobrador sees when opening this loan to collect; only the
             figure itself turns red (via tone="danger") when something is
@@ -480,6 +492,25 @@ export function LoanDetailPage() {
           value={formatCurrency(totalOverdueOnThisLoan)}
           tone={totalOverdueOnThisLoan > 0 ? 'danger' : 'default'}
         />
+        {/* Human request, 2026-10-09 — "cuánto debe pagar un cliente si
+            paga todo hoy". The early-payoff quote's own total (the exact
+            figure "Liquidar anticipadamente" would charge), not "Saldo
+            total" below: a cuota that hasn't come due yet is settled at
+            its capital only, with no interest for a period that hasn't
+            happened. Only for an active loan — there's nothing left to
+            settle on any other. */}
+        {isActiveLoan && (
+          <StatCard
+            label="Si paga todo hoy"
+            value={
+              payoffQuote
+                ? formatCurrency(payoffQuote.totalDue)
+                : isPayoffQuoteError
+                  ? '—'
+                  : '…'
+            }
+          />
+        )}
         <StatCard
           label="Capital original sin incremento"
           value={formatCurrency(loan.principalAmount)}

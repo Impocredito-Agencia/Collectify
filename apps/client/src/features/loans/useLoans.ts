@@ -81,6 +81,19 @@ export function useUpdateLoan() {
   });
 }
 
+// Human request, 2026-10-09 — the same payoff quote as usePayoffQuote
+// below, but as a query: LoanDetailPage's "Si paga todo hoy" card shows it
+// as soon as the page opens, no button involved. Keyed under ['loans', id]
+// so every payment/edit that already invalidates the loan refreshes this
+// figure too.
+export function useLoanPayoffQuote(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['loans', id, 'payoff-quote'],
+    queryFn: () => loansApi.getPayoffQuote(id),
+    enabled: enabled && Boolean(id),
+  });
+}
+
 // Not a useQuery — fetched on demand when the "Liquidar anticipadamente"
 // dialog opens (via .mutateAsync), same pattern as usePreviewSchedule.
 export function usePayoffQuote() {
