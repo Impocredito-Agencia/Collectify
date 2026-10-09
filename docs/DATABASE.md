@@ -623,6 +623,20 @@ Added 2026-09-23 (human report — "que pueda marcar el chat cerrado, para que s
 
 **Inbox ordering, same report:** the list was already ordered by each conversation's most recent event across all three sources, but an open panel only refetched it on an inbound message, so a reply or a reminder going out didn't move that chat to the top until a reload. It now also refetches on `manual-reply` and on a new debounced `conversation-update` gateway event, emitted after a close and after any `message_logs` insert (`MessageLogSubscriber`, a TypeORM entity subscriber — covers every reminder/confirmation service without threading the gateway through each).
 
+### Desglose a una fecha (read-only, no schema change)
+
+Added 2026-10-09 (human report — "los clientes mandan comprobantes viejos, por ejemplo yo le mando un comprobante hoy pero de una transacción que hice hace 1 semana … quieren ver ese día cómo estaban desglosadas las cuotas con valores exactos"). Mora grows every day, so by the time an old comprobante reaches the inbox, today's figures no longer match what the client owed on the day of the transfer.
+
+`GET /whatsapp/clients/:clientId/breakdown?date=YYYY-MM-DD` (`ClientBreakdownService.getBreakdownAsOf`, messages module) values a client's installments as they stood at the end of that Bogotá calendar day. Nothing is stored — it's the same `enrichInstallment()` math as everywhere else, given that day instead of "now" (its new optional `today` parameter). The rules:
+
+- **Which cuotas:** only those still `pending` today on an `active` loan — the ones a late comprobante can still be applied to. A cuota already paid in full today is not listed, and neither is one from a pagaré whose `disbursed_at` is after `date`.
+- **Mora / días vencidos:** computed for `date`, including the grace period (`MORA_GRACE_PERIOD_DAYS`).
+- **Abonos:** only payments with `paid_at <= date` are netted out (`amount_paid + mora_waived_amount`, same sum as `sumPaymentsByInstallmentId`). A partial payment dated after `date` is ignored, as it hadn't happened yet.
+- **`totalPayableOnDate`:** the cuotas overdue or due on `date` itself, same rule as the client-facing desglose (`calculateAccountSummaryTotal`).
+- `date` later than today is rejected with 400.
+
+Shown in the inbox's "Ver información" panel ("Desglose a una fecha"). **Informational only:** `POST /installments/:id/payments` is unchanged and still validates and closes a cuota against today's balance, whatever `paid_at` the payment carries.
+
 ### `app_settings`
 
 Added 2026-10-09 (human request — "la idea es que el admin ponga la cuenta desde algún punto en el menú, porque a veces cambian de cuenta"). A value an admin changes from the panel rather than through a deploy. One row per key, upserted.
