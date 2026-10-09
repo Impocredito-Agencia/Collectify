@@ -1,5 +1,6 @@
 import { CloseButton } from '@/components/ui/CloseButton';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { MessageBreakdown } from '@/features/messageLogs/MessageBreakdown';
 import { useMessageLogItems } from '@/features/messageLogs/useMessageLogs';
 import { formatCurrency, formatPhoneNumber } from '@/lib/format';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -91,6 +92,9 @@ export function MessageLogDrawer({ log, onClose }: MessageLogDrawerProps) {
               {log.messageContent}
             </p>
           </div>
+          {log.breakdownContent && (
+            <MessageBreakdown breakdownContent={log.breakdownContent} />
+          )}
         </div>
 
         <div className="mt-5 border-t border-border" />

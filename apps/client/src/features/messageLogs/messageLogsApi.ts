@@ -35,6 +35,11 @@ export interface MessageLog {
   type: MessageType;
   phoneNumber: string;
   messageContent: string;
+  // Human report, 2026-10-09 — the cuota-by-cuota desglose behind a
+  // reminder that covers several cuotas, snapshotted at send time.
+  // Internal: never part of what the client received. Null for every
+  // other message and for rows sent before this existed.
+  breakdownContent: string | null;
   status: MessageLogStatus;
   sentAt: string;
   whatsappMessageId: string | null;

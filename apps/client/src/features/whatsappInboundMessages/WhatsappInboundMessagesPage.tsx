@@ -13,6 +13,7 @@ import {
   moraBadgeClasses,
 } from '@/features/loans/loanStatusDisplay';
 import { useLoan, useLoans } from '@/features/loans/useLoans';
+import { MessageBreakdown } from '@/features/messageLogs/MessageBreakdown';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogsForClient } from '@/features/messageLogs/useMessageLogs';
 import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
@@ -1543,6 +1544,9 @@ function AutomatedMessageBubble({ log }: { log: MessageLog }) {
       <p className="whitespace-pre-wrap text-small text-white">
         {log.messageContent}
       </p>
+      {log.breakdownContent && (
+        <MessageBreakdown breakdownContent={log.breakdownContent} />
+      )}
     </div>
   );
 }
