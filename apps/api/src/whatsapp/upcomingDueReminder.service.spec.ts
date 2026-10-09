@@ -235,6 +235,9 @@ describe('UpcomingDueReminderService', () => {
         MessageType.SingleUpcomingInstallment,
       );
       expect(result.status).toBe(MessageLogStatus.Sent);
+      expect(messageLogsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ breakdownContent: null }),
+      );
     });
 
     it('sends MultipleUpcomingInstallments for more than one', async () => {
@@ -251,6 +254,11 @@ describe('UpcomingDueReminderService', () => {
       expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.MultipleUpcomingInstallments,
       );
+      // Human report, 2026-10-09 — see reminderBreakdown.ts.
+      const [[savedLog]] = messageLogsRepository.create.mock.calls as [
+        [{ breakdownContent: string | null }],
+      ];
+      expect(savedLog.breakdownContent?.match(/Cuota No\. /g)).toHaveLength(2);
     });
 
     it('sends UpcomingAndOverdueMixed when the client also has an overdue installment', async () => {

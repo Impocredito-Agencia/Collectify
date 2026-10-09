@@ -30,6 +30,7 @@ import {
   groupInstallmentsByRecipient,
   restrictToTargetPhoneNumber,
 } from './reminderRecipientGrouping';
+import { renderReminderBreakdown } from './reminderBreakdown';
 import { selectReminderTemplate } from './reminderTemplateSelection';
 import { computeSaldoPendiente } from './saldoPendiente';
 import { renderTemplateBody } from './templateBodyRenderer';
@@ -195,6 +196,10 @@ export class OverdueReminderService {
           messageContent: renderTemplateBody(
             template.content,
             selection.bodyParameters,
+          ),
+          breakdownContent: renderReminderBreakdown(
+            group.overdue,
+            group.upcoming,
           ),
           status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
           sentAt: new Date(),

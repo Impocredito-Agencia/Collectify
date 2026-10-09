@@ -39,6 +39,7 @@ describe('MessageLogsService', () => {
     type: MessageType.SingleOverdueInstallment,
     phoneNumber: '+573001234567',
     messageContent: 'Hola...',
+    breakdownContent: null,
     status: MessageLogStatus.Sent,
     sentAt: new Date(),
     whatsappMessageId: null,

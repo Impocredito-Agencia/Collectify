@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { BankAccountCard } from '@/features/bankAccount/BankAccountCard';
 import {
   buildCronExpression,
   DEFAULT_SCHEDULE_CONFIG,
@@ -108,8 +109,10 @@ export function MessageTemplatesPage() {
     <div className="flex flex-col gap-5">
       <Header
         title="Plantillas de mensaje"
-        subtitle="Solo ADMIN — Contenido fijo, no editable"
+        subtitle="Solo ADMIN — Contenido fijo; solo la cuenta bancaria es editable"
       />
+
+      <BankAccountCard />
 
       {isLoading && <p className="text-small text-muted">Cargando…</p>}
       {isError && (

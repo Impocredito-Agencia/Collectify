@@ -12,6 +12,10 @@ import { Payment } from '../loans/entities/payment.entity';
 import { UploadsModule } from '../uploads/uploads.module';
 import { UsersModule } from '../users/users.module';
 
+import { BankAccountController } from './bankAccount.controller';
+import { BankAccountService } from './bankAccount.service';
+import { ClientBreakdownService } from './clientBreakdown.service';
+import { AppSetting } from './entities/appSetting.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
@@ -63,6 +67,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
       WhatsappConversationState,
       WhatsappConversationTicket,
       WhatsappConversationClosure,
+      AppSetting,
       Client,
       ClientMessageFrequency,
       Installment,
@@ -95,6 +100,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     MessageTemplatesController,
     MessageLogsController,
     WhatsappWebhookController,
+    BankAccountController,
   ],
   providers: [
     WhatsAppService,
@@ -114,6 +120,8 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     WhatsappConversationTicketService,
     SelfServiceMenuService,
     WhatsappOutboundLogService,
+    BankAccountService,
+    ClientBreakdownService,
   ],
   // LoansService calls NewLoanReminderService synchronously after creating
   // a loan — see docs/phases/PHASE_9_MESSAGE_TYPES.md. WhatsappModule does

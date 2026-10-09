@@ -556,7 +556,9 @@ describe('SelfServiceMenuService', () => {
 
       expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
         client.phoneNumber,
-        expect.stringContaining('Recibimos tu comprobante'),
+        'Hola, Señor/a Juan Pérez, recibimos tu comprobante, agradecemos ' +
+          'tu cumplimiento y uno de nuestros asesores lo revisará pronto. ' +
+          'Intentaremos hacerlo lo más rápido posible, Gracias!',
       );
       expect(conversationStateService.upsert).toHaveBeenCalledWith(
         client.phoneNumber,

@@ -54,14 +54,23 @@ export const VOLVER_AL_MENU_BUTTONS: InteractiveButton[] = [
 export const RECEIPT_REQUEST_MESSAGE =
   'Perfecto, envíanos la foto o el PDF de tu comprobante de pago.';
 
-export const RECEIPT_RECEIVED_MESSAGE =
-  'Recibimos tu comprobante, un asesor lo revisará en breve.';
+// Human report, 2026-10-09 — greets the client by name (same "Señor/a"
+// tratamiento as every reminder template) and thanks them for paying,
+// instead of the bare "Recibimos tu comprobante, un asesor lo revisará en
+// breve." A plain session message, so the wording is free to change here.
+export function renderReceiptReceivedMessage(clientFullName: string): string {
+  return (
+    `Hola, ${formatTratamiento(clientFullName)}, recibimos tu comprobante, ` +
+    'agradecemos tu cumplimiento y uno de nuestros asesores lo revisará ' +
+    'pronto. Intentaremos hacerlo lo más rápido posible, Gracias!'
+  );
+}
 
 // Confirmed with the human, 2026-09-13 — see businessHours.ts's own
 // comment for why there's no festivos check.
 const BUSINESS_HOURS_LABEL = 'lunes a viernes 9am–7pm, sábados 9am–4pm';
 
-// Human report, 2026-09-13 — sent instead of RECEIPT_RECEIVED_MESSAGE when
+// Human report, 2026-09-13 — sent instead of renderReceiptReceivedMessage when
 // the receipt arrives outside business hours (see businessHours.ts). A
 // plain session message, not a Meta template — the client's own inbound
 // message just reopened the 24h window, so this can go out instantly

@@ -13,10 +13,13 @@ import {
   moraBadgeClasses,
 } from '@/features/loans/loanStatusDisplay';
 import { useLoan, useLoans } from '@/features/loans/useLoans';
+import { MessageBreakdown } from '@/features/messageLogs/MessageBreakdown';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogsForClient } from '@/features/messageLogs/useMessageLogs';
 import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
 import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMessages/RegisterPaymentFromWhatsappModal';
+import { ClientBreakdownAsOf } from '@/features/whatsappInboundMessages/ClientBreakdownAsOf';
+import { SendBankAccountButton } from '@/features/whatsappInboundMessages/SendBankAccountButton';
 import { SendFollowUpButton } from '@/features/whatsappInboundMessages/SendFollowUpButton';
 import { whatsappInboundMediaApi } from '@/features/whatsappInboundMessages/whatsappInboundMediaApi';
 import {
@@ -921,6 +924,7 @@ function ConversationThread({
             phoneNumber={conversation.phoneNumber}
             clientName={conversation.clientId ? conversation.displayName : null}
           />
+          <SendBankAccountButton phoneNumber={conversation.phoneNumber} />
           {showCloseConversationButton && (
             <CloseConversationButton
               phoneNumber={conversation.phoneNumber}
@@ -1541,6 +1545,9 @@ function AutomatedMessageBubble({ log }: { log: MessageLog }) {
       <p className="whitespace-pre-wrap text-small text-white">
         {log.messageContent}
       </p>
+      {log.breakdownContent && (
+        <MessageBreakdown breakdownContent={log.breakdownContent} />
+      )}
     </div>
   );
 }
@@ -1632,6 +1639,8 @@ function ClientInfoPanel({
           ✕
         </button>
       </div>
+
+      <ClientBreakdownAsOf clientId={clientId} />
 
       {isLoading && <p className="text-small text-muted">Cargando…</p>}
       {isError && (

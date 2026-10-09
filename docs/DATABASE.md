@@ -397,6 +397,7 @@ One row per reminder **actually sent to a client** — not per installment. **20
 | `type` | ENUM — widened after Phase 33 to the union of the old 4 values and the new 13, since this table is append-only history: existing rows keep whichever value they already had, only new rows use the 13-value catalog | which message flow produced this log |
 | `phone_number` | VARCHAR | snapshot at send time |
 | `message_content` | TEXT | **Changed 2026-09-14** (human report — an admin reading a conversation's log couldn't tell if a real message had gone out, since this used to be just the ordered body parameters joined by `" \| "` for reference, e.g. `"Señor/a Juana Pérez \| 7 \| #1021 \| 17 \| Cuenta con un saldo a favor de $0."` — never the client-facing text). Now the real rendered body: `message_templates.content` (the literal Meta-approved wording, with its `{{1}}`, `{{2}}`, ... placeholders) with those same parameters substituted in via `renderTemplateBody()`, at send time — the exact text Meta sent the client, snapshotted once, not re-derived later against whatever `message_templates.content` says at read time (which could change via a future migration if a template is ever resubmitted with revised wording) |
+| `breakdown_content` | TEXT, nullable | **Added 2026-10-09** (human report — "cuando se manda la plantilla de varias cuotas vencidas, el mensaje las junta todas, entonces si un cliente manda el abono de una sola, ellos no pueden ver el desglose de ese mensaje"). The cuota-by-cuota desglose behind a reminder that covers more than one installment (`varias_cuota_vencida`, `proxima_vencer_y_vencida`, `varias_cuota_proxima_vencer` and their `*_30dias` variants), whose own body only reports a count and one summed total. Rendered once at send time by `renderReminderBreakdown()` (`whatsapp/reminderBreakdown.ts`) from the same installments the template parameters were built from — grouped by pagaré, one line per cuota with its own total (recargos included where they apply) and days overdue / until due — so it stays true to what was owed that day instead of being recalculated later. **Internal only: never sent to the client**, unlike `message_content`; the panel shows it under the message (inbox thread and the Mensajes drawer) labeled as such. Null for a single-cuota reminder (its body already names the cuota, pagaré and amount), for every non-reminder type, and for any row sent before this column existed (no backfill — per-cuota totals at send time were never stored; `message_log_items` only has days and interest). |
 | `status` | ENUM (`sent`, `failed`) | |
 | `sent_at` | TIMESTAMPTZ | |
 | `retried_at` | TIMESTAMPTZ, nullable | Added Phase 18 — set on the ORIGINAL (failed) row once it's manually retried. Still append-only: this is a stamp on the historical row, not an edit of what was actually sent. |
@@ -621,6 +622,37 @@ Added 2026-09-23 (human report — "que pueda marcar el chat cerrado, para que s
 **Backfill:** the migration seeds one closure per already-`resolved` ticket (`contact_key = client_id`, `closed_at = resolved_at`), so a conversation showing "Conversación cerrada" before deploy keeps showing it afterwards — unless the client has written since, under the same read-time rule as every other closure.
 
 **Inbox ordering, same report:** the list was already ordered by each conversation's most recent event across all three sources, but an open panel only refetched it on an inbound message, so a reply or a reminder going out didn't move that chat to the top until a reload. It now also refetches on `manual-reply` and on a new debounced `conversation-update` gateway event, emitted after a close and after any `message_logs` insert (`MessageLogSubscriber`, a TypeORM entity subscriber — covers every reminder/confirmation service without threading the gateway through each).
+
+### Desglose a una fecha (read-only, no schema change)
+
+Added 2026-10-09 (human report — "los clientes mandan comprobantes viejos, por ejemplo yo le mando un comprobante hoy pero de una transacción que hice hace 1 semana … quieren ver ese día cómo estaban desglosadas las cuotas con valores exactos"). Mora grows every day, so by the time an old comprobante reaches the inbox, today's figures no longer match what the client owed on the day of the transfer.
+
+`GET /whatsapp/clients/:clientId/breakdown?date=YYYY-MM-DD` (`ClientBreakdownService.getBreakdownAsOf`, messages module) values a client's installments as they stood at the end of that Bogotá calendar day. Nothing is stored — it's the same `enrichInstallment()` math as everywhere else, given that day instead of "now" (its new optional `today` parameter). The rules:
+
+- **Which cuotas:** only those still `pending` today on an `active` loan — the ones a late comprobante can still be applied to. A cuota already paid in full today is not listed, and neither is one from a pagaré whose `disbursed_at` is after `date`.
+- **Mora / días vencidos:** computed for `date`, including the grace period (`MORA_GRACE_PERIOD_DAYS`).
+- **Abonos:** only payments with `paid_at <= date` are netted out (`amount_paid + mora_waived_amount`, same sum as `sumPaymentsByInstallmentId`). A partial payment dated after `date` is ignored, as it hadn't happened yet.
+- **`totalPayableOnDate`:** the cuotas overdue or due on `date` itself, same rule as the client-facing desglose (`calculateAccountSummaryTotal`).
+- `date` later than today is rejected with 400.
+
+Shown in the inbox's "Ver información" panel ("Desglose a una fecha"). **Informational only:** `POST /installments/:id/payments` is unchanged and still validates and closes a cuota against today's balance, whatever `paid_at` the payment carries.
+
+### `app_settings`
+
+Added 2026-10-09 (human request — "la idea es que el admin ponga la cuenta desde algún punto en el menú, porque a veces cambian de cuenta"). A value an admin changes from the panel rather than through a deploy. One row per key, upserted.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `key` | VARCHAR, unique | `AppSettingKey` — only `payment_bank_account` so far. |
+| `value` | TEXT | For `payment_bank_account`: the account as a single line (e.g. `Cuenta de Ahorros Bancolombia No. 123123-5235-23535 / Alejandro Martinez`), max 200 characters. |
+| `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+Starts empty — the migration seeds nothing, and the send below is refused until an account has been entered.
+
+**`payment_bank_account` and the `cuenta_bancaria` template.** `POST /whatsapp/inbound-messages/bank-account` (`WhatsappWebhookService.sendBankAccountTemplate`, the inbox's "Enviar cuenta bancaria" button) sends the `cuenta_bancaria` Meta template (language `es`, see `whatsapp/bankAccountTemplate.ts`) to any conversation, with this value as `{{1}}`. Like `seguimiento_solicitud` it's a template, so it reaches a client whose 24h session window already closed; it's logged to `whatsapp_manual_replies` the same way (`sentByUserId` = the admin who pressed the button, rendered text as `message_content`) and lives outside the `message_templates` catalog. It returns 400 while no account is configured.
+
+`GET /bank-account` returns `{ bankAccount, messagePreview, updatedAt }` (all null until first set) and is open to any authenticated user — it's read by both the inbox's send dialog (messages module) and the templates page's editor (message_templates module). `messagePreview` is the full text a client would receive, rendered server-side, and is what the dialog shows before the admin confirms the send. `PUT /bank-account` requires the message_templates module and is audited (`bankAccount.update`, labeled with the new account). The value is flattened to a single line before it's stored (`normalizeBankAccount`), since Meta rejects a template parameter containing a line break, a tab or more than four consecutive spaces.
 
 ## Refinancing
 

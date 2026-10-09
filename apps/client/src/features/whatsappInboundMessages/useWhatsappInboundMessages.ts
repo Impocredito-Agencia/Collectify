@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { clientBreakdownApi } from '@/features/whatsappInboundMessages/clientBreakdownApi';
 import { whatsappConversationTicketsApi } from '@/features/whatsappInboundMessages/whatsappConversationTicketsApi';
 import { whatsappConversationsApi } from '@/features/whatsappInboundMessages/whatsappConversationsApi';
 import { whatsappDeliveryHealthApi } from '@/features/whatsappInboundMessages/whatsappDeliveryHealthApi';
@@ -70,6 +71,19 @@ export function useSendFollowUp() {
   return useMutation({
     mutationFn: (phoneNumber: string) =>
       whatsappInboundMessagesApi.sendFollowUp(phoneNumber),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['whatsappManualReplies'] });
+      queryClient.invalidateQueries({ queryKey: ['whatsappConversations'] });
+    },
+  });
+}
+
+// Human request, 2026-10-09 — same cache refresh as useSendFollowUp.
+export function useSendBankAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (phoneNumber: string) =>
+      whatsappInboundMessagesApi.sendBankAccount(phoneNumber),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['whatsappManualReplies'] });
       queryClient.invalidateQueries({ queryKey: ['whatsappConversations'] });
@@ -150,5 +164,17 @@ export function useDeliveryHealth(clientId: string | null) {
     queryKey: ['whatsappDeliveryHealth', clientId],
     queryFn: () => whatsappDeliveryHealthApi.getForClient(clientId as string),
     enabled: clientId !== null,
+  });
+}
+
+// Human report, 2026-10-09 — see ClientBreakdownAsOf. Idle until a date is
+// picked; no retry, since the only expected failure is a rejected date
+// (later than today), which a retry can't fix.
+export function useClientBreakdown(clientId: string, date: string) {
+  return useQuery({
+    queryKey: ['clientBreakdown', clientId, date],
+    queryFn: () => clientBreakdownApi.getAsOf(clientId, date),
+    enabled: Boolean(date),
+    retry: false,
   });
 }

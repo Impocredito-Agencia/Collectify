@@ -74,6 +74,8 @@ export const ACTION_LABELS: Record<string, string> = {
   // reply, the two manual-send endpoints, and message_logs.retry.
   'whatsapp.reply': 'Respondió manualmente a un cliente por WhatsApp',
   'whatsapp.followUp': 'Envió la plantilla de seguimiento por WhatsApp',
+  'whatsapp.sendBankAccount': 'Envió la cuenta bancaria por WhatsApp',
+  'bankAccount.update': 'Cambió la cuenta bancaria para pagos',
   'whatsapp.sendReminder': 'Envió manualmente un recordatorio de mora',
   'whatsapp.sendUpcomingDue':
     'Envió manualmente un recordatorio de cuota próxima',
@@ -143,6 +145,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   messageLogRetry: 'Reintento de mensaje',
   user: 'Usuario',
   usuryRate: 'Tasa de usura',
+  bankAccount: 'Cuenta bancaria',
   // Phase 32 — same sync gap as ACTION_LABELS above. Kept for historical
   // rows logged before the 2026-09-06 split below.
   clientLoanImport: 'Importación de clientes',

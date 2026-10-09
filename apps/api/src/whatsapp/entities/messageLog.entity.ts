@@ -41,6 +41,15 @@ export class MessageLog {
   @Column({ type: 'text' })
   messageContent!: string;
 
+  // Human report, 2026-10-09 — the cuota-by-cuota desglose (as of send
+  // time) behind a reminder that covers several cuotas and only reports a
+  // count and a summed total. Internal: never part of what the client
+  // received, unlike messageContent above. Null for every other message,
+  // and for any row sent before this column existed. See
+  // reminderBreakdown.ts.
+  @Column({ type: 'text', nullable: true })
+  breakdownContent!: string | null;
+
   @Column({ type: 'enum', enum: MessageLogStatus })
   status!: MessageLogStatus;
 

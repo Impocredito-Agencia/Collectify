@@ -316,6 +316,13 @@ export class AuditLogInterceptor implements NestInterceptor {
           ? `${entity.ratePercentage}% desde ${entity.effectiveMonth}`
           : `${entity.ratePercentage}%`;
       }
+      // Human request, 2026-10-09 — the label is the account itself, so
+      // the audit trail shows what it was changed to each time.
+      case 'bankAccount': {
+        return entity && typeof entity.bankAccount === 'string'
+          ? entity.bankAccount
+          : null;
+      }
       // Human report, 2026-09-10 — docs/DATABASE.md's 2026-09-03 coverage
       // sweep had already flagged "cron pause/resume/reschedule" as
       // missing @Audit() entirely; this closes that specific gap (the

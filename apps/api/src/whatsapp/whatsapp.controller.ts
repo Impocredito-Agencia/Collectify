@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseEnumPipe,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -22,6 +23,11 @@ import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { AppModule } from '../users/entities/userModulePermission.entity';
 
+import {
+  ClientBreakdown,
+  ClientBreakdownService,
+} from './clientBreakdown.service';
+import { QueryClientBreakdownDto } from './dto/queryClientBreakdown.dto';
 import { UpdateCronScheduleDto } from './dto/updateCronSchedule.dto';
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
 import { WhatsappConversationTicket } from './entities/whatsappConversationTicket.entity';
@@ -61,6 +67,7 @@ export class WhatsappController {
     private readonly whatsappCronService: WhatsappCronService,
     private readonly whatsappWebhookService: WhatsappWebhookService,
     private readonly whatsappConversationTicketService: WhatsappConversationTicketService,
+    private readonly clientBreakdownService: ClientBreakdownService,
   ) {}
 
   @Get('inbound-messages')
@@ -176,6 +183,33 @@ export class WhatsappController {
     @CurrentUser() currentUser: AuthenticatedUser,
   ): Promise<{ sent: boolean }> {
     const sent = await this.whatsappWebhookService.sendFollowUpTemplate(
+      dto.phoneNumber,
+      currentUser.id,
+    );
+    return { sent };
+  }
+
+  @Post('inbound-messages/bank-account')
+  @Audit('whatsapp.sendBankAccount', 'whatsappReply')
+  @ApiOperation({
+    summary:
+      'Send the cuenta_bancaria template to a conversation (admin or granted the messages module)',
+    description:
+      "A Meta template, so it reaches the client at any time, 24h session window open or not. {{1}} is the account set via PUT /bank-account — preview the exact text with GET /bank-account first. Logged to the conversation's thread like a manual reply.",
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns whether the send actually succeeded.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'phoneNumber missing, or no bank account configured yet.',
+  })
+  async sendBankAccountTemplate(
+    @Body() dto: PhoneNumberDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<{ sent: boolean }> {
+    const sent = await this.whatsappWebhookService.sendBankAccountTemplate(
       dto.phoneNumber,
       currentUser.id,
     );
@@ -313,6 +347,28 @@ export class WhatsappController {
     @Body() dto: UpdateCronScheduleDto,
   ): Promise<MessageTemplate> {
     return this.whatsappCronService.reschedule(family, dto.cronExpression);
+  }
+
+  @Get('clients/:clientId/breakdown')
+  @ApiOperation({
+    summary:
+      "A client's pending installments valued as of a past day (admin or granted the messages module)",
+    description:
+      "For a comprobante that arrives days after the transfer it documents: each installment still pending today, with the overdue days and recargos it had on `date` and only the abonos dated on or before it. Read-only — registering a payment still validates against today's balance.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns the installments and the total payable that day.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'date missing, malformed, or later than today.',
+  })
+  getClientBreakdown(
+    @Param('clientId', ParseUUIDPipe) clientId: string,
+    @Query() query: QueryClientBreakdownDto,
+  ): Promise<ClientBreakdown> {
+    return this.clientBreakdownService.getBreakdownAsOf(clientId, query.date);
   }
 
   @Post('clients/:clientId/send-reminder')
