@@ -986,6 +986,30 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
+    it('labels a bank account update by the account it was changed to', async () => {
+      reflector.get.mockReturnValue({
+        action: 'bankAccount.update',
+        entityType: 'bankAccount',
+      });
+      const context = buildContext({ user: { id: 'admin-1' }, params: {} });
+      const handler = buildCallHandler(
+        of({
+          bankAccount: 'Bancolombia Ahorros No. 123-456 / Alejandro Martinez',
+          messagePreview: 'Podrás enviar el dinero…',
+          updatedAt: new Date(),
+        }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: 'Bancolombia Ahorros No. 123-456 / Alejandro Martinez',
+        }),
+      );
+    });
+
     // interestConceptType (2026-09-03, human report — this entityType had
     // no @Audit at all before this point). create/update/deactivate all
     // return the full entity, so this reads straight off the response.
