@@ -622,6 +622,23 @@ Added 2026-09-23 (human report — "que pueda marcar el chat cerrado, para que s
 
 **Inbox ordering, same report:** the list was already ordered by each conversation's most recent event across all three sources, but an open panel only refetched it on an inbound message, so a reply or a reminder going out didn't move that chat to the top until a reload. It now also refetches on `manual-reply` and on a new debounced `conversation-update` gateway event, emitted after a close and after any `message_logs` insert (`MessageLogSubscriber`, a TypeORM entity subscriber — covers every reminder/confirmation service without threading the gateway through each).
 
+### `app_settings`
+
+Added 2026-10-09 (human request — "la idea es que el admin ponga la cuenta desde algún punto en el menú, porque a veces cambian de cuenta"). A value an admin changes from the panel rather than through a deploy. One row per key, upserted.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `key` | VARCHAR, unique | `AppSettingKey` — only `payment_bank_account` so far. |
+| `value` | TEXT | For `payment_bank_account`: the account as a single line (e.g. `Cuenta de Ahorros Bancolombia No. 123123-5235-23535 / Alejandro Martinez`), max 200 characters. |
+| `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+Starts empty — the migration seeds nothing, and the send below is refused until an account has been entered.
+
+**`payment_bank_account` and the `cuenta_bancaria` template.** `POST /whatsapp/inbound-messages/bank-account` (`WhatsappWebhookService.sendBankAccountTemplate`, the inbox's "Enviar cuenta bancaria" button) sends the `cuenta_bancaria` Meta template (language `es`, see `whatsapp/bankAccountTemplate.ts`) to any conversation, with this value as `{{1}}`. Like `seguimiento_solicitud` it's a template, so it reaches a client whose 24h session window already closed; it's logged to `whatsapp_manual_replies` the same way (`sentByUserId` = the admin who pressed the button, rendered text as `message_content`) and lives outside the `message_templates` catalog. It returns 400 while no account is configured.
+
+`GET /bank-account` returns `{ bankAccount, messagePreview, updatedAt }` (all null until first set) and is open to any authenticated user — it's read by both the inbox's send dialog (messages module) and the templates page's editor (message_templates module). `messagePreview` is the full text a client would receive, rendered server-side, and is what the dialog shows before the admin confirms the send. `PUT /bank-account` requires the message_templates module and is audited (`bankAccount.update`, labeled with the new account). The value is flattened to a single line before it's stored (`normalizeBankAccount`), since Meta rejects a template parameter containing a line break, a tab or more than four consecutive spaces.
+
 ## Refinancing
 
 When a loan is refinanced:
