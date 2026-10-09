@@ -27,13 +27,13 @@ import {
   MAIN_MENU_BUTTONS,
   MI_CUENTA_SUBMENU_BODY,
   MI_CUENTA_SUBMENU_BUTTONS,
-  RECEIPT_RECEIVED_MESSAGE,
   RECEIPT_RECEIVED_OUT_OF_HOURS_MESSAGE,
   RECEIPT_REQUEST_MESSAGE,
   VOLVER_AL_MENU_BUTTONS,
   VOLVER_FOLLOW_UP_BODY,
   renderBreakdownMessage,
   renderPaymentHistoryMessage,
+  renderReceiptReceivedMessage,
 } from './selfServiceMenuMessages';
 import {
   SelfServiceMenuButtonId,
@@ -272,7 +272,7 @@ export class SelfServiceMenuService {
       // message either way, so the hour never blocks the send itself —
       // only the copy changes.
       const body = isWithinBusinessHours()
-        ? RECEIPT_RECEIVED_MESSAGE
+        ? renderReceiptReceivedMessage(`${client.firstName} ${client.lastName}`)
         : RECEIPT_RECEIVED_OUT_OF_HOURS_MESSAGE;
       await this.sendText(
         client,

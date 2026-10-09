@@ -1,5 +1,20 @@
 import { AccountSummaryInstallmentForMessage } from './messageRenderer';
-import { renderBreakdownMessage } from './selfServiceMenuMessages';
+import {
+  renderBreakdownMessage,
+  renderReceiptReceivedMessage,
+} from './selfServiceMenuMessages';
+
+describe('renderReceiptReceivedMessage', () => {
+  it('greets the client by name and thanks them for the comprobante', () => {
+    const message = renderReceiptReceivedMessage('Esteban Portilla Narváez');
+
+    expect(message).toBe(
+      'Hola, Señor/a Esteban Portilla Narváez, recibimos tu comprobante, ' +
+        'agradecemos tu cumplimiento y uno de nuestros asesores lo revisará ' +
+        'pronto. Intentaremos hacerlo lo más rápido posible, Gracias!',
+    );
+  });
+});
 
 describe('renderBreakdownMessage', () => {
   it('says there are no pending installments when the list is empty', () => {
