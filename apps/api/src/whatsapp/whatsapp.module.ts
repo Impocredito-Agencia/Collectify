@@ -14,6 +14,7 @@ import { UsersModule } from '../users/users.module';
 
 import { BankAccountController } from './bankAccount.controller';
 import { BankAccountService } from './bankAccount.service';
+import { ClientBreakdownService } from './clientBreakdown.service';
 import { AppSetting } from './entities/appSetting.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
@@ -120,6 +121,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     SelfServiceMenuService,
     WhatsappOutboundLogService,
     BankAccountService,
+    ClientBreakdownService,
   ],
   // LoansService calls NewLoanReminderService synchronously after creating
   // a loan — see docs/phases/PHASE_9_MESSAGE_TYPES.md. WhatsappModule does

@@ -88,6 +88,10 @@ export function enrichInstallment(
   installment: Installment,
   concepts: LoanInstallmentConcept[] = [],
   totalPaid = 0,
+  // Human report, 2026-10-09 — the instant to value the installment at.
+  // Always "right now" except for ClientBreakdownService's as-of-a-past-day
+  // desglose, which also passes `totalPaid` as of that same day.
+  today: Date = new Date(),
 ): InstallmentWithCalculated {
   const corrienteConcepts = concepts.filter(
     (concept) => concept.category === ConceptCategory.Corriente,
@@ -113,7 +117,10 @@ export function enrichInstallment(
     };
   }
 
-  const overdueDays = calculateOverdueDays(new Date(installment.dueDate));
+  const overdueDays = calculateOverdueDays(
+    new Date(installment.dueDate),
+    today,
+  );
 
   const moratoryCharges = calculateMoratoryCharges(
     installment.amount,

@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseEnumPipe,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -22,6 +23,11 @@ import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { AppModule } from '../users/entities/userModulePermission.entity';
 
+import {
+  ClientBreakdown,
+  ClientBreakdownService,
+} from './clientBreakdown.service';
+import { QueryClientBreakdownDto } from './dto/queryClientBreakdown.dto';
 import { UpdateCronScheduleDto } from './dto/updateCronSchedule.dto';
 import { ConversationMenu } from './entities/whatsappConversationState.entity';
 import { WhatsappConversationTicket } from './entities/whatsappConversationTicket.entity';
@@ -61,6 +67,7 @@ export class WhatsappController {
     private readonly whatsappCronService: WhatsappCronService,
     private readonly whatsappWebhookService: WhatsappWebhookService,
     private readonly whatsappConversationTicketService: WhatsappConversationTicketService,
+    private readonly clientBreakdownService: ClientBreakdownService,
   ) {}
 
   @Get('inbound-messages')
@@ -340,6 +347,28 @@ export class WhatsappController {
     @Body() dto: UpdateCronScheduleDto,
   ): Promise<MessageTemplate> {
     return this.whatsappCronService.reschedule(family, dto.cronExpression);
+  }
+
+  @Get('clients/:clientId/breakdown')
+  @ApiOperation({
+    summary:
+      "A client's pending installments valued as of a past day (admin or granted the messages module)",
+    description:
+      "For a comprobante that arrives days after the transfer it documents: each installment still pending today, with the overdue days and recargos it had on `date` and only the abonos dated on or before it. Read-only — registering a payment still validates against today's balance.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns the installments and the total payable that day.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'date missing, malformed, or later than today.',
+  })
+  getClientBreakdown(
+    @Param('clientId', ParseUUIDPipe) clientId: string,
+    @Query() query: QueryClientBreakdownDto,
+  ): Promise<ClientBreakdown> {
+    return this.clientBreakdownService.getBreakdownAsOf(clientId, query.date);
   }
 
   @Post('clients/:clientId/send-reminder')
