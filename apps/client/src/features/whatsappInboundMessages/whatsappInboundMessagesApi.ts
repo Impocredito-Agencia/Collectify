@@ -185,6 +185,17 @@ export const whatsappInboundMessagesApi = {
     return data.sent;
   },
 
+  // Human request, 2026-10-09 — sends the cuenta_bancaria Meta template
+  // with the account on file (see bankAccountApi). 400s if none has been
+  // configured yet. See SendBankAccountButton.
+  sendBankAccount: async (phoneNumber: string): Promise<boolean> => {
+    const { data } = await apiClient.post<{ sent: boolean }>(
+      '/whatsapp/inbound-messages/bank-account',
+      { phoneNumber },
+    );
+    return data.sent;
+  },
+
   // Human report, 2026-09-14 (critical bug) — scoped to one conversation
   // (clientId, or fromPhoneNumber for an unrecognized number) instead of a
   // flat window shared across every conversation's replies — see

@@ -77,6 +77,19 @@ export function useSendFollowUp() {
   });
 }
 
+// Human request, 2026-10-09 — same cache refresh as useSendFollowUp.
+export function useSendBankAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (phoneNumber: string) =>
+      whatsappInboundMessagesApi.sendBankAccount(phoneNumber),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['whatsappManualReplies'] });
+      queryClient.invalidateQueries({ queryKey: ['whatsappConversations'] });
+    },
+  });
+}
+
 // Human report, 2026-09-14 (critical bug) — scoped to one conversation now
 // (clientId, or fromPhoneNumber for an unrecognized number), same "shared
 // global budget" bug fix as useConversations above: a busy conversation's

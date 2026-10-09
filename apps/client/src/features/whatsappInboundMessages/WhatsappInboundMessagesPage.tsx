@@ -17,6 +17,7 @@ import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogsForClient } from '@/features/messageLogs/useMessageLogs';
 import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
 import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMessages/RegisterPaymentFromWhatsappModal';
+import { SendBankAccountButton } from '@/features/whatsappInboundMessages/SendBankAccountButton';
 import { SendFollowUpButton } from '@/features/whatsappInboundMessages/SendFollowUpButton';
 import { whatsappInboundMediaApi } from '@/features/whatsappInboundMessages/whatsappInboundMediaApi';
 import {
@@ -921,6 +922,7 @@ function ConversationThread({
             phoneNumber={conversation.phoneNumber}
             clientName={conversation.clientId ? conversation.displayName : null}
           />
+          <SendBankAccountButton phoneNumber={conversation.phoneNumber} />
           {showCloseConversationButton && (
             <CloseConversationButton
               phoneNumber={conversation.phoneNumber}
