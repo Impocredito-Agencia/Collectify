@@ -18,6 +18,7 @@ import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogsForClient } from '@/features/messageLogs/useMessageLogs';
 import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
 import { RegisterPaymentFromWhatsappModal } from '@/features/whatsappInboundMessages/RegisterPaymentFromWhatsappModal';
+import { ClientBreakdownAsOf } from '@/features/whatsappInboundMessages/ClientBreakdownAsOf';
 import { SendBankAccountButton } from '@/features/whatsappInboundMessages/SendBankAccountButton';
 import { SendFollowUpButton } from '@/features/whatsappInboundMessages/SendFollowUpButton';
 import { whatsappInboundMediaApi } from '@/features/whatsappInboundMessages/whatsappInboundMediaApi';
@@ -1638,6 +1639,8 @@ function ClientInfoPanel({
           ✕
         </button>
       </div>
+
+      <ClientBreakdownAsOf clientId={clientId} />
 
       {isLoading && <p className="text-small text-muted">Cargando…</p>}
       {isError && (
