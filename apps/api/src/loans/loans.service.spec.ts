@@ -2698,10 +2698,107 @@ describe('LoansService', () => {
       );
     });
 
-    it('rejects lowering an installment to or below what was already paid on it', async () => {
+    it('closes a lowered installment as paid when what was already paid covers its corrected amount', async () => {
+      const first = pendingInstallment();
+      const second = pendingInstallment({
+        id: 'inst-2',
+        installmentNumber: 2,
+        dueDate: '2099-02-01',
+      });
+      installmentsRepository.find.mockResolvedValue([first, second]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 300000, moraWaivedAmount: 0 },
+      ]);
+
+      await service.adjustPendingInstallments(mockLoan.id, {
+        amountPerInstallment: -10000,
+      });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({
+          id: 'inst-1',
+          amount: 300000,
+          principalPortion: 290000,
+          status: InstallmentStatus.Paid,
+        }),
+        expect.objectContaining({
+          id: 'inst-2',
+          amount: 300000,
+          status: InstallmentStatus.Pending,
+        }),
+      ]);
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: mockLoan.id },
+        { principalAmount: mockLoan.principalAmount - 20000 },
+      );
+    });
+
+    it('counts mora waived with a payment toward covering the corrected amount', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment(),
+        pendingInstallment({ id: 'inst-2', installmentNumber: 2 }),
+      ]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 295000, moraWaivedAmount: 5000 },
+      ]);
+
+      await service.adjustPendingInstallments(mockLoan.id, {
+        amountPerInstallment: -10000,
+      });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({
+          id: 'inst-1',
+          status: InstallmentStatus.Paid,
+        }),
+        expect.objectContaining({
+          id: 'inst-2',
+          status: InstallmentStatus.Pending,
+        }),
+      ]);
+    });
+
+    it('marks the loan paid when the adjustment settles every pending installment', async () => {
       installmentsRepository.find.mockResolvedValue([pendingInstallment()]);
       paymentsRepository.find.mockResolvedValue([
-        { installmentId: 'inst-1', amountPaid: 300000 },
+        { installmentId: 'inst-1', amountPaid: 300000, moraWaivedAmount: 0 },
+      ]);
+
+      await service.adjustPendingInstallments(mockLoan.id, {
+        amountPerInstallment: -10000,
+      });
+
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: mockLoan.id },
+        {
+          principalAmount: mockLoan.principalAmount - 10000,
+          status: LoanStatus.Paid,
+        },
+      );
+    });
+
+    it('keeps a partially paid installment pending when its payments do not cover the corrected amount', async () => {
+      installmentsRepository.find.mockResolvedValue([pendingInstallment()]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 100000, moraWaivedAmount: 0 },
+      ]);
+
+      await service.adjustPendingInstallments(mockLoan.id, {
+        amountPerInstallment: -10000,
+      });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({
+          amount: 300000,
+          status: InstallmentStatus.Pending,
+        }),
+      ]);
+    });
+
+    it('rejects lowering an installment below the cash already paid on it', async () => {
+      installmentsRepository.find.mockResolvedValue([pendingInstallment()]);
+      paymentsRepository.find.mockResolvedValue([
+        { installmentId: 'inst-1', amountPaid: 305000, moraWaivedAmount: 0 },
       ]);
 
       await expect(

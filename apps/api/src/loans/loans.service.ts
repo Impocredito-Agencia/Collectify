@@ -962,22 +962,48 @@ export class LoansService {
         );
       }
 
-      const totalPaidByInstallmentId = await sumPaymentsByInstallmentId(
-        manager.getRepository(Payment),
-        pending.map((installment) => installment.id),
-      );
+      const payments = await manager.getRepository(Payment).find({
+        where: {
+          installmentId: In(pending.map((installment) => installment.id)),
+        },
+        select: {
+          installmentId: true,
+          amountPaid: true,
+          moraWaivedAmount: true,
+        },
+      });
+      const cashPaidByInstallmentId = new Map<string, number>();
+      const totalPaidByInstallmentId = new Map<string, number>();
+      for (const payment of payments) {
+        cashPaidByInstallmentId.set(
+          payment.installmentId,
+          (cashPaidByInstallmentId.get(payment.installmentId) ?? 0) +
+            payment.amountPaid,
+        );
+        totalPaidByInstallmentId.set(
+          payment.installmentId,
+          (totalPaidByInstallmentId.get(payment.installmentId) ?? 0) +
+            payment.amountPaid +
+            (payment.moraWaivedAmount ?? 0),
+        );
+      }
+
       for (const installment of pending) {
         const nextAmount = installment.amount + dto.amountPerInstallment;
         const nextPrincipalPortion =
           installment.principalPortion === null
             ? null
             : installment.principalPortion + dto.amountPerInstallment;
-        // A lowered cuota must still owe something beyond what's already
-        // been paid on it — otherwise it'd sit Pending with nothing left
-        // (or a negative balance) to collect.
+        // Human request, 2026-10-19 — a lowered cuota whose payments
+        // (cash plus any mora waived with them) already cover its corrected
+        // amount is closed as Paid instead of rejected: the client paid the
+        // real cuota, and the mora shown only existed because the cuota was
+        // loaded too high. Cash beyond the corrected amount is still
+        // rejected — that would be a real overpayment with nowhere to go.
+        const cashPaid = cashPaidByInstallmentId.get(installment.id) ?? 0;
         const totalPaid = totalPaidByInstallmentId.get(installment.id) ?? 0;
         if (
-          nextAmount <= totalPaid ||
+          cashPaid > nextAmount ||
           (nextPrincipalPortion !== null && nextPrincipalPortion < 0)
         ) {
           throw new BadRequestException(
@@ -986,14 +1012,24 @@ export class LoansService {
         }
         installment.amount = nextAmount;
         installment.principalPortion = nextPrincipalPortion;
+        if (dto.amountPerInstallment < 0 && totalPaid >= nextAmount) {
+          installment.status = InstallmentStatus.Paid;
+        }
       }
       await installmentsRepository.save(pending);
 
+      // An active loan only has pending and paid installments, so settling
+      // every pending one pays the loan off — silently, like the rest of
+      // this adjustment.
+      const settledEveryPending = pending.every(
+        (installment) => installment.status === InstallmentStatus.Paid,
+      );
       await manager.getRepository(Loan).update(
         { id },
         {
           principalAmount:
             loan.principalAmount + dto.amountPerInstallment * pending.length,
+          ...(settledEveryPending && { status: LoanStatus.Paid }),
         },
       );
     });
