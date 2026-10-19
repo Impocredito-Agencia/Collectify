@@ -57,6 +57,22 @@ export function AdjustPendingInstallmentsDialog({
   const signedAmount = direction === 'increase' ? amount : -amount;
   const firstInstallment = sortedInstallments[0];
   const count = sortedInstallments.length;
+  // Human request, 2026-10-19 — lowering a cuota whose payments already
+  // cover its corrected amount closes it as paid (the api does the same
+  // check). What's been paid so far is recovered from totalDue, which the
+  // api returns already net of it.
+  const settledNumbers =
+    signedAmount < 0
+      ? sortedInstallments
+          .filter(
+            (installment) =>
+              installment.amount +
+                installment.interest -
+                installment.totalDue >=
+              installment.amount + signedAmount,
+          )
+          .map((installment) => installment.installmentNumber)
+      : [];
 
   const handleConfirm = async () => {
     setError(null);
@@ -117,6 +133,14 @@ export function AdjustPendingInstallmentsDialog({
             ` (y ${count - 1} cuota${count > 2 ? 's' : ''} más igual)`}
           . El capital del préstamo {direction === 'increase' ? 'sube' : 'baja'}{' '}
           {formatCurrency(amount * count)} en total.
+        </p>
+      )}
+      {settledNumbers.length > 0 && (
+        <p className="mt-2 text-meta text-muted">
+          {settledNumbers.length === 1
+            ? `La cuota ${settledNumbers[0]} queda pagada`
+            : `Las cuotas ${settledNumbers.join(', ')} quedan pagadas`}{' '}
+          con lo ya abonado, sin cobrar su mora.
         </p>
       )}
       {count === 0 && (
