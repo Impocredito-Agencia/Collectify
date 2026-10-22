@@ -1191,7 +1191,9 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                 </div>
               </Field>
 
-              {canViewAmortizador && count > 0 && (
+              {/* No `count > 0` gate (client feedback, 2026-10-16) — see
+                  RefinanceLoanForm.tsx's identical button. */}
+              {canViewAmortizador && (
                 <div className="flex flex-col gap-2.5">
                   <ChipButton
                     onClick={handlePreview}
