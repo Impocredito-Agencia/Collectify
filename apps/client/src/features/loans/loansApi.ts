@@ -264,6 +264,14 @@ export interface SchedulePreview {
   installments: PreviewedInstallment[];
 }
 
+// Matches apps/api/src/loans/dto/payoffLoan.dto.ts exactly. observation
+// (2026-10-21) — the admin's free-text detail (reason, payment method),
+// stored after the fixed "Liquidación anticipada" label on every payment.
+export interface PayoffLoanInput {
+  imageUrls?: string[];
+  observation?: string;
+}
+
 // Matches apps/api/src/loans/payoff/calculatePayoff.ts's PayoffQuote
 // exactly. See docs/phases/PHASE_16_EARLY_PAYOFF.md — a not-yet-due
 // installment contributes only principalApplied (its principalPortion),
@@ -478,7 +486,7 @@ export const loansApi = {
   // backend attaches the same photos to every payment the payoff registers.
   payoff: async (
     id: string,
-    input: { imageUrls?: string[] } = {},
+    input: PayoffLoanInput = {},
   ): Promise<LoanDetail> => {
     const { data } = await apiClient.post<LoanDetail>(
       `/loans/${id}/payoff`,

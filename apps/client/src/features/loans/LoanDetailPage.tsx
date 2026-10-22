@@ -863,9 +863,7 @@ export function LoanDetailPage() {
           loanId={loan.id}
           loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
           onClose={() => setIsPayingOff(false)}
-          onConfirm={(imageUrls) =>
-            payoffLoan.mutateAsync({ id: loan.id, imageUrls })
-          }
+          onConfirm={(input) => payoffLoan.mutateAsync({ id: loan.id, input })}
         />
       )}
 

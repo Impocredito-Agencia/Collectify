@@ -9,6 +9,7 @@ import { loansApi } from '@/features/loans/loansApi';
 
 import type {
   LoansQueryParams,
+  PayoffLoanInput,
   RefinanceLoanInput,
   UpdateLoanInput,
 } from '@/features/loans/loansApi';
@@ -109,8 +110,8 @@ export function useRefinanceQuote() {
 export function usePayoffLoan() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, imageUrls }: { id: string; imageUrls?: string[] }) =>
-      loansApi.payoff(id, { imageUrls }),
+    mutationFn: ({ id, input }: { id: string; input: PayoffLoanInput }) =>
+      loansApi.payoff(id, input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
   });
 }
