@@ -306,7 +306,7 @@ export class LoansController {
     summary:
       'Settle the loan today for its full payoff quote, closing it out (admin or granted the loans module)',
     description:
-      "A separate, explicit flow from registering an ordinary payment — POST /installments/:id/payments and its one-payment-per-installment behavior are completely untouched. Always settles the FULL amount from GET /loans/:id/payoff-quote; there is no partial early payoff. Registers one real Payment row per still-pending installment (observation: 'Liquidación anticipada'; the quote's interestTrueUp rides on the first pending installment's payment so the payments still sum to the quoted total), marks every installment and the loan 'paid'. Optionally takes imageUrls — the payment receipt photos, attached to every payment the payoff registers.",
+      "A separate, explicit flow from registering an ordinary payment — POST /installments/:id/payments and its one-payment-per-installment behavior are completely untouched. Always settles the FULL amount from GET /loans/:id/payoff-quote; there is no partial early payoff. Registers one real Payment row per still-pending installment (observation: 'Liquidación anticipada'; the quote's interestTrueUp rides on the first pending installment's payment so the payments still sum to the quoted total), marks every installment and the loan 'paid'. Optionally takes imageUrls — the payment receipt photos, attached to every payment the payoff registers — and observation, a free-text detail (reason, payment method) appended after the fixed label as 'Liquidación anticipada — <observation>'.",
   })
   @ApiResponse({ status: 200, description: 'The loan was paid off.' })
   @ApiResponse({

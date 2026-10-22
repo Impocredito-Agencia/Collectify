@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsOptional, IsUrl } from 'class-validator';
+import { IsArray, IsOptional, IsString, IsUrl } from 'class-validator';
 
 // Body of POST /loans/:id/payoff. Every field is optional — a payoff with an
 // empty body behaves exactly as it did before this DTO existed.
@@ -17,4 +17,18 @@ export class PayoffLoanDto {
   @IsArray()
   @IsUrl({}, { each: true })
   imageUrls?: string[];
+
+  // Human report, 2026-10-21 — "no permite añadir detalle o concepto, para
+  // explicar la razón, motivo, o forma de pago". Same free-text field an
+  // ordinary payment already takes (CreatePaymentDto.observation); appended
+  // after the fixed "Liquidación anticipada" label on every payment the
+  // payoff registers, so those rows stay identifiable as a payoff.
+  @ApiPropertyOptional({
+    example: 'Pagó con transferencia Bancolombia, vendió la moto',
+    description:
+      "Free-text detail about the payoff (reason, motive, payment method). Appended to the fixed 'Liquidación anticipada' observation of every payment the payoff registers. Blank or whitespace-only is treated as absent.",
+  })
+  @IsOptional()
+  @IsString()
+  observation?: string;
 }

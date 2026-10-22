@@ -1212,16 +1212,20 @@ export class LoansService {
     // paid) has no row of its own, so it rides on the first pending
     // installment's payment — that way the payments still sum to exactly
     // the quoted total.
+    // Human report, 2026-10-21 — the admin's own detail (reason, payment
+    // method…) goes after the fixed label, never instead of it.
+    const adminNote = dto.observation?.trim();
     const payments = quote.installments.map((breakdown, index) => {
       const carriesTrueUp = index === 0 && quote.interestTrueUp !== 0;
+      const label = carriesTrueUp
+        ? 'Liquidación anticipada (incluye ajuste de interés causado)'
+        : 'Liquidación anticipada';
       return this.paymentsRepository.create({
         installmentId: breakdown.installmentId,
         amountPaid:
           breakdown.totalDue + (carriesTrueUp ? quote.interestTrueUp : 0),
         paidAt,
-        observation: carriesTrueUp
-          ? 'Liquidación anticipada (incluye ajuste de interés causado)'
-          : 'Liquidación anticipada',
+        observation: adminNote ? `${label} — ${adminNote}` : label,
         imageUrl: null,
       });
     });

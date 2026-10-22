@@ -38,4 +38,21 @@ describe('PayoffLoanDto', () => {
     );
     expect(errors).toHaveLength(1);
   });
+
+  it('is valid with a free-text observation', async () => {
+    const errors = await validate(
+      plainToInstance(PayoffLoanDto, {
+        observation: 'Pagó con transferencia, vendió la moto',
+      }),
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  it('rejects an observation that is not a string', async () => {
+    const errors = await validate(
+      plainToInstance(PayoffLoanDto, { observation: 123 }),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].property).toBe('observation');
+  });
 });
