@@ -36,6 +36,8 @@ export const ACTION_LABELS: Record<string, string> = {
     'Cambió qué números de un cliente reciben recordatorios de cobro',
   'loan.create': 'Creó un préstamo',
   'loan.update': 'Editó un préstamo',
+  // Human request, 2026-10-21 — PATCH /loans/:id/promissory-note-number.
+  'loan.renumber': 'Cambió el número de un pagaré',
   'loan.payoff': 'Liquidó un préstamo',
   'loan.refinance': 'Refinanció un préstamo',
   // Phase 30 — same gap as above: added when loan deletion shipped, never

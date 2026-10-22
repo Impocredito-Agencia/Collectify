@@ -13,6 +13,7 @@ import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type {
   PayoffInstallmentBreakdown,
+  PayoffLoanInput,
   PayoffQuote,
 } from '@/features/loans/loansApi';
 
@@ -20,8 +21,8 @@ interface PayoffDialogProps {
   loanId: string;
   loanLabel: string;
   // imageUrls: the payment receipt photos, already uploaded (empty when the
-  // admin attached none).
-  onConfirm: (imageUrls: string[]) => Promise<unknown>;
+  // admin attached none). observation: undefined when left blank.
+  onConfirm: (input: PayoffLoanInput) => Promise<unknown>;
   onClose: () => void;
 }
 
@@ -53,6 +54,10 @@ export function PayoffDialog({
   // Human report, 2026-09-25 — the payoff had no way to attach the payment
   // receipt. Optional, same as on an ordinary payment.
   const [receiptFiles, setReceiptFiles] = useState<File[]>([]);
+  // Human report, 2026-10-21 — there was nowhere to write why the loan was
+  // settled early or how the client paid. Optional, same as on an
+  // ordinary payment.
+  const [observation, setObservation] = useState('');
 
   const payoffQuote = usePayoffQuote();
 
@@ -90,7 +95,10 @@ export function PayoffDialog({
           return;
         }
       }
-      await onConfirm(imageUrls);
+      await onConfirm({
+        imageUrls,
+        observation: observation.trim() || undefined,
+      });
       onClose();
     } catch {
       setConfirmError('No se pudo liquidar el préstamo. Intenta de nuevo.');
@@ -295,6 +303,21 @@ export function PayoffDialog({
       )}
 
       <div className="mt-5">
+        <Field label="Observación (opcional)" layout="stack">
+          <textarea
+            value={observation}
+            onChange={(event) => setObservation(event.target.value)}
+            placeholder="Ej: motivo de la liquidación, pagó por transferencia…"
+            rows={3}
+            disabled={isSubmitting}
+            // Same textarea treatment as RegisterPaymentDialog's own
+            // observation field.
+            className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
+          />
+        </Field>
+      </div>
+
+      <div className="mt-4">
         <Field label="Comprobante: fotos o PDF (opcional)" layout="stack">
           <ReceiptPhotosField
             onChange={setReceiptFiles}

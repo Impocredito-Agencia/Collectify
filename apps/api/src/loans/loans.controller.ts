@@ -26,6 +26,7 @@ import { AdjustPendingInstallmentsDto } from './dto/adjustPendingInstallments.dt
 import { AlignInstallmentDueDayDto } from './dto/alignInstallmentDueDay.dto';
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { PayoffLoanDto } from './dto/payoffLoan.dto';
+import { RenumberLoanDto } from './dto/renumberLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { PreviewScheduleDto } from './dto/previewSchedule.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
@@ -214,6 +215,32 @@ export class LoansController {
     return this.loansService.update(id, dto);
   }
 
+  @Patch(':id/promissory-note-number')
+  @RequireModule(AppModule.Loans)
+  @Audit('loan.renumber', 'loan')
+  @ApiOperation({
+    summary:
+      "Correct an active loan's promissory note number (admin or granted the loans module)",
+    description:
+      "Only for an ACTIVE loan, with or without payments. The new number must match #0000 and may not belong to any existing (non-deleted) loan in any status — same rule as POST /loans. Every earlier loan of the same refinancing chain that still carries the current number is renamed too, so the pagaré's history stays under one number. Sends no WhatsApp message. Sending the loan's current number is a no-op.",
+  })
+  @ApiResponse({ status: 200, description: 'The loan was renumbered.' })
+  @ApiResponse({
+    status: 400,
+    description: 'The number is not #0000, or the loan is not active.',
+  })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  @ApiResponse({
+    status: 409,
+    description: 'Another loan already uses that number.',
+  })
+  renumber(
+    @Param('id') id: string,
+    @Body() dto: RenumberLoanDto,
+  ): Promise<LoanDetail> {
+    return this.loansService.renumber(id, dto);
+  }
+
   // Human report, 2026-09-22 — "algunas [cuotas] están el primero y la
   // quieren, que queden todas el 10". Bulk counterpart to
   // PATCH /installments/:id/due-date: moves every still-pending
@@ -306,7 +333,7 @@ export class LoansController {
     summary:
       'Settle the loan today for its full payoff quote, closing it out (admin or granted the loans module)',
     description:
-      "A separate, explicit flow from registering an ordinary payment — POST /installments/:id/payments and its one-payment-per-installment behavior are completely untouched. Always settles the FULL amount from GET /loans/:id/payoff-quote; there is no partial early payoff. Registers one real Payment row per still-pending installment (observation: 'Liquidación anticipada'; the quote's interestTrueUp rides on the first pending installment's payment so the payments still sum to the quoted total), marks every installment and the loan 'paid'. Optionally takes imageUrls — the payment receipt photos, attached to every payment the payoff registers.",
+      "A separate, explicit flow from registering an ordinary payment — POST /installments/:id/payments and its one-payment-per-installment behavior are completely untouched. Always settles the FULL amount from GET /loans/:id/payoff-quote; there is no partial early payoff. Registers one real Payment row per still-pending installment (observation: 'Liquidación anticipada'; the quote's interestTrueUp rides on the first pending installment's payment so the payments still sum to the quoted total), marks every installment and the loan 'paid'. Optionally takes imageUrls — the payment receipt photos, attached to every payment the payoff registers — and observation, a free-text detail (reason, payment method) appended after the fixed label as 'Liquidación anticipada — <observation>'.",
   })
   @ApiResponse({ status: 200, description: 'The loan was paid off.' })
   @ApiResponse({

@@ -40,6 +40,7 @@ import {
 import { LoanStatus } from '@/features/loans/loansApi';
 import { PayoffDialog } from '@/features/loans/PayoffDialog';
 import { RefinanceLoanForm } from '@/features/loans/RefinanceLoanForm';
+import { RenumberLoanDialog } from '@/features/loans/RenumberLoanDialog';
 import { RescheduleDueDatesDialog } from '@/features/loans/RescheduleDueDatesDialog';
 import {
   useAdjustPendingInstallments,
@@ -50,6 +51,7 @@ import {
   usePayoffLoan,
   useRefinanceLoan,
   useRemoveLoan,
+  useRenumberLoan,
   useUpdateLoan,
 } from '@/features/loans/useLoans';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
@@ -116,6 +118,7 @@ export function LoanDetailPage() {
   const voidPayment = useVoidPayment(id ?? '');
   const payoffLoan = usePayoffLoan();
   const updateLoan = useUpdateLoan();
+  const renumberLoan = useRenumberLoan();
   const refinanceLoan = useRefinanceLoan();
   const removeLoan = useRemoveLoan();
   const alignInstallmentDueDay = useAlignInstallmentDueDay(id ?? '');
@@ -166,6 +169,7 @@ export function LoanDetailPage() {
   >(new Set());
   const [isBulkPaying, setIsBulkPaying] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isRenumbering, setIsRenumbering] = useState(false);
   const [isRefinancing, setIsRefinancing] = useState(false);
   const [isPayingOff, setIsPayingOff] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -313,9 +317,22 @@ export function LoanDetailPage() {
           instead. */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded border border-border bg-surface px-6 py-5">
         <div className="flex flex-col gap-1.5">
-          <h1 className="text-page-title font-semibold text-white">
-            Préstamo {loan.promissoryNoteNumber}
-          </h1>
+          {/* Human request, 2026-10-21 — corrects a pagaré created with the
+              wrong number; active loans only (see RenumberLoanDialog). */}
+          <div className="flex items-center gap-3">
+            <h1 className="text-page-title font-semibold text-white">
+              Préstamo {loan.promissoryNoteNumber}
+            </h1>
+            {canManageLoan && loan.status === LoanStatus.Active && (
+              <Button
+                variant="secondary"
+                onClick={() => setIsRenumbering(true)}
+                className="shrink-0 whitespace-nowrap"
+              >
+                Cambiar número
+              </Button>
+            )}
+          </div>
           <div className="flex items-center gap-2.5 text-small text-muted">
             <span>
               {/* QoL, 2026-09-10 — before this, the only way to reach the
@@ -863,9 +880,7 @@ export function LoanDetailPage() {
           loanId={loan.id}
           loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
           onClose={() => setIsPayingOff(false)}
-          onConfirm={(imageUrls) =>
-            payoffLoan.mutateAsync({ id: loan.id, imageUrls })
-          }
+          onConfirm={(input) => payoffLoan.mutateAsync({ id: loan.id, input })}
         />
       )}
 
@@ -888,6 +903,18 @@ export function LoanDetailPage() {
           description={loan.description}
           onClose={() => setIsEditing(false)}
           onConfirm={(input) => updateLoan.mutateAsync({ id: loan.id, input })}
+        />
+      )}
+
+      {isRenumbering && (
+        <RenumberLoanDialog
+          loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          promissoryNoteNumber={loan.promissoryNoteNumber}
+          isRefinanced={Boolean(loan.refinancedFromLoanId)}
+          onClose={() => setIsRenumbering(false)}
+          onConfirm={(promissoryNoteNumber) =>
+            renumberLoan.mutateAsync({ id: loan.id, promissoryNoteNumber })
+          }
         />
       )}
 

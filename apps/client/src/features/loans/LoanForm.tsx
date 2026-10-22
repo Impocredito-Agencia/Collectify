@@ -176,20 +176,12 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const { data: selectedClientDetail } = useClient(selectedClient?.id ?? '');
 
   const [promissoryNoteNumber, setPromissoryNoteNumber] = useState('');
-  // Style cleanup (2026-09-03) — pre-fills with the suggested next #0000
-  // number as soon as it loads, but only once (hasPrefilledNumber guards
-  // against clobbering it again later — e.g. if this query ever refetches
-  // — after the admin may have already edited or cleared the field by
-  // hand; it stays fully editable either way). See
+  // Client request, 2026-10-21 — the suggested next #0000 number is only
+  // the field's placeholder now, no longer pre-filled as its value: the
+  // admin always types the number written on the physical pagaré, so a
+  // pre-filled guess was easy to submit by mistake. See
   // useNextPromissoryNoteNumber/loansApi.getNextPromissoryNoteNumber.
   const { data: suggestedPromissoryNoteNumber } = useNextPromissoryNoteNumber();
-  const hasPrefilledNumber = useRef(false);
-  useEffect(() => {
-    if (suggestedPromissoryNoteNumber && !hasPrefilledNumber.current) {
-      hasPrefilledNumber.current = true;
-      setPromissoryNoteNumber(suggestedPromissoryNoteNumber);
-    }
-  }, [suggestedPromissoryNoteNumber]);
   const [principalAmount, setPrincipalAmount] = useState(0);
   const [firstDueDate, setFirstDueDate] = useState('');
   const [installmentFrequency, setInstallmentFrequency] = useState(
@@ -830,7 +822,11 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                         promissoryNoteNumber: undefined,
                       }));
                     }}
-                    placeholder="#0000"
+                    placeholder={
+                      suggestedPromissoryNoteNumber
+                        ? `Ej: ${suggestedPromissoryNoteNumber}`
+                        : '#0000'
+                    }
                     className={inputClassName(
                       Boolean(fieldErrors.promissoryNoteNumber),
                     )}
@@ -1191,7 +1187,9 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                 </div>
               </Field>
 
-              {canViewAmortizador && count > 0 && (
+              {/* No `count > 0` gate (client feedback, 2026-10-16) — see
+                  RefinanceLoanForm.tsx's identical button. */}
+              {canViewAmortizador && (
                 <div className="flex flex-col gap-2.5">
                   <ChipButton
                     onClick={handlePreview}

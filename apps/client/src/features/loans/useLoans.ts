@@ -9,6 +9,7 @@ import { loansApi } from '@/features/loans/loansApi';
 
 import type {
   LoansQueryParams,
+  PayoffLoanInput,
   RefinanceLoanInput,
   UpdateLoanInput,
 } from '@/features/loans/loansApi';
@@ -81,6 +82,25 @@ export function useUpdateLoan() {
   });
 }
 
+// Also invalidates ['clients'] — a client's profile lists its loans by
+// pagaré number too.
+export function useRenumberLoan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      promissoryNoteNumber,
+    }: {
+      id: string;
+      promissoryNoteNumber: string;
+    }) => loansApi.renumber(id, promissoryNoteNumber),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['loans'] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+    },
+  });
+}
+
 // Human request, 2026-10-09 — the same payoff quote as usePayoffQuote
 // below, but as a query: LoanDetailPage's "Si paga todo hoy" card shows it
 // as soon as the page opens, no button involved. Keyed under ['loans', id]
@@ -109,8 +129,8 @@ export function useRefinanceQuote() {
 export function usePayoffLoan() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, imageUrls }: { id: string; imageUrls?: string[] }) =>
-      loansApi.payoff(id, { imageUrls }),
+    mutationFn: ({ id, input }: { id: string; input: PayoffLoanInput }) =>
+      loansApi.payoff(id, input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
   });
 }

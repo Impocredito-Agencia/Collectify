@@ -52,6 +52,10 @@ Added "Liquidación anticipada / Early payoff" and "Imputación del pago" to `do
 
 Payoff (and the refinance suggested principal, which reuses it) charged capital only for not-yet-due installments, but ignored that the averaged flat cuota under-collects interest early in the schedule — after 10 of 12 cuotas of a 2.600.000 / 3,9% loan the client had paid 84.417 less interest than the loan caused, and payoff never recovered it. Confirmed with the human against that exact example: quote = pending capital 433.333,30 + 84.417. Implemented as `calculateInterestTrueUp()` (pure, sibling to `calculatePayoff.ts`) feeding a new `interestTrueUp` option/field on `PayoffQuote`; Art. 1653 is unchanged — no interest is charged for a *period* not yet caused, this only settles interest of periods that already were. See `docs/GLOSSARY.md` → "Liquidación anticipada" for the full rules. Not changed: `registerPayment` (paying cuotas 11-12 ahead as ordinary payments still charges each its full $271.600 — separate, undecided question).
 
+## Follow-up, 2026-10-21 — payoff observation
+
+Client report: the payoff had no way to record the reason, motive or payment method. `PayoffLoanDto` now takes an optional `observation` (same free text an ordinary payment takes); it's appended after the fixed label on every payment the payoff registers — `Liquidación anticipada — <observation>` (or `Liquidación anticipada (incluye ajuste de interés causado) — <observation>` on the true-up row). Blank/whitespace-only is ignored. No schema change — `payments.observation` already existed.
+
 ## Related documents
 
 - `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`, `docs/phases/PHASE_15_USURY_RATE.md` — feed the "interest owed" calculation

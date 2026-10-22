@@ -1201,82 +1201,85 @@ export function RefinanceLoanForm({
                 </div>
               </Field>
 
-              {count > 0 && (
-                <div className="flex flex-col gap-2.5">
-                  <ChipButton
-                    onClick={handlePreview}
-                    disabled={previewSchedule.isPending || !hasUsableUsuryRate}
-                  >
-                    {previewSchedule.isPending
-                      ? 'Calculando…'
-                      : 'Previsualizar cronograma de cuotas'}
-                  </ChipButton>
-                  {/* Style fix, 2026-09-03 — see LoanForm.tsx's identical
+              {/* Client feedback, 2026-10-16 — was gated on `count > 0`,
+                  so the button stayed hidden until "N° cuotas" was typed in
+                  and the client read that as "refinancing has no
+                  preview". Always shown now; handlePreview's validate()
+                  already points at whichever field is still missing. */}
+              <div className="flex flex-col gap-2.5">
+                <ChipButton
+                  onClick={handlePreview}
+                  disabled={previewSchedule.isPending || !hasUsableUsuryRate}
+                >
+                  {previewSchedule.isPending
+                    ? 'Calculando…'
+                    : 'Previsualizar cronograma de cuotas'}
+                </ChipButton>
+                {/* Style fix, 2026-09-03 — see LoanForm.tsx's identical
                       preview table for the full explanation. */}
-                  {preview && (
-                    <div className="overflow-hidden rounded border border-border bg-surface">
-                      <div className="max-h-[280px] overflow-y-auto">
-                        <table className="w-full border-collapse">
-                          <thead className="sticky top-0 bg-input">
-                            <tr className="divide-x divide-border">
-                              <Th compact>Cuota</Th>
-                              <Th compact>Vence</Th>
-                              <Th compact className="text-right">
-                                Capital
-                              </Th>
-                              <Th compact className="text-right">
-                                Total
-                              </Th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border">
-                            {/* See LoanForm.tsx's identical block — the down
+                {preview && (
+                  <div className="overflow-hidden rounded border border-border bg-surface">
+                    <div className="max-h-[280px] overflow-y-auto">
+                      <table className="w-full border-collapse">
+                        <thead className="sticky top-0 bg-input">
+                          <tr className="divide-x divide-border">
+                            <Th compact>Cuota</Th>
+                            <Th compact>Vence</Th>
+                            <Th compact className="text-right">
+                              Capital
+                            </Th>
+                            <Th compact className="text-right">
+                              Total
+                            </Th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {/* See LoanForm.tsx's identical block — the down
                                 payment isn't part of this preview response,
                                 so it's rendered as a synthetic first row
                                 with the rest renumbered +1. */}
-                            {hasDownPayment && (
-                              <tr className="divide-x divide-border">
-                                <Td compact>1</Td>
-                                <Td compact>
-                                  {downPaymentDueDate
-                                    ? formatDateOnly(downPaymentDueDate)
-                                    : '—'}
-                                </Td>
-                                <Td compact className="text-right">
-                                  {formatCurrency(downPaymentAmount)}
-                                </Td>
-                                <Td compact className="text-right">
-                                  {formatCurrency(downPaymentAmount)}
-                                </Td>
-                              </tr>
-                            )}
-                            {preview.installments.map((installment) => (
-                              <tr
-                                key={installment.installmentNumber}
-                                className="divide-x divide-border"
-                              >
-                                <Td compact>
-                                  {installment.installmentNumber +
-                                    (hasDownPayment ? 1 : 0)}
-                                </Td>
-                                <Td compact>
-                                  {formatDateOnly(installment.dueDate)}
-                                </Td>
-                                <Td compact className="text-right">
-                                  {formatCurrency(installment.principalPortion)}
-                                </Td>
-                                <Td compact className="text-right">
-                                  {formatCurrency(installment.amount)}
-                                </Td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                          {hasDownPayment && (
+                            <tr className="divide-x divide-border">
+                              <Td compact>1</Td>
+                              <Td compact>
+                                {downPaymentDueDate
+                                  ? formatDateOnly(downPaymentDueDate)
+                                  : '—'}
+                              </Td>
+                              <Td compact className="text-right">
+                                {formatCurrency(downPaymentAmount)}
+                              </Td>
+                              <Td compact className="text-right">
+                                {formatCurrency(downPaymentAmount)}
+                              </Td>
+                            </tr>
+                          )}
+                          {preview.installments.map((installment) => (
+                            <tr
+                              key={installment.installmentNumber}
+                              className="divide-x divide-border"
+                            >
+                              <Td compact>
+                                {installment.installmentNumber +
+                                  (hasDownPayment ? 1 : 0)}
+                              </Td>
+                              <Td compact>
+                                {formatDateOnly(installment.dueDate)}
+                              </Td>
+                              <Td compact className="text-right">
+                                {formatCurrency(installment.principalPortion)}
+                              </Td>
+                              <Td compact className="text-right">
+                                {formatCurrency(installment.amount)}
+                              </Td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
             </FormSection>
 
             <FormSection title="Detalles adicionales">

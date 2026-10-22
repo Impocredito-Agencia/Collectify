@@ -2896,6 +2896,110 @@ describe('LoansService', () => {
     });
   });
 
+  // Human request, 2026-10-21 — see LoansService.renumber.
+  describe('renumber', () => {
+    beforeEach(() => {
+      installmentsRepository.find.mockResolvedValue([]);
+    });
+
+    function mockLoans(...loans: Loan[]) {
+      loansRepository.findOneBy.mockImplementation(({ id }: { id: string }) =>
+        Promise.resolve(loans.find((loan) => loan.id === id) ?? null),
+      );
+    }
+
+    it('renames an active loan with no refinancing history', async () => {
+      mockLoans({ ...mockLoan });
+      loansRepository.findOne.mockResolvedValue(null);
+
+      await service.renumber(mockLoan.id, { promissoryNoteNumber: '#1201' });
+
+      expect(loansRepository.findOne).toHaveBeenCalledWith({
+        where: { promissoryNoteNumber: '#1201' },
+      });
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: In([mockLoan.id]) },
+        { promissoryNoteNumber: '#1201' },
+      );
+    });
+
+    it('renames every earlier loan of the chain that shares the number, and stops at one that does not', async () => {
+      const oldest = {
+        ...mockLoan,
+        id: 'loan-a',
+        promissoryNoteNumber: '#0500',
+        status: LoanStatus.Refinanced,
+      };
+      const middle = {
+        ...mockLoan,
+        id: 'loan-b',
+        refinancedFromLoanId: 'loan-a',
+        status: LoanStatus.Refinanced,
+      };
+      const current = {
+        ...mockLoan,
+        id: 'loan-c',
+        refinancedFromLoanId: 'loan-b',
+      };
+      mockLoans(oldest, middle, current);
+      loansRepository.findOne.mockResolvedValue(null);
+
+      await service.renumber('loan-c', { promissoryNoteNumber: '#1201' });
+
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: In(['loan-c', 'loan-b']) },
+        { promissoryNoteNumber: '#1201' },
+      );
+    });
+
+    it('rejects a number already used by another loan', async () => {
+      mockLoans({ ...mockLoan });
+      loansRepository.findOne.mockResolvedValue({
+        ...mockLoan,
+        id: 'other-loan',
+        promissoryNoteNumber: '#1201',
+        status: LoanStatus.Paid,
+      });
+
+      await expect(
+        service.renumber(mockLoan.id, { promissoryNoteNumber: '#1201' }),
+      ).rejects.toThrow(ConflictException);
+      expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+
+    it.each([LoanStatus.Paid, LoanStatus.Refinanced])(
+      'rejects a %s loan',
+      async (status) => {
+        mockLoans({ ...mockLoan, status });
+
+        await expect(
+          service.renumber(mockLoan.id, { promissoryNoteNumber: '#1201' }),
+        ).rejects.toThrow(BadRequestException);
+        expect(dataSource.transaction).not.toHaveBeenCalled();
+      },
+    );
+
+    it('changes nothing when the number is the same', async () => {
+      mockLoans({ ...mockLoan });
+      loansRepository.findOne.mockResolvedValue(null);
+
+      await service.renumber(mockLoan.id, {
+        promissoryNoteNumber: mockLoan.promissoryNoteNumber,
+      });
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      mockLoans();
+
+      await expect(
+        service.renumber('missing', { promissoryNoteNumber: '#1201' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('remove', () => {
     beforeEach(() => {
       loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
@@ -3035,6 +3139,20 @@ describe('LoansService', () => {
       expect(quote.totalPrincipalOwed).toBeCloseTo(433333.3, 2);
       expect(quote.interestTrueUp).toBe(84417);
       expect(quote.totalDue).toBeCloseTo(433333.3 + 84417, 2);
+    });
+
+    it("keeps the true-up label ahead of the admin's detail", async () => {
+      await service.payoff(mockLoan.id, { observation: 'Pagó en efectivo' });
+
+      const created = paymentsRepository.create.mock.calls.map(
+        ([payment]: [{ observation: string }]) => payment,
+      );
+      expect(created[0].observation).toBe(
+        'Liquidación anticipada (incluye ajuste de interés causado) — Pagó en efectivo',
+      );
+      expect(created[1].observation).toBe(
+        'Liquidación anticipada — Pagó en efectivo',
+      );
     });
 
     it('registers payments that sum to the quoted total, true-up on the first pending cuota', async () => {
@@ -3774,6 +3892,53 @@ describe('LoansService', () => {
         await service.payoff(mockLoan.id, { imageUrls: [] });
 
         expect(paymentImagesRepository.save).not.toHaveBeenCalled();
+      });
+    });
+
+    // Human report, 2026-10-21 — the payoff had no way to record why or
+    // how the client paid.
+    describe('observation', () => {
+      beforeEach(() => {
+        const futureDueDate = new Date();
+        futureDueDate.setFullYear(futureDueDate.getFullYear() + 5);
+        installmentsRepository.find.mockResolvedValue([
+          pendingInstallment({
+            id: 'inst-1',
+            installmentNumber: 1,
+            dueDate: futureDueDate.toISOString().slice(0, 10),
+          }),
+          pendingInstallment({
+            id: 'inst-2',
+            installmentNumber: 2,
+            dueDate: futureDueDate.toISOString().slice(0, 10),
+          }),
+        ]);
+      });
+
+      it("appends the admin's detail after the fixed label on every payment", async () => {
+        await service.payoff(mockLoan.id, {
+          observation: '  Pagó con transferencia, vendió la moto ',
+        });
+
+        const observations = paymentsRepository.create.mock.calls.map(
+          ([payment]: [{ observation: string }]) => payment.observation,
+        );
+        expect(observations).toEqual([
+          'Liquidación anticipada — Pagó con transferencia, vendió la moto',
+          'Liquidación anticipada — Pagó con transferencia, vendió la moto',
+        ]);
+      });
+
+      it('keeps the plain label when the detail is blank', async () => {
+        await service.payoff(mockLoan.id, { observation: '   ' });
+
+        const observations = paymentsRepository.create.mock.calls.map(
+          ([payment]: [{ observation: string }]) => payment.observation,
+        );
+        expect(observations).toEqual([
+          'Liquidación anticipada',
+          'Liquidación anticipada',
+        ]);
       });
     });
 
