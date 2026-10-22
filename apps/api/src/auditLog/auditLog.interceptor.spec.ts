@@ -399,6 +399,56 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
+    // Human request, 2026-10-21 — the old number is fetched BEFORE the
+    // handler renames the loan, since the response only has the new one.
+    it('labels a renumbered loan with its old and new pagaré numbers', async () => {
+      reflector.get.mockReturnValue({
+        action: 'loan.renumber',
+        entityType: 'loan',
+      });
+      loansRepository.findOne.mockResolvedValue({
+        id: 'loan-1',
+        promissoryNoteNumber: '#1200',
+      });
+      const context = buildContext({
+        user: { id: 'user-1' },
+        params: { id: 'loan-1' },
+        body: { promissoryNoteNumber: '#1201' },
+      });
+      const handler = buildCallHandler(
+        of({ id: 'loan-1', promissoryNoteNumber: '#1201' }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ entityLabel: 'Pagaré #1200 → #1201' }),
+      );
+    });
+
+    it('does not pre-fetch the loan for any other loan action', async () => {
+      reflector.get.mockReturnValue({
+        action: 'loan.update',
+        entityType: 'loan',
+      });
+      const context = buildContext({
+        user: { id: 'user-1' },
+        params: { id: 'loan-1' },
+      });
+      const handler = buildCallHandler(
+        of({ id: 'loan-1', promissoryNoteNumber: '#1201' }),
+      );
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(loansRepository.findOne).not.toHaveBeenCalled();
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ entityLabel: 'Pagaré #1201' }),
+      );
+    });
+
     it('resolves a null entityLabel when the loan-lookup fallback finds nothing', async () => {
       reflector.get.mockReturnValue({
         action: 'loan.delete',

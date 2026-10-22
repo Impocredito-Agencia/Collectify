@@ -140,6 +140,16 @@ export class AuditLogInterceptor implements NestInterceptor {
             id: request.params.id,
           })
         : null;
+    // Human request, 2026-10-21 — loan.renumber's response only carries
+    // the NEW number; the old one only exists before the handler runs.
+    const preFetchedLoanNumber =
+      audit.action === 'loan.renumber' && request.params.id
+        ? ((
+            await this.loansRepository.findOne({
+              where: { id: request.params.id },
+            })
+          )?.promissoryNoteNumber ?? null)
+        : null;
 
     // tap's success callback only fires when the handler actually emits a
     // value — a thrown exception skips it entirely, so a failed request
@@ -164,6 +174,7 @@ export class AuditLogInterceptor implements NestInterceptor {
             preFetchedUser,
             preFetchedInterestConceptType,
             request.body,
+            preFetchedLoanNumber,
           );
           await this.auditLogService.record({
             actorUserId: request.user?.id ?? null,
@@ -201,6 +212,7 @@ export class AuditLogInterceptor implements NestInterceptor {
     preFetchedUser: User | null,
     preFetchedInterestConceptType: InterestConceptType | null,
     requestBody: unknown,
+    preFetchedLoanNumber: string | null = null,
   ): Promise<string | null> {
     const entity = this.unwrapEntity(response);
 
@@ -230,7 +242,11 @@ export class AuditLogInterceptor implements NestInterceptor {
       }
       case 'loan': {
         if (entity && typeof entity.promissoryNoteNumber === 'string') {
-          return `Pagaré ${formatPromissoryNoteLabel(entity.promissoryNoteNumber)}`;
+          const label = `Pagaré ${formatPromissoryNoteLabel(entity.promissoryNoteNumber)}`;
+          return preFetchedLoanNumber &&
+            preFetchedLoanNumber !== entity.promissoryNoteNumber
+            ? `Pagaré ${formatPromissoryNoteLabel(preFetchedLoanNumber)} → ${formatPromissoryNoteLabel(entity.promissoryNoteNumber)}`
+            : label;
         }
         if (params.id) {
           const loan = await this.loansRepository.findOne({
