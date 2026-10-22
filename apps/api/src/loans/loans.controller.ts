@@ -26,6 +26,7 @@ import { AdjustPendingInstallmentsDto } from './dto/adjustPendingInstallments.dt
 import { AlignInstallmentDueDayDto } from './dto/alignInstallmentDueDay.dto';
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { PayoffLoanDto } from './dto/payoffLoan.dto';
+import { RenumberLoanDto } from './dto/renumberLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { PreviewScheduleDto } from './dto/previewSchedule.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
@@ -212,6 +213,32 @@ export class LoansController {
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   update(@Param('id') id: string, @Body() dto: UpdateLoanDto): Promise<Loan> {
     return this.loansService.update(id, dto);
+  }
+
+  @Patch(':id/promissory-note-number')
+  @RequireModule(AppModule.Loans)
+  @Audit('loan.renumber', 'loan')
+  @ApiOperation({
+    summary:
+      "Correct an active loan's promissory note number (admin or granted the loans module)",
+    description:
+      "Only for an ACTIVE loan, with or without payments. The new number must match #0000 and may not belong to any existing (non-deleted) loan in any status — same rule as POST /loans. Every earlier loan of the same refinancing chain that still carries the current number is renamed too, so the pagaré's history stays under one number. Sends no WhatsApp message. Sending the loan's current number is a no-op.",
+  })
+  @ApiResponse({ status: 200, description: 'The loan was renumbered.' })
+  @ApiResponse({
+    status: 400,
+    description: 'The number is not #0000, or the loan is not active.',
+  })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  @ApiResponse({
+    status: 409,
+    description: 'Another loan already uses that number.',
+  })
+  renumber(
+    @Param('id') id: string,
+    @Body() dto: RenumberLoanDto,
+  ): Promise<LoanDetail> {
+    return this.loansService.renumber(id, dto);
   }
 
   // Human report, 2026-09-22 — "algunas [cuotas] están el primero y la

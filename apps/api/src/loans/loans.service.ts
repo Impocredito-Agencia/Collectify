@@ -41,6 +41,7 @@ import { LoanConceptAssignmentDto } from './dto/loanConceptAssignment.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { PreviewScheduleDto } from './dto/previewSchedule.dto';
 import { PayoffLoanDto } from './dto/payoffLoan.dto';
+import { RenumberLoanDto } from './dto/renumberLoan.dto';
 import { LoanSortColumn, QueryLoansDto } from './dto/queryLoans.dto';
 import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { addMonthsToDateString, addWeeksToDateString } from './dueDateSchedule';
@@ -929,6 +930,65 @@ export class LoansService {
       loan.alternateContactPhoneNumber,
     );
     return this.loansRepository.save(loan);
+  }
+
+  // Human request, 2026-10-21 — corrects a pagaré typed with the wrong
+  // number. Rules confirmed with the human: only an ACTIVE loan (paid/
+  // refinanced ones are closed history), with or without payments; the
+  // whole refinancing chain that shares the current number moves with it,
+  // so the pagaré's history stays together under one number; no WhatsApp
+  // message (a silent internal correction, audited as loan.renumber).
+  // The new number goes through the same strict check as create() — it
+  // may not belong to any existing loan, in any status. Chain members
+  // always hold the OLD number, so they can never trip that check.
+  async renumber(id: string, dto: RenumberLoanDto): Promise<LoanDetail> {
+    const loan = await this.findLoanOrThrow(id);
+    if (loan.status !== LoanStatus.Active) {
+      throw new BadRequestException(
+        'Solo se puede cambiar el número de un préstamo activo.',
+      );
+    }
+    if (dto.promissoryNoteNumber === loan.promissoryNoteNumber) {
+      return this.findOne(id);
+    }
+
+    const chainIds = await this.findSameNumberChainIds(loan);
+    await this.dataSource.transaction(async (manager: EntityManager) => {
+      const loansRepository = manager.getRepository(Loan);
+      await this.assertPromissoryNoteNumberIsUnique(
+        dto.promissoryNoteNumber,
+        loansRepository,
+      );
+      await loansRepository.update(
+        { id: In(chainIds) },
+        { promissoryNoteNumber: dto.promissoryNoteNumber },
+      );
+    });
+
+    return this.findOne(id);
+  }
+
+  // Walks refinancedFromLoanId back from `loan` while each predecessor
+  // still carries the same number. Stops at the first one that doesn't:
+  // before 2026-09-06 a refinance got a NEW number, so an older link in
+  // the chain is a different pagaré and must keep its own.
+  private async findSameNumberChainIds(loan: Loan): Promise<string[]> {
+    const ids = [loan.id];
+    let previousId = loan.refinancedFromLoanId;
+    while (previousId && !ids.includes(previousId)) {
+      const previous = await this.loansRepository.findOneBy({
+        id: previousId,
+      });
+      if (
+        !previous ||
+        previous.promissoryNoteNumber !== loan.promissoryNoteNumber
+      ) {
+        break;
+      }
+      ids.push(previous.id);
+      previousId = previous.refinancedFromLoanId;
+    }
+    return ids;
   }
 
   // Human request, 2026-09-25 — see LoansConfig's comment. Adds the same

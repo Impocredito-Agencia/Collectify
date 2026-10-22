@@ -2896,6 +2896,110 @@ describe('LoansService', () => {
     });
   });
 
+  // Human request, 2026-10-21 — see LoansService.renumber.
+  describe('renumber', () => {
+    beforeEach(() => {
+      installmentsRepository.find.mockResolvedValue([]);
+    });
+
+    function mockLoans(...loans: Loan[]) {
+      loansRepository.findOneBy.mockImplementation(({ id }: { id: string }) =>
+        Promise.resolve(loans.find((loan) => loan.id === id) ?? null),
+      );
+    }
+
+    it('renames an active loan with no refinancing history', async () => {
+      mockLoans({ ...mockLoan });
+      loansRepository.findOne.mockResolvedValue(null);
+
+      await service.renumber(mockLoan.id, { promissoryNoteNumber: '#1201' });
+
+      expect(loansRepository.findOne).toHaveBeenCalledWith({
+        where: { promissoryNoteNumber: '#1201' },
+      });
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: In([mockLoan.id]) },
+        { promissoryNoteNumber: '#1201' },
+      );
+    });
+
+    it('renames every earlier loan of the chain that shares the number, and stops at one that does not', async () => {
+      const oldest = {
+        ...mockLoan,
+        id: 'loan-a',
+        promissoryNoteNumber: '#0500',
+        status: LoanStatus.Refinanced,
+      };
+      const middle = {
+        ...mockLoan,
+        id: 'loan-b',
+        refinancedFromLoanId: 'loan-a',
+        status: LoanStatus.Refinanced,
+      };
+      const current = {
+        ...mockLoan,
+        id: 'loan-c',
+        refinancedFromLoanId: 'loan-b',
+      };
+      mockLoans(oldest, middle, current);
+      loansRepository.findOne.mockResolvedValue(null);
+
+      await service.renumber('loan-c', { promissoryNoteNumber: '#1201' });
+
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: In(['loan-c', 'loan-b']) },
+        { promissoryNoteNumber: '#1201' },
+      );
+    });
+
+    it('rejects a number already used by another loan', async () => {
+      mockLoans({ ...mockLoan });
+      loansRepository.findOne.mockResolvedValue({
+        ...mockLoan,
+        id: 'other-loan',
+        promissoryNoteNumber: '#1201',
+        status: LoanStatus.Paid,
+      });
+
+      await expect(
+        service.renumber(mockLoan.id, { promissoryNoteNumber: '#1201' }),
+      ).rejects.toThrow(ConflictException);
+      expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+
+    it.each([LoanStatus.Paid, LoanStatus.Refinanced])(
+      'rejects a %s loan',
+      async (status) => {
+        mockLoans({ ...mockLoan, status });
+
+        await expect(
+          service.renumber(mockLoan.id, { promissoryNoteNumber: '#1201' }),
+        ).rejects.toThrow(BadRequestException);
+        expect(dataSource.transaction).not.toHaveBeenCalled();
+      },
+    );
+
+    it('changes nothing when the number is the same', async () => {
+      mockLoans({ ...mockLoan });
+      loansRepository.findOne.mockResolvedValue(null);
+
+      await service.renumber(mockLoan.id, {
+        promissoryNoteNumber: mockLoan.promissoryNoteNumber,
+      });
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      mockLoans();
+
+      await expect(
+        service.renumber('missing', { promissoryNoteNumber: '#1201' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('remove', () => {
     beforeEach(() => {
       loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
