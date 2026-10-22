@@ -462,6 +462,20 @@ export const loansApi = {
     return data;
   },
 
+  // Human request, 2026-10-21 — corrects an active loan's pagaré number
+  // (and every earlier loan of its refinancing chain that shares it).
+  // 409 when another loan already uses the number.
+  renumber: async (
+    id: string,
+    promissoryNoteNumber: string,
+  ): Promise<LoanDetail> => {
+    const { data } = await apiClient.patch<LoanDetail>(
+      `/loans/${id}/promissory-note-number`,
+      { promissoryNoteNumber },
+    );
+    return data;
+  },
+
   // Added for the loan detail screen's "Historial de pagos" (F-19) — there
   // was previously no way to list a loan's payments at all on the backend,
   // only register one. See LoansService.getPayments.
