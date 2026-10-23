@@ -9,8 +9,18 @@ interface StatCardProps {
   // colores que las demás — so 'danger' only tints the value now; the
   // card's border/background/label stay identical to 'default'. Defaults
   // to 'default', so every existing call site is unaffected.
-  tone?: 'default' | 'danger';
+  //
+  // 'accent' (client request, 2026-10-23) — the one figure that matters
+  // most in a group, in the same soft brand-orange box PayoffDialog's
+  // "Total a pagar hoy" uses (border-accent/30 bg-accent/5).
+  tone?: 'default' | 'danger' | 'accent';
 }
+
+const VALUE_TONE_CLASSES: Record<NonNullable<StatCardProps['tone']>, string> = {
+  default: 'text-white',
+  danger: 'text-danger',
+  accent: 'text-accent',
+};
 
 // KPI/metric card (style cleanup, 2026-09-02) — DashboardPage's stats grid
 // ("Clientes con préstamos activos", "Cuotas en mora", "Monto total en
@@ -22,7 +32,9 @@ interface StatCardProps {
 // app (there will be more) reuses this instead of a third copy.
 export function StatCard({ label, value, tone = 'default' }: StatCardProps) {
   return (
-    <div className="rounded border border-border bg-surface p-5">
+    <div
+      className={`rounded border p-5 ${tone === 'accent' ? 'border-accent/30 bg-accent/5' : 'border-border bg-surface'}`}
+    >
       {/* Style cleanup, 2026-09-04 — briefly reserved 2 lines' worth of
           height here after "Incremento consolidado en caso de mora" wrapped
           in LoanDetailPage's 6-column grid and pushed that card's value out
@@ -31,9 +43,7 @@ export function StatCard({ label, value, tone = 'default' }: StatCardProps) {
           fits on one line now, so cards stay at their natural, smaller
           height instead of reserving space no longer needed. */}
       <p className="text-small text-muted">{label}</p>
-      <p
-        className={`mt-1 text-kpi font-light ${tone === 'danger' ? 'text-danger' : 'text-white'}`}
-      >
+      <p className={`mt-1 text-kpi font-light ${VALUE_TONE_CLASSES[tone]}`}>
         {value}
       </p>
     </div>
