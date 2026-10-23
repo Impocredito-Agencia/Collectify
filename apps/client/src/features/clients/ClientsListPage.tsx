@@ -86,8 +86,9 @@ export function ClientsListPage() {
   const queryClient = useQueryClient();
 
   // Human request, 2026-09-15 — the client used to build this by hand from
-  // their paper records. One row per overdue installment, sorted by pagaré
-  // (see overdueInstallmentsReportWorkbook.ts) — the button just triggers
+  // their paper records. One row per client with their oldest overdue
+  // cuota (since 2026-10-23), sorted by pagaré (see
+  // overdueInstallmentsReportWorkbook.ts) — the button just triggers
   // the download, no dialog needed since there's nothing to configure.
   const handleDownloadReport = async () => {
     setDownloadReportError(null);
