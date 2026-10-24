@@ -24,6 +24,7 @@ const HEADERS = [
   'Documento',
   'Teléfono',
   'Pagaré',
+  'Pagarés vencidos',
   'Cuota #',
   'Fecha de vencimiento',
   'Días de atraso',
@@ -32,10 +33,16 @@ const HEADERS = [
   'Total a pagar hoy',
   'Contacto alterno',
 ];
-const COLUMN_WIDTHS = [26, 16, 16, 12, 9, 20, 14, 14, 16, 16, 16];
+const COLUMN_WIDTHS = [26, 16, 16, 12, 17, 9, 20, 14, 14, 16, 16, 16];
 // 1-based column index of each currency column, for numFmt below.
-const CURRENCY_COLUMNS = [8, 9, 10];
-const OVERDUE_DAYS_COLUMN = 7;
+const CURRENCY_COLUMNS = [9, 10, 11];
+const OVERDUE_DAYS_COLUMN = 8;
+
+// One row per client: their oldest overdue cuota, plus how many of their
+// pagarés have something overdue.
+interface ClientReportRow extends OverdueInstallmentDetail {
+  overduePromissoryNoteCount: number;
+}
 
 // "2024-01-15" -> "15/01/2024" — plain string manipulation, deliberately
 // not parsed into a JS Date: this codebase has already hit (and fixed)
@@ -46,9 +53,39 @@ function formatDueDate(dueDate: string): string {
   return `${day}/${month}/${year}`;
 }
 
-function sortForReport(
+// Client request, 2026-10-23 — the sheet listed every overdue cuota of
+// every pagaré, so a client behind on several pagarés filled many rows.
+// Now each client gets ONE row: the cuota that has been overdue the
+// longest (ties: lower pagaré number, then lower cuota number). The admin
+// looks the client up in the panel to review the rest of their pagarés.
+function keepOldestPerClient(
   rows: OverdueInstallmentDetail[],
-): OverdueInstallmentDetail[] {
+): ClientReportRow[] {
+  const byClient = new Map<string, OverdueInstallmentDetail[]>();
+  for (const row of rows) {
+    byClient.set(row.clientId, [...(byClient.get(row.clientId) ?? []), row]);
+  }
+
+  return Array.from(byClient.values()).map((clientRows) => {
+    const [oldest] = [...clientRows].sort(
+      (a, b) =>
+        b.overdueDays - a.overdueDays ||
+        comparePromissoryNoteNumbers(
+          a.promissoryNoteNumber,
+          b.promissoryNoteNumber,
+        ) ||
+        a.installmentNumber - b.installmentNumber,
+    );
+    return {
+      ...oldest,
+      overduePromissoryNoteCount: new Set(
+        clientRows.map((row) => row.promissoryNoteNumber),
+      ).size,
+    };
+  });
+}
+
+function sortForReport(rows: ClientReportRow[]): ClientReportRow[] {
   // Matches how the client filed this manually before — by pagaré, same
   // numeric-aware order as the "Préstamos" list (confirmed with the
   // human: familiarity matters more here than surfacing the most urgent
@@ -74,8 +111,8 @@ export function overdueInstallmentsReportFilename(): string {
   return `cuotas_vencidas_${todayDateString()}.xlsx`;
 }
 
-// GET /clients/reports/overdue-installments — one row per overdue
-// installment (never aggregated by client), built for a non-technical
+// GET /clients/reports/overdue-installments — one row per client with
+// overdue cuotas (their oldest one, see keepOldestPerClient), built for a non-technical
 // reader (confirmed with the human): a plain-language summary line up
 // top, currency columns formatted as real numbers (not text), the most
 // severely overdue rows flagged in red, and the header frozen so it stays
@@ -83,15 +120,17 @@ export function overdueInstallmentsReportFilename(): string {
 export async function buildOverdueInstallmentsReportWorkbook(
   rows: OverdueInstallmentDetail[],
 ): Promise<Buffer> {
-  const sorted = sortForReport(rows);
-  const totalOverdueAmount = sorted.reduce((sum, row) => sum + row.totalDue, 0);
+  const sorted = sortForReport(keepOldestPerClient(rows));
+  // Every overdue cuota still counts toward the total, not just the one
+  // row shown per client — the summary line reports the real amount owed.
+  const totalOverdueAmount = rows.reduce((sum, row) => sum + row.totalDue, 0);
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Cuotas vencidas');
 
   const generatedAt = formatDueDate(todayDateString());
   sheet.addRow([
-    `Cuotas vencidas — generado el ${generatedAt} — ${sorted.length} cuota(s) por un total de $${totalOverdueAmount.toLocaleString('es-CO')}.`,
+    `Cuotas vencidas — generado el ${generatedAt} — ${sorted.length} cliente(s) con ${rows.length} cuota(s) vencida(s) por un total de $${totalOverdueAmount.toLocaleString('es-CO')}. Se muestra la cuota vencida más antigua de cada cliente; revise sus demás pagarés en el programa.`,
   ]);
   sheet.addRow([]);
 
@@ -108,6 +147,7 @@ export async function buildOverdueInstallmentsReportWorkbook(
       row.clientDocumentNumber,
       row.clientPhoneNumber,
       row.promissoryNoteNumber,
+      row.overduePromissoryNoteCount,
       row.installmentNumber,
       formatDueDate(row.dueDate),
       row.overdueDays,

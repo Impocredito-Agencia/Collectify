@@ -46,10 +46,12 @@ export class OverdueInstallmentsReportController {
   @RequireModule(AppModule.Clients)
   @ApiOperation({
     summary:
-      'Download an .xlsx report of every overdue installment, one row each (admin or granted the clients module)',
+      'Download an .xlsx report of clients with overdue installments, one row per client (admin or granted the clients module)',
     description:
-      'Sorted by pagaré (numeric-aware, matching the "Préstamos" list), then by cuota number — the ' +
-      'same order the client used when they tracked this by hand. Never aggregated by client.',
+      'Each client gets one row: the installment that has been overdue the longest across all their ' +
+      'pagarés (ties: lower pagaré number, then lower cuota number), plus how many of their pagarés ' +
+      'have something overdue. Sorted by that pagaré (numeric-aware, matching the "Préstamos" list). ' +
+      'The summary line still totals every overdue installment.',
   })
   @ApiResponse({ status: 200, description: 'Returns the .xlsx report.' })
   async download(@Res() res: Response): Promise<void> {

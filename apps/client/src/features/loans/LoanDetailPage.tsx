@@ -33,6 +33,7 @@ import {
 import { AdjustPendingInstallmentsDialog } from '@/features/loans/AdjustPendingInstallmentsDialog';
 import { DeleteLoanDialog } from '@/features/loans/DeleteLoanDialog';
 import { EditLoanDialog } from '@/features/loans/EditLoanDialog';
+import { LoanClientSummaryDialog } from '@/features/loans/LoanClientSummaryDialog';
 import {
   estadoBadge,
   moraBadgeClasses,
@@ -170,6 +171,7 @@ export function LoanDetailPage() {
   const [isBulkPaying, setIsBulkPaying] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isRenumbering, setIsRenumbering] = useState(false);
+  const [isShowingClientSummary, setIsShowingClientSummary] = useState(false);
   const [isRefinancing, setIsRefinancing] = useState(false);
   const [isPayingOff, setIsPayingOff] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -654,6 +656,7 @@ export function LoanDetailPage() {
       <InstallmentsTable
         loan={loan}
         onPay={(installment) => setPayingInstallment(installment)}
+        onShowClientSummary={() => setIsShowingClientSummary(true)}
         oldestPendingInstallmentId={oldestPending?.id ?? null}
         selectedInstallmentIds={selectedInstallmentIds}
         onToggleSelected={(installmentId) =>
@@ -906,6 +909,15 @@ export function LoanDetailPage() {
         />
       )}
 
+      {isShowingClientSummary && (
+        <LoanClientSummaryDialog
+          promissoryNoteNumber={loan.promissoryNoteNumber}
+          clientFullName={clientFullName}
+          installments={loan.installments}
+          onClose={() => setIsShowingClientSummary(false)}
+        />
+      )}
+
       {isRenumbering && (
         <RenumberLoanDialog
           loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
@@ -1109,12 +1121,14 @@ function VoidPaymentDialog({
 function InstallmentsTable({
   loan,
   onPay,
+  onShowClientSummary,
   oldestPendingInstallmentId,
   selectedInstallmentIds,
   onToggleSelected,
 }: {
   loan: LoanDetail;
   onPay: (installment: Installment) => void;
+  onShowClientSummary: () => void;
   // Phase 32 — the single-installment "Pagar" button is only enabled for
   // this one row: the sequential-payment rule (see
   // InstallmentsService.registerPayment) means it's the only pending
@@ -1178,9 +1192,21 @@ function InstallmentsTable({
 
   return (
     <div className="flex flex-col gap-2.5">
-      <span className="text-section-label font-normal tracking-normal text-subtle">
-        Cuotas
-      </span>
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-section-label font-normal tracking-normal text-subtle">
+          Cuotas
+        </span>
+        {/* Client request, 2026-10-23 — a simplified estado de cuenta to
+            screenshot and send to the debtor (see LoanClientSummaryDialog).
+            Read-only, so no permission gate beyond seeing this page. */}
+        <Button
+          variant="secondary"
+          onClick={onShowClientSummary}
+          className="shrink-0 whitespace-nowrap"
+        >
+          Resumen para el cliente
+        </Button>
+      </div>
       <div className="overflow-x-auto rounded border border-border bg-surface">
         <table className="w-full min-w-max border-collapse">
           <thead className="bg-input">
