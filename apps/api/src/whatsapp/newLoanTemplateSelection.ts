@@ -74,20 +74,19 @@ export interface TemplateSelectionResult {
 }
 
 // Templates 1 & 2 (new loan) — see docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md
-// for the exact body/parameter order this mirrors.
+// for the exact body/parameter order this mirrors. Client request,
+// 2026-10-26 — the Meta templates no longer carry the debt's total value
+// ("El valor total de la deuda es $X, diferido en…"), so neither does this:
+// every parameter after the concepto shifted down by one. Same for the
+// refinance template below.
 export function selectNewLoanTemplate(
   input: SelectNewLoanTemplateInput,
 ): TemplateSelectionResult {
   const [firstInstallment] = input.installments;
   const tratamiento = formatTratamiento(input.clientFullName);
   const frequency = frequencyLabel(input.frequency);
-  const trackedTotal = input.installments.reduce(
-    (sum, installment) => sum + installment.amount,
-    0,
-  );
 
   if (input.downPayment != null) {
-    const totalWithInitialPayment = input.downPayment.amount + trackedTotal;
     const type = input.isNewClient
       ? MessageType.NewLoanNewClientInitialInstallment
       : MessageType.NewLoanExistingClientInitialInstallment;
@@ -99,7 +98,6 @@ export function selectNewLoanTemplate(
         input.promissoryNoteNumber,
         formatDateEs(input.disbursedAt),
         descriptionOrFallback(input.description),
-        money(totalWithInitialPayment),
         // +1 to count the cuota inicial alongside the tracked installments
         // in the intro's "diferido en N cuotas" — see the worked example
         // in the phase doc (10 = 1 inicial + 9 restantes).
@@ -124,7 +122,6 @@ export function selectNewLoanTemplate(
       input.promissoryNoteNumber,
       formatDateEs(input.disbursedAt),
       descriptionOrFallback(input.description),
-      money(trackedTotal),
       String(input.installments.length),
       frequency,
       money(firstInstallment.amount),
@@ -141,17 +138,12 @@ export function selectRefinanceTemplate(
   input: SelectRefinanceTemplateInput,
 ): TemplateSelectionResult {
   const [firstInstallment] = input.installments;
-  const total = input.installments.reduce(
-    (sum, installment) => sum + installment.amount,
-    0,
-  );
 
   return {
     type: MessageType.RefinanceSingleLoan,
     bodyParameters: [
       formatTratamiento(input.clientFullName),
       input.originalPromissoryNoteNumber,
-      money(total),
       String(input.installments.length),
       frequencyLabel(input.frequency),
       money(firstInstallment.amount),

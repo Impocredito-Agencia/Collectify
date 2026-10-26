@@ -191,6 +191,19 @@ export interface LoanDetail extends Loan {
   canAdjustPendingInstallments: boolean;
 }
 
+// Client request, 2026-10-26 — what a client owes today across every loan
+// still in course, for ClientDetailPage. Both figures are sums of each
+// active loan's own getPayoffQuote(), never a second implementation of that
+// math: principalBalance is totalPrincipalOwed (the same "saldo capital a
+// la fecha" LoanDetail.currentPrincipalBalance shows per loan), payoffTotal
+// is totalDue (capital + interest caused to date — what closing every one
+// of those loans out today would cost).
+export interface ClientDebtSummary {
+  activeLoanCount: number;
+  principalBalance: number;
+  payoffTotal: number;
+}
+
 // Phase 28 — getPayments()'s return shape: imageUrl replaced with
 // imageUrls, sourced from payment_images (falling back to the deprecated
 // imageUrl column for a pre-migration row, see Payment entity).
@@ -1204,6 +1217,25 @@ export class LoansService {
         ),
       },
     );
+  }
+
+  async getClientDebtSummary(clientId: string): Promise<ClientDebtSummary> {
+    const activeLoans = await this.loansRepository.find({
+      where: { clientId, status: LoanStatus.Active },
+      select: { id: true },
+    });
+    const quotes = await Promise.all(
+      activeLoans.map((loan) => this.getPayoffQuote(loan.id)),
+    );
+
+    return {
+      activeLoanCount: activeLoans.length,
+      principalBalance: quotes.reduce(
+        (sum, quote) => sum + quote.totalPrincipalOwed,
+        0,
+      ),
+      payoffTotal: quotes.reduce((sum, quote) => sum + quote.totalDue, 0),
+    };
   }
 
   // Separate, explicit flow from registerPayment (confirmed with the

@@ -38,6 +38,8 @@ Required reading alongside this: `docs/phases/PHASE_9_MESSAGE_TYPES.md` (the out
 
 That's all 13 — every template the client wrote maps to exactly one Meta name, with no leftovers on either side.
 
+> **Updated 2026-10-26 (client request):** Templates 1–3 (all five new-loan / refinance variants) no longer carry the debt's total value — "El valor total de la deuda es *{{5}}*, diferido en…" became "El valor total de la obligación corresponde a…", and every later parameter shifted down by one. The cliente-nuevo pair also moved the data-treatment paragraph below the pagaré line, with new wording. The bodies below are the current ones; see migration `1791600000000-DropTotalFromNewLoanTemplates`.
+
 ### Template 1 — Bienvenida + primer pagaré (cliente nuevo)
 
 **Meta name: `nuevo_pagar_cliente_nuevo`**
@@ -52,25 +54,24 @@ Desde este número le enviaremos recordatorios de pago y notificaciones
 de cumplimiento, y podrá solicitar información sobre su estado de
 cuenta, refinanciamiento y abonos.
 
-El tratamiento de sus datos personales para estas comunicaciones se
-realiza conforme a la autorización que usted otorgó al momento de su
-crédito. Puede consultar nuestra política de tratamiento de datos en
-el enlace de este mensaje.
-
 Registramos el pagaré *{{2}}*, obligación adquirida en la ciudad de
 *Pasto* con el comercio afiliado *PUBLIMARK TEC*, vigente desde el
 *{{3}}*.
 
+El tratamiento de sus datos personales para estas comunicaciones se
+realiza conforme a la autorización que usted otorgó al adquirir esta
+obligación.
+
 Detalle del producto:
 {{4}}
 
-El valor total de la deuda es *{{5}}*, diferido en *{{6}}* cuotas
-*{{7}}* de *{{8}}* cada una. Su primera cuota vence el *{{9}}*.
+El valor total de la obligación corresponde a *{{5}}* cuotas *{{6}}*
+de *{{7}}* cada una. Su primera cuota vence el *{{8}}*.
 
 Quedamos atentos a brindarle más información.
 ```
 
-Parameters, in order: `{{1}}` tratamiento + nombre cliente, `{{2}}` # pagaré, `{{3}}` fecha de vigencia, `{{4}}` concepto (multi-línea, un ítem por línea), `{{5}}` valor total deuda, `{{6}}` # cuotas, `{{7}}` periodicidad, `{{8}}` valor c/cuota, `{{9}}` fecha primera cuota.
+Parameters, in order: `{{1}}` tratamiento + nombre cliente, `{{2}}` # pagaré, `{{3}}` fecha de vigencia, `{{4}}` concepto (multi-línea, un ítem por línea), `{{5}}` # cuotas, `{{6}}` periodicidad, `{{7}}` valor c/cuota, `{{8}}` fecha primera cuota.
 
 **Button:** 1 botón tipo URL ("Visitar sitio web"), texto **"Política de datos"** — enlace **estático** (mismo para todos los clientes) a la política general de tratamiento de datos, no al documento específico que el cliente firmó en papel al momento del crédito. No se llama "Ver autorización" a propósito, para no dar a entender que ahí está el documento firmado. **Bloqueado:** el cliente todavía no entrega el link real — queda con un placeholder hasta entonces. Cuando lo entregue: el link debe ser una URL https válida y **públicamente accesible, sin login** (requisito de Meta vigente desde enero de 2026 — si termina detrás de un inicio de sesión, Meta rechaza la plantilla).
 
@@ -90,26 +91,25 @@ Desde este número le enviaremos recordatorios de pago y notificaciones
 de cumplimiento, y podrá solicitar información sobre su estado de
 cuenta, refinanciamiento y abonos.
 
-El tratamiento de sus datos personales para estas comunicaciones se
-realiza conforme a la autorización que usted otorgó al momento de su
-crédito. Puede consultar nuestra política de tratamiento de datos en
-el enlace de este mensaje.
-
 Registramos el pagaré *{{2}}*, obligación adquirida en la ciudad de
 *Pasto* con el comercio afiliado *PUBLIMARK TEC*, vigente desde el
 *{{3}}*.
 
+El tratamiento de sus datos personales para estas comunicaciones se
+realiza conforme a la autorización que usted otorgó al adquirir esta
+obligación.
+
 Detalle del producto:
 {{4}}
 
-El valor total de la deuda es *{{5}}*, diferido en *{{6}}* cuotas
-*{{7}}*: una cuota inicial de *{{8}}* y *{{9}}* cuotas restantes de
-*{{10}}* cada una. Su primera cuota vence el *{{11}}*.
+El valor total de la obligación corresponde a *{{5}}* cuotas *{{6}}*:
+una cuota inicial de *{{7}}* y *{{8}}* cuotas restantes de *{{9}}*
+cada una. Su primera cuota vence el *{{10}}*.
 
 Quedamos atentos a brindarle más información.
 ```
 
-Parameters: `{{1}}` tratamiento + nombre, `{{2}}` # pagaré, `{{3}}` fecha vigencia, `{{4}}` concepto, `{{5}}` valor total deuda, `{{6}}` # cuotas, `{{7}}` periodicidad, `{{8}}` valor cuota inicial, `{{9}}` # cuotas restantes, `{{10}}` valor c/cuota restante, `{{11}}` fecha primera cuota.
+Parameters: `{{1}}` tratamiento + nombre, `{{2}}` # pagaré, `{{3}}` fecha vigencia, `{{4}}` concepto, `{{5}}` # cuotas, `{{6}}` periodicidad, `{{7}}` valor cuota inicial, `{{8}}` # cuotas restantes, `{{9}}` valor c/cuota restante, `{{10}}` fecha primera cuota.
 
 ### Template 2 — Nuevo pagaré (cliente existente)
 
@@ -124,13 +124,13 @@ cuenta, identificado como *{{2}}* vigente desde el *{{3}}*.
 Detalle del producto:
 {{4}}
 
-El valor total de la deuda es *{{5}}*, diferido en *{{6}}* cuotas
-*{{7}}* de *{{8}}* cada una. Su primera cuota vence el *{{9}}*.
+El valor total de la obligación corresponde a *{{5}}* cuotas *{{6}}*
+de *{{7}}* cada una. Su primera cuota vence el *{{8}}*.
 
 Quedamos atentos a brindarle más información.
 ```
 
-Parameters: `{{1}}` tratamiento + nombre, `{{2}}` # pagaré, `{{3}}` fecha vigencia, `{{4}}` concepto, `{{5}}` valor total deuda, `{{6}}` # cuotas, `{{7}}` periodicidad, `{{8}}` valor c/cuota, `{{9}}` fecha primera cuota. No button, no legal/authorization text.
+Parameters: `{{1}}` tratamiento + nombre, `{{2}}` # pagaré, `{{3}}` fecha vigencia, `{{4}}` concepto, `{{5}}` # cuotas, `{{6}}` periodicidad, `{{7}}` valor c/cuota, `{{8}}` fecha primera cuota. No button, no legal/authorization text.
 
 **Reused for a multi-loan refinance merge** — when several pagarés are fused into one new loan (as opposed to refinancing a single one, which uses `refinanciamiento_un_solo_pagar` below), this exact template is sent with no structural change — the detail of which pagarés were merged goes in the `{{4}}` (concepto) field instead of a product description, e.g. `"Refinanciamiento de los pagarés #1026, #994 y #1189"`.
 
@@ -147,14 +147,14 @@ cuenta, identificado como *{{2}}* vigente desde el *{{3}}*.
 Detalle del producto:
 {{4}}
 
-El valor total de la deuda es *{{5}}*, diferido en *{{6}}* cuotas
-*{{7}}*: una cuota inicial de *{{8}}* y *{{9}}* cuotas restantes de
-*{{10}}* cada una. Su primera cuota vence el *{{11}}*.
+El valor total de la obligación corresponde a *{{5}}* cuotas *{{6}}*:
+una cuota inicial de *{{7}}* y *{{8}}* cuotas restantes de *{{9}}*
+cada una. Su primera cuota vence el *{{10}}*.
 
 Quedamos atentos a brindarle más información.
 ```
 
-Same 11-parameter shape as Template 1's cuota-inicial variant, minus the legal text.
+Same 10-parameter shape as Template 1's cuota-inicial variant, minus the legal text.
 
 ### Template 3 — Refinanciamiento (un solo pagaré)
 
@@ -167,14 +167,14 @@ IMPROCRÉDITO le informa que se ha procedido a realizar un
 refinanciamiento del saldo de la deuda correspondiente al pagaré
 *{{2}}*.
 
-Con el refinanciamiento efectuado, el nuevo valor total de la deuda
-es *{{3}}*, diferido en *{{4}}* cuotas {{5}} de *{{6}}* cada una. Su
-primera cuota vence el *{{7}}*.
+Con el refinanciamiento efectuado, el valor total de la obligación
+corresponde a *{{3}}* cuotas {{4}} de *{{5}}* cada una. Su primera
+cuota vence el *{{6}}*.
 
 Quedamos atentos a brindarle más información.
 ```
 
-Parameters: `{{1}}` tratamiento + nombre, `{{2}}` # pagaré original, `{{3}}` nuevo valor total deuda, `{{4}}` # cuotas nuevas, `{{5}}` periodicidad nueva, `{{6}}` valor c/cuota nueva, `{{7}}` fecha primera cuota nueva.
+Parameters: `{{1}}` tratamiento + nombre, `{{2}}` # pagaré original, `{{3}}` # cuotas nuevas, `{{4}}` periodicidad nueva, `{{5}}` valor c/cuota nueva, `{{6}}` fecha primera cuota nueva.
 
 ### Template 4 — Una cuota próxima a vencer
 

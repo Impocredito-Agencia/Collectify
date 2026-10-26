@@ -29,7 +29,6 @@ describe('selectNewLoanTemplate', () => {
       '#1190',
       '20 de agosto de 2026',
       '- Televisor Samsung 55 pulgadas',
-      '$600.000',
       '2',
       'mensuales',
       '$300.000',
@@ -85,7 +84,6 @@ describe('selectNewLoanTemplate', () => {
       '#1190',
       '20 de agosto de 2026',
       '- Televisor Samsung 55 pulgadas',
-      '$2.200.000',
       '3',
       'mensuales',
       '$1.400.000',
@@ -124,7 +122,6 @@ describe('selectRefinanceTemplate', () => {
     expect(result.bodyParameters).toEqual([
       'Señor/a Liseth Obando',
       '#1029',
-      '$402.000',
       '2',
       'mensuales',
       '$201.000',

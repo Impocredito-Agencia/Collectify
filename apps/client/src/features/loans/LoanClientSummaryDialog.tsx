@@ -24,8 +24,8 @@ interface LoanClientSummaryDialogProps {
 
 // Client request, 2026-10-23 — "no quiere enviarle una captura donde se
 // desglose tanto cada cuota". A read-only estado de cuenta sized for a
-// screenshot the admin sends to the debtor over WhatsApp: pending cuotas
-// only, mora surcharges collapsed into one column, totals at the bottom.
+// screenshot the admin sends to the debtor over WhatsApp: every cuota of
+// the plan (paid ones marked "Pagada" since 2026-10-26), mora surcharges collapsed into one column, totals at the bottom.
 // The full per-concept breakdown stays on LoanDetailPage's own table.
 export function LoanClientSummaryDialog({
   promissoryNoteNumber,
@@ -76,7 +76,7 @@ export function LoanClientSummaryDialog({
 
       {summary.rows.length === 0 ? (
         <p className="mt-5 text-small text-muted">
-          Este pagaré no tiene cuotas pendientes.
+          Este pagaré no tiene cuotas.
         </p>
       ) : (
         // Symmetric on purpose (client feedback, 2026-10-23 — "no se mira
@@ -130,7 +130,13 @@ export function LoanClientSummaryDialog({
                     {formatDateOnly(row.dueDate)}
                   </Td>
                   <Td compact className="text-center">
-                    {row.overdueDays > 0 ? (
+                    {row.isPaid ? (
+                      <span
+                        className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(0)}`}
+                      >
+                        Pagada
+                      </span>
+                    ) : row.overdueDays > 0 ? (
                       <span
                         className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(row.overdueDays)}`}
                       >
@@ -153,8 +159,8 @@ export function LoanClientSummaryDialog({
                         : '—'}
                     </Td>
                   )}
-                  <Td compact className="text-center">
-                    {formatCurrency(row.totalDue)}
+                  <Td compact className="text-center" muted={row.isPaid}>
+                    {row.isPaid ? '—' : formatCurrency(row.totalDue)}
                   </Td>
                 </tr>
               ))}

@@ -37,6 +37,7 @@ import { InstallmentsService } from './installments/installments.service';
 import {
   LoansService,
   LoanDetail,
+  ClientDebtSummary,
   LoanSummary,
   PaymentWithImages,
   RefinanceQuote,
@@ -90,6 +91,23 @@ export class LoansController {
   @ApiResponse({ status: 200, description: 'Returns the suggested number.' })
   getNextPromissoryNoteNumber(): Promise<{ nextPromissoryNoteNumber: string }> {
     return this.loansService.getNextPromissoryNoteNumber();
+  }
+
+  @Get('clients/:clientId/debt-summary')
+  @ApiOperation({
+    summary: 'What a client owes today across all their active loans',
+    description:
+      "Sums GET /loans/:id/payoff-quote over every loan of the client still in status 'active': " +
+      'principalBalance is the sum of totalPrincipalOwed (pure remaining capital, the same ' +
+      '"saldo capital a la fecha" each loan shows as currentPrincipalBalance), payoffTotal the sum ' +
+      'of totalDue (capital plus every interest caused to date — what closing all of them out today ' +
+      'would cost). All zeros for a client with no active loan.',
+  })
+  @ApiResponse({ status: 200, description: 'Returns the debt summary.' })
+  getClientDebtSummary(
+    @Param('clientId') clientId: string,
+  ): Promise<ClientDebtSummary> {
+    return this.loansService.getClientDebtSummary(clientId);
   }
 
   @Get(':id')

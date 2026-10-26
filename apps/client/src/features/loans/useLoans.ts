@@ -114,6 +114,17 @@ export function useLoanPayoffQuote(id: string, enabled: boolean) {
   });
 }
 
+// Client request, 2026-10-26 — ClientDetailPage's "saldo a la fecha"
+// cards. Keyed under ['loans'] for the same reason as useLoanPayoffQuote
+// above: every payment/edit that invalidates loans refreshes it too.
+export function useClientDebtSummary(clientId: string) {
+  return useQuery({
+    queryKey: ['loans', 'client-debt-summary', clientId],
+    queryFn: () => loansApi.getClientDebtSummary(clientId),
+    enabled: Boolean(clientId),
+  });
+}
+
 // Not a useQuery — fetched on demand when the "Liquidar anticipadamente"
 // dialog opens (via .mutateAsync), same pattern as usePreviewSchedule.
 export function usePayoffQuote() {

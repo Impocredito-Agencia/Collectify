@@ -3301,6 +3301,57 @@ describe('LoansService', () => {
     });
   });
 
+  // Client request, 2026-10-26 — ClientDetailPage's "what they owe today"
+  // figures, aggregated across every loan still in course.
+  describe('getClientDebtSummary', () => {
+    function quote(totalPrincipalOwed: number, totalDue: number) {
+      return {
+        installments: [],
+        interestTrueUp: 0,
+        totalInterestOwed: totalDue - totalPrincipalOwed,
+        totalPrincipalOwed,
+        totalDue,
+      };
+    }
+
+    it("sums every active loan's payoff quote", async () => {
+      loansRepository.find.mockResolvedValue([
+        { id: 'loan-a' },
+        { id: 'loan-b' },
+      ]);
+      const getPayoffQuote = jest
+        .spyOn(service, 'getPayoffQuote')
+        .mockImplementation((id) =>
+          Promise.resolve(
+            id === 'loan-a' ? quote(1000000, 1250000) : quote(400000, 400000),
+          ),
+        );
+
+      const summary = await service.getClientDebtSummary('client-1');
+
+      expect(loansRepository.find).toHaveBeenCalledWith({
+        where: { clientId: 'client-1', status: LoanStatus.Active },
+        select: { id: true },
+      });
+      expect(getPayoffQuote).toHaveBeenCalledTimes(2);
+      expect(summary).toEqual({
+        activeLoanCount: 2,
+        principalBalance: 1400000,
+        payoffTotal: 1650000,
+      });
+    });
+
+    it('is all zeros for a client with no active loan', async () => {
+      loansRepository.find.mockResolvedValue([]);
+
+      await expect(service.getClientDebtSummary('client-1')).resolves.toEqual({
+        activeLoanCount: 0,
+        principalBalance: 0,
+        payoffTotal: 0,
+      });
+    });
+  });
+
   describe('getPayoffQuote', () => {
     function pendingInstallment(
       overrides: Partial<Installment> = {},
