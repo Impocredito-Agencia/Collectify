@@ -30,7 +30,7 @@ import {
   estadoBadge,
   moraBadgeClasses,
 } from '@/features/loans/loanStatusDisplay';
-import { useLoans } from '@/features/loans/useLoans';
+import { useClientDebtSummary, useLoans } from '@/features/loans/useLoans';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
 import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
@@ -106,6 +106,7 @@ export function ClientDetailPage() {
   // per the client's colleague, this tab should only ever surface
   // failed/unsent messages (mirrors the same change made to
   // MessageLogsPage.tsx), not a full sent+failed history.
+  const { data: debtSummary } = useClientDebtSummary(id ?? '');
   const { data: messages } = useMessageLogs({ clientId: id, limit: 5 });
   const { data: failedMessages } = useMessageLogs({
     clientId: id,
@@ -253,6 +254,25 @@ export function ClientDetailPage() {
       <ClientAccountStatusPanel clientId={client.id} />
 
       <ClientCreditBanner clientId={client.id} />
+
+      {/* Client request, 2026-10-26 — what they owe today, every loan still
+          in course added up (LoansService.getClientDebtSummary: the same
+          payoff quote each LoanDetailPage shows, summed). Only shown while
+          there is at least one active loan; "$0" for a client with nothing
+          in course would just be noise next to "Capital prestado". */}
+      {debtSummary && debtSummary.activeLoanCount > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <StatCard
+            label={`Saldo capital a la fecha (${debtSummary.activeLoanCount} ${debtSummary.activeLoanCount === 1 ? 'crédito en curso' : 'créditos en curso'})`}
+            value={formatCurrency(debtSummary.principalBalance)}
+          />
+          <StatCard
+            label="Capital + intereses a la fecha"
+            value={formatCurrency(debtSummary.payoffTotal)}
+            tone="accent"
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Préstamos totales" value={String(totalLoans)} />

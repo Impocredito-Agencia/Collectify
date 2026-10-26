@@ -295,6 +295,15 @@ export interface PayoffInstallmentBreakdown {
   conceptBreakdown: ConceptBreakdownItem[];
 }
 
+// Matches apps/api/src/loans/loans.service.ts's ClientDebtSummary exactly
+// (client request, 2026-10-26) — every active loan's payoff quote, summed:
+// principalBalance from totalPrincipalOwed, payoffTotal from totalDue.
+export interface ClientDebtSummary {
+  activeLoanCount: number;
+  principalBalance: number;
+  payoffTotal: number;
+}
+
 export interface PayoffQuote {
   installments: PayoffInstallmentBreakdown[];
   // The part of the interest true-up (interest already caused to date that
@@ -486,6 +495,15 @@ export const loansApi = {
 
   // Read-only, safe to call regardless of the loan's status — see
   // docs/phases/PHASE_16_EARLY_PAYOFF.md.
+  getClientDebtSummary: async (
+    clientId: string,
+  ): Promise<ClientDebtSummary> => {
+    const { data } = await apiClient.get<ClientDebtSummary>(
+      `/loans/clients/${clientId}/debt-summary`,
+    );
+    return data;
+  },
+
   getPayoffQuote: async (id: string): Promise<PayoffQuote> => {
     const { data } = await apiClient.get<PayoffQuote>(
       `/loans/${id}/payoff-quote`,
