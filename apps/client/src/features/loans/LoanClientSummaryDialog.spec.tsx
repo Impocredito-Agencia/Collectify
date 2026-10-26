@@ -76,6 +76,25 @@ describe('LoanClientSummaryDialog', () => {
     expect(screen.queryByText('Abonado')).toBeNull();
   });
 
+  it('lists paid cuotas marked as paid, with nothing left to pay', () => {
+    renderDialog([
+      {
+        ...pending,
+        id: 'i1',
+        installmentNumber: 1,
+        status: InstallmentStatus.Paid,
+        overdueDays: 0,
+        interest: 0,
+        totalDue: 0,
+      },
+      pending,
+    ]);
+
+    expect(screen.getByText('Pagada')).toBeTruthy();
+    expect(screen.getByText('1 de 2')).toBeTruthy();
+    expect(screen.getAllByText('$ 210.000')).toHaveLength(2);
+  });
+
   it('closes from the Cerrar button', () => {
     const onClose = renderDialog();
 

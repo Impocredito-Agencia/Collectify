@@ -61,11 +61,10 @@ const screenshotLoan = [
 describe('buildClientSummary', () => {
   // 210.000 + 429.240 = 639.240, but the api rounds the cuota's total to
   // 639.200 — the surcharge shown is the rounded one, so the row adds up.
-  it('lists only pending cuotas, with their rounded mora surcharges as one figure', () => {
+  it('lists pending cuotas with their rounded mora surcharges as one figure', () => {
     const summary = buildClientSummary(screenshotLoan);
 
-    expect(summary.rows.map((row) => row.installmentNumber)).toEqual([3, 4]);
-    expect(summary.rows[0]).toEqual(
+    expect(summary.rows[2]).toEqual(
       expect.objectContaining({
         overdueDays: 876,
         amount: 210000,
@@ -74,6 +73,27 @@ describe('buildClientSummary', () => {
         totalDue: 639200,
       }),
     );
+  });
+
+  // Client request, 2026-10-26 — the debtor sees their whole plan.
+  it('lists paid cuotas too, in plan order, owing nothing', () => {
+    const summary = buildClientSummary([...screenshotLoan].reverse());
+
+    expect(summary.rows.map((row) => row.installmentNumber)).toEqual([
+      1, 2, 3, 4,
+    ]);
+    expect(summary.rows[0]).toEqual(
+      expect.objectContaining({
+        isPaid: true,
+        overdueDays: 0,
+        amount: 210000,
+        surcharges: 0,
+        paidSoFar: 0,
+        totalDue: 0,
+      }),
+    );
+    expect(summary.rows[2].isPaid).toBe(false);
+    expect(summary.hasPartialPayments).toBe(false);
   });
 
   it('counts paid cuotas and totals only what is overdue', () => {
@@ -111,7 +131,7 @@ describe('buildClientSummary', () => {
       installment({ id: 'b', status: InstallmentStatus.Cancelled }),
     ]);
 
-    expect(summary.rows).toHaveLength(0);
+    expect(summary.rows.map((row) => row.installmentId)).toEqual(['a']);
     expect(summary.totalCount).toBe(1);
     expect(summary.hasPartialPayments).toBe(false);
   });
