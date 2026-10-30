@@ -84,6 +84,9 @@ export interface CronConfig {
   // reminderFamily.ts), same admin-editable-via-DB precedence as the
   // other two above.
   newLoanReminderExpression: string;
+  // Client request, 2026-10-30 — must stay daily, see
+  // CREDIT_REPORT_FAMILY_TYPES. Same admin-editable-via-DB precedence.
+  creditReportReminderExpression: string;
 }
 
 // Human request, 2026-09-25 — a narrow, opt-in exception to "a loan's
@@ -174,6 +177,8 @@ export default (): Configuration => ({
     // gave when this was designed (2026-09-06).
     newLoanReminderExpression:
       process.env.NEW_LOAN_REMINDER_CRON ?? '0 10 * * 1',
+    creditReportReminderExpression:
+      process.env.CREDIT_REPORT_REMINDER_CRON ?? '0 9 * * *',
   },
   loans: {
     installmentAdjustmentEnabled:

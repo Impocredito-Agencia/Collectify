@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 
+import { CreditReportReminderService } from './creditReportReminder.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { NewLoanReminderService } from './newLoanReminder.service';
@@ -36,6 +37,7 @@ describe('WhatsappCronService', () => {
   let overdueReminderService: { runWeeklyReminder: jest.Mock };
   let upcomingDueReminderService: { runDailyReminder: jest.Mock };
   let newLoanReminderService: { runPendingLoanNotifications: jest.Mock };
+  let creditReportReminderService: { runDailyReminder: jest.Mock };
   let messageTemplatesService: {
     findByTypeOrThrow: jest.Mock;
     updateCronExpression: jest.Mock;
@@ -53,6 +55,7 @@ describe('WhatsappCronService', () => {
     overdueReminderService = { runWeeklyReminder: jest.fn() };
     upcomingDueReminderService = { runDailyReminder: jest.fn() };
     newLoanReminderService = { runPendingLoanNotifications: jest.fn() };
+    creditReportReminderService = { runDailyReminder: jest.fn() };
     messageTemplatesService = {
       findByTypeOrThrow: jest
         .fn()
@@ -87,6 +90,10 @@ describe('WhatsappCronService', () => {
           useValue: newLoanReminderService,
         },
         {
+          provide: CreditReportReminderService,
+          useValue: creditReportReminderService,
+        },
+        {
           provide: MessageTemplatesService,
           useValue: messageTemplatesService,
         },
@@ -97,6 +104,7 @@ describe('WhatsappCronService', () => {
               overdueReminderExpression: '0 9 * * 1,3,5',
               upcomingDueReminderExpression: '0 8 * * *',
               newLoanReminderExpression: '0 10 * * 1',
+              creditReportReminderExpression: '0 9 * * *',
             }),
           },
         },
@@ -111,11 +119,12 @@ describe('WhatsappCronService', () => {
     it('registers and starts one job per family', async () => {
       await service.onModuleInit();
 
-      expect(schedulerRegistry.addCronJob).toHaveBeenCalledTimes(3);
+      expect(schedulerRegistry.addCronJob).toHaveBeenCalledTimes(4);
       for (const family of [
         ReminderFamily.Overdue,
         ReminderFamily.UpcomingDue,
         ReminderFamily.NewLoan,
+        ReminderFamily.CreditReport,
       ]) {
         const job = jobs.get(WhatsappCronService.jobName(family));
         expect(job?.isActive).toBe(true);
@@ -309,6 +318,18 @@ describe('WhatsappCronService', () => {
       job?.onTick();
 
       expect(upcomingDueReminderService.runDailyReminder).toHaveBeenCalled();
+    });
+
+    it('invokes the credit report reminder when its job ticks', async () => {
+      await service.onModuleInit();
+      const job = jobs.get(
+        WhatsappCronService.jobName(ReminderFamily.CreditReport),
+      );
+      creditReportReminderService.runDailyReminder.mockResolvedValue(undefined);
+
+      job?.onTick();
+
+      expect(creditReportReminderService.runDailyReminder).toHaveBeenCalled();
     });
 
     it('invokes runPendingLoanNotifications when the new_loan job ticks', async () => {

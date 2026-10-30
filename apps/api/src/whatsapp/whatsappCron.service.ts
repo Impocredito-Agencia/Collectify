@@ -5,11 +5,13 @@ import { CronJob } from 'cron';
 
 import { Configuration } from '../config/configuration';
 
+import { CreditReportReminderService } from './creditReportReminder.service';
 import { MessageTemplate } from './entities/messageTemplate.entity';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { NewLoanReminderService } from './newLoanReminder.service';
 import { OverdueReminderService } from './overdueReminder.service';
 import {
+  CREDIT_REPORT_FAMILY_TYPES,
   NEW_LOAN_FAMILY_TYPES,
   OVERDUE_FAMILY_TYPES,
   ReminderFamily,
@@ -38,6 +40,7 @@ const SCHEDULE_OWNER: Record<
   [ReminderFamily.Overdue]: OVERDUE_FAMILY_TYPES[0],
   [ReminderFamily.UpcomingDue]: UPCOMING_FAMILY_TYPES[0],
   [ReminderFamily.NewLoan]: NEW_LOAN_FAMILY_TYPES[0],
+  [ReminderFamily.CreditReport]: CREDIT_REPORT_FAMILY_TYPES[0],
 };
 
 // Bug fix, 2026-09-03 (human report): a schedule saved via the admin
@@ -60,6 +63,7 @@ export class WhatsappCronService implements OnModuleInit {
     private readonly overdueReminderService: OverdueReminderService,
     private readonly upcomingDueReminderService: UpcomingDueReminderService,
     private readonly newLoanReminderService: NewLoanReminderService,
+    private readonly creditReportReminderService: CreditReportReminderService,
     private readonly messageTemplatesService: MessageTemplatesService,
     private readonly configService: ConfigService<Configuration, true>,
     private readonly schedulerRegistry: SchedulerRegistry,
@@ -138,6 +142,7 @@ export class WhatsappCronService implements OnModuleInit {
       overdueReminderExpression,
       upcomingDueReminderExpression,
       newLoanReminderExpression,
+      creditReportReminderExpression,
     } = this.configService.get('cron', { infer: true });
 
     switch (family) {
@@ -147,6 +152,8 @@ export class WhatsappCronService implements OnModuleInit {
         return upcomingDueReminderExpression;
       case ReminderFamily.NewLoan:
         return newLoanReminderExpression;
+      case ReminderFamily.CreditReport:
+        return creditReportReminderExpression;
     }
   }
 
@@ -158,6 +165,8 @@ export class WhatsappCronService implements OnModuleInit {
         return this.upcomingDueReminderService.runDailyReminder();
       case ReminderFamily.NewLoan:
         return this.newLoanReminderService.runPendingLoanNotifications();
+      case ReminderFamily.CreditReport:
+        return this.creditReportReminderService.runDailyReminder();
     }
   }
 
