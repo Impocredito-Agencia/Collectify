@@ -30,6 +30,7 @@ import { MessageLogsService } from './messageLogs/messageLogs.service';
 import { MessageLogSubscriber } from './messageLogs/messageLog.subscriber';
 import { MessageTemplatesController } from './messageTemplates/messageTemplates.controller';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
+import { CreditReportReminderService } from './creditReportReminder.service';
 import { NewLoanReminderService } from './newLoanReminder.service';
 import { OverdueReminderService } from './overdueReminder.service';
 import { PaymentConfirmationService } from './paymentConfirmation.service';
@@ -110,6 +111,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     OverdueReminderService,
     NewLoanReminderService,
     UpcomingDueReminderService,
+    CreditReportReminderService,
     PaymentConfirmationService,
     WhatsappCronService,
     WhatsappWebhookService,
