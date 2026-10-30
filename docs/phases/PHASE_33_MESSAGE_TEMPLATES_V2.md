@@ -40,6 +40,8 @@ That's all 13 — every template the client wrote maps to exactly one Meta name,
 
 > **Updated 2026-10-26 (client request):** Templates 1–3 (all five new-loan / refinance variants) no longer carry the debt's total value — "El valor total de la deuda es *{{5}}*, diferido en…" became "El valor total de la obligación corresponde a…", and every later parameter shifted down by one. The cliente-nuevo pair also moved the data-treatment paragraph below the pagaré line, with new wording. The bodies below are the current ones; see migration `1791600000000-DropTotalFromNewLoanTemplates`.
 
+> **Added 2026-10-30 (client request):** `reporte_30_dias` and `reporte_50_dias`, the Datacrédito notices. Their bodies and send rules are in `docs/DATABASE.md`'s "Avisos de Datacrédito".
+
 ### Template 1 — Bienvenida + primer pagaré (cliente nuevo)
 
 **Meta name: `nuevo_pagar_cliente_nuevo`**

@@ -50,6 +50,7 @@ export const envValidationSchema = Joi.object({
 
   OVERDUE_REMINDER_CRON: Joi.string().default('0 9 * * 1'),
   NEW_LOAN_REMINDER_CRON: Joi.string().default('0 10 * * 1'),
+  CREDIT_REPORT_REMINDER_CRON: Joi.string().default('0 9 * * *'),
 
   CLIENT_URL: Joi.string().uri().required(),
 });

@@ -12,6 +12,7 @@ import {
   MESSAGE_TYPE_LABELS,
   MessageType,
   NEW_LOAN_FAMILY_TYPES,
+  CREDIT_REPORT_FAMILY_TYPES,
   OVERDUE_FAMILY_TYPES,
   REMINDER_FAMILY_TYPES,
   UPCOMING_FAMILY_TYPES,
@@ -53,6 +54,7 @@ const FAMILY_LABELS: Record<ReminderFamily, string> = {
   [ReminderFamily.Overdue]: 'Cuotas vencidas',
   [ReminderFamily.UpcomingDue]: 'Cuotas próximas a vencer',
   [ReminderFamily.NewLoan]: 'Nuevo pagaré / Refinanciación',
+  [ReminderFamily.CreditReport]: 'Reporte a Datacrédito',
 };
 
 // The "schedule owner" row per family — matches
@@ -64,6 +66,7 @@ const FAMILY_SCHEDULE_OWNER: Record<ReminderFamily, MessageType> = {
   [ReminderFamily.Overdue]: MessageType.SingleOverdueInstallment,
   [ReminderFamily.UpcomingDue]: MessageType.SingleUpcomingInstallment,
   [ReminderFamily.NewLoan]: NEW_LOAN_FAMILY_TYPES[0],
+  [ReminderFamily.CreditReport]: CREDIT_REPORT_FAMILY_TYPES[0],
 };
 
 // Added 2026-09-06 (human request) — every template that shares a
@@ -89,11 +92,15 @@ const FAMILY_TYPES: Record<ReminderFamily, MessageType[]> = {
       type !== MessageType.UpcomingAndOverdueMixedOver30Days,
   ),
   [ReminderFamily.NewLoan]: NEW_LOAN_FAMILY_TYPES,
+  [ReminderFamily.CreditReport]: CREDIT_REPORT_FAMILY_TYPES,
 };
 
 function triggerDescription(type: MessageType): string {
   if (NEW_LOAN_FAMILY_TYPES.includes(type)) {
     return 'Se envía por el horario automático de su familia (ver arriba) — solo para préstamos marcados como "nuevo" al crearlos. Un préstamo histórico/cargado después no lo dispara.';
+  }
+  if (CREDIT_REPORT_FAMILY_TYPES.includes(type)) {
+    return 'Se envía una sola vez, el día exacto en que el pagaré cumple esos días de mora según su cuota vencida más antigua. El horario debe incluir todos los días: un día sin envío no se recupera después.';
   }
   if (REMINDER_FAMILY_TYPES.includes(type)) {
     return 'Se envía por el horario automático de su familia de recordatorio (ver arriba). La frecuencia de envío para un cliente puntual se ajusta desde su propio perfil.';
@@ -126,17 +133,17 @@ export function MessageTemplatesPage() {
           <span className="text-card-title font-medium text-white">
             Recordatorios automáticos
           </span>
-          {/* Human report, 2026-09-14 — the 3 cards look uneven in height
+          {/* Human report, 2026-09-14 — the cards look uneven in height
               since each family lists a different number of template
-              badges (2/4/5), wrapping into a different number of rows.
+              badges, wrapping into a different number of rows.
               items-stretch (grid's own default, made explicit) forces all
-              3 to match the tallest row's height; h-full + flex flex-col
+              of them to match the tallest row's height; h-full + flex flex-col
               on the card itself, plus FamilyCronControl's own flex-1 +
               mt-auto on its schedule form below, pin "Recordatorios
               semanales"/"Guardar horario" to the same bottom edge across
-              all 3 regardless of how many badge rows sit above it — not
+              all of them regardless of how many badge rows sit above it — not
               just equal height, but genuinely aligned. */}
-          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-4">
             {Object.values(ReminderFamily).map((family) => (
               <div
                 key={family}

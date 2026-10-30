@@ -15,6 +15,7 @@ export enum ReminderFamily {
   Overdue = 'overdue',
   UpcomingDue = 'upcoming_due',
   NewLoan = 'new_loan',
+  CreditReport = 'credit_report',
 }
 
 // Matches apps/api/src/whatsapp/whatsapp.controller.ts's

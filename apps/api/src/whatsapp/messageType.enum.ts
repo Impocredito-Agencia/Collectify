@@ -36,6 +36,11 @@ export enum MessageType {
   SingleOverdueInstallmentWithSurchargeOver30Days = 'una_cuota_vencida_en_mora_30dias_2',
   MultipleOverdueInstallmentsOver30Days = 'varias_cuota_vencida_30dias',
   UpcomingAndOverdueMixedOver30Days = 'proxima_vencer_y_vencida_30dias',
+  // Client request, 2026-10-30 — Datacrédito notices, sent only on the exact
+  // day a pagaré reaches this many days of mora (see
+  // creditReportTemplateSelection.ts).
+  CreditReport30Days = 'reporte_30_dias',
+  CreditReport50Days = 'reporte_50_dias',
   // Confirmación de pago
   PaymentConfirmation = 'confirmacion_pago',
   PaidInFull = 'pago_completo_paz_y_salvo',

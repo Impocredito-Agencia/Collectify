@@ -67,6 +67,7 @@ UPCOMING_DUE_REMINDER_CRON=0 8 * * *
 UPCOMING_DUE_REMINDER_DAYS=5
 ACCOUNT_SUMMARY_REMINDER_CRON=0 8 1 * *
 NEW_LOAN_REMINDER_CRON=0 10 * * 1
+CREDIT_REPORT_REMINDER_CRON=0 9 * * *
 
 # ── File uploads — Cloudinary signed uploads (Phase 12) ─
 CLOUDINARY_CLOUD_NAME=
@@ -106,6 +107,7 @@ CLIENT_URL=http://localhost:5173
 | `UPCOMING_DUE_REMINDER_DAYS` | ✅ | Single number, default `5` — size in days of the "due soon" reminder window (remind while an installment is due within the next N days). Added in Phase 9 as a comma-separated list of three exact day-before-due checkpoints (`5,3,1`); **reworked 2026-09-07 (human)** to a cumulative window instead, since an exact-day match silently drops a reminder whenever the admin's cron day-of-week picker skips the one day that check needed — see `reminderInstallmentQueries.ts`'s doc comment. Simplified from a list to a single number the same day, once only the max of the three values was ever used. |
 | `ACCOUNT_SUMMARY_REMINDER_CRON` | ✅ | Cron expression for the account-summary cron (Phase 18) — sends to every client with at least one active loan (corrected after client QA, 2026-08-18; originally audience-only). Default `0 8 1 * *` = 8:00 AM on the 1st of each month. Admin-editable via `MessageTemplate.cronExpression`, which takes precedence over this code default when set — see `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
 | `NEW_LOAN_REMINDER_CRON` | ✅ | Restored 2026-09-09 (confirmed with the human). Cron expression for the "new loan"/refinance family (`ReminderFamily.NewLoan`) — sweeps loans where `is_new_loan` is true and `new_loan_message_sent_at` is still null, per the schedule below. Default `0 10 * * 1` = every Monday at 10:00 AM. Admin-editable via `MessageTemplate.cronExpression`, same precedence as the other cron vars above. `Loan.isNewLoan` now defaults to `false` on both the create DTO and the `LoanForm` checkbox (unchecked by default) — most loans entered right now are historical backfills, so an admin has to actively opt a loan into the sweep. Payment confirmation and "pagado en su totalidad" are NOT part of this — they stay synchronous, unaffected by this variable. See `Loan.isNewLoan` and `NewLoanReminderService.runPendingLoanNotifications`. |
+| `CREDIT_REPORT_REMINDER_CRON` | ✅ | Added 2026-10-30. Cron expression for the Datacrédito notices (`ReminderFamily.CreditReport`). Default `0 9 * * *` = every day at 9:00 AM. It must stay daily: each notice only goes out on the exact 30th or 50th day of mora, and a skipped day is not caught up. Only used if the template row has no `cronExpression`; the migration seeds one, editable from the panel. |
 | `CLOUDINARY_CLOUD_NAME` | ✅ | Cloudinary's cloud name. Shared by two callers of `UploadsService`: the browser-authenticated upload flow (payment receipts, client documents) and `WhatsappMediaService`'s server-side re-hosting of a client's inbound WhatsApp attachment. **Live in production, 2026-09-16** — the Cloudinary account is created and configured in Railway. See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md` for the original provider comparison. |
 | `CLOUDINARY_API_KEY` | ✅ | Cloudinary's API key (Settings → Account → API Keys). Same status as above — live in production. |
 | `CLOUDINARY_API_SECRET` | ✅ | Cloudinary's API secret. **Never expose this to the client** — it's what lets `UploadsService` sign every upload server-side, browser-requested or not. Same status as above. |
@@ -174,6 +176,7 @@ UPCOMING_DUE_REMINDER_CRON=0 8 * * *
 UPCOMING_DUE_REMINDER_DAYS=5
 ACCOUNT_SUMMARY_REMINDER_CRON=0 8 1 * *
 NEW_LOAN_REMINDER_CRON=0 10 * * 1
+CREDIT_REPORT_REMINDER_CRON=0 9 * * *
 CLIENT_URL=<the Cloudflare Workers production URL for this project, e.g. https://collectify.<subdomain>.workers.dev>
 # META_WHATSAPP_* — see "On the (now live) Meta Cloud API credentials" above.
 # CLOUDINARY_* — see "Cloudinary uploads are signed by the api" above.

@@ -6,6 +6,7 @@ import {
   bogotaEndOfDayUtc,
   bogotaStartOfDayUtc,
 } from '../../loans/dueDateSchedule';
+import { CreditReportReminderService } from '../creditReportReminder.service';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
 import { MessageType } from '../messageType.enum';
@@ -27,6 +28,7 @@ describe('MessageLogsService', () => {
   let overdueReminderService: { sendReminderForClient: jest.Mock };
   let upcomingDueReminderService: { sendReminderForClient: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
+  let creditReportReminderService: { sendForLoan: jest.Mock };
   let paymentConfirmationService: {
     sendPaymentConfirmation: jest.Mock;
     sendPaidInFull: jest.Mock;
@@ -66,6 +68,7 @@ describe('MessageLogsService', () => {
     overdueReminderService = { sendReminderForClient: jest.fn() };
     upcomingDueReminderService = { sendReminderForClient: jest.fn() };
     newLoanReminderService = { sendNewLoanMessage: jest.fn() };
+    creditReportReminderService = { sendForLoan: jest.fn() };
     paymentConfirmationService = {
       sendPaymentConfirmation: jest.fn(),
       sendPaidInFull: jest.fn(),
@@ -88,6 +91,10 @@ describe('MessageLogsService', () => {
           useValue: upcomingDueReminderService,
         },
         { provide: NewLoanReminderService, useValue: newLoanReminderService },
+        {
+          provide: CreditReportReminderService,
+          useValue: creditReportReminderService,
+        },
         {
           provide: PaymentConfirmationService,
           useValue: paymentConfirmationService,
@@ -312,6 +319,27 @@ describe('MessageLogsService', () => {
       expect(overdueReminderService.sendReminderForClient).toHaveBeenCalledWith(
         'client-1',
         { allowEmpty: true, targetPhoneNumbers: ['+573001234567'] },
+      );
+    });
+
+    it('re-sends a credit report notice using the loan found via the message items', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockLog,
+        type: MessageType.CreditReport30Days,
+        status: MessageLogStatus.Failed,
+      });
+      messageLogItemsRepository.findOne.mockResolvedValue({
+        installment: { loanId: 'loan-1' },
+      });
+      creditReportReminderService.sendForLoan.mockResolvedValue([
+        { ...mockLog, id: 'log-2' },
+      ]);
+
+      await service.retry('log-1');
+
+      expect(creditReportReminderService.sendForLoan).toHaveBeenCalledWith(
+        'loan-1',
+        { targetPhoneNumbers: ['+573001234567'] },
       );
     });
 

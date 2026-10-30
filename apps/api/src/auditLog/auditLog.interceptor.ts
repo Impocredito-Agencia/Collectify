@@ -32,6 +32,7 @@ const WHATSAPP_CRON_FAMILY_LABELS: Record<ReminderFamily, string> = {
   [ReminderFamily.Overdue]: 'Cuotas vencidas',
   [ReminderFamily.UpcomingDue]: 'Cuotas próximas a vencer',
   [ReminderFamily.NewLoan]: 'Nuevo pagaré / Refinanciación',
+  [ReminderFamily.CreditReport]: 'Reporte a Datacrédito',
 };
 
 interface AuditableRequest {

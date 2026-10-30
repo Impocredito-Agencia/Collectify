@@ -1,8 +1,8 @@
 import { apiClient } from '@/lib/apiClient';
 
-// Matches apps/api/src/whatsapp/messageType.enum.ts exactly — 16 real
-// (13 as of Phase 33, plus the three *_30dias variants added 2026-09-23),
-// Meta-approved templates (Phase 33 superseded the old 4-value
+// Matches apps/api/src/whatsapp/messageType.enum.ts exactly — 18 real
+// (13 as of Phase 33, plus the three *_30dias variants added 2026-09-23 and
+// the two Datacrédito notices added 2026-10-30), Meta-approved templates (Phase 33 superseded the old 4-value
 // catalog: new_loan/upcoming_due/overdue/account_summary, none of which
 // are valid values anymore — account_summary was retired outright, the
 // other three split into more specific variants). See
@@ -24,6 +24,10 @@ export enum MessageType {
   SingleOverdueInstallmentWithSurchargeOver30Days = 'una_cuota_vencida_en_mora_30dias_2',
   MultipleOverdueInstallmentsOver30Days = 'varias_cuota_vencida_30dias',
   UpcomingAndOverdueMixedOver30Days = 'proxima_vencer_y_vencida_30dias',
+  // Client request, 2026-10-30 — sent only on the exact day a pagaré reaches
+  // this many days of mora.
+  CreditReport30Days = 'reporte_30_dias',
+  CreditReport50Days = 'reporte_50_dias',
   PaymentConfirmation = 'confirmacion_pago',
   PaidInFull = 'pago_completo_paz_y_salvo',
 }
@@ -48,6 +52,8 @@ export const MESSAGE_TYPE_ORDER: MessageType[] = [
   MessageType.SingleOverdueInstallmentWithSurchargeOver30Days,
   MessageType.MultipleOverdueInstallmentsOver30Days,
   MessageType.UpcomingAndOverdueMixedOver30Days,
+  MessageType.CreditReport30Days,
+  MessageType.CreditReport50Days,
   MessageType.PaymentConfirmation,
   MessageType.PaidInFull,
 ];
@@ -73,6 +79,8 @@ export const MESSAGE_TYPE_LABELS: Record<MessageType, string> = {
     'Varias cuotas vencidas — mora +30 días',
   [MessageType.UpcomingAndOverdueMixedOver30Days]:
     'Próximas a vencer y vencidas — mora +30 días',
+  [MessageType.CreditReport30Days]: 'Aviso Datacrédito — 30 días de mora',
+  [MessageType.CreditReport50Days]: 'Reporte Datacrédito — 50 días de mora',
   [MessageType.PaymentConfirmation]: 'Confirmación de pago',
   [MessageType.PaidInFull]: 'Pago completo — paz y salvo',
 };
@@ -153,6 +161,13 @@ export const UPCOMING_FAMILY_TYPES: MessageType[] = [
   MessageType.MultipleUpcomingInstallments,
   MessageType.UpcomingAndOverdueMixed,
   MessageType.UpcomingAndOverdueMixedOver30Days,
+];
+
+// Client request, 2026-10-30 — mirrors CREDIT_REPORT_FAMILY_TYPES in
+// apps/api/src/whatsapp/reminderFamily.ts.
+export const CREDIT_REPORT_FAMILY_TYPES: MessageType[] = [
+  MessageType.CreditReport30Days,
+  MessageType.CreditReport50Days,
 ];
 
 // Templates are read-only content, editable only via a migration —

@@ -15,6 +15,7 @@ export enum ReminderFamily {
   Overdue = 'overdue',
   UpcomingDue = 'upcoming_due',
   NewLoan = 'new_loan',
+  CreditReport = 'credit_report',
 }
 
 export const OVERDUE_FAMILY_TYPES: MessageType[] = [
@@ -49,4 +50,14 @@ export const NEW_LOAN_FAMILY_TYPES: MessageType[] = [
   MessageType.NewLoanExistingClient,
   MessageType.NewLoanExistingClientInitialInstallment,
   MessageType.RefinanceSingleLoan,
+];
+
+// Client request, 2026-10-30 — its own family rather than part of
+// OVERDUE_FAMILY_TYPES: this has to run every day to catch the exact
+// 30th/50th day of mora, while the overdue schedule is only some days of the
+// week. It also stays out of the message-frequency throttle, which would
+// otherwise skip a one-time notice for good.
+export const CREDIT_REPORT_FAMILY_TYPES: MessageType[] = [
+  MessageType.CreditReport30Days,
+  MessageType.CreditReport50Days,
 ];
