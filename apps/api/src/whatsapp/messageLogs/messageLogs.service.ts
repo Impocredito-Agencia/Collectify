@@ -18,6 +18,7 @@ import {
   bogotaEndOfDayUtc,
   bogotaStartOfDayUtc,
 } from '../../loans/dueDateSchedule';
+import { CreditReportReminderService } from '../creditReportReminder.service';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
 import { MessageType } from '../messageType.enum';
@@ -44,6 +45,7 @@ export class MessageLogsService {
     private readonly overdueReminderService: OverdueReminderService,
     private readonly upcomingDueReminderService: UpcomingDueReminderService,
     private readonly newLoanReminderService: NewLoanReminderService,
+    private readonly creditReportReminderService: CreditReportReminderService,
     private readonly paymentConfirmationService: PaymentConfirmationService,
   ) {}
 
@@ -212,6 +214,12 @@ export class MessageLogsService {
       case MessageType.NewLoanExistingClientInitialInstallment:
       case MessageType.RefinanceSingleLoan:
         return this.newLoanReminderService.sendNewLoanMessage(
+          item.installment.loanId,
+          { targetPhoneNumbers },
+        );
+      case MessageType.CreditReport30Days:
+      case MessageType.CreditReport50Days:
+        return this.creditReportReminderService.sendForLoan(
           item.installment.loanId,
           { targetPhoneNumbers },
         );
