@@ -52,7 +52,6 @@ import {
   useLoanPayoffQuote,
   usePayoffLoan,
   useRefinanceLoan,
-  useRemoveLoan,
   useRenumberLoan,
   useUpdateLoan,
 } from '@/features/loans/useLoans';
@@ -122,7 +121,6 @@ export function LoanDetailPage() {
   const updateLoan = useUpdateLoan();
   const renumberLoan = useRenumberLoan();
   const refinanceLoan = useRefinanceLoan();
-  const removeLoan = useRemoveLoan();
   const alignInstallmentDueDay = useAlignInstallmentDueDay(id ?? '');
   const adjustPendingInstallments = useAdjustPendingInstallments(id ?? '');
   const updateInstallmentDueDate = useUpdateInstallmentDueDate(id ?? '');
@@ -244,11 +242,6 @@ export function LoanDetailPage() {
   const clientFullName = client
     ? `${client.firstName} ${client.lastName}`
     : '…';
-  // Phase 30 — mirrors the backend's own delete precondition (any
-  // registered Payment row on any installment) rather than re-deriving it
-  // from installment status. `payments` is already fetched above for the
-  // payment-history table.
-  const hasPayments = (payments ?? []).length > 0;
   const outstandingBalance = pendingInstallments.reduce(
     (sum, installment) => sum + installment.totalDue,
     0,
@@ -448,15 +441,12 @@ export function LoanDetailPage() {
               Refinanciar
             </Button>
           )}
-          {canManageLoan && (
+          {/* Phase 35 — admin only (was canManageLoan) and only on an
+              active pagaré; allowed with payments now. Everything else
+              (blockers, reason, typed confirmation) lives in the dialog. */}
+          {isAdmin && loan.status === LoanStatus.Active && (
             <Button
               variant="danger"
-              disabled={hasPayments}
-              title={
-                hasPayments
-                  ? 'No se puede eliminar: este préstamo ya tiene pagos registrados.'
-                  : undefined
-              }
               onClick={() => setIsDeleting(true)}
               className="shrink-0 whitespace-nowrap"
             >
@@ -999,14 +989,11 @@ export function LoanDetailPage() {
 
       {isDeleting && (
         <DeleteLoanDialog
-          loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          loanId={loan.id}
           onClose={() => setIsDeleting(false)}
-          onConfirm={async () => {
-            await removeLoan.mutateAsync(loan.id);
-            // The loan no longer exists — land back on the list, same as
-            // there being nothing left here to show.
-            navigate('/prestamos');
-          }}
+          // The loan no longer exists — land back on the list, same as
+          // there being nothing left here to show.
+          onDeleted={() => navigate('/prestamos')}
         />
       )}
     </div>

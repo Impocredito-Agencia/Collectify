@@ -600,14 +600,6 @@ export const loansApi = {
     return data;
   },
 
-  // Phase 30 — soft-deletes a loan created by mistake. Admin only; the api
-  // rejects with a 409 (ApiError) if the loan already has at least one
-  // registered payment on any installment — the caller is expected to
-  // surface that message, not treat it as a generic failure.
-  remove: async (id: string): Promise<void> => {
-    await apiClient.delete(`/loans/${id}`);
-  },
-
   // Human report, 2026-09-22 — "que queden todas el 10". Moves every
   // still-pending installment of this loan to the same day of the month
   // at once, in one transaction — see installmentsApi.ts's updateDueDate

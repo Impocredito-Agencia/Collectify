@@ -668,7 +668,8 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
       if (err instanceof ApiError) {
         if (err.statusCode === 409) {
           const errors: FieldErrors = {
-            promissoryNoteNumber: 'Ya existe un préstamo con este número.',
+            promissoryNoteNumber:
+              'Ese número ya lo tiene otro préstamo, o perteneció a un pagaré eliminado que tenía pagos.',
           };
           setFieldErrors(errors);
           scrollToFirstError(errors);

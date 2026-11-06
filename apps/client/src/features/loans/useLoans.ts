@@ -168,14 +168,6 @@ export function useRefinanceLoan() {
   });
 }
 
-export function useRemoveLoan() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: loansApi.remove,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
-  });
-}
-
 // Human report, 2026-09-22 — bulk due-date reschedule ("que queden todas
 // el 10"). Same invalidation shape as useUpdateLoan — this loan's own
 // detail query embeds the installments that just moved.
