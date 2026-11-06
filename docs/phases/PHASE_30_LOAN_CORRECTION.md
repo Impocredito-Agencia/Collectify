@@ -1,5 +1,7 @@
 # Phase 30 — Loan Correction Policy
 
+> **Superseded by Phase 35 (2026-11-05)** — deletion is now admin-only, allowed with payments, irreversible and fully auditable. See `docs/phases/PHASE_35_LOAN_DELETION.md`.
+
 ## Goal
 
 Give an admin a safe way to remove a loan created by mistake, without risking deletion of a loan that already has real financial history against it.

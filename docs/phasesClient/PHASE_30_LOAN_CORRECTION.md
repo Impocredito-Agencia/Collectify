@@ -1,5 +1,7 @@
 # Phase 30 — Loan Correction Policy (Client)
 
+> **Superseded by Phase 35 (2026-11-05)** — deletion is now admin-only, allowed with payments, irreversible and fully auditable. See `docs/phasesClient/PHASE_35_LOAN_DELETION.md`.
+
 ## Goal
 
 Expose a "delete loan" action on the loan detail view, available only when the backend allows it (no registered payments), with a clear confirmation step. See `docs/phases/PHASE_30_LOAN_CORRECTION.md` for the backend rule this consumes.
