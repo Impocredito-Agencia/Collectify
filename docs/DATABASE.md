@@ -1136,6 +1136,14 @@ Now `InstallmentsService.registerPayment` and `registerBulkPayments` value the c
 - **`GET /installments/valuation?installmentIds=a,b&date=YYYY-MM-DD`** (`getValuationAsOf`) returns each cuota's `overdueDays`/`interest`/`totalDue` on that day plus the `valuationDate` actually used, so `RegisterPaymentDialog` / `BulkRegisterPaymentDialog` offer exactly the figure the server will accept. Their date picker can't pick a future day or one before the disbursement (`DatePicker`'s new `min`/`max`).
 - Payments registered without picking a date (applying saldo a favor, payoff) are dated today, so they behave exactly as before.
 
+## Feature, 2026-11-05 — the terms a loan was created with
+
+No schema change. Human request: "necesitamos poder saber a qué tasa se les financió a los clientes, es decir, cómo fue creado el crédito" — needed almost every time a loan is refinanced or liquidated. The rates were already stored (snapshotted per cuota as the system `loan_installment_concepts` rows, see "Redesign, 2026-09-03"), only shown as a tooltip on the cuotas table's column headers.
+
+`GET /loans/:id/origination-terms` (`LoansService.getOriginationTerms`, pure `buildOriginationTerms` in `loans/originationTerms.ts`) returns, for this loan and then every loan back through its `refinanced_from_loan_id` chain: capital, disbursement date, frequency, financed cuotas, cuota inicial, the first financed cuota's amount, the **corriente and moratorio rates** (the `value` of the first financed cuota's system concepts, `interest_concept_type_id IS NULL`, percentage), optional catalog fees, and `refinance_mora_waived_amount`/reason. Read back exactly as stored: a rate never stored (e.g. a loan typed in before rates were system concepts) is `null` and shown as "No registrada" — confirmed with the human, nothing is inferred or editable.
+
+Shown as "Condiciones con las que se creó el crédito" (`LoanOriginationTerms.tsx`) on the loan detail page (with the refinanced-from pagarés) and, this loan only, inside the refinance form and the payoff dialog. Corriente is labeled per the loan's frequency (it's charged per cuota on the remaining balance); moratorio is monthly, prorated per day.
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above

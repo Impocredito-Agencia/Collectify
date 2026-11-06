@@ -69,6 +69,10 @@ import {
   PayoffInstallmentInput,
   PayoffQuote,
 } from './payoff/calculatePayoff';
+import {
+  buildOriginationTerms,
+  LoanOriginationTerms,
+} from './originationTerms';
 import { calculateRefinanceMaxMoraWaiver } from './payoff/calculateRefinanceMaxMoraWaiver';
 import {
   comparePromissoryNoteNumbers,
@@ -1465,6 +1469,44 @@ export class LoansService {
   // that function's own comment. Since 2026-09-26 the real early-payoff
   // endpoints (getPayoffQuote()/payoff()) apply the same rule — see
   // INTEREST_ACCRUAL_GRACE_DAYS.
+  // Human request, 2026-11-05 — see LoanOriginationTerms. Walks the whole
+  // refinancedFromLoanId chain (not just same-number links, unlike
+  // findSameNumberChainIds), since every earlier pagaré's terms are part of
+  // how this debt came to be. Stops at a missing (e.g. soft-deleted) link and
+  // never revisits a loan, so a corrupt cycle can't loop.
+  async getOriginationTerms(id: string): Promise<LoanOriginationTerms[]> {
+    const chain: Loan[] = [await this.findLoanOrThrow(id)];
+    let previousId = chain[0].refinancedFromLoanId;
+    while (previousId && !chain.some((loan) => loan.id === previousId)) {
+      const previous = await this.loansRepository.findOneBy({
+        id: previousId,
+      });
+      if (!previous) {
+        break;
+      }
+      chain.push(previous);
+      previousId = previous.refinancedFromLoanId;
+    }
+
+    const terms: LoanOriginationTerms[] = [];
+    for (const loan of chain) {
+      const installments = await this.installmentsRepository.find({
+        where: { loanId: loan.id },
+        order: { installmentNumber: 'ASC' },
+      });
+      const firstFinanced = installments.find(
+        (installment) => !installment.isDownPayment,
+      );
+      const concepts = firstFinanced
+        ? await this.loanInstallmentConceptsRepository.find({
+            where: { installmentId: firstFinanced.id },
+          })
+        : [];
+      terms.push(buildOriginationTerms(loan, installments, concepts));
+    }
+    return terms;
+  }
+
   async getRefinanceQuote(id: string): Promise<RefinanceQuote> {
     const loan = await this.findLoanOrThrow(id);
     const installments = await this.installmentsRepository.find({

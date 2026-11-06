@@ -26,6 +26,7 @@ import {
   subtractMonthsFromDateString,
 } from '@/features/loans/dueDateMath';
 import { InstallmentFrequency } from '@/features/loans/loansApi';
+import { LoanOriginationTerms } from '@/features/loans/LoanOriginationTerms';
 import { SystemInterestRateRow } from '@/features/loans/MandatoryConceptRow';
 import {
   usePreviewSchedule,
@@ -728,6 +729,12 @@ export function RefinanceLoanForm({
 
         <div className="mt-3.5">
           <StaleUsuryRateBanner />
+        </div>
+
+        {/* Human request, 2026-11-05 — the rate the loan being refinanced
+            was made at, for reference while setting the new terms. */}
+        <div className="mt-3.5">
+          <LoanOriginationTerms loanId={oldLoanId} compact />
         </div>
 
         <div className="mt-5 border-t border-border" />

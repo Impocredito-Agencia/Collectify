@@ -3586,6 +3586,97 @@ describe('LoansService', () => {
     });
   });
 
+  // Human request, 2026-11-05 — the terms a loan was created with, back
+  // through every loan it was refinanced from.
+  describe('getOriginationTerms', () => {
+    const original: Loan = {
+      ...mockLoan,
+      id: 'loan-0',
+      status: LoanStatus.Refinanced,
+      refinancedFromLoanId: null,
+    };
+    const current: Loan = {
+      ...mockLoan,
+      id: 'loan-1',
+      refinancedFromLoanId: 'loan-0',
+      refinanceMoraWaivedAmount: 45000,
+      refinanceMoraWaiverReason: 'Refinancia al día',
+    };
+
+    function mockLoans(loans: Loan[]): void {
+      loansRepository.findOneBy.mockImplementation(({ id }: { id: string }) =>
+        Promise.resolve(loans.find((loan) => loan.id === id) ?? null),
+      );
+    }
+
+    beforeEach(() => {
+      installmentsRepository.find.mockImplementation(
+        ({ where }: { where: { loanId: string } }) =>
+          Promise.resolve([
+            {
+              id: `${where.loanId}-inst-1`,
+              installmentNumber: 1,
+              amount: 300000,
+              isDownPayment: false,
+              status: InstallmentStatus.Pending,
+            },
+          ]),
+      );
+      loanInstallmentConceptsRepository.find.mockImplementation(
+        ({ where }: { where: { installmentId: string } }) =>
+          Promise.resolve([
+            {
+              installmentId: where.installmentId,
+              interestConceptTypeId: null,
+              nameSnapshot: 'Intereses corrientes',
+              calculationType: ConceptCalculationType.Percentage,
+              category: ConceptCategory.Corriente,
+              value: where.installmentId.startsWith('loan-0') ? 4.2 : 3.9,
+            },
+          ]),
+      );
+    });
+
+    it('returns this loan first, then the one it was refinanced from, each with its own rate', async () => {
+      mockLoans([current, original]);
+
+      const terms = await service.getOriginationTerms('loan-1');
+
+      expect(terms.map((item) => item.loanId)).toEqual(['loan-1', 'loan-0']);
+      expect(terms[0]).toMatchObject({
+        corrienteInterestRate: 3.9,
+        moratoryInterestRate: null,
+        refinanceMoraWaivedAmount: 45000,
+        refinanceMoraWaiverReason: 'Refinancia al día',
+      });
+      expect(terms[1].corrienteInterestRate).toBe(4.2);
+    });
+
+    it('stops at a link that no longer exists', async () => {
+      mockLoans([current]);
+
+      const terms = await service.getOriginationTerms('loan-1');
+
+      expect(terms).toHaveLength(1);
+    });
+
+    it('never loops on a corrupt refinance cycle', async () => {
+      mockLoans([current, { ...original, refinancedFromLoanId: 'loan-1' }]);
+
+      const terms = await service.getOriginationTerms('loan-1');
+
+      expect(terms.map((item) => item.loanId)).toEqual(['loan-1', 'loan-0']);
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      mockLoans([]);
+
+      await expect(service.getOriginationTerms('missing')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('getRefinanceQuote', () => {
     // bogotaTodayPlusDays is defined at module scope above — see its own
     // comment for why several tests below need it instead of a raw

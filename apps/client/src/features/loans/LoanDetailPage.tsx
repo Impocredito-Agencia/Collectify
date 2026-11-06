@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { Modal } from '@/components/ui/Modal';
 import { StatCard } from '@/components/ui/StatCard';
+import { LoanOriginationTerms } from '@/features/loans/LoanOriginationTerms';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Td, Th } from '@/components/ui/Table';
@@ -577,6 +578,10 @@ export function LoanDetailPage() {
             cuotas table (chargeHeaderTitle), which is where it actually
             belongs since a loan can have more than one. */}
       </div>
+
+      {/* Human request, 2026-11-05 — the rate and terms this pagaré (and
+          every pagaré it was refinanced from) was created with. */}
+      <LoanOriginationTerms loanId={loan.id} />
 
       {/* Redesign, 2026-09-06 (client feedback) — moved here, right after
           the loan's core stat cards, from all the way below Historial de

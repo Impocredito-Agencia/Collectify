@@ -6,7 +6,10 @@ import type {
   Installment,
   Payment,
 } from '@/features/installments/installmentsApi';
-import type { ConceptCalculationType } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import type {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '@/features/interestConceptTypes/interestConceptTypesApi';
 
 // Matches apps/api/src/loans/entities/loan.entity.ts exactly.
 export enum InstallmentFrequency {
@@ -323,6 +326,33 @@ export interface PayoffQuote {
   totalDue: number;
 }
 
+// Matches apps/api/src/loans/originationTerms.ts's LoanOriginationTerms
+// exactly (human request, 2026-11-05 — "a qué tasa se les financió"). Read
+// back from what was stored at creation; a rate never stored is null.
+export interface LoanOriginationTerms {
+  loanId: string;
+  promissoryNoteNumber: string;
+  status: LoanStatus;
+  disbursedAt: string;
+  createdAt: string;
+  principalAmount: number;
+  installmentFrequency: InstallmentFrequency;
+  financedInstallments: number;
+  downPaymentAmount: number | null;
+  installmentAmount: number | null;
+  corrienteInterestRate: number | null;
+  moratoryInterestRate: number | null;
+  otherCharges: {
+    name: string;
+    category: ConceptCategory;
+    calculationType: ConceptCalculationType;
+    value: number;
+  }[];
+  refinancedFromLoanId: string | null;
+  refinanceMoraWaivedAmount: number;
+  refinanceMoraWaiverReason: string | null;
+}
+
 // Matches apps/api/src/loans/loans.service.ts's RefinanceQuote exactly —
 // see docs/phases/PHASE_17_REFINANCING_RECALC.md. Advisory only: reopens
 // docs/phases/PHASE_6_REFINANCING.md's manual-entry decision, but
@@ -542,6 +572,13 @@ export const loansApi = {
   // Read-only, advisory — see docs/phases/PHASE_17_REFINANCING_RECALC.md.
   // The suggested figures are just a pre-fill; refinance() below still
   // accepts whatever principalAmount/concepts actually get submitted.
+  getOriginationTerms: async (id: string): Promise<LoanOriginationTerms[]> => {
+    const { data } = await apiClient.get<LoanOriginationTerms[]>(
+      `/loans/${id}/origination-terms`,
+    );
+    return data;
+  },
+
   getRefinanceQuote: async (id: string): Promise<RefinanceQuote> => {
     const { data } = await apiClient.get<RefinanceQuote>(
       `/loans/${id}/refinance-quote`,
