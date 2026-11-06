@@ -3,6 +3,7 @@ import { apiClient } from '@/lib/apiClient';
 import type { Payment } from '@/features/installments/installmentsApi';
 import type {
   InstallmentFrequency,
+  LoanOriginationTerms,
   LoanStatus,
 } from '@/features/loans/loansApi';
 
@@ -81,6 +82,10 @@ export interface DeletedLoanDetail extends DeletedLoanSummary {
   hasFrozenFigures: boolean;
   payments: Payment[];
   deletedTogether: { id: string; promissoryNoteNumber: string }[];
+  // This loan's terms first, then every earlier loan of its chain — same
+  // shape as GET /loans/:id/origination-terms (refinance mora waiver
+  // included).
+  originationTerms: LoanOriginationTerms[];
 }
 
 export interface DeletedLoansQueryParams {

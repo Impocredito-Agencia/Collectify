@@ -3727,6 +3727,51 @@ describe('LoansService', () => {
     });
   });
 
+  describe('getDeletedLoanOriginationTerms', () => {
+    it('walks a deleted refinance chain, reading every row withDeleted', async () => {
+      const deletedAt = new Date('2026-11-05T15:00:00Z');
+      const original: Loan = {
+        ...mockLoan,
+        id: 'loan-0',
+        status: LoanStatus.Refinanced,
+        deletedAt,
+      };
+      const current: Loan = {
+        ...mockLoan,
+        id: 'loan-1',
+        refinancedFromLoanId: 'loan-0',
+        refinanceMoraWaivedAmount: 45000,
+        deletedAt,
+      };
+      loansRepository.findOne.mockImplementation(
+        ({ where }: { where: { id: string } }) =>
+          Promise.resolve(
+            [current, original].find((loan) => loan.id === where.id) ?? null,
+          ),
+      );
+      installmentsRepository.find.mockResolvedValue([]);
+
+      const terms = await service.getDeletedLoanOriginationTerms('loan-1');
+
+      expect(terms.map((item) => item.loanId)).toEqual(['loan-1', 'loan-0']);
+      expect(terms[0].refinanceMoraWaivedAmount).toBe(45000);
+      expect(loansRepository.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ withDeleted: true }),
+      );
+      expect(installmentsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({ withDeleted: true }),
+      );
+    });
+
+    it('throws NotFoundException for a loan that is not deleted', async () => {
+      loansRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.getDeletedLoanOriginationTerms('loan-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('getRefinanceQuote', () => {
     // bogotaTodayPlusDays is defined at module scope above — see its own
     // comment for why several tests below need it instead of a raw

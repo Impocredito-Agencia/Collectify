@@ -73,13 +73,19 @@ describe('DeletedLoansService', () => {
   let loans: Loan[];
   let installments: Partial<Installment>[];
   let payments: Partial<Payment>[];
-  let loansService: { getDeletedLoanPayments: jest.Mock };
+  let loansService: {
+    getDeletedLoanPayments: jest.Mock;
+    getDeletedLoanOriginationTerms: jest.Mock;
+  };
 
   beforeEach(async () => {
     loans = [makeDeletedLoan()];
     installments = [];
     payments = [];
-    loansService = { getDeletedLoanPayments: jest.fn().mockResolvedValue([]) };
+    loansService = {
+      getDeletedLoanPayments: jest.fn().mockResolvedValue([]),
+      getDeletedLoanOriginationTerms: jest.fn().mockResolvedValue([]),
+    };
 
     const filter =
       <T>(rows: () => T[]) =>
@@ -314,6 +320,21 @@ describe('DeletedLoansService', () => {
       expect(detail.refinancedLoans).toEqual([
         { id: 'old', promissoryNoteNumber: '#9999' },
       ]);
+    });
+
+    it('includes the terms it and its earlier loans were created with', async () => {
+      const terms = [
+        { loanId: 'loan-1', refinanceMoraWaivedAmount: 45000 },
+        { loanId: 'old', refinanceMoraWaivedAmount: 0 },
+      ];
+      loansService.getDeletedLoanOriginationTerms.mockResolvedValue(terms);
+
+      const detail = await service.findOne('loan-1');
+
+      expect(loansService.getDeletedLoanOriginationTerms).toHaveBeenCalledWith(
+        'loan-1',
+      );
+      expect(detail.originationTerms).toEqual(terms);
     });
 
     it('throws NotFoundException for a loan that is not deleted', async () => {

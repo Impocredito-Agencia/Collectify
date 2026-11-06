@@ -11,6 +11,7 @@ import {
 } from '../entities/loan.entity';
 import { Payment } from '../entities/payment.entity';
 import { LoansService, PaymentWithImages } from '../loans.service';
+import { LoanOriginationTerms } from '../originationTerms';
 
 import { QueryDeletedLoansDto } from './dto/queryDeletedLoans.dto';
 import { DeletedInstallmentSnapshot } from './loanDeletionSnapshot';
@@ -55,6 +56,10 @@ export interface DeletedLoanDetail extends DeletedLoanSummary {
   payments: PaymentWithImages[];
   // The other loans of its refinance chain that were deleted too.
   deletedTogether: { id: string; promissoryNoteNumber: string }[];
+  // The terms it was created with, then those of every earlier loan of its
+  // chain — same as GET /loans/:id/origination-terms for a live loan,
+  // including any mora forgiven when it was created by a refinance.
+  originationTerms: LoanOriginationTerms[];
 }
 
 // Phase 35 — the read-only side of deletion: every authenticated user
@@ -142,6 +147,8 @@ export class DeletedLoansService {
       : await this.rebuildInstallments(id);
 
     const deletedTogether = await this.findDeletedChain(loan);
+    const originationTerms =
+      await this.loansService.getDeletedLoanOriginationTerms(id);
 
     return {
       ...toSummary(loan, payments.length > 0),
@@ -158,6 +165,7 @@ export class DeletedLoansService {
       hasFrozenFigures: loan.deletionSnapshot !== null,
       payments,
       deletedTogether: deletedTogether.map(toChainLink),
+      originationTerms,
     };
   }
 

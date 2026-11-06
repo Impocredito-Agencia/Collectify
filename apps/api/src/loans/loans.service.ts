@@ -1497,12 +1497,42 @@ export class LoansService {
   // how this debt came to be. Stops at a missing (e.g. soft-deleted) link and
   // never revisits a loan, so a corrupt cycle can't loop.
   async getOriginationTerms(id: string): Promise<LoanOriginationTerms[]> {
-    const chain: Loan[] = [await this.findLoanOrThrow(id)];
-    let previousId = chain[0].refinancedFromLoanId;
+    return this.buildOriginationTermsChain(await this.findLoanOrThrow(id), {
+      withDeleted: false,
+    });
+  }
+
+  // Phase 35 — the same terms for a DELETED loan's read-only view. Its whole
+  // refinance chain was deleted with it (a chain is only ever deleted whole),
+  // so every link and installment is read withDeleted. 404 for a loan that
+  // isn't deleted — a live loan goes through getOriginationTerms().
+  async getDeletedLoanOriginationTerms(
+    id: string,
+  ): Promise<LoanOriginationTerms[]> {
+    const loan = await this.loansRepository.findOne({
+      where: { id, deletedAt: Not(IsNull()) },
+      withDeleted: true,
+    });
+    if (!loan) {
+      throw new NotFoundException(`Deleted loan with id ${id} not found`);
+    }
+    return this.buildOriginationTermsChain(loan, { withDeleted: true });
+  }
+
+  private async buildOriginationTermsChain(
+    first: Loan,
+    { withDeleted }: { withDeleted: boolean },
+  ): Promise<LoanOriginationTerms[]> {
+    const deletedRows = withDeleted ? { withDeleted: true } : {};
+    const chain: Loan[] = [first];
+    let previousId = first.refinancedFromLoanId;
     while (previousId && !chain.some((loan) => loan.id === previousId)) {
-      const previous = await this.loansRepository.findOneBy({
-        id: previousId,
-      });
+      const previous = withDeleted
+        ? await this.loansRepository.findOne({
+            where: { id: previousId },
+            withDeleted: true,
+          })
+        : await this.loansRepository.findOneBy({ id: previousId });
       if (!previous) {
         break;
       }
@@ -1515,6 +1545,7 @@ export class LoansService {
       const installments = await this.installmentsRepository.find({
         where: { loanId: loan.id },
         order: { installmentNumber: 'ASC' },
+        ...deletedRows,
       });
       const firstFinanced = installments.find(
         (installment) => !installment.isDownPayment,
@@ -1522,6 +1553,7 @@ export class LoansService {
       const concepts = firstFinanced
         ? await this.loanInstallmentConceptsRepository.find({
             where: { installmentId: firstFinanced.id },
+            ...deletedRows,
           })
         : [];
       terms.push(buildOriginationTerms(loan, installments, concepts));

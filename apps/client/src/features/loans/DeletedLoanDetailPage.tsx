@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom';
 
 import { DeletedLoanInstallmentsTable } from '@/features/loans/DeletedLoanInstallmentsTable';
 import { DeletedLoanPaymentsTable } from '@/features/loans/DeletedLoanPaymentsTable';
+import { LoanOriginationTermsView } from '@/features/loans/LoanOriginationTerms';
 import { InstallmentFrequency, LoanStatus } from '@/features/loans/loansApi';
 import { useDeletedLoan } from '@/features/loans/useLoanDeletion';
 import { formatCurrency, formatDateOnly, formatDateTime } from '@/lib/format';
@@ -105,6 +106,8 @@ export function DeletedLoanDetailPage() {
         </dl>
         {loan.deletedTogether.length > 0 && <RefinanceChain loan={loan} />}
       </div>
+
+      <LoanOriginationTermsView terms={loan.originationTerms} />
 
       <DeletedLoanInstallmentsTable
         installments={loan.installments}

@@ -140,7 +140,24 @@ export function LoanOriginationTerms({
     );
   }
 
-  const [current, ...previous] = data;
+  return <LoanOriginationTermsView terms={data} compact={compact} />;
+}
+
+// The section itself, from terms already in hand — also used by the deleted
+// pagaré's read-only view (Phase 35), whose terms come inside
+// GET /loans/deleted/:id. `terms` is this loan first, then every loan it was
+// refinanced from.
+export function LoanOriginationTermsView({
+  terms,
+  compact = false,
+}: {
+  terms: Terms[];
+  compact?: boolean;
+}) {
+  const [current, ...previous] = terms;
+  if (!current) {
+    return null;
+  }
 
   return (
     <section className="flex flex-col gap-3 rounded border border-border bg-surface p-4">
@@ -154,13 +171,13 @@ export function LoanOriginationTerms({
           <span className="text-label text-muted">
             Pagarés anteriores (refinanciados)
           </span>
-          {previous.map((terms) => (
-            <div key={terms.loanId} className="flex flex-col gap-2">
+          {previous.map((earlier) => (
+            <div key={earlier.loanId} className="flex flex-col gap-2">
               <span className="text-small text-white">
-                Pagaré {terms.promissoryNoteNumber} · creado el{' '}
-                {formatDateOnly(terms.disbursedAt)}
+                Pagaré {earlier.promissoryNoteNumber} · creado el{' '}
+                {formatDateOnly(earlier.disbursedAt)}
               </span>
-              <TermsGrid terms={terms} />
+              <TermsGrid terms={earlier} />
             </div>
           ))}
         </div>

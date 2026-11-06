@@ -61,6 +61,7 @@ const loan: DeletedLoanDetail = {
     },
   ],
   deletedTogether: [],
+  originationTerms: [],
 };
 
 let shownLoan: DeletedLoanDetail = loan;
@@ -139,5 +140,40 @@ describe('DeletedLoanDetailPage', () => {
       '→Refinanciación 1 · #0006 (este)',
       '→Refinanciación 2 · #0006',
     ]);
+  });
+
+  it('shows the terms it was created with, including mora forgiven at refinance', () => {
+    shownLoan = {
+      ...loan,
+      originationTerms: [
+        {
+          loanId: 'loan-1',
+          promissoryNoteNumber: '#9999',
+          status: LoanStatus.Active,
+          disbursedAt: '2026-01-01',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          principalAmount: 600000,
+          installmentFrequency: InstallmentFrequency.Monthly,
+          financedInstallments: 2,
+          downPaymentAmount: null,
+          installmentAmount: 300000,
+          corrienteInterestRate: 3.9,
+          moratoryInterestRate: 2.5,
+          otherCharges: [],
+          refinancedFromLoanId: 'old',
+          refinanceMoraWaivedAmount: 45000,
+          refinanceMoraWaiverReason: 'Refinancia al día',
+        },
+      ],
+    };
+
+    renderPage();
+
+    expect(
+      screen.getByText('Condiciones con las que se creó el crédito'),
+    ).toBeTruthy();
+    expect(screen.getByText('3,9% mensual')).toBeTruthy();
+    expect(screen.getByText('$ 45.000')).toBeTruthy();
+    expect(screen.getByText(/Refinancia al día/)).toBeTruthy();
   });
 });
