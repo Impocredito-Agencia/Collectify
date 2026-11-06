@@ -43,6 +43,7 @@ import {
   RefinanceQuote,
   SchedulePreview,
 } from './loans.service';
+import { LoanOriginationTerms } from './originationTerms';
 import { PayoffQuote } from './payoff/calculatePayoff';
 
 @ApiTags('loans')
@@ -404,6 +405,24 @@ export class LoansController {
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   getRefinanceQuote(@Param('id') id: string): Promise<RefinanceQuote> {
     return this.loansService.getRefinanceQuote(id);
+  }
+
+  @Get(':id/origination-terms')
+  @ApiOperation({
+    summary:
+      'The terms this loan (and every loan it was refinanced from) was created with',
+    description:
+      'Read back from what was stored at creation — nothing is recomputed: capital, disbursement date, frequency, financed cuotas, cuota inicial, first cuota amount, the system corriente/moratorio rates snapshotted on the cuotas, optional catalog fees, and the mora forgiven when it was refinanced. A rate that was never stored is null. Ordered from this loan back through its refinancedFromLoanId chain.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'This loan first, then each loan it was refinanced from.',
+  })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  getOriginationTerms(
+    @Param('id') id: string,
+  ): Promise<LoanOriginationTerms[]> {
+    return this.loansService.getOriginationTerms(id);
   }
 
   @Post(':id/refinance')
