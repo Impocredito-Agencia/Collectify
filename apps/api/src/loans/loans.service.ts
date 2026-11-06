@@ -13,6 +13,8 @@ import {
   FindOptionsWhere,
   ILike,
   In,
+  IsNull,
+  Not,
   Repository,
 } from 'typeorm';
 
@@ -643,11 +645,13 @@ export class LoansService {
   // "Loan / Pagaré"). No longer used by RefinanceLoanForm as of the
   // 2026-09-06 redesign — a refinance now keeps the old loan's own number
   // instead of getting a new one, so there's nothing left to suggest there.
-  // Takes the highest numeric part
-  // across ALL loans, including soft-deleted ones (withDeleted, same as
-  // assertPromissoryNoteNumberIsUnique below — a deleted loan's number is
-  // still "used" and must never be handed out again), adds 1, and pads to
-  // 4 digits. Deliberately ignores the ~1190 pre-existing loans' actual
+  // Takes the highest numeric part across live loans, adds 1, and pads to
+  // 4 digits. Phase 35 (2026-11-05) — deleted loans no longer count toward
+  // "highest": the client creates test pagarés with very high numbers
+  // (#9999) and deletes them, which used to keep the suggestion stuck at
+  // #10000 forever. A number a deleted loan still reserves (it had
+  // payments, see findNumbersReservedByDeletedLoans) is skipped instead of
+  // suggested. Deliberately ignores the ~1190 pre-existing loans' actual
   // formatting (some are "1", "124", "#743"...) — only the numeric value
   // matters here, via the same extractNumericPart used for the list sort.
   // Historical rows are NOT being reformatted (confirmed with the human);
@@ -656,17 +660,72 @@ export class LoansService {
     nextPromissoryNoteNumber: string;
   }> {
     const loans = await this.loansRepository.find({
-      select: { promissoryNoteNumber: true },
+      select: { id: true, promissoryNoteNumber: true, deletedAt: true },
       withDeleted: true,
     });
+    const liveLoans = loans.filter((loan) => !loan.deletedAt);
 
-    const highest = loans.reduce<bigint>((max, loan) => {
+    const highest = liveLoans.reduce<bigint>((max, loan) => {
       const numeric = extractNumericPart(loan.promissoryNoteNumber);
       return numeric !== null && numeric > max ? numeric : max;
     }, 0n);
 
-    const next = (highest + 1n).toString().padStart(4, '0');
-    return { nextPromissoryNoteNumber: `#${next}` };
+    const reserved = new Set(
+      (
+        await this.findNumbersReservedByDeletedLoans(
+          loans.filter((loan) => loan.deletedAt),
+        )
+      )
+        .map(extractNumericPart)
+        .filter((numeric): numeric is bigint => numeric !== null),
+    );
+    let next = highest + 1n;
+    while (reserved.has(next)) {
+      next += 1n;
+    }
+    return {
+      nextPromissoryNoteNumber: `#${next.toString().padStart(4, '0')}`,
+    };
+  }
+
+  // Phase 35 — a deleted loan that had at least one payment (voided ones
+  // count: deletion voids them all) keeps its number reserved forever, so a
+  // new pagaré can never be confused with one that had real money behind
+  // it. One deleted WITHOUT payments frees its number (Phase 30's rule,
+  // unchanged). Takes the deleted loans already fetched by the caller and
+  // returns the numbers among them that are reserved.
+  private async findNumbersReservedByDeletedLoans(
+    deletedLoans: Pick<Loan, 'id' | 'promissoryNoteNumber'>[],
+  ): Promise<string[]> {
+    if (deletedLoans.length === 0) {
+      return [];
+    }
+    const installments = await this.installmentsRepository.find({
+      where: { loanId: In(deletedLoans.map((loan) => loan.id)) },
+      select: { id: true, loanId: true },
+      withDeleted: true,
+    });
+    if (installments.length === 0) {
+      return [];
+    }
+    const payments = await this.paymentsRepository.find({
+      where: {
+        installmentId: In(installments.map((installment) => installment.id)),
+      },
+      select: { installmentId: true },
+      withDeleted: true,
+    });
+    const paidInstallmentIds = new Set(
+      payments.map((payment) => payment.installmentId),
+    );
+    const loanIdsWithPayments = new Set(
+      installments
+        .filter((installment) => paidInstallmentIds.has(installment.id))
+        .map((installment) => installment.loanId),
+    );
+    return deletedLoans
+      .filter((loan) => loanIdsWithPayments.has(loan.id))
+      .map((loan) => loan.promissoryNoteNumber);
   }
 
   // Joins `client` (for clientFullName) and, in a second query, this page's
@@ -1159,43 +1218,6 @@ export class LoansService {
     );
   }
 
-  // Phase 30 — lets an admin remove a loan created by mistake, but only
-  // before it has any real financial history: once a single Payment
-  // exists anywhere on the loan (any installment), deletion is refused —
-  // confirmed with the human ("eliminar si no tiene pago registrado").
-  // Soft, per this project's standard convention (no hard delete
-  // anywhere in docs/DATABASE.md); cascades to the loan's own
-  // installments explicitly, since TypeORM's softDelete() only stamps
-  // the target table's own deleted_at — it does not cascade to relations
-  // the way a real FK ON DELETE CASCADE would (same point docs/DATABASE.md
-  // makes for client_references, deliberately choosing NOT to cascade
-  // there; this case chooses to, per the phase brief).
-  async remove(id: string): Promise<void> {
-    await this.findLoanOrThrow(id);
-
-    const installments = await this.installmentsRepository.find({
-      where: { loanId: id },
-      select: { id: true },
-    });
-    const installmentIds = installments.map((installment) => installment.id);
-
-    if (installmentIds.length > 0) {
-      const paymentCount = await this.paymentsRepository.count({
-        where: { installmentId: In(installmentIds) },
-      });
-      if (paymentCount > 0) {
-        throw new ConflictException(
-          'No se puede eliminar un préstamo que ya tiene pagos registrados.',
-        );
-      }
-    }
-
-    await this.dataSource.transaction(async (manager) => {
-      await manager.getRepository(Installment).softDelete({ loanId: id });
-      await manager.getRepository(Loan).softDelete({ id });
-    });
-  }
-
   // How much it costs to close this loan out today, per
   // docs/phases/PHASE_16_EARLY_PAYOFF.md — never blindly sums remaining
   // installment totals; a not-yet-due installment contributes only
@@ -1646,7 +1668,37 @@ export class LoansService {
       where: { loanId },
       select: ['id'],
     });
-    const installmentIds = installments.map((installment) => installment.id);
+    return this.buildPaymentHistory(
+      installments.map((installment) => installment.id),
+    );
+  }
+
+  // Phase 35 — the same history for a DELETED loan's read-only view: its
+  // installments are soft-deleted too, so they're read withDeleted. Every
+  // payment comes back voided (deletion voids them all), each carrying its
+  // own voidReason. 404 for a loan that isn't deleted — a live loan's
+  // payments go through getPayments().
+  async getDeletedLoanPayments(loanId: string): Promise<PaymentWithImages[]> {
+    const loan = await this.loansRepository.findOne({
+      where: { id: loanId, deletedAt: Not(IsNull()) },
+      withDeleted: true,
+    });
+    if (!loan) {
+      throw new NotFoundException(`Deleted loan with id ${loanId} not found`);
+    }
+    const installments = await this.installmentsRepository.find({
+      where: { loanId },
+      select: ['id'],
+      withDeleted: true,
+    });
+    return this.buildPaymentHistory(
+      installments.map((installment) => installment.id),
+    );
+  }
+
+  private async buildPaymentHistory(
+    installmentIds: string[],
+  ): Promise<PaymentWithImages[]> {
     if (installmentIds.length === 0) {
       return [];
     }
@@ -2308,6 +2360,22 @@ export class LoansService {
     if (existing) {
       throw new ConflictException(
         `A loan with promissory note number ${promissoryNoteNumber} already exists`,
+      );
+    }
+
+    // Phase 35 — a deleted loan that had payments still reserves its
+    // number (see findNumbersReservedByDeletedLoans).
+    const deletedWithSameNumber = await loansRepository.find({
+      where: { promissoryNoteNumber, deletedAt: Not(IsNull()) },
+      select: { id: true, promissoryNoteNumber: true },
+      withDeleted: true,
+    });
+    const reserved = await this.findNumbersReservedByDeletedLoans(
+      deletedWithSameNumber,
+    );
+    if (reserved.length > 0) {
+      throw new ConflictException(
+        `El número de pagaré ${promissoryNoteNumber} perteneció a un pagaré eliminado que tenía pagos registrados, y no puede volver a usarse.`,
       );
     }
   }

@@ -154,11 +154,17 @@ describe('LoansService', () => {
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
+    deletedByUserId: null,
+    deletedByUser: null,
+    deletionReason: null,
+    deletionSnapshot: null,
   };
 
   beforeEach(async () => {
     loansRepository = {
-      find: jest.fn(),
+      // Defaults to no loans — assertPromissoryNoteNumberIsUnique's Phase 35
+      // reserved-number lookup reads it on every create()/renumber().
+      find: jest.fn().mockResolvedValue([]),
       findOneBy: jest.fn(),
       findOne: jest.fn(),
       create: jest.fn((dto: Partial<Loan>) => dto),
@@ -572,6 +578,42 @@ describe('LoansService', () => {
       expect(loansRepository.findOne).toHaveBeenCalledWith({
         where: { promissoryNoteNumber: createDto.promissoryNoteNumber },
       });
+    });
+
+    // Phase 35 — see LoansService.findNumbersReservedByDeletedLoans.
+    it('rejects a number held by a deleted loan that had payments', async () => {
+      loansRepository.findOne.mockResolvedValue(null);
+      loansRepository.find.mockResolvedValue([
+        {
+          id: 'deleted-paid',
+          promissoryNoteNumber: createDto.promissoryNoteNumber,
+        },
+      ]);
+      installmentsRepository.find.mockResolvedValue([
+        { id: 'inst-1', loanId: 'deleted-paid' },
+      ]);
+      paymentsRepository.find.mockResolvedValue([{ installmentId: 'inst-1' }]);
+
+      await expect(service.create(createDto)).rejects.toThrow(
+        'perteneció a un pagaré eliminado',
+      );
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('accepts a number held only by a deleted loan without payments', async () => {
+      loansRepository.findOne.mockResolvedValue(null);
+      loansRepository.find.mockResolvedValue([
+        {
+          id: 'deleted-unpaid',
+          promissoryNoteNumber: createDto.promissoryNoteNumber,
+        },
+      ]);
+      installmentsRepository.find.mockResolvedValueOnce([
+        { id: 'inst-1', loanId: 'deleted-unpaid' },
+      ]);
+      paymentsRepository.find.mockResolvedValueOnce([]);
+
+      await expect(service.create(createDto)).resolves.toBeDefined();
     });
 
     // Phase 24 — a loan cannot be created at all without the current
@@ -2219,16 +2261,43 @@ describe('LoansService', () => {
       expect(result).toEqual({ nextPromissoryNoteNumber: '#0001' });
     });
 
-    it('includes soft-deleted loans, so a deleted number is never reused', async () => {
+    // Phase 35 — a deleted test pagaré (#9999) must not drag the
+    // suggestion up forever.
+    it('ignores deleted loans when finding the highest number', async () => {
       loansRepository.find.mockResolvedValue([
-        { ...mockLoan, promissoryNoteNumber: '#1190' },
+        { ...mockLoan, id: 'live', promissoryNoteNumber: '#1190' },
+        {
+          ...mockLoan,
+          id: 'deleted',
+          promissoryNoteNumber: '#9999',
+          deletedAt: new Date(),
+        },
       ]);
+      installmentsRepository.find.mockResolvedValue([]);
 
-      await service.getNextPromissoryNoteNumber();
+      const result = await service.getNextPromissoryNoteNumber();
 
-      expect(loansRepository.find).toHaveBeenCalledWith(
-        expect.objectContaining({ withDeleted: true }),
-      );
+      expect(result).toEqual({ nextPromissoryNoteNumber: '#1191' });
+    });
+
+    it('skips a number still reserved by a deleted loan that had payments', async () => {
+      loansRepository.find.mockResolvedValue([
+        { ...mockLoan, id: 'live', promissoryNoteNumber: '#1190' },
+        {
+          ...mockLoan,
+          id: 'deleted-paid',
+          promissoryNoteNumber: '#1191',
+          deletedAt: new Date(),
+        },
+      ]);
+      installmentsRepository.find.mockResolvedValue([
+        { id: 'inst-1', loanId: 'deleted-paid' },
+      ]);
+      paymentsRepository.find.mockResolvedValue([{ installmentId: 'inst-1' }]);
+
+      const result = await service.getNextPromissoryNoteNumber();
+
+      expect(result).toEqual({ nextPromissoryNoteNumber: '#1192' });
     });
   });
 
@@ -2543,6 +2612,47 @@ describe('LoansService', () => {
       await service.update(mockLoan.id, { description: 'Compra de televisor' });
 
       expect(clientsService.findOne).not.toHaveBeenCalled();
+    });
+  });
+
+  // Phase 35 — the payment history of a deleted pagaré's read-only view.
+  describe('getDeletedLoanPayments', () => {
+    it("reads a deleted loan's soft-deleted installments and their voided payments", async () => {
+      loansRepository.findOne.mockResolvedValue({
+        ...mockLoan,
+        deletedAt: new Date(),
+      });
+      installmentsRepository.find.mockResolvedValue([{ id: 'installment-1' }]);
+      paymentsRepository.find.mockResolvedValue([
+        {
+          id: 'payment-1',
+          installmentId: 'installment-1',
+          amountPaid: 200,
+          voidReason: 'Pagaré eliminado: Pagaré de prueba',
+        },
+      ]);
+
+      const result = await service.getDeletedLoanPayments(mockLoan.id);
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: 'payment-1',
+          voidReason: 'Pagaré eliminado: Pagaré de prueba',
+        }),
+      ]);
+      expect(installmentsRepository.find).toHaveBeenCalledWith({
+        where: { loanId: mockLoan.id },
+        select: ['id'],
+        withDeleted: true,
+      });
+    });
+
+    it('throws NotFoundException for a loan that is not deleted', async () => {
+      loansRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.getDeletedLoanPayments(mockLoan.id)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -3070,66 +3180,6 @@ describe('LoansService', () => {
       await expect(
         service.renumber('missing', { promissoryNoteNumber: '#1201' }),
       ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('remove', () => {
-    beforeEach(() => {
-      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
-      installmentsRepository.find.mockResolvedValue([
-        { id: 'inst-1' },
-        { id: 'inst-2' },
-      ]);
-      paymentsRepository.count.mockResolvedValue(0);
-    });
-
-    it('soft-deletes the loan and its installments when it has no payments', async () => {
-      await service.remove(mockLoan.id);
-
-      expect(installmentsRepository.softDelete).toHaveBeenCalledWith({
-        loanId: mockLoan.id,
-      });
-      expect(loansRepository.softDelete).toHaveBeenCalledWith({
-        id: mockLoan.id,
-      });
-    });
-
-    it('checks for payments across every installment of the loan', async () => {
-      await service.remove(mockLoan.id);
-
-      expect(paymentsRepository.count).toHaveBeenCalledWith({
-        where: { installmentId: In(['inst-1', 'inst-2']) },
-      });
-    });
-
-    it('skips the payment check entirely when the loan has no installments', async () => {
-      installmentsRepository.find.mockResolvedValue([]);
-
-      await service.remove(mockLoan.id);
-
-      expect(paymentsRepository.count).not.toHaveBeenCalled();
-      expect(loansRepository.softDelete).toHaveBeenCalledWith({
-        id: mockLoan.id,
-      });
-    });
-
-    it('rejects a loan that has at least one registered payment, unchanged', async () => {
-      paymentsRepository.count.mockResolvedValue(1);
-
-      await expect(service.remove(mockLoan.id)).rejects.toThrow(
-        ConflictException,
-      );
-      expect(installmentsRepository.softDelete).not.toHaveBeenCalled();
-      expect(loansRepository.softDelete).not.toHaveBeenCalled();
-    });
-
-    it('throws NotFoundException when the loan does not exist', async () => {
-      loansRepository.findOneBy.mockResolvedValue(null);
-
-      await expect(service.remove('missing-id')).rejects.toThrow(
-        NotFoundException,
-      );
-      expect(paymentsRepository.count).not.toHaveBeenCalled();
     });
   });
 
