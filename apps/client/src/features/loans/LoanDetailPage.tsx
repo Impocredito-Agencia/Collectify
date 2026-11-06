@@ -870,6 +870,7 @@ export function LoanDetailPage() {
         <BulkRegisterPaymentDialog
           installments={selectedInstallments}
           loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          minPaidAt={loan.disbursedAt}
           onClose={() => setIsBulkPaying(false)}
           onConfirm={async (entries) => {
             const result = await registerBulkPayments.mutateAsync(entries);
