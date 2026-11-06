@@ -94,6 +94,10 @@ describe('DashboardService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
+      deletedByUserId: null,
+      deletedByUser: null,
+      deletionReason: null,
+      deletionSnapshot: null,
       ...overrides,
     };
   }
