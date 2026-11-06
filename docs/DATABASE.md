@@ -1124,6 +1124,14 @@ Human request: some clients get part of their accrued mora discounted when they 
 - **Where it lives:** on the NEW loan (`loans.refinance_mora_waived_amount` / `refinance_mora_waiver_reason`, migration `1791800000000-AddRefinanceMoraWaiverToLoans`). Optional reason, same as payments.
 - **Effect on the numbers:** none server-side beyond recording it — `principalAmount` is still entered by the admin (Phase 6/17 decision unchanged). The refinance form subtracts the waiver from the suggested capital (`suggested − abono a capital − mora condonada`), and the confirmation dialog and the new loan's detail ("Este préstamo nació de una refinanciación…") both show it.
 
+## Feature, 2026-11-05 — the terms a loan was created with
+
+No schema change. Human request: "necesitamos poder saber a qué tasa se les financió a los clientes, es decir, cómo fue creado el crédito" — needed almost every time a loan is refinanced or liquidated. The rates were already stored (snapshotted per cuota as the system `loan_installment_concepts` rows, see "Redesign, 2026-09-03"), only shown as a tooltip on the cuotas table's column headers.
+
+`GET /loans/:id/origination-terms` (`LoansService.getOriginationTerms`, pure `buildOriginationTerms` in `loans/originationTerms.ts`) returns, for this loan and then every loan back through its `refinanced_from_loan_id` chain: capital, disbursement date, frequency, financed cuotas, cuota inicial, the first financed cuota's amount, the **corriente and moratorio rates** (the `value` of the first financed cuota's system concepts, `interest_concept_type_id IS NULL`, percentage), optional catalog fees, and `refinance_mora_waived_amount`/reason. Read back exactly as stored: a rate never stored (e.g. a loan typed in before rates were system concepts) is `null` and shown as "No registrada" — confirmed with the human, nothing is inferred or editable.
+
+Shown as "Condiciones con las que se creó el crédito" (`LoanOriginationTerms.tsx`) on the loan detail page (with the refinanced-from pagarés) and, this loan only, inside the refinance form and the payoff dialog. Corriente is labeled per the loan's frequency (it's charged per cuota on the remaining balance); moratorio is monthly, prorated per day.
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above
