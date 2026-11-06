@@ -855,6 +855,7 @@ export function LoanDetailPage() {
         <RegisterPaymentDialog
           installment={payingInstallment}
           loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          minPaidAt={loan.disbursedAt}
           onClose={() => setPayingInstallment(null)}
           onConfirm={(input) =>
             registerPayment.mutateAsync({

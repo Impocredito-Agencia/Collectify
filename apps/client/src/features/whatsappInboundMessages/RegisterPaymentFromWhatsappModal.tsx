@@ -62,6 +62,7 @@ export function RegisterPaymentFromWhatsappModal({
       <RegisterPaymentDialog
         installment={selectedInstallment}
         loanLabel={`${selectedLoan.promissoryNoteNumber} — ${selectedLoan.clientFullName}`}
+        minPaidAt={loan?.disbursedAt}
         initialImageUrls={[mediaUrl]}
         onClose={onClose}
         onConfirm={async (input) => {

@@ -1,7 +1,11 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { installmentsApi } from './installmentsApi';
 import { RegisterPaymentDialog } from './RegisterPaymentDialog';
+
+import type { ReactNode } from 'react';
 
 import type { Installment } from './installmentsApi';
 
@@ -32,15 +36,32 @@ const noMoraInstallment = {
   totalDue: 588000,
 } as Installment;
 
-function renderDialog(installment: Installment, onConfirm = vi.fn()) {
+// The dialog reads a past payment date's balance through React Query
+// (useInstallmentValuation), so it needs a client even when it stays on today.
+function withQueryClient({ children }: { children: ReactNode }) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
+function renderDialog(
+  installment: Installment,
+  onConfirm = vi.fn(),
+  minPaidAt?: string,
+) {
   onConfirm.mockResolvedValue(undefined);
   render(
     <RegisterPaymentDialog
       installment={installment}
       loanLabel="#0907 — Nicolas"
+      minPaidAt={minPaidAt}
       onClose={vi.fn()}
       onConfirm={onConfirm}
     />,
+    { wrapper: withQueryClient },
   );
   return onConfirm;
 }
@@ -145,6 +166,7 @@ describe('RegisterPaymentDialog — comprobante pre-attached from WhatsApp', () 
         onClose={vi.fn()}
         onConfirm={onConfirm}
       />,
+      { wrapper: withQueryClient },
     );
     return onConfirm;
   }
@@ -201,5 +223,93 @@ describe('RegisterPaymentDialog — comprobante pre-attached from WhatsApp', () 
 
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
     expect(onConfirm.mock.calls[0][0].imageUrls).toBeUndefined();
+  });
+});
+
+// Human request, 2026-11-05 — a payment registered days after the client
+// paid is valued on its own date, not today.
+describe('RegisterPaymentDialog — payment dated in the past', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function pickDay(day: string) {
+    fireEvent.click(screen.getByRole('button', { name: 'Fecha de pago' }));
+    // The grid also shows the first days of the next month — the first match
+    // is always the current month's.
+    fireEvent.click(screen.getAllByRole('button', { name: day })[0]);
+  }
+
+  it("shows and offers the balance the cuota had on that day, not today's", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-05T15:00:00'));
+    const getValuation = vi
+      .spyOn(installmentsApi, 'getValuation')
+      .mockResolvedValue([
+        {
+          installmentId: overdueInstallment.id,
+          valuationDate: '2026-11-03',
+          overdueDays: 44,
+          interest: 10000,
+          totalDue: 598000,
+        },
+      ]);
+    const onConfirm = renderDialog(overdueInstallment);
+
+    pickDay('3');
+
+    expect(
+      await screen.findByText(/Saldo de la cuota al 3\/11\/2026/),
+    ).toBeTruthy();
+    expect(getValuation).toHaveBeenCalledWith(
+      [overdueInstallment.id],
+      '2026-11-03',
+    );
+
+    // The whole-mora waiver is the mora on that day (598000 → 588000).
+    fireEvent.click(screen.getByText('Condonar mora'));
+    fireEvent.click(screen.getByText('Toda la mora'));
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Sí, registrar pago' }),
+    );
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paidAt: '2026-11-03',
+        amountPaid: 588000,
+        moraWaivedAmount: 10000,
+      }),
+    );
+  });
+
+  it('does not let a future day be picked', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-05T15:00:00'));
+    renderDialog(noMoraInstallment);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fecha de pago' }));
+
+    const tomorrow = screen.getAllByRole('button', { name: '6' })[0];
+    expect((tomorrow as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("does not let a day before the pagaré's disbursement be picked", () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-05T15:00:00'));
+    renderDialog(noMoraInstallment, vi.fn(), '2026-11-02');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fecha de pago' }));
+
+    expect(
+      (screen.getAllByRole('button', { name: '1' })[0] as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getAllByRole('button', { name: '2' })[0] as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 });

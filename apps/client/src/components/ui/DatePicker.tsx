@@ -16,6 +16,11 @@ interface DatePickerProps {
   className: string;
   ariaLabel?: string;
   placeholder?: string;
+  // Optional 'YYYY-MM-DD' bounds — days outside them are shown but can't be
+  // picked (e.g. a payment date can't be in the future, nor before the
+  // pagaré's disbursement).
+  min?: string;
+  max?: string;
 }
 
 interface CalendarCell {
@@ -114,6 +119,8 @@ export function DatePicker({
   className,
   ariaLabel,
   placeholder = 'dd/mm/aaaa',
+  min,
+  max,
 }: DatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   // 'days' is the normal grid; 'months' is reached by clicking the
@@ -319,10 +326,14 @@ export function DatePicker({
             {cells.map((cell) => {
               const isSelected = cell.dateString === value;
               const isToday = cell.dateString === todayDateString;
+              const isOutOfRange =
+                (max !== undefined && cell.dateString > max) ||
+                (min !== undefined && cell.dateString < min);
               return (
                 <button
                   key={cell.dateString}
                   type="button"
+                  disabled={isOutOfRange}
                   onClick={() => {
                     onChange(cell.dateString);
                     setIsOpen(false);
@@ -330,9 +341,11 @@ export function DatePicker({
                   className={`flex size-7 items-center justify-center rounded text-small ${
                     isSelected
                       ? 'bg-white font-semibold text-background'
-                      : cell.inCurrentMonth
-                        ? `text-white hover:bg-border ${isToday ? 'border border-subtle' : ''}`
-                        : 'text-mid hover:bg-border'
+                      : isOutOfRange
+                        ? 'cursor-not-allowed text-mid opacity-40'
+                        : cell.inCurrentMonth
+                          ? `text-white hover:bg-border ${isToday ? 'border border-subtle' : ''}`
+                          : 'text-mid hover:bg-border'
                   }`}
                 >
                   {cell.day}
