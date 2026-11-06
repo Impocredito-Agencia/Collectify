@@ -24,6 +24,15 @@ function signedAmount(entry: ClientCreditLedgerEntry): number {
     : -entry.amount;
 }
 
+// One use of a client's saldo a favor — see findCreditDrawsOutside.
+export interface CreditDraw {
+  type: 'applied' | 'refunded';
+  amount: number;
+  // The payment the credit paid for; null for a cash refund.
+  resultingPaymentId: string | null;
+  createdAt: Date;
+}
+
 // Human report, 2026-09-14 — see ClientCreditLedgerEntry's own comment.
 // Pure ledger bookkeeping: this service never creates a Payment itself
 // (that stays InstallmentsService's job, via registerPayment) — it only
@@ -231,6 +240,64 @@ export class ClientCreditBalanceService {
       }
     }
     return summary;
+  }
+
+  // Phase 35 — everything else that drew on a client's saldo a favor
+  // besides `paymentIds`: still-standing applications to OTHER payments
+  // (net of any restoration) and cash refunds. Read-only. When deleting a
+  // pagaré would take back credit the client no longer has, these are the
+  // places the admin has to look — see LoanDeletionService's blocker.
+  async findCreditDrawsOutside(
+    clientId: string,
+    paymentIds: string[],
+  ): Promise<CreditDraw[]> {
+    const excluded = new Set(paymentIds);
+    const entries = await this.ledgerRepository.find({
+      where: { clientId },
+      order: { createdAt: 'ASC' },
+    });
+
+    const appliedByPaymentId = new Map<
+      string,
+      { amount: number; createdAt: Date }
+    >();
+    const draws: CreditDraw[] = [];
+    for (const entry of entries) {
+      if (entry.type === ClientCreditLedgerEntryType.Refunded) {
+        draws.push({
+          type: 'refunded',
+          amount: entry.amount,
+          resultingPaymentId: null,
+          createdAt: entry.createdAt,
+        });
+        continue;
+      }
+      const paymentId = entry.resultingPaymentId;
+      if (!paymentId || excluded.has(paymentId)) {
+        continue;
+      }
+      const current = appliedByPaymentId.get(paymentId) ?? {
+        amount: 0,
+        createdAt: entry.createdAt,
+      };
+      if (entry.type === ClientCreditLedgerEntryType.Applied) {
+        current.amount += entry.amount;
+      } else if (entry.type === ClientCreditLedgerEntryType.Restored) {
+        current.amount -= entry.amount;
+      }
+      appliedByPaymentId.set(paymentId, current);
+    }
+    for (const [paymentId, { amount, createdAt }] of appliedByPaymentId) {
+      if (amount > 0) {
+        draws.push({
+          type: 'applied',
+          amount,
+          resultingPaymentId: paymentId,
+          createdAt,
+        });
+      }
+    }
+    return draws.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
   // Called from InstallmentsService.registerPayment whenever a payment
