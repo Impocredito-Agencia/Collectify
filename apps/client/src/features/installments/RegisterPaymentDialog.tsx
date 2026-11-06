@@ -6,8 +6,9 @@ import { DatePicker } from '@/components/ui/DatePicker';
 import { Field } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
 import { ReceiptFilePreview } from '@/components/ui/ReceiptFilePreview';
+import { useInstallmentValuation } from '@/features/installments/useInstallments';
 import { ApiError } from '@/lib/apiClient';
-import { formatCurrency, isPdfUrl } from '@/lib/format';
+import { formatCurrency, formatDateOnly, isPdfUrl } from '@/lib/format';
 import { ImageUploadError, uploadPaymentReceipt } from '@/lib/imageUpload';
 import { maxWaivableMora, requiredPaymentWithWaiver } from '@/lib/moraWaiver';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -26,6 +27,9 @@ interface RegisterPaymentDialogProps {
   // per row for when a specific installment needs to be targeted).
   installment: Installment;
   loanLabel: string;
+  // Human request, 2026-11-05 — the pagaré's disbursement date: the
+  // earliest day a payment can be dated (the server enforces it too).
+  minPaidAt?: string;
   // Human report, 2026-09-11 — lets a caller (RegisterPaymentFromWhatsappModal)
   // pre-attach a comprobante that's already hosted on Cloudinary, so the
   // admin doesn't have to download it from WhatsApp and re-upload it by
@@ -66,8 +70,9 @@ function todayDateString(): string {
 // adds the receipt-photo file input below, which has no Figma frame at
 // all — documented as a gap in DESIGN_TOKENS.md.
 export function RegisterPaymentDialog({
-  installment,
+  installment: installmentToday,
   loanLabel,
+  minPaidAt,
   initialImageUrls,
   onClose,
   onConfirm,
@@ -83,7 +88,30 @@ export function RegisterPaymentDialog({
   // quick reference without it being the thing that gets silently
   // submitted unedited.
   const [amountPaid, setAmountPaid] = useState(0);
-  const [paidAt, setPaidAt] = useState(todayDateString());
+  const today = todayDateString();
+  const [paidAt, setPaidAt] = useState(today);
+
+  // Human request, 2026-11-05 — payments are often registered days after the
+  // client paid, and mora keeps growing in between. For a past paidAt the
+  // cuota is shown (and validated, server-side) as it stood on that day:
+  // `installment` below is that day's figures, everything else in this
+  // dialog reads from it. Today's figures come with the installment itself.
+  const isBackdated = paidAt !== '' && paidAt < today;
+  const valuationQuery = useInstallmentValuation(
+    [installmentToday.id],
+    paidAt,
+    isBackdated,
+  );
+  const valuation = isBackdated ? valuationQuery.data?.[0] : undefined;
+  const installment: Installment = valuation
+    ? {
+        ...installmentToday,
+        overdueDays: valuation.overdueDays,
+        interest: valuation.interest,
+        totalDue: valuation.totalDue,
+      }
+    : installmentToday;
+  const isValuationPending = isBackdated && !valuation;
   const [observation, setObservation] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -199,6 +227,24 @@ export function RegisterPaymentDialog({
       setError('La fecha de pago es obligatoria.');
       return;
     }
+    if (paidAt > today) {
+      setError('La fecha de pago no puede ser posterior a hoy.');
+      return;
+    }
+    if (minPaidAt && paidAt < minPaidAt) {
+      setError(
+        `La fecha de pago no puede ser anterior al desembolso (${formatDateOnly(minPaidAt)}).`,
+      );
+      return;
+    }
+    if (isValuationPending) {
+      setError(
+        valuationQuery.isError
+          ? 'No se pudo calcular el saldo de la cuota a esa fecha. Intenta de nuevo.'
+          : 'Calculando el saldo de la cuota a esa fecha…',
+      );
+      return;
+    }
 
     // An upload failure must never let the payment submit silently without
     // the photos (docs/phasesClient/PHASE_12_PAYMENT_ATTACHMENTS.md's
@@ -292,7 +338,15 @@ export function RegisterPaymentDialog({
                 the collector still has it at a glance without it being
                 the thing that gets submitted unedited. */}
             <span className="mt-1 text-meta text-muted">
-              Saldo de la cuota: {formatCurrency(installment.totalDue)}
+              {isValuationPending
+                ? valuationQuery.isError
+                  ? 'No se pudo calcular el saldo a esa fecha.'
+                  : 'Calculando saldo a esa fecha…'
+                : `Saldo de la cuota${
+                    valuation
+                      ? ` al ${formatDateOnly(valuation.valuationDate)}`
+                      : ''
+                  }: ${formatCurrency(installment.totalDue)}`}
             </span>
           </Field>
           <Field label="Fecha de pago">
@@ -300,9 +354,26 @@ export function RegisterPaymentDialog({
               value={paidAt}
               onChange={setPaidAt}
               className={inputClassName}
+              ariaLabel="Fecha de pago"
+              min={minPaidAt}
+              max={today}
             />
           </Field>
         </div>
+
+        {/* Human request, 2026-11-05 — the payment is valued on its own
+            date. Said explicitly so nobody wonders why the saldo differs
+            from the cuotas table (which is always today's). */}
+        {isBackdated && valuation && (
+          <p className="text-small text-muted">
+            Pago con fecha anterior: se toma el saldo que tenía la cuota el{' '}
+            {formatDateOnly(valuation.valuationDate)} ({valuation.overdueDays}{' '}
+            días de mora), no el de hoy (
+            {formatCurrency(installmentToday.totalDue)}).
+            {valuation.valuationDate !== paidAt &&
+              ` La cuota ya tiene un abono del ${formatDateOnly(valuation.valuationDate)}, posterior a la fecha elegida, así que se valora a ese día.`}
+          </p>
+        )}
 
         {maxWaivable > 0 &&
           (isWaiverOpen ? (

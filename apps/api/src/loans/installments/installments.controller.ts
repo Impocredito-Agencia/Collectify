@@ -26,12 +26,16 @@ import { Payment } from '../entities/payment.entity';
 
 import { ApplyClientCreditDto } from './dto/applyClientCredit.dto';
 import { CreatePaymentDto } from './dto/createPayment.dto';
+import { QueryInstallmentValuationDto } from './dto/queryInstallmentValuation.dto';
 import { QueryInstallmentsDto } from './dto/queryInstallments.dto';
 import { RegisterBulkPaymentsDto } from './dto/registerBulkPayments.dto';
 import { UpdateInstallmentDueDateDto } from './dto/updateInstallmentDueDate.dto';
 import { VoidPaymentDto } from './dto/voidPayment.dto';
 import { InstallmentWithCalculated } from './enrichInstallment';
-import { InstallmentsService } from './installments.service';
+import {
+  InstallmentsService,
+  InstallmentValuation,
+} from './installments.service';
 
 import type { AuthenticatedUser } from '../../auth/interfaces/authenticatedUser.interface';
 
@@ -54,6 +58,30 @@ export class InstallmentsController {
     @Query() query: QueryInstallmentsDto,
   ): Promise<PaginatedResult<InstallmentWithCalculated>> {
     return this.installmentsService.findAll(query);
+  }
+
+  // Declared before any ':id' route so 'valuation' is never read as an id.
+  @Get('valuation')
+  @ApiOperation({
+    summary: 'Value installments as they stood on a payment date',
+    description:
+      "What each installment owed at the end of `date` (Bogotá): overdue days, mora and remaining balance, net of every payment already registered on it. If an installment already has a payment dated after `date`, it is valued on that later payment's day instead (it can't be settled before a payment counted toward it) — `valuationDate` says which day was used. Same valuation POST /installments/:id/payments and /payments/bulk apply to a payment with that paidAt.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'One valuation per installment found.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'date missing, malformed, or later than today.',
+  })
+  getValuation(
+    @Query() query: QueryInstallmentValuationDto,
+  ): Promise<InstallmentValuation[]> {
+    return this.installmentsService.getValuationAsOf(
+      query.installmentIds,
+      query.date,
+    );
   }
 
   // Declared before ':id/payments' — a literal 'payments/bulk' segment

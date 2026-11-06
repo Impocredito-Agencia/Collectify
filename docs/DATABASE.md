@@ -641,7 +641,7 @@ Added 2026-10-09 (human report — "los clientes mandan comprobantes viejos, por
 - **`totalPayableOnDate`:** the cuotas overdue or due on `date` itself, same rule as the client-facing desglose (`calculateAccountSummaryTotal`).
 - `date` later than today is rejected with 400.
 
-Shown in the inbox's "Ver información" panel ("Desglose a una fecha"). **Informational only:** `POST /installments/:id/payments` is unchanged and still validates and closes a cuota against today's balance, whatever `paid_at` the payment carries.
+Shown in the inbox's "Ver información" panel ("Desglose a una fecha"). ~~Informational only: `POST /installments/:id/payments` still validates against today's balance~~ — superseded 2026-11-05: registering a payment now values the cuota on the payment's own `paid_at` too, see "Feature, 2026-11-05 — a payment is valued on its own date" below.
 
 ### `app_settings`
 
@@ -1123,6 +1123,18 @@ Human request: some clients get part of their accrued mora discounted when they 
 - **Cap:** `RefinanceQuote.maxMoraWaivable` (`calculateRefinanceMaxMoraWaiver`): the sum, over the pending cuotas the quote includes, of the mora each cuota is actually *charging* (`calculateMoraCharged` — the $100-rounded total minus its amount), never more than what that cuota still owes in the quote. `LoansService.refinance` re-reads the quote at submit time and rejects anything above it (400) before touching the old loan.
 - **Where it lives:** on the NEW loan (`loans.refinance_mora_waived_amount` / `refinance_mora_waiver_reason`, migration `1791800000000-AddRefinanceMoraWaiverToLoans`). Optional reason, same as payments.
 - **Effect on the numbers:** none server-side beyond recording it — `principalAmount` is still entered by the admin (Phase 6/17 decision unchanged). The refinance form subtracts the waiver from the suggested capital (`suggested − abono a capital − mora condonada`), and the confirmation dialog and the new loan's detail ("Este préstamo nació de una refinanciación…") both show it.
+## Feature, 2026-11-05 — a payment is valued on its own date
+
+No schema change. Human request: payments are usually registered days after the client actually paid, and mora keeps growing in between, so the balance shown and enforced at registration no longer matched what the client owed on the day they paid. `payments.paid_at` already existed but only described the payment — the ceiling, the "is the cuota settled?" check and the mora-waiver cap were all computed against *today*.
+
+Now `InstallmentsService.registerPayment` and `registerBulkPayments` value the cuota at the end of the `paid_at` Bogotá day (`enrichInstallment(..., bogotaEndOfDayUtc(day))`, same math as everywhere else):
+
+- **Allowed dates** (confirmed with the human): any day from the pagaré's `disbursed_at` up to today. A future day or one before the disbursement is rejected with 400 (`assertValidPaymentDate`).
+- **Valuation day** (`resolveValuationDate`): `paid_at`, unless the cuota already has a payment dated *later* — then that later day. A cuota can't be settled before a payment that counts toward settling it.
+- **What uses it:** the max-payable ceiling (excess still becomes saldo a favor), closing the cuota, the bulk "exact balance" rule, and the mora-waiver cap (`assertValidMoraWaiver`).
+- **Voiding** (`voidPayment`): whether the cuota reopens is decided on the day of the latest payment still standing, or today if none is left — voiding one payment no longer reopens a cuota the remaining payments had settled on their own date.
+- **`GET /installments/valuation?installmentIds=a,b&date=YYYY-MM-DD`** (`getValuationAsOf`) returns each cuota's `overdueDays`/`interest`/`totalDue` on that day plus the `valuationDate` actually used, so `RegisterPaymentDialog` / `BulkRegisterPaymentDialog` offer exactly the figure the server will accept. Their date picker can't pick a future day or one before the disbursement (`DatePicker`'s new `min`/`max`).
+- Payments registered without picking a date (applying saldo a favor, payoff) are dated today, so they behave exactly as before.
 
 ## Related documents
 
