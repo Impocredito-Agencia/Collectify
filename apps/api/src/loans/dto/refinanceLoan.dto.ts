@@ -12,6 +12,7 @@ import {
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -127,6 +128,26 @@ export class RefinanceLoanDto {
   @IsOptional()
   @IsDateString()
   downPaymentDueDate?: string;
+
+  // Human request, 2026-11-05 — see Loan.refinanceMoraWaivedAmount. Same
+  // rules as a payment's mora waiver: whole pesos, moratory interest only,
+  // capped at the refinance quote's maxMoraWaivable (validated in
+  // LoansService.refinance against the server's own quote).
+  @ApiPropertyOptional({
+    example: 45000,
+    description:
+      "Accrued mora of the old loan forgiven in this refinance, in whole pesos. At most the refinance quote's maxMoraWaivable. Recorded on the new loan; principalAmount is still entered by the admin.",
+  })
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  moraWaivedAmount?: number;
+
+  @ApiPropertyOptional({ example: 'Cliente refinancia y paga al día' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  moraWaiverReason?: string;
 
   @ApiPropertyOptional({
     example: 'Refinanciación del pagaré anterior',

@@ -80,6 +80,8 @@ describe('DashboardService', () => {
       totalInstallments: 3,
       status: LoanStatus.Active,
       refinancedFromLoanId: null,
+      refinanceMoraWaivedAmount: 0,
+      refinanceMoraWaiverReason: null,
       refinancedFromLoan: null,
       description: null,
       newLoanMessageSentAt: null,
