@@ -117,6 +117,8 @@ A loan whose every installment has been fully paid. In code: `status: 'paid'`.
 ### Refinanced / Refinanciado
 A loan that has been closed out and replaced by a new loan — typically because the client couldn't keep up with the original schedule and the remaining balance (plus accrued interest) was restructured into a new set of installments under a new *pagaré* number. Confirmed directly from real data (e.g. `REFINANCIADO #981`, `SE REFINANCIO EN EL #1000`). In code: `status: 'refinanced'`, with the new loan pointing back via `refinanced_from_loan_id`.
 
+**Condonación de mora al refinanciar (2026-11-05):** part of the old loan's accrued moratory interest may be forgiven as part of the refinance — same rules as forgiving mora on a payment (by amount, mora only, capped at the mora the refinance quote is charging, optional reason). Recorded on the new loan. See `DATABASE.md` → "Refinance mora waiver, 2026-11-05".
+
 > This business does not use a "charged-off" concept (a loan formally written off as uncollectable). If that need arises later, it would be a new status and a new process to design, not something built preemptively.
 
 ## Communication

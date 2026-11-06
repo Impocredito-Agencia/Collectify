@@ -63,6 +63,26 @@ export class Loan {
   @Column({ type: 'varchar', nullable: true })
   refinancedFromLoanId!: string | null;
 
+  // Human request, 2026-11-05 — accrued mora of the old loan forgiven when
+  // it was refinanced into this one. Same rules as Payment.moraWaivedAmount
+  // (by amount, moratory interest only, capped at the mora the refinance
+  // quote is actually charging — see LoansService.refinance). Informational
+  // for the new loan's own math: the admin still enters the new
+  // principalAmount, this records how much of the old mora was left out of
+  // it and why. 0 = nothing waived (and always 0 on a non-refinanced loan).
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  refinanceMoraWaivedAmount!: number;
+
+  // Optional free-text reason for the waiver above.
+  @Column({ type: 'text', nullable: true })
+  refinanceMoraWaiverReason!: string | null;
+
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 

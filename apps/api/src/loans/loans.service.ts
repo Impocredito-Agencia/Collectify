@@ -69,6 +69,7 @@ import {
   PayoffInstallmentInput,
   PayoffQuote,
 } from './payoff/calculatePayoff';
+import { calculateRefinanceMaxMoraWaiver } from './payoff/calculateRefinanceMaxMoraWaiver';
 import {
   comparePromissoryNoteNumbers,
   extractNumericPart,
@@ -161,6 +162,12 @@ export interface RefinanceQuote {
   // in its explanation.
   earlyWindowInstallmentNumbers: number[];
   suggestedPrincipalAmount: number;
+  // Human request, 2026-11-05 — the most accrued mora this refinance may
+  // forgive (RefinanceLoanDto.moraWaivedAmount): moratory interest only, see
+  // calculateRefinanceMaxMoraWaiver. Already included in
+  // suggestedPrincipalAmount, so forgiving all of it means suggesting
+  // suggestedPrincipalAmount − maxMoraWaivable.
+  maxMoraWaivable: number;
   concepts: LoanConceptAssignmentDto[];
   // Phase 23 — same carry-over as concepts above, filtered to the loan's
   // assigned moratory concepts instead of corriente ones.
@@ -323,6 +330,10 @@ interface PersistLoanParams {
   downPaymentDueDate?: string;
   description?: string | null;
   refinancedFromLoanId?: string | null;
+  // Human request, 2026-11-05 — see Loan.refinanceMoraWaivedAmount. Only
+  // ever set by refinance(), already validated there.
+  refinanceMoraWaivedAmount?: number;
+  refinanceMoraWaiverReason?: string | null;
   // Phase 26 — an existing Client's id, not a snapshot of their details;
   // see the Loan entity's coDebtorClientId comment. Must differ from
   // `clientId` above — validated in persistLoanWithInstallments.
@@ -502,6 +513,25 @@ export class LoansService {
     // below. refinance() itself still just accepts whatever
     // principalAmount/concepts the admin actually submits, unchanged.
 
+    // Human request, 2026-11-05 — forgiving part of the old loan's accrued
+    // mora as part of the refinance. Checked against the server's own quote
+    // at this moment (the same numbers GET /loans/:id/refinance-quote
+    // returns), never against a figure sent by the screen.
+    const moraWaived = dto.moraWaivedAmount ?? 0;
+    if (moraWaived > 0) {
+      const { maxMoraWaivable } = await this.getRefinanceQuote(id);
+      if (maxMoraWaivable < 1) {
+        throw new BadRequestException(
+          'Este pagaré no tiene mora que condonar.',
+        );
+      }
+      if (moraWaived > maxMoraWaivable) {
+        throw new BadRequestException(
+          `La mora a condonar ($${moraWaived}) supera la mora que se le está cobrando al pagaré ($${maxMoraWaivable}). Vuelve a abrir la refinanciación: el saldo pudo haber cambiado.`,
+        );
+      }
+    }
+
     // Transactional — closing out the old loan, cancelling its pending
     // installments, and creating the new one must all succeed or all roll
     // back. Previously these were three separate non-transactional steps:
@@ -548,6 +578,11 @@ export class LoansService {
           downPaymentDueDate: dto.downPaymentDueDate,
           description: dto.description,
           refinancedFromLoanId: id,
+          refinanceMoraWaivedAmount: moraWaived,
+          refinanceMoraWaiverReason:
+            moraWaived > 0
+              ? (dto.moraWaiverReason?.trim() ?? null) || null
+              : null,
           // Carries over the old loan's co-debtor unchanged unless the dto
           // explicitly overrides a field — confirmed default behavior, see
           // RefinanceLoanDto and docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
@@ -1533,6 +1568,12 @@ export class LoansService {
       earlyWindowInterest,
       earlyWindowInstallmentNumbers,
       suggestedPrincipalAmount: payoff.totalDue,
+      maxMoraWaivable: calculateRefinanceMaxMoraWaiver(
+        new Map(
+          pending.map((installment) => [installment.id, installment.amount]),
+        ),
+        payoff.installments,
+      ),
       concepts: concepts
         .filter(
           (concept) =>
@@ -1799,6 +1840,8 @@ export class LoansService {
       status: LoanStatus.Active,
       description: params.description ?? null,
       refinancedFromLoanId: params.refinancedFromLoanId ?? null,
+      refinanceMoraWaivedAmount: params.refinanceMoraWaivedAmount ?? 0,
+      refinanceMoraWaiverReason: params.refinanceMoraWaiverReason ?? null,
       coDebtorClientId: params.coDebtorClientId ?? null,
       coDebtorRelationship: params.coDebtorRelationship ?? null,
       isNewLoan: params.isNewLoan ?? false,

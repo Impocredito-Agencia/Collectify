@@ -23,6 +23,7 @@ import { WhatsappInboundMessage } from '../whatsapp/entities/whatsappInboundMess
 import { generateAmortizationSchedule } from './amortization/generateSchedule';
 import { addDaysToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
+import { calculateMoraCharged } from './installments/installmentCalculations';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
 import { LoanInstallmentConcept } from './entities/loanInstallmentConcept.entity';
 import { Payment } from './entities/payment.entity';
@@ -139,6 +140,8 @@ describe('LoansService', () => {
     totalInstallments: 3,
     status: LoanStatus.Active,
     refinancedFromLoanId: null,
+    refinanceMoraWaivedAmount: 0,
+    refinanceMoraWaiverReason: null,
     refinancedFromLoan: null,
     description: null,
     newLoanMessageSentAt: null,
@@ -1452,6 +1455,76 @@ describe('LoansService', () => {
       await expect(
         service.refinance('missing-id', refinanceDto),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    // Human request, 2026-11-05 — part of the old loan's accrued mora may be
+    // forgiven in the refinance, up to the quote's maxMoraWaivable.
+    describe('mora waiver', () => {
+      function mockQuoteMax(maxMoraWaivable: number): jest.SpyInstance {
+        return jest
+          .spyOn(service, 'getRefinanceQuote')
+          .mockResolvedValue({ maxMoraWaivable } as never);
+      }
+
+      it('records the waiver and its trimmed reason on the new loan', async () => {
+        const quoteSpy = mockQuoteMax(30000);
+
+        await service.refinance(mockLoan.id, {
+          ...refinanceDto,
+          moraWaivedAmount: 30000,
+          moraWaiverReason: '  Descuento por pronto pago  ',
+        });
+
+        expect(quoteSpy).toHaveBeenCalledWith(mockLoan.id);
+        expect(loansRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            refinanceMoraWaivedAmount: 30000,
+            refinanceMoraWaiverReason: 'Descuento por pronto pago',
+          }),
+        );
+      });
+
+      it('rejects a waiver bigger than the mora the quote is charging, before touching anything', async () => {
+        mockQuoteMax(30000);
+
+        await expect(
+          service.refinance(mockLoan.id, {
+            ...refinanceDto,
+            moraWaivedAmount: 30001,
+          }),
+        ).rejects.toThrow(BadRequestException);
+        expect(loansRepository.save).not.toHaveBeenCalled();
+        expect(dataSource.transaction).not.toHaveBeenCalled();
+      });
+
+      it('rejects any waiver when the loan has no mora', async () => {
+        mockQuoteMax(0);
+
+        await expect(
+          service.refinance(mockLoan.id, {
+            ...refinanceDto,
+            moraWaivedAmount: 1,
+          }),
+        ).rejects.toThrow(BadRequestException);
+        expect(loansRepository.save).not.toHaveBeenCalled();
+      });
+
+      it('records no waiver (and skips the quote) when none is requested', async () => {
+        const quoteSpy = mockQuoteMax(30000);
+
+        await service.refinance(mockLoan.id, {
+          ...refinanceDto,
+          moraWaiverReason: 'ignored without an amount',
+        });
+
+        expect(quoteSpy).not.toHaveBeenCalled();
+        expect(loansRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            refinanceMoraWaivedAmount: 0,
+            refinanceMoraWaiverReason: null,
+          }),
+        );
+      });
     });
   });
 
@@ -3600,6 +3673,54 @@ describe('LoansService', () => {
       const quote = await service.getRefinanceQuote(mockLoan.id);
 
       expect(quote.suggestedPrincipalAmount).toBe(200000); // 270000 - 70000
+    });
+
+    // Human request, 2026-11-05 — see calculateRefinanceMaxMoraWaiver.
+    it("reports the overdue cuotas' accrued mora as the most that can be forgiven", async () => {
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({ dueDate: '2020-01-01' }),
+      ]);
+      installmentsRepository.findOne.mockResolvedValue(pendingInstallment());
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: 'inst-1',
+          category: ConceptCategory.Moratorio,
+          calculationType: ConceptCalculationType.Percentage,
+          nameSnapshot: 'Intereses moratorios',
+          value: 2,
+          interestConceptTypeId: null,
+        },
+      ]);
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      const moraItems = quote.payoff.installments[0].conceptBreakdown.filter(
+        (item) => item.category === ConceptCategory.Moratorio,
+      );
+      expect(moraItems.length).toBe(1);
+      expect(quote.maxMoraWaivable).toBeGreaterThan(0);
+      expect(quote.maxMoraWaivable).toBe(
+        calculateMoraCharged(300000, moraItems[0].amount),
+      );
+    });
+
+    it('reports nothing to forgive when no cuota is overdue', async () => {
+      const futureDueDate = new Date();
+      futureDueDate.setFullYear(futureDueDate.getFullYear() + 5);
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        disbursedAt: bogotaTodayPlusDays(0),
+      });
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          dueDate: futureDueDate.toISOString().slice(0, 10),
+        }),
+      ]);
+      installmentsRepository.findOne.mockResolvedValue(pendingInstallment());
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.maxMoraWaivable).toBe(0);
     });
 
     it("carries over the first installment's concepts, dropping ones with a deleted catalog type", async () => {
