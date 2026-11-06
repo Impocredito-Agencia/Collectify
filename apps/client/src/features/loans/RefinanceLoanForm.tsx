@@ -158,6 +158,13 @@ export function RefinanceLoanForm({
   const [principalAmount, setPrincipalAmount] = useState(0);
   const [additionalPrincipalPayment, setAdditionalPrincipalPayment] =
     useState(0);
+  // Human request, 2026-11-05 — part of the old loan's accrued mora forgiven
+  // in this refinance. Same rules as a payment's waiver (lib/moraWaiver.ts):
+  // by amount, moratory interest only, at most the quote's maxMoraWaivable.
+  const [isMoraWaiverOpen, setIsMoraWaiverOpen] = useState(false);
+  const [moraWaiver, setMoraWaiver] = useState(0);
+  const [moraWaiverReason, setMoraWaiverReason] = useState('');
+  const activeMoraWaiver = isMoraWaiverOpen ? moraWaiver : 0;
   const [firstDueDate, setFirstDueDate] = useState('');
   const [installmentFrequency, setInstallmentFrequency] = useState(
     InstallmentFrequency.Monthly,
@@ -320,19 +327,35 @@ export function RefinanceLoanForm({
   // (confirmed with the human: this is client-side arithmetic only, not a
   // separate backend concept). Clamped at 0 so a paydown larger than the
   // suggested capital can't produce a negative amount.
-  const handleAdditionalPrincipalPaymentChange = (value: number) => {
-    setAdditionalPrincipalPayment(value);
+  //
+  // Human request, 2026-11-05 — the mora waiver is subtracted the same way:
+  // suggested − abono a capital − mora condonada.
+  const recomputePrincipal = (paydown: number, waiver: number) => {
     if (refinanceQuote) {
       setPrincipalAmount(
         Math.max(
           0,
           roundToNearestHundred(refinanceQuote.suggestedPrincipalAmount) -
-            value,
+            paydown -
+            waiver,
         ),
       );
       setFieldErrors((prev) => ({ ...prev, principalAmount: undefined }));
+      setPreview(null);
     }
   };
+
+  const handleAdditionalPrincipalPaymentChange = (value: number) => {
+    setAdditionalPrincipalPayment(value);
+    recomputePrincipal(value, activeMoraWaiver);
+  };
+
+  const handleMoraWaiverChange = (value: number) => {
+    setMoraWaiver(value);
+    recomputePrincipal(additionalPrincipalPayment, value);
+  };
+
+  const maxMoraWaivable = refinanceQuote?.maxMoraWaivable ?? 0;
 
   const principal = principalAmount;
   const count = parseInt(totalInstallments, 10) || 0;
@@ -589,6 +612,13 @@ export function RefinanceLoanForm({
     }
     setFieldErrors({});
 
+    if (activeMoraWaiver > maxMoraWaivable) {
+      setFormError(
+        `La mora a condonar no puede superar ${formatCurrency(maxMoraWaivable)}.`,
+      );
+      return;
+    }
+
     // Client feedback, 2026-09-04 — this confirmation used to only appear
     // when the refinance was folding in interés ya causado (overdue/near-due
     // installments). Now shows unconditionally: after seeing EditLoanDialog's
@@ -623,6 +653,12 @@ export function RefinanceLoanForm({
           ? {
               downPaymentAmount,
               downPaymentDueDate,
+            }
+          : {}),
+        ...(activeMoraWaiver > 0
+          ? {
+              moraWaivedAmount: activeMoraWaiver,
+              moraWaiverReason: moraWaiverReason.trim() || undefined,
             }
           : {}),
         description: description.trim() || undefined,
@@ -975,6 +1011,74 @@ export function RefinanceLoanForm({
                   auditoría.
                 </span>
               </Field>
+
+              {/* Human request, 2026-11-05 — same block as the payment
+                  dialogs' "Condonar mora". */}
+              {maxMoraWaivable > 0 &&
+                (isMoraWaiverOpen ? (
+                  <div className="flex flex-col gap-3 rounded border border-border bg-input/40 p-3.5">
+                    <Field label="Mora a condonar" layout="stack">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex-1">
+                          <CurrencyInput
+                            value={moraWaiver}
+                            onChange={handleMoraWaiverChange}
+                            className={inputClassName(
+                              moraWaiver > maxMoraWaivable,
+                            )}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() =>
+                            handleMoraWaiverChange(maxMoraWaivable)
+                          }
+                        >
+                          Toda la mora
+                        </Button>
+                      </div>
+                      <span className="mt-1 text-meta text-muted">
+                        Máximo {formatCurrency(maxMoraWaivable)} — la mora que
+                        se le está cobrando al pagaré hoy. Se resta del capital
+                        sugerido y queda registrada en el pagaré nuevo.
+                      </span>
+                    </Field>
+                    <Field label="Motivo (opcional)" layout="stack">
+                      <input
+                        value={moraWaiverReason}
+                        onChange={(event) =>
+                          setMoraWaiverReason(event.target.value)
+                        }
+                        placeholder="Ej: descuento por refinanciar al día"
+                        maxLength={500}
+                        className={inputClassName(false)}
+                      />
+                    </Field>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-fit"
+                      onClick={() => {
+                        setIsMoraWaiverOpen(false);
+                        setMoraWaiver(0);
+                        setMoraWaiverReason('');
+                        recomputePrincipal(additionalPrincipalPayment, 0);
+                      }}
+                    >
+                      Quitar condonación
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-fit"
+                    onClick={() => setIsMoraWaiverOpen(true)}
+                  >
+                    Condonar mora
+                  </Button>
+                ))}
 
               <div className="flex gap-4">
                 <Field
@@ -1444,6 +1548,7 @@ export function RefinanceLoanForm({
       {showRefinanceConfirm && (
         <ConfirmRefinanceDialog
           installmentNumbers={overdueInstallmentNumbers}
+          moraWaived={activeMoraWaiver}
           isSubmitting={isSubmitting}
           onCancel={() => setShowRefinanceConfirm(false)}
           onConfirm={() => {
@@ -1495,11 +1600,14 @@ export function RefinanceLoanForm({
 // confirmation-on-top-of-a-form pattern in this codebase.
 function ConfirmRefinanceDialog({
   installmentNumbers,
+  moraWaived,
   isSubmitting,
   onCancel,
   onConfirm,
 }: {
   installmentNumbers: number[];
+  // Mora of the old loan forgiven in this refinance (0 = none).
+  moraWaived: number;
   isSubmitting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -1516,6 +1624,12 @@ function ConfirmRefinanceDialog({
           {installmentNumbers.length > 1
             ? `Las cuotas ${formatInstallmentList(installmentNumbers)} están vencidas o próximas a vencer.`
             : `La cuota ${formatInstallmentList(installmentNumbers)} está vencida o próxima a vencer.`}
+        </p>
+      )}
+      {moraWaived > 0 && (
+        <p className="mt-2.5 text-small text-white">
+          Se condonarán {formatCurrency(moraWaived)} de mora del préstamo
+          actual; quedará registrado en el pagaré nuevo.
         </p>
       )}
       <p className="mt-2.5 text-small text-muted">

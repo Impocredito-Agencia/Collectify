@@ -490,6 +490,20 @@ export function LoanDetailPage() {
           >
             {refinancedFromLoan?.promissoryNoteNumber ?? '…'}
           </Link>
+          {/* Human request, 2026-11-05 — mora forgiven in that refinance. */}
+          {loan.refinanceMoraWaivedAmount > 0 && (
+            <p className="mt-1.5">
+              Al refinanciar se condonaron{' '}
+              <span className="text-white">
+                {formatCurrency(loan.refinanceMoraWaivedAmount)}
+              </span>{' '}
+              de mora
+              {loan.refinanceMoraWaiverReason
+                ? ` — ${loan.refinanceMoraWaiverReason}`
+                : ''}
+              .
+            </p>
+          )}
         </div>
       )}
 

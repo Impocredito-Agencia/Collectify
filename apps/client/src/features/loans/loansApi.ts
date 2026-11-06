@@ -30,6 +30,10 @@ export interface Loan {
   totalInstallments: number;
   status: LoanStatus;
   refinancedFromLoanId: string | null;
+  // Human request, 2026-11-05 — mora of the previous loan forgiven when it
+  // was refinanced into this one (0 = none).
+  refinanceMoraWaivedAmount: number;
+  refinanceMoraWaiverReason: string | null;
   description: string | null;
   // --- Co-debtor (codeudor), Phase 21 — belongs to the loan, not the
   // client: whether a given loan has one varies per loan. At most one per
@@ -333,6 +337,10 @@ export interface RefinanceQuote {
   // Numbers of the pending installments inside that window.
   earlyWindowInstallmentNumbers: number[];
   suggestedPrincipalAmount: number;
+  // Human request, 2026-11-05 — the most accrued mora (moratory interest
+  // only) this refinance may forgive. Already included in
+  // suggestedPrincipalAmount.
+  maxMoraWaivable: number;
   concepts: LoanConceptAssignment[];
   // Phase 23 — same carry-over as concepts above, filtered to the loan's
   // assigned moratory concepts.
@@ -387,6 +395,10 @@ export interface RefinanceLoanInput {
   // The new loan's own down payment — see CreateLoanInput.
   downPaymentAmount?: number;
   downPaymentDueDate?: string;
+  // Human request, 2026-11-05 — accrued mora of the old loan forgiven in this
+  // refinance (whole pesos, at most RefinanceQuote.maxMoraWaivable).
+  moraWaivedAmount?: number;
+  moraWaiverReason?: string;
   description?: string;
   // Optional co-debtor, Phase 26 — omitting both fields carries the old
   // loan's co-debtor over unchanged (LoansService.refinance's confirmed
