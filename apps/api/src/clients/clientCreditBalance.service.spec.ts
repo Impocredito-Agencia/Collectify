@@ -345,6 +345,84 @@ describe('ClientCreditBalanceService', () => {
     });
   });
 
+  // Phase 35 — see LoanDeletionService's credit blocker.
+  describe('findCreditDrawsOutside', () => {
+    const at = (day: number) => new Date(`2026-11-0${day}T12:00:00Z`);
+
+    it('lists still-standing applications to other payments and every refund', async () => {
+      ledgerRepository.find.mockResolvedValue([
+        {
+          type: ClientCreditLedgerEntryType.Created,
+          amount: 300000,
+          sourcePaymentId: 'own',
+          resultingPaymentId: null,
+          createdAt: at(1),
+        },
+        {
+          type: ClientCreditLedgerEntryType.Applied,
+          amount: 100000,
+          sourcePaymentId: null,
+          resultingPaymentId: 'other',
+          createdAt: at(2),
+        },
+        {
+          type: ClientCreditLedgerEntryType.Refunded,
+          amount: 50000,
+          sourcePaymentId: null,
+          resultingPaymentId: null,
+          createdAt: at(3),
+        },
+      ]);
+
+      const draws = await service.findCreditDrawsOutside('client-1', ['own']);
+
+      expect(draws).toEqual([
+        {
+          type: 'applied',
+          amount: 100000,
+          resultingPaymentId: 'other',
+          createdAt: at(2),
+        },
+        {
+          type: 'refunded',
+          amount: 50000,
+          resultingPaymentId: null,
+          createdAt: at(3),
+        },
+      ]);
+    });
+
+    it('leaves out applications to the given payments and ones already restored', async () => {
+      ledgerRepository.find.mockResolvedValue([
+        {
+          type: ClientCreditLedgerEntryType.Applied,
+          amount: 80000,
+          sourcePaymentId: null,
+          resultingPaymentId: 'own',
+          createdAt: at(1),
+        },
+        {
+          type: ClientCreditLedgerEntryType.Applied,
+          amount: 40000,
+          sourcePaymentId: null,
+          resultingPaymentId: 'voided',
+          createdAt: at(2),
+        },
+        {
+          type: ClientCreditLedgerEntryType.Restored,
+          amount: 40000,
+          sourcePaymentId: null,
+          resultingPaymentId: 'voided',
+          createdAt: at(3),
+        },
+      ]);
+
+      const draws = await service.findCreditDrawsOutside('client-1', ['own']);
+
+      expect(draws).toEqual([]);
+    });
+  });
+
   describe('getBalance', () => {
     it('returns 0 when the client has no ledger entries at all', async () => {
       ledgerRepository.find.mockResolvedValue([]);

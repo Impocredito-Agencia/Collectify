@@ -103,6 +103,10 @@ describe('OverdueReminderService', () => {
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
+    deletedByUserId: null,
+    deletedByUser: null,
+    deletionReason: null,
+    deletionSnapshot: null,
   };
 
   function daysAgoDateString(days: number): string {

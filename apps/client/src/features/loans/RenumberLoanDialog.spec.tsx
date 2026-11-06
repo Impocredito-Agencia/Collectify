@@ -64,7 +64,7 @@ describe('RenumberLoanDialog', () => {
 
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toBe(
-        'Ya existe un préstamo con este número.',
+        'Ese número ya lo tiene otro préstamo, o perteneció a un pagaré eliminado que tenía pagos.',
       ),
     );
     expect(onClose).not.toHaveBeenCalled();

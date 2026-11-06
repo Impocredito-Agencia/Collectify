@@ -254,9 +254,14 @@ export class AuditLogInterceptor implements NestInterceptor {
             where: { id: params.id },
             withDeleted: true,
           });
-          return loan
-            ? `Pagaré ${formatPromissoryNoteLabel(loan.promissoryNoteNumber)}`
-            : null;
+          if (!loan) {
+            return null;
+          }
+          // Phase 35 — loan.delete returns nothing, so this lookup runs
+          // after the deletion and already sees the mandatory reason.
+          return loan.deletionReason
+            ? `Pagaré ${formatPromissoryNoteLabel(loan.promissoryNoteNumber)} — motivo: ${loan.deletionReason}`
+            : `Pagaré ${formatPromissoryNoteLabel(loan.promissoryNoteNumber)}`;
         }
         return null;
       }

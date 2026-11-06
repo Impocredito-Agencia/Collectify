@@ -66,6 +66,16 @@ export function formatDateOnly(dateString: string): string {
   });
 }
 
+// A real timestamp (not a date-only column), in the viewer's local time —
+// same format MessageLogsPage already shows for sentAt ("5 nov 2026, 3:00
+// p. m."). Added for Phase 35's deleted pagarés ("eliminado el …").
+export function formatDateTime(isoDateTime: string): string {
+  return new Date(isoDateTime).toLocaleString('es-CO', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
 // createdAt is a real timestamp (TypeORM @CreateDateColumn), not a
 // date-only column — unlike formatDateOnly above, this should convert to
 // the viewer's LOCAL time. "Enero 2025" matches the "Mi perfil" Figma

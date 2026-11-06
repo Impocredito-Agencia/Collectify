@@ -11,6 +11,7 @@ import { ClientDetailPage } from '@/features/clients/ClientDetailPage';
 import { ClientsListPage } from '@/features/clients/ClientsListPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { InterestConceptTypesPage } from '@/features/interestConceptTypes/InterestConceptTypesPage';
+import { DeletedLoanDetailPage } from '@/features/loans/DeletedLoanDetailPage';
 import { LoanDetailPage } from '@/features/loans/LoanDetailPage';
 import { LoanQuotePage } from '@/features/loans/LoanQuotePage';
 import { LoansListPage } from '@/features/loans/LoansListPage';
@@ -58,6 +59,13 @@ export const router = createBrowserRouter([
           {
             path: 'prestamos/:id',
             element: <LoanDetailPage />,
+          },
+          {
+            // Phase 35 — read-only, open to every authenticated user like
+            // every other loan view. React Router ranks this static
+            // "eliminados" segment above prestamos/:id regardless of order.
+            path: 'prestamos/eliminados/:id',
+            element: <DeletedLoanDetailPage />,
           },
           {
             // No admin/module gate — deliberately open to every

@@ -12,6 +12,8 @@ import {
 
 import { Client } from '../../clients/entities/client.entity';
 import { decimalTransformer } from '../../database/decimal.transformer';
+import { User } from '../../users/entities/user.entity';
+import { LoanDeletionSnapshot } from '../deletion/loanDeletionSnapshot';
 
 export enum InstallmentFrequency {
   Monthly = 'monthly',
@@ -170,4 +172,26 @@ export class Loan {
 
   @DeleteDateColumn()
   deletedAt!: Date | null;
+
+  // --- Phase 35 — irreversible deletion with an audit trail (see
+  // docs/phases/PHASE_35_LOAN_DELETION.md). All three stay null for a live
+  // loan and for one deleted before this phase (Phase 30, no payments);
+  // set together, exactly once, by LoanDeletionService.delete(). ---
+
+  // Who deleted it. SET NULL, same as audit_logs.actor_user_id: removing a
+  // user account must never take a deleted pagaré's record with it.
+  @Column({ type: 'uuid', nullable: true })
+  deletedByUserId!: string | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'deleted_by_user_id' })
+  deletedByUser!: User | null;
+
+  // The mandatory reason typed in the deletion dialog.
+  @Column({ type: 'text', nullable: true })
+  deletionReason!: string | null;
+
+  // The cuotas' figures, mora included, frozen at the moment of deletion.
+  @Column({ type: 'jsonb', nullable: true })
+  deletionSnapshot!: LoanDeletionSnapshot | null;
 }

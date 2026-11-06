@@ -119,6 +119,9 @@ A loan that has been closed out and replaced by a new loan — typically because
 
 **Condonación de mora al refinanciar (2026-11-05):** part of the old loan's accrued moratory interest may be forgiven as part of the refinance — same rules as forgiving mora on a payment (by amount, mora only, capped at the mora the refinance quote is charging, optional reason). Recorded on the new loan. See `DATABASE.md` → "Refinance mora waiver, 2026-11-05".
 
+### Eliminado / Deleted (Phase 35)
+Not a status the loan moves through — a pagaré removed from the panel for good, mainly test/fictitious ones. Admin only, irreversible, with a mandatory reason. It stays in the database as a record that it existed: anyone in the panel can still open it read-only and see who deleted it, when, why, and its cuotas with the mora frozen at that moment. Its payments are voided (saldo a favor corrected through its own ledger entries), and it never counts anywhere again. Only an active pagaré can be deleted (a refinanced one only together with the active pagaré that replaced it). See `docs/DATABASE.md` "Deletion (Phase 35)".
+
 > This business does not use a "charged-off" concept (a loan formally written off as uncollectable). If that need arises later, it would be a new status and a new process to design, not something built preemptively.
 
 ## Communication

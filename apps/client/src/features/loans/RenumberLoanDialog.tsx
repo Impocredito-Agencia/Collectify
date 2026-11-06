@@ -55,7 +55,9 @@ export function RenumberLoanDialog({
       onClose();
     } catch (err) {
       if (err instanceof ApiError && err.statusCode === 409) {
-        setError('Ya existe un préstamo con este número.');
+        setError(
+          'Ese número ya lo tiene otro préstamo, o perteneció a un pagaré eliminado que tenía pagos.',
+        );
       } else {
         setError(
           err instanceof ApiError

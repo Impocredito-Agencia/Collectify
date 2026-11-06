@@ -164,5 +164,8 @@ export const apiClient = {
     request<T>(path, { method: 'PUT', body }),
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PATCH', body }),
-  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  // body: optional — DELETE /loans/:id (Phase 35) carries the reason and
+  // the typed confirmation; every other delete sends none.
+  delete: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'DELETE', body }),
 };

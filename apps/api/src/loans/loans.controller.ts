@@ -18,9 +18,24 @@ import {
 } from '@nestjs/swagger';
 
 import { Audit } from '../auditLog/decorators/audit.decorator';
-import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import { CurrentUser } from '../auth/decorators/currentUser.decorator';
 import { RequireModule } from '../auth/decorators/requireModule.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import { UserRole } from '../users/entities/user.entity';
 import { AppModule } from '../users/entities/userModulePermission.entity';
+
+import {
+  DeletedLoanDetail,
+  DeletedLoanSummary,
+  DeletedLoansService,
+} from './deletion/deletedLoans.service';
+import { DeleteLoanDto } from './deletion/dto/deleteLoan.dto';
+import { QueryDeletedLoansDto } from './deletion/dto/queryDeletedLoans.dto';
+import {
+  LoanDeletionPreview,
+  LoanDeletionService,
+} from './deletion/loanDeletion.service';
 
 import { AdjustPendingInstallmentsDto } from './dto/adjustPendingInstallments.dto';
 import { AlignInstallmentDueDayDto } from './dto/alignInstallmentDueDay.dto';
@@ -46,6 +61,8 @@ import {
 import { LoanOriginationTerms } from './originationTerms';
 import { PayoffQuote } from './payoff/calculatePayoff';
 
+import type { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
+
 @ApiTags('loans')
 @ApiBearerAuth()
 @Controller('loans')
@@ -53,6 +70,8 @@ export class LoansController {
   constructor(
     private readonly loansService: LoansService,
     private readonly installmentsService: InstallmentsService,
+    private readonly loanDeletionService: LoanDeletionService,
+    private readonly deletedLoansService: DeletedLoansService,
   ) {}
 
   @Get()
@@ -92,6 +111,43 @@ export class LoansController {
   @ApiResponse({ status: 200, description: 'Returns the suggested number.' })
   getNextPromissoryNoteNumber(): Promise<{ nextPromissoryNoteNumber: string }> {
     return this.loansService.getNextPromissoryNoteNumber();
+  }
+
+  // Phase 35 — registered before @Get(':id') so "deleted" is never read as
+  // a loan id (same route-order trap as the overdue-installments report,
+  // see OverdueInstallmentsReportController). Open to every authenticated
+  // user, like every other loan read: a collector must be able to tell a
+  // client what happened to a deleted pagaré.
+  @Get('deleted')
+  @ApiOperation({
+    summary: 'List deleted pagarés, most recently deleted first',
+    description:
+      'Every loan deleted through DELETE /loans/:id (and earlier Phase 30 deletions, which carry no reason or deletedBy). ' +
+      'hadPayments tells whether it had any payment — all voided by the deletion — which keeps its number reserved forever.',
+  })
+  @ApiResponse({ status: 200, description: 'Returns the deleted pagarés.' })
+  findDeleted(
+    @Query() query: QueryDeletedLoansDto,
+  ): Promise<PaginatedResult<DeletedLoanSummary>> {
+    return this.deletedLoansService.findAll(query);
+  }
+
+  @Get('deleted/:id')
+  @ApiOperation({
+    summary: 'Read-only detail of a deleted pagaré',
+    description:
+      'Who deleted it, when and why; its cuotas with the figures (mora included) frozen at the moment of deletion ' +
+      '(hasFrozenFigures false for a pre-Phase 35 deletion, whose cuotas come back without mora); its payments, every one voided, ' +
+      'with their receipts and void reason; and the other loans of its refinance chain deleted with it.',
+  })
+  @ApiResponse({ status: 200, description: 'Returns the deleted pagaré.' })
+  @ApiResponse({
+    status: 404,
+    description:
+      'No deleted loan with that id (a live loan is read through GET /loans/:id).',
+  })
+  findDeletedOne(@Param('id') id: string): Promise<DeletedLoanDetail> {
+    return this.deletedLoansService.findOne(id);
   }
 
   @Get('clients/:clientId/debt-summary')
@@ -473,29 +529,57 @@ export class LoansController {
     return this.loansService.refinance(id, dto);
   }
 
+  @Get(':id/deletion-preview')
+  @Roles(UserRole.Admin)
+  @ApiOperation({
+    summary: 'What deleting this pagaré would do (admin only)',
+    description:
+      'Read-only. The CURRENT promissory note number (the one to type to confirm), the earlier loans of its refinance chain ' +
+      'deleted with it, how many cuotas and payments it has, the saldo a favor it would give back (creditToRestore) and take ' +
+      'back (creditToReverse), and blockers: Spanish messages explaining why it cannot be deleted right now (not active; ' +
+      'credit it generated already spent elsewhere or refunded, naming where). Empty blockers means DELETE will be accepted.',
+  })
+  @ApiResponse({ status: 200, description: 'Returns the deletion preview.' })
+  @ApiResponse({ status: 403, description: 'Not an admin.' })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  getDeletionPreview(@Param('id') id: string): Promise<LoanDeletionPreview> {
+    return this.loanDeletionService.preview(id);
+  }
+
+  // Phase 35 — replaces Phase 30's "only without payments" delete. Admin
+  // only (@Roles, not @RequireModule — a collector with the loans module
+  // could delete before, which the human ruled out).
   @Delete(':id')
-  @RequireModule(AppModule.Loans)
+  @Roles(UserRole.Admin)
   @HttpCode(HttpStatus.NO_CONTENT)
   @Audit('loan.delete', 'loan')
   @ApiOperation({
-    summary:
-      'Delete a loan created by mistake (admin or granted the loans module)',
+    summary: 'Permanently delete an active pagaré (admin only)',
     description:
-      "Only allowed while none of the loan's installments have any registered payment — " +
-      'once a payment exists anywhere on the loan, deletion is refused and the loan must be ' +
-      "handled some other way (e.g. refinanced) instead. Soft-delete, cascading to the loan's " +
-      'own installments, per docs/phases/PHASE_30_LOAN_CORRECTION.md.',
+      'IRREVERSIBLE — there is no restore. Allowed on an ACTIVE loan, with or without payments; the earlier loans of its ' +
+      'refinance chain are deleted with it and never revived. Requires a reason and the current promissory note number typed ' +
+      "to confirm (ignoring spaces and a leading '#'). In one transaction: the cuotas' figures, mora included, are frozen on the " +
+      "loan with who deleted it and why; every payment is voided with reason 'Pagaré eliminado: <reason>', restoring saldo a " +
+      'favor it spent and reversing saldo a favor it generated; loans and installments are soft-deleted. A loan that had ' +
+      'payments keeps its number reserved forever. See docs/phases/PHASE_35_LOAN_DELETION.md.',
   })
-  @ApiResponse({ status: 204, description: 'The loan was deleted.' })
+  @ApiResponse({ status: 204, description: 'The pagaré was deleted.' })
   @ApiResponse({
-    status: 404,
-    description: 'Loan not found.',
+    status: 400,
+    description: 'Missing reason, or the typed number is not the current one.',
   })
+  @ApiResponse({ status: 403, description: 'Not an admin.' })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
   @ApiResponse({
     status: 409,
-    description: 'The loan already has at least one registered payment.',
+    description:
+      'Not deletable right now — not active, or the saldo a favor it generated was already used elsewhere (the message says where).',
   })
-  remove(@Param('id') id: string): Promise<void> {
-    return this.loansService.remove(id);
+  remove(
+    @Param('id') id: string,
+    @Body() dto: DeleteLoanDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<void> {
+    return this.loanDeletionService.delete(id, dto, user.id);
   }
 }

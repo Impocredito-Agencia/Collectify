@@ -449,6 +449,33 @@ describe('AuditLogInterceptor', () => {
       );
     });
 
+    // Phase 35 — the deletion reason shows up right in Auditoría.
+    it('adds the deletion reason to a deleted loan label', async () => {
+      reflector.get.mockReturnValue({
+        action: 'loan.delete',
+        entityType: 'loan',
+      });
+      loansRepository.findOne.mockResolvedValue({
+        id: 'loan-1',
+        promissoryNoteNumber: '#9999',
+        deletionReason: 'Pagaré de prueba',
+      });
+      const context = buildContext({
+        user: { id: 'user-1' },
+        params: { id: 'loan-1' },
+      });
+      const handler = buildCallHandler(of(undefined));
+
+      await firstValueFrom(await interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityLabel: 'Pagaré #9999 — motivo: Pagaré de prueba',
+        }),
+      );
+    });
+
     it('resolves a null entityLabel when the loan-lookup fallback finds nothing', async () => {
       reflector.get.mockReturnValue({
         action: 'loan.delete',
