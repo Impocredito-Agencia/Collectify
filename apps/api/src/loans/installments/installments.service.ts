@@ -21,7 +21,11 @@ import { PaginatedResult } from '../../common/interfaces/paginatedResult.interfa
 import { WhatsappInboundMessage } from '../../whatsapp/entities/whatsappInboundMessage.entity';
 import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
 import { AlignInstallmentDueDayDto } from '../dto/alignInstallmentDueDay.dto';
-import { todayDateString, withDayOfMonth } from '../dueDateSchedule';
+import {
+  bogotaEndOfDayUtc,
+  todayDateString,
+  withDayOfMonth,
+} from '../dueDateSchedule';
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { Loan, LoanStatus } from '../entities/loan.entity';
 import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entity';
@@ -202,14 +206,34 @@ export class InstallmentsService {
     // short-circuit) routes its ENTIRE amount into credit rather than
     // silently accepting an extra payment record — a deliberate tightening
     // of the old Phase 32 behavior, not an oversight.
-    const totalPaidBefore = await this.sumPayments(
+    //
+    // Human request, 2026-11-05 — the ceiling (and the close check below) is
+    // the cuota's balance on the day of the payment (paidAt), not today's:
+    // a payment registered a week late must not be charged a week of mora
+    // the client never owed when they paid.
+    const paidAt = dto.paidAt.slice(0, 10);
+    const loan = await this.loansRepository.findOne({
+      where: { id: installment.loanId },
+      select: { id: true, disbursedAt: true },
+    });
+    this.assertValidPaymentDate(
+      paidAt,
+      loan?.disbursedAt,
+      installment.installmentNumber,
+    );
+    const paymentsBefore = await this.summarizePayments(
       installmentId,
       this.paymentsRepository,
     );
+    const valuationDate = this.resolveValuationDate(
+      paidAt,
+      paymentsBefore.latestPaidAt,
+    );
     const remainingBalance = await this.resolveRemainingBalance(
       installment,
-      totalPaidBefore,
+      paymentsBefore.covered,
       this.loanInstallmentConceptsRepository,
+      valuationDate,
     );
     const maxPayable = Math.ceil(remainingBalance);
     // Human request, 2026-09-25 — a payment may forgive part of the accrued
@@ -224,6 +248,7 @@ export class InstallmentsService {
         moraWaived,
         dto.amountPaid,
         this.loanInstallmentConceptsRepository,
+        valuationDate,
       );
     }
     const amountToRecord = Math.min(dto.amountPaid, maxPayable);
@@ -235,7 +260,7 @@ export class InstallmentsService {
       moraWaivedAmount: moraWaived,
       moraWaiverReason:
         moraWaived > 0 ? (dto.moraWaiverReason?.trim() ?? null) || null : null,
-      paidAt: dto.paidAt,
+      paidAt,
       observation: dto.observation ?? null,
       // imageUrl is deprecated as of Phase 28 — no longer written for new
       // payments, see payment.entity.ts. Photos go through payment_images
@@ -279,14 +304,15 @@ export class InstallmentsService {
       // enrichInstallment's totalDue) rather than re-deriving the threshold
       // separately, so this can never disagree with what totalPaidBefore
       // above's max-payable ceiling already enforced.
-      const totalPaidAfter = await this.sumPayments(
+      const paymentsAfter = await this.summarizePayments(
         installmentId,
         this.paymentsRepository,
       );
       const remainingBalanceAfter = await this.resolveRemainingBalance(
         installment,
-        totalPaidAfter,
+        paymentsAfter.covered,
         this.loanInstallmentConceptsRepository,
+        valuationDate,
       );
       if (remainingBalanceAfter <= 0) {
         await this.installmentsRepository.update(
@@ -433,9 +459,25 @@ export class InstallmentsService {
             installmentsRepository,
           );
 
-          const totalPaidBefore = await this.sumPayments(
+          // Human request, 2026-11-05 — each entry is valued on its own
+          // paidAt, same as registerPayment.
+          const paidAt = entry.paidAt.slice(0, 10);
+          const loan = await loansRepository.findOne({
+            where: { id: installment.loanId },
+            select: { id: true, disbursedAt: true },
+          });
+          this.assertValidPaymentDate(
+            paidAt,
+            loan?.disbursedAt,
+            installment.installmentNumber,
+          );
+          const paymentsBefore = await this.summarizePayments(
             entry.installmentId,
             paymentsRepository,
+          );
+          const valuationDate = this.resolveValuationDate(
+            paidAt,
+            paymentsBefore.latestPaidAt,
           );
           // Bug fix, 2026-09-07/08 — floor and ceiling are now the SAME
           // figure: the installment's real remaining balance (capital +
@@ -451,8 +493,9 @@ export class InstallmentsService {
           // than that exceeds what's actually owed (the #0920 bug).
           const remainingBalance = await this.resolveRemainingBalance(
             installment,
-            totalPaidBefore,
+            paymentsBefore.covered,
             loanInstallmentConceptsRepository,
+            valuationDate,
           );
           const maxPayable = Math.ceil(remainingBalance);
           // Human request, 2026-09-25 — the same mora waiver a single payment
@@ -466,6 +509,7 @@ export class InstallmentsService {
               moraWaived,
               entry.amountPaid,
               loanInstallmentConceptsRepository,
+              valuationDate,
             );
           }
           const requiredPayment = maxPayable - moraWaived;
@@ -488,7 +532,7 @@ export class InstallmentsService {
               moraWaived > 0
                 ? (entry.moraWaiverReason?.trim() ?? null) || null
                 : null,
-            paidAt: entry.paidAt,
+            paidAt,
             observation: entry.observation ?? null,
             imageUrl: null,
           });
@@ -617,7 +661,10 @@ export class InstallmentsService {
       // Cancelled one (superseded by a refinance) stays Cancelled — its
       // debt moved to the new loan, reopening it here would be wrong.
       if (installment.status === InstallmentStatus.Paid) {
-        const totalPaidAfterVoid = await this.sumPayments(
+        // Human request, 2026-11-05 — valued on the day of the latest
+        // payment still standing (the day the cuota would have been settled,
+        // see resolveValuationDate), or today if none is left.
+        const paymentsAfterVoid = await this.summarizePayments(
           installment.id,
           paymentsRepository,
         );
@@ -631,8 +678,9 @@ export class InstallmentsService {
         // calculation instead of trivially returning 0 every time.
         const remainingBalance = await this.resolveRemainingBalance(
           { ...installment, status: InstallmentStatus.Pending },
-          totalPaidAfterVoid,
+          paymentsAfterVoid.covered,
           loanInstallmentConceptsRepository,
+          paymentsAfterVoid.latestPaidAt ?? undefined,
         );
         if (remainingBalance > 0) {
           await installmentsRepository.update(
@@ -787,15 +835,60 @@ export class InstallmentsService {
   // live totalDue (nominal amount + accrued moratory interest, same formula
   // GET /loans/:id uses) minus whatever has already been paid on it — which
   // is the hard ceiling a new payment against it can never exceed.
+  //
+  // Human request, 2026-11-05 — `valuationDate` values the cuota at the end
+  // of that Bogotá day instead of right now (see resolveValuationDate), so a
+  // payment registered days after the client actually paid is checked
+  // against what the cuota owed on the day of the payment.
   private async resolveRemainingBalance(
     installment: Installment,
     totalPaid: number,
     loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
+    valuationDate?: string,
   ): Promise<number> {
     const concepts = await loanInstallmentConceptsRepository.find({
       where: { installmentId: installment.id },
     });
-    return enrichInstallment(installment, concepts, totalPaid).totalDue;
+    return enrichInstallment(
+      installment,
+      concepts,
+      totalPaid,
+      valuationDate ? bogotaEndOfDayUtc(valuationDate) : undefined,
+    ).totalDue;
+  }
+
+  // Human request, 2026-11-05 — payments are often registered days after the
+  // client actually paid, and mora keeps growing in between. A payment's
+  // paidAt may be any day from the pagaré's disbursement up to today (never
+  // a future day); the cuota is then valued as it stood on that day.
+  private assertValidPaymentDate(
+    paidAt: string,
+    disbursedAt: string | undefined,
+    installmentNumber: number,
+  ): void {
+    if (paidAt > todayDateString()) {
+      throw new BadRequestException(
+        `La fecha del pago de la cuota ${installmentNumber} (${paidAt}) no puede ser posterior a hoy.`,
+      );
+    }
+    if (disbursedAt && paidAt < disbursedAt) {
+      throw new BadRequestException(
+        `La fecha del pago de la cuota ${installmentNumber} (${paidAt}) no puede ser anterior al desembolso del pagaré (${disbursedAt}).`,
+      );
+    }
+  }
+
+  // The day a cuota is valued on for a payment dated `paidAt`: that day,
+  // unless the cuota already has a payment dated LATER — a cuota can't be
+  // settled before a payment that is counted toward settling it, so the
+  // valuation moves forward to that latest payment's day.
+  private resolveValuationDate(
+    paidAt: string,
+    latestExistingPaidAt: string | null,
+  ): string {
+    return latestExistingPaidAt && latestExistingPaidAt > paidAt
+      ? latestExistingPaidAt
+      : paidAt;
   }
 
   // Human request, 2026-09-25 (rules confirmed with the human): a payment may
@@ -818,13 +911,19 @@ export class InstallmentsService {
     moraWaived: number,
     amountPaid: number,
     loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
+    valuationDate: string,
   ): Promise<void> {
     const concepts = await loanInstallmentConceptsRepository.find({
       where: { installmentId: installment.id },
     });
     const moraCharged = calculateMoraCharged(
       installment.amount,
-      enrichInstallment(installment, concepts, 0).interest,
+      enrichInstallment(
+        installment,
+        concepts,
+        0,
+        bogotaEndOfDayUtc(valuationDate),
+      ).interest,
     );
     const maxWaivable = Math.min(moraCharged, maxPayable - 1);
     if (maxWaivable < 1) {
@@ -840,7 +939,7 @@ export class InstallmentsService {
     const requiredPayment = maxPayable - moraWaived;
     if (amountPaid !== requiredPayment) {
       throw new BadRequestException(
-        `Con una condonación de $${moraWaived}, la cuota ${installment.installmentNumber} debe pagarse por exactamente $${requiredPayment} (saldo actual $${maxPayable}). Vuelve a abrir el pago: el saldo pudo haber cambiado.`,
+        `Con una condonación de $${moraWaived}, la cuota ${installment.installmentNumber} debe pagarse por exactamente $${requiredPayment} (saldo al ${valuationDate}: $${maxPayable}). Vuelve a abrir el pago: el saldo pudo haber cambiado.`,
       );
     }
   }
@@ -859,23 +958,34 @@ export class InstallmentsService {
     await paymentImagesRepository.save(images);
   }
 
-  private async sumPayments(
+  private async summarizePayments(
     installmentId: string,
     paymentsRepository: Repository<Payment>,
-  ): Promise<number> {
+  ): Promise<{ covered: number; latestPaidAt: string | null }> {
     const payments = await paymentsRepository.find({
       where: { installmentId },
-      select: { amountPaid: true, moraWaivedAmount: true },
+      select: { amountPaid: true, moraWaivedAmount: true, paidAt: true },
     });
 
     // What has been COVERED on this installment: cash received plus any mora
     // forgiven together with a payment (Payment.moraWaivedAmount). It feeds
     // the "is the balance settled?" decisions below (closing a cuota,
     // reopening one after a void) — not any cash-collected figure.
-    return payments.reduce(
-      (sum, payment) =>
-        sum + payment.amountPaid + (payment.moraWaivedAmount ?? 0),
-      0,
+    // latestPaidAt (human request, 2026-11-05) — the day of the most recent
+    // payment, see resolveValuationDate.
+    return payments.reduce<{ covered: number; latestPaidAt: string | null }>(
+      (summary, payment) => ({
+        covered:
+          summary.covered +
+          payment.amountPaid +
+          (payment.moraWaivedAmount ?? 0),
+        latestPaidAt:
+          payment.paidAt &&
+          (!summary.latestPaidAt || payment.paidAt > summary.latestPaidAt)
+            ? payment.paidAt
+            : summary.latestPaidAt,
+      }),
+      { covered: 0, latestPaidAt: null },
     );
   }
 

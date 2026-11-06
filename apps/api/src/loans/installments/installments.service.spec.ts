@@ -16,10 +16,17 @@ import { PaymentImage } from '../entities/paymentImage.entity';
 import { ClientCreditBalanceService } from '../../clients/clientCreditBalance.service';
 import { WhatsappInboundMessage } from '../../whatsapp/entities/whatsappInboundMessage.entity';
 import { PaymentConfirmationService } from '../../whatsapp/paymentConfirmation.service';
+import { bogotaEndOfDayUtc, todayDateString } from '../dueDateSchedule';
 
 import { enrichInstallment } from './enrichInstallment';
 import { calculateMoraCharged } from './installmentCalculations';
 import { InstallmentsService } from './installments.service';
+
+// Human request, 2026-11-05 — a payment is now valued on its own paidAt, not
+// on "now". Every test below that isn't about backdating pays "today", so
+// its expected figures (computed with enrichInstallment's default "now")
+// still describe the same day the service values the cuota on.
+const TODAY = todayDateString();
 
 describe('InstallmentsService', () => {
   let service: InstallmentsService;
@@ -85,7 +92,7 @@ describe('InstallmentsService', () => {
     deletedAt: null,
   };
 
-  const paymentDto = { amountPaid: 100000, paidAt: '2026-01-05' };
+  const paymentDto = { amountPaid: 100000, paidAt: TODAY };
 
   beforeEach(async () => {
     installmentsRepository = {
@@ -330,7 +337,7 @@ describe('InstallmentsService', () => {
 
       await service.registerPayment(mockInstallment.id, {
         amountPaid: 200000,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
       });
 
       expect(installmentsRepository.update).toHaveBeenCalledWith(
@@ -355,7 +362,7 @@ describe('InstallmentsService', () => {
 
       await service.registerPayment(mockInstallment.id, {
         amountPaid: 200000,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
         sourceWhatsappMessageId: 'wa-msg-1',
       });
 
@@ -380,7 +387,7 @@ describe('InstallmentsService', () => {
 
       await service.registerPayment(mockInstallment.id, {
         amountPaid: 200000,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
       });
 
       expect(
@@ -399,7 +406,7 @@ describe('InstallmentsService', () => {
 
       await service.registerPayment(mockInstallment.id, {
         amountPaid: 200000,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
       });
 
       expect(
@@ -418,7 +425,7 @@ describe('InstallmentsService', () => {
 
       await service.registerPayment(mockInstallment.id, {
         amountPaid: 200000,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
       });
 
       expect(loansRepository.update).toHaveBeenCalledWith(
@@ -439,7 +446,7 @@ describe('InstallmentsService', () => {
 
       await service.registerPayment(mockInstallment.id, {
         amountPaid: 200000,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
       });
 
       expect(loansRepository.update).not.toHaveBeenCalled();
@@ -476,7 +483,7 @@ describe('InstallmentsService', () => {
 
       await service.registerPayment(overdueInstallment.id, {
         amountPaid: 200000,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
       });
 
       expect(installmentsRepository.update).not.toHaveBeenCalled();
@@ -506,7 +513,7 @@ describe('InstallmentsService', () => {
 
       await service.registerPayment(overdueInstallment.id, {
         amountPaid: fullTotalDue,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
       });
 
       expect(installmentsRepository.update).toHaveBeenCalledWith(
@@ -558,7 +565,7 @@ describe('InstallmentsService', () => {
 
         await service.registerPayment(overdue.id, {
           amountPaid,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
           moraWaivedAmount: waiver,
           moraWaiverReason: '  Pagó todo de contado  ',
         });
@@ -588,7 +595,7 @@ describe('InstallmentsService', () => {
 
         await service.registerPayment(overdue.id, {
           amountPaid,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
           moraWaivedAmount: moraCharged(),
         });
 
@@ -604,7 +611,7 @@ describe('InstallmentsService', () => {
         await expect(
           service.registerPayment(overdue.id, {
             amountPaid: balance() - 10000 - 1,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
             moraWaivedAmount: 10000,
           }),
         ).rejects.toThrow(BadRequestException);
@@ -617,7 +624,7 @@ describe('InstallmentsService', () => {
         await expect(
           service.registerPayment(overdue.id, {
             amountPaid: balance() - 10000 + 1,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
             moraWaivedAmount: 10000,
           }),
         ).rejects.toThrow(BadRequestException);
@@ -632,7 +639,7 @@ describe('InstallmentsService', () => {
         await expect(
           service.registerPayment(overdue.id, {
             amountPaid: balance() - waiver,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
             moraWaivedAmount: waiver,
           }),
         ).rejects.toThrow(/supera la mora/);
@@ -647,7 +654,7 @@ describe('InstallmentsService', () => {
         await expect(
           service.registerPayment(mockInstallment.id, {
             amountPaid: mockInstallment.amount - 1,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
             moraWaivedAmount: 1,
           }),
         ).rejects.toThrow(/no tiene mora/);
@@ -662,7 +669,7 @@ describe('InstallmentsService', () => {
         await expect(
           service.registerPayment(overdue.id, {
             amountPaid: yesterdaysAmount,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
             moraWaivedAmount: 10000,
           }),
         ).rejects.toThrow(/debe pagarse por exactamente/);
@@ -674,7 +681,7 @@ describe('InstallmentsService', () => {
 
         await service.registerPayment(overdue.id, {
           amountPaid: 50000,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
         });
 
         expect(paymentsRepository.create).toHaveBeenCalledWith(
@@ -743,7 +750,7 @@ describe('InstallmentsService', () => {
 
       const result = await service.registerPayment(notOverdueInstallment.id, {
         amountPaid: 100000,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
       });
 
       expect(result).toMatchObject({ amountPaid: 50000 });
@@ -769,7 +776,7 @@ describe('InstallmentsService', () => {
 
       const result = await service.registerPayment(notOverdueInstallment.id, {
         amountPaid: 50000,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
       });
 
       expect(result).toMatchObject({ amountPaid: 50000 });
@@ -1090,12 +1097,12 @@ describe('InstallmentsService', () => {
         {
           installmentId: mockInstallment.id,
           amountPaid: 200000,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
         },
         {
           installmentId: installment2.id,
           amountPaid: 200000,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
         },
       ]);
 
@@ -1116,7 +1123,7 @@ describe('InstallmentsService', () => {
         {
           installmentId: mockInstallment.id,
           amountPaid: 200000,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
           imageUrls: [
             'https://res.cloudinary.com/demo/image/upload/receipt.jpg',
           ],
@@ -1138,7 +1145,7 @@ describe('InstallmentsService', () => {
           {
             installmentId: mockInstallment.id,
             amountPaid: 50000,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
           },
         ]),
       ).rejects.toThrow(BadRequestException);
@@ -1156,7 +1163,7 @@ describe('InstallmentsService', () => {
           {
             installmentId: mockInstallment.id,
             amountPaid: 200000,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
           },
         ]),
       ).rejects.toThrow(BadRequestException);
@@ -1170,7 +1177,7 @@ describe('InstallmentsService', () => {
           {
             installmentId: 'missing-id',
             amountPaid: 200000,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
           },
         ]),
       ).rejects.toThrow(NotFoundException);
@@ -1182,12 +1189,12 @@ describe('InstallmentsService', () => {
           {
             installmentId: mockInstallment.id,
             amountPaid: 50000,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
           },
           {
             installmentId: installment2.id,
             amountPaid: 200000,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
           },
         ]),
       ).rejects.toThrow(BadRequestException);
@@ -1226,7 +1233,7 @@ describe('InstallmentsService', () => {
           {
             installmentId: installment2.id,
             amountPaid: 200000,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
           },
         ]),
       ).rejects.toThrow(BadRequestException);
@@ -1271,12 +1278,12 @@ describe('InstallmentsService', () => {
         {
           installmentId: sameLoanInstallment2.id,
           amountPaid: 200000,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
         },
         {
           installmentId: mockInstallment.id,
           amountPaid: 200000,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
         },
       ]);
 
@@ -1320,12 +1327,12 @@ describe('InstallmentsService', () => {
         {
           installmentId: mockInstallment.id,
           amountPaid: 200000,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
         },
         {
           installmentId: sameLoanInstallment2.id,
           amountPaid: 200000,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
         },
       ]);
 
@@ -1348,7 +1355,7 @@ describe('InstallmentsService', () => {
           {
             installmentId: mockInstallment.id,
             amountPaid: 999999999,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
           },
         ]),
       ).rejects.toThrow(BadRequestException);
@@ -1386,7 +1393,7 @@ describe('InstallmentsService', () => {
           {
             installmentId: overdueInstallment.id,
             amountPaid: overdueInstallment.amount,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
           },
         ]),
       ).rejects.toThrow(BadRequestException);
@@ -1443,7 +1450,7 @@ describe('InstallmentsService', () => {
         {
           installmentId: overdue.id,
           amountPaid: balance() - waiver,
-          paidAt: '2026-01-05',
+          paidAt: TODAY,
           moraWaivedAmount: waiver,
           moraWaiverReason: 'Pago por lote de contado',
         },
@@ -1469,7 +1476,7 @@ describe('InstallmentsService', () => {
             {
               installmentId: overdue.id,
               amountPaid: balance() - 12000 + delta,
-              paidAt: '2026-01-05',
+              paidAt: TODAY,
               moraWaivedAmount: 12000,
             },
           ]),
@@ -1484,12 +1491,238 @@ describe('InstallmentsService', () => {
           {
             installmentId: overdue.id,
             amountPaid: 1,
-            paidAt: '2026-01-05',
+            paidAt: TODAY,
             moraWaivedAmount: balance(),
           },
         ]),
       ).rejects.toThrow(BadRequestException);
       expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // Human request, 2026-11-05 — payments are often registered days after the
+  // client paid. The cuota is valued on the payment's own paidAt (any day
+  // from the disbursement up to today), not on the day it's registered.
+  describe('backdated payments', () => {
+    const overdue: Installment = {
+      ...mockInstallment,
+      id: 'inst-backdated',
+      dueDate: '2026-10-01',
+    };
+    const concepts = [
+      {
+        installmentId: overdue.id,
+        category: ConceptCategory.Moratorio,
+        calculationType: ConceptCalculationType.Percentage,
+        nameSnapshot: 'Intereses moratorios',
+        value: 6,
+      },
+    ] as never as LoanInstallmentConcept[];
+    // 19 days overdue on this date — past the grace period, so it carries
+    // real mora, but less than it carries today.
+    const PAID_ON = '2026-10-20';
+    const balanceOn = (date: string): number =>
+      enrichInstallment(overdue, concepts, 0, bogotaEndOfDayUtc(date)).totalDue;
+    const moraChargedOn = (date: string): number =>
+      calculateMoraCharged(
+        overdue.amount,
+        enrichInstallment(overdue, concepts, 0, bogotaEndOfDayUtc(date))
+          .interest,
+      );
+
+    beforeEach(() => {
+      installmentsRepository.findOne.mockResolvedValue(overdue);
+      loanInstallmentConceptsRepository.find.mockResolvedValue(concepts);
+      loansRepository.findOne.mockResolvedValue({
+        isNewLoan: false,
+        disbursedAt: '2026-09-01',
+      });
+      installmentsRepository.find.mockImplementation(
+        ({ where }: { where?: Record<string, unknown> } = {}) => {
+          if (where?.id) {
+            return Promise.resolve([overdue]);
+          }
+          if (where?.installmentNumber) {
+            return Promise.resolve([]);
+          }
+          return Promise.resolve([
+            { ...overdue, status: InstallmentStatus.Paid },
+          ]);
+        },
+      );
+    });
+
+    it('owes less on the payment date than today (sanity check of the fixture)', () => {
+      expect(balanceOn(PAID_ON)).toBeGreaterThan(overdue.amount);
+      expect(balanceOn(PAID_ON)).toBeLessThan(balanceOn(TODAY));
+    });
+
+    it("closes the cuota with the balance it had on the payment's date", async () => {
+      const amountPaid = balanceOn(PAID_ON);
+      paymentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ amountPaid, paidAt: PAID_ON }]);
+
+      await service.registerPayment(overdue.id, {
+        amountPaid,
+        paidAt: PAID_ON,
+      });
+
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ amountPaid, paidAt: PAID_ON }),
+      );
+      expect(installmentsRepository.update).toHaveBeenCalledWith(
+        { id: overdue.id },
+        { status: InstallmentStatus.Paid },
+      );
+      expect(clientCreditBalanceService.recordExcess).not.toHaveBeenCalled();
+    });
+
+    it("caps the payment at the payment date's balance, not today's", async () => {
+      paymentsRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          { amountPaid: balanceOn(PAID_ON), paidAt: PAID_ON },
+        ]);
+
+      await service.registerPayment(overdue.id, {
+        amountPaid: balanceOn(TODAY),
+        paidAt: PAID_ON,
+      });
+
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ amountPaid: balanceOn(PAID_ON) }),
+      );
+    });
+
+    it("validates a mora waiver against the payment date's mora", async () => {
+      const waiver = moraChargedOn(PAID_ON);
+      paymentsRepository.find.mockResolvedValueOnce([]).mockResolvedValueOnce([
+        {
+          amountPaid: overdue.amount,
+          moraWaivedAmount: waiver,
+          paidAt: PAID_ON,
+        },
+      ]);
+
+      await service.registerPayment(overdue.id, {
+        amountPaid: overdue.amount,
+        paidAt: PAID_ON,
+        moraWaivedAmount: waiver,
+      });
+
+      expect(installmentsRepository.update).toHaveBeenCalledWith(
+        { id: overdue.id },
+        { status: InstallmentStatus.Paid },
+      );
+    });
+
+    it('rejects a payment dated after today', async () => {
+      await expect(
+        service.registerPayment(overdue.id, {
+          amountPaid: 1000,
+          paidAt: '2099-12-31',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it("rejects a payment dated before the pagaré's disbursement", async () => {
+      await expect(
+        service.registerPayment(overdue.id, {
+          amountPaid: 1000,
+          paidAt: '2026-08-31',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('values the cuota on the latest existing payment when that one is dated later', async () => {
+      const LATER = '2026-10-25';
+      const earlier = 50000;
+      const amountPaid = balanceOn(LATER) - earlier;
+      paymentsRepository.find
+        .mockResolvedValueOnce([{ amountPaid: earlier, paidAt: LATER }])
+        .mockResolvedValueOnce([
+          { amountPaid: earlier, paidAt: LATER },
+          { amountPaid, paidAt: PAID_ON },
+        ]);
+
+      await service.registerPayment(overdue.id, {
+        amountPaid,
+        paidAt: PAID_ON,
+      });
+
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ amountPaid }),
+      );
+      expect(installmentsRepository.update).toHaveBeenCalledWith(
+        { id: overdue.id },
+        { status: InstallmentStatus.Paid },
+      );
+    });
+
+    it("accepts a bulk entry paying the balance on its own date, and rejects today's", async () => {
+      paymentsRepository.find.mockResolvedValue([]);
+      paymentsRepository.save.mockImplementation((payment: Partial<Payment>) =>
+        Promise.resolve({ id: `payment-${payment.installmentId}`, ...payment }),
+      );
+
+      await expect(
+        service.registerBulkPayments([
+          {
+            installmentId: overdue.id,
+            amountPaid: balanceOn(TODAY),
+            paidAt: PAID_ON,
+          },
+        ]),
+      ).rejects.toThrow(BadRequestException);
+
+      await service.registerBulkPayments([
+        {
+          installmentId: overdue.id,
+          amountPaid: balanceOn(PAID_ON),
+          paidAt: PAID_ON,
+        },
+      ]);
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amountPaid: balanceOn(PAID_ON),
+          paidAt: PAID_ON,
+        }),
+      );
+    });
+
+    it('rejects a bulk entry dated after today', async () => {
+      await expect(
+        service.registerBulkPayments([
+          {
+            installmentId: overdue.id,
+            amountPaid: balanceOn(TODAY),
+            paidAt: '2099-12-31',
+          },
+        ]),
+      ).rejects.toThrow(BadRequestException);
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('keeps a cuota closed after a void when the remaining payments settled it on their own date', async () => {
+      const paidOverdue = { ...overdue, status: InstallmentStatus.Paid };
+      paymentsRepository.findOne.mockResolvedValue({
+        id: 'payment-void',
+        installmentId: overdue.id,
+        amountPaid: 5000,
+        paidAt: PAID_ON,
+        deletedAt: null,
+        installment: paidOverdue,
+      });
+      paymentsRepository.find.mockResolvedValue([
+        { amountPaid: balanceOn(PAID_ON), paidAt: PAID_ON },
+      ]);
+
+      await service.voidPayment('payment-void', { reason: 'Duplicado' });
+
+      expect(installmentsRepository.update).not.toHaveBeenCalled();
     });
   });
 
@@ -1511,7 +1744,7 @@ describe('InstallmentsService', () => {
         id: 'payment-1',
         installmentId: paidInstallment.id,
         amountPaid: paidInstallment.amount,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
         observation: null,
         imageUrl: null,
         createdAt: new Date(),
@@ -1634,7 +1867,7 @@ describe('InstallmentsService', () => {
         id: 'payment-void',
         installmentId: overdue.id,
         amountPaid: 1000,
-        paidAt: '2026-01-05',
+        paidAt: TODAY,
         observation: null,
         imageUrl: null,
         createdAt: new Date(),
