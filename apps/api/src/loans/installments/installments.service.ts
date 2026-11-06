@@ -44,6 +44,16 @@ import {
 import { calculateMoraCharged } from './installmentCalculations';
 import { sumPaymentsByInstallmentId } from './paymentTotals';
 
+export interface InstallmentValuation {
+  installmentId: string;
+  // The day the cuota was actually valued on — the requested date, or a
+  // later existing payment's date (see resolveValuationDate).
+  valuationDate: string;
+  overdueDays: number;
+  interest: number;
+  totalDue: number;
+}
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -125,6 +135,56 @@ export class InstallmentsService {
       ),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  // Human request, 2026-11-05 — what each cuota owed on a payment's own date,
+  // for the register-payment dialogs. Uses exactly the valuation
+  // registerPayment/registerBulkPayments apply (resolveValuationDate:
+  // the requested day, or a later existing payment's day), so the figure
+  // the dialog offers is the figure the server accepts.
+  async getValuationAsOf(
+    installmentIds: string[],
+    date: string,
+  ): Promise<InstallmentValuation[]> {
+    const day = date.slice(0, 10);
+    if (day > todayDateString()) {
+      throw new BadRequestException(
+        `La fecha (${day}) no puede ser posterior a hoy.`,
+      );
+    }
+
+    const installments = await this.installmentsRepository.find({
+      where: { id: In(installmentIds) },
+    });
+    const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
+      installments.map((installment) => installment.id),
+    );
+
+    const valuations: InstallmentValuation[] = [];
+    for (const installment of installments) {
+      const payments = await this.summarizePayments(
+        installment.id,
+        this.paymentsRepository,
+      );
+      const valuationDate = this.resolveValuationDate(
+        day,
+        payments.latestPaidAt,
+      );
+      const enriched = enrichInstallment(
+        installment,
+        conceptsByInstallmentId.get(installment.id) ?? [],
+        payments.covered,
+        bogotaEndOfDayUtc(valuationDate),
+      );
+      valuations.push({
+        installmentId: installment.id,
+        valuationDate,
+        overdueDays: enriched.overdueDays,
+        interest: enriched.interest,
+        totalDue: enriched.totalDue,
+      });
+    }
+    return valuations;
   }
 
   // Groups a page of installments' LoanInstallmentConcept rows by

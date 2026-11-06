@@ -1724,6 +1724,54 @@ describe('InstallmentsService', () => {
 
       expect(installmentsRepository.update).not.toHaveBeenCalled();
     });
+
+    describe('getValuationAsOf', () => {
+      it('values each cuota on the requested date, net of what was already paid', async () => {
+        installmentsRepository.find.mockResolvedValue([overdue]);
+        paymentsRepository.find.mockResolvedValue([
+          { amountPaid: 10000, paidAt: '2026-10-05' },
+        ]);
+
+        const [valuation] = await service.getValuationAsOf(
+          [overdue.id],
+          PAID_ON,
+        );
+
+        expect(valuation).toEqual({
+          installmentId: overdue.id,
+          valuationDate: PAID_ON,
+          overdueDays: 19,
+          interest: enrichInstallment(
+            overdue,
+            concepts,
+            0,
+            bogotaEndOfDayUtc(PAID_ON),
+          ).interest,
+          totalDue: balanceOn(PAID_ON) - 10000,
+        });
+      });
+
+      it('moves to a later existing payment date, same as registerPayment', async () => {
+        installmentsRepository.find.mockResolvedValue([overdue]);
+        paymentsRepository.find.mockResolvedValue([
+          { amountPaid: 10000, paidAt: '2026-10-25' },
+        ]);
+
+        const [valuation] = await service.getValuationAsOf(
+          [overdue.id],
+          PAID_ON,
+        );
+
+        expect(valuation.valuationDate).toBe('2026-10-25');
+        expect(valuation.totalDue).toBe(balanceOn('2026-10-25') - 10000);
+      });
+
+      it('rejects a date after today', async () => {
+        await expect(
+          service.getValuationAsOf([overdue.id], '2099-12-31'),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
   });
 
   // Human report, 2026-09-09 — admin-only correction for a payment
