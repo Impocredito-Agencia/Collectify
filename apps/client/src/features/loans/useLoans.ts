@@ -57,6 +57,16 @@ export function useLoan(id: string) {
   });
 }
 
+// Human request, 2026-11-05 — keyed under ['loans', id] so every mutation
+// that already invalidates the loan refreshes these too.
+export function useLoanOriginationTerms(id: string) {
+  return useQuery({
+    queryKey: ['loans', id, 'origination-terms'],
+    queryFn: () => loansApi.getOriginationTerms(id),
+    enabled: Boolean(id),
+  });
+}
+
 export function useLoanPayments(id: string) {
   return useQuery({
     queryKey: ['loans', id, 'payments'],

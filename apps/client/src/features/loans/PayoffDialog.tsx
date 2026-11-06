@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ReceiptPhotosField } from '@/components/ui/ReceiptPhotosField';
 import { Td, Th } from '@/components/ui/Table';
 import { ConceptCategory } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import { LoanOriginationTerms } from '@/features/loans/LoanOriginationTerms';
 import { usePayoffQuote } from '@/features/loans/useLoans';
 import { formatCurrency } from '@/lib/format';
 import { ImageUploadError, uploadPaymentReceipt } from '@/lib/imageUpload';
@@ -159,6 +160,12 @@ export function PayoffDialog({
         5 días corriendo; las demás cuotas futuras se cobran solo por su
         capital.
       </p>
+
+      {/* Human request, 2026-11-05 — the rate the loan was made at is
+          needed almost every time a loan is liquidated. */}
+      <div className="mt-3.5">
+        <LoanOriginationTerms loanId={loanId} compact />
+      </div>
 
       <div className="mt-5 border-t border-border" />
 
