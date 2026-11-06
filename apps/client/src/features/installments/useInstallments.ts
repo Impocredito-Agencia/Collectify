@@ -15,6 +15,21 @@ export function useInstallments(params: InstallmentsQueryParams) {
   });
 }
 
+// Human request, 2026-11-05 — the cuotas' balance on a past payment date.
+// Disabled (no request) when `date` is empty; callers skip it for today,
+// whose figures the installment already carries.
+export function useInstallmentValuation(
+  installmentIds: string[],
+  date: string,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['installments', 'valuation', installmentIds, date],
+    queryFn: () => installmentsApi.getValuation(installmentIds, date),
+    enabled: enabled && Boolean(date) && installmentIds.length > 0,
+  });
+}
+
 // Registering a payment only returns the raw Payment row (see
 // installmentsApi.ts) — the installment/loan's new status comes from
 // re-fetching, so this invalidates both the installments list AND the

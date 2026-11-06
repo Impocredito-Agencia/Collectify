@@ -639,7 +639,7 @@ Added 2026-10-09 (human report — "los clientes mandan comprobantes viejos, por
 - **`totalPayableOnDate`:** the cuotas overdue or due on `date` itself, same rule as the client-facing desglose (`calculateAccountSummaryTotal`).
 - `date` later than today is rejected with 400.
 
-Shown in the inbox's "Ver información" panel ("Desglose a una fecha"). **Informational only:** `POST /installments/:id/payments` is unchanged and still validates and closes a cuota against today's balance, whatever `paid_at` the payment carries.
+Shown in the inbox's "Ver información" panel ("Desglose a una fecha"). ~~Informational only: `POST /installments/:id/payments` still validates against today's balance~~ — superseded 2026-11-05: registering a payment now values the cuota on the payment's own `paid_at` too, see "Feature, 2026-11-05 — a payment is valued on its own date" below.
 
 ### `app_settings`
 
@@ -1112,6 +1112,19 @@ Human request: when a client walks into the office, the front desk needs to say 
 ## Change, 2026-09-23 — interest true-up on payoff and refinance
 
 No schema change. `LoansService.getPayoffQuote()`, `payoff()` and `getRefinanceQuote()` now also read the loan's *full* installment list (paid ones included) and its corriente `loan_installment_concepts` rows, and add `calculateInterestTrueUp()`'s result to the quote (`PayoffQuote.interestTrueUp`, included in `totalInterestOwed`/`totalDue`). The true interest per installment is derived from stored data only — `balanceBefore` = sum of the remaining `installments.principal_portion` (excluding the cuota inicial and cancelled rows), times the concept's snapshotted `value` — compared against the concept's stored `computed_amount`. `payoff()` writes the true-up into the first pending installment's `payments.amount_paid`. Full rules and the worked example: `docs/GLOSSARY.md` → "Liquidación anticipada".
+
+## Feature, 2026-11-05 — a payment is valued on its own date
+
+No schema change. Human request: payments are usually registered days after the client actually paid, and mora keeps growing in between, so the balance shown and enforced at registration no longer matched what the client owed on the day they paid. `payments.paid_at` already existed but only described the payment — the ceiling, the "is the cuota settled?" check and the mora-waiver cap were all computed against *today*.
+
+Now `InstallmentsService.registerPayment` and `registerBulkPayments` value the cuota at the end of the `paid_at` Bogotá day (`enrichInstallment(..., bogotaEndOfDayUtc(day))`, same math as everywhere else):
+
+- **Allowed dates** (confirmed with the human): any day from the pagaré's `disbursed_at` up to today. A future day or one before the disbursement is rejected with 400 (`assertValidPaymentDate`).
+- **Valuation day** (`resolveValuationDate`): `paid_at`, unless the cuota already has a payment dated *later* — then that later day. A cuota can't be settled before a payment that counts toward settling it.
+- **What uses it:** the max-payable ceiling (excess still becomes saldo a favor), closing the cuota, the bulk "exact balance" rule, and the mora-waiver cap (`assertValidMoraWaiver`).
+- **Voiding** (`voidPayment`): whether the cuota reopens is decided on the day of the latest payment still standing, or today if none is left — voiding one payment no longer reopens a cuota the remaining payments had settled on their own date.
+- **`GET /installments/valuation?installmentIds=a,b&date=YYYY-MM-DD`** (`getValuationAsOf`) returns each cuota's `overdueDays`/`interest`/`totalDue` on that day plus the `valuationDate` actually used, so `RegisterPaymentDialog` / `BulkRegisterPaymentDialog` offer exactly the figure the server will accept. Their date picker can't pick a future day or one before the disbursement (`DatePicker`'s new `min`/`max`).
+- Payments registered without picking a date (applying saldo a favor, payoff) are dated today, so they behave exactly as before.
 
 ## Related documents
 

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
@@ -6,8 +6,9 @@ import { DatePicker } from '@/components/ui/DatePicker';
 import { Field } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
 import { ReceiptFilePreview } from '@/components/ui/ReceiptFilePreview';
+import { useInstallmentValuation } from '@/features/installments/useInstallments';
 import { ApiError } from '@/lib/apiClient';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrency, formatDateOnly } from '@/lib/format';
 import { ImageUploadError, uploadPaymentReceipt } from '@/lib/imageUpload';
 import { maxWaivableMora, requiredPaymentWithWaiver } from '@/lib/moraWaiver';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -22,6 +23,9 @@ interface BulkRegisterPaymentDialogProps {
   // payment stays on RegisterPaymentDialog's single-installment flow.
   installments: Installment[];
   loanLabel: string;
+  // Human request, 2026-11-05 — the pagaré's disbursement date, the earliest
+  // day the batch can be dated.
+  minPaidAt?: string;
   onClose: () => void;
   onConfirm: (entries: BulkPaymentEntryInput[]) => Promise<unknown>;
 }
@@ -81,12 +85,14 @@ function rowWaiver(row: RowState): number {
 export function BulkRegisterPaymentDialog({
   installments,
   loanLabel,
+  minPaidAt,
   onClose,
   onConfirm,
 }: BulkRegisterPaymentDialogProps) {
-  const [paidAt, setPaidAt] = useState(todayDateString());
+  const today = todayDateString();
+  const [paidAt, setPaidAt] = useState(today);
   const [observation, setObservation] = useState('');
-  const [rows, setRows] = useState<RowState[]>(() =>
+  const [rowState, setRows] = useState<RowState[]>(() =>
     installments.map((installment) => ({
       installment,
       amountPaid: Math.ceil(installment.totalDue),
@@ -96,6 +102,62 @@ export function BulkRegisterPaymentDialog({
       moraWaiverReason: '',
     })),
   );
+
+  // Human request, 2026-11-05 — for a past paidAt every cuota is shown (and
+  // validated, server-side) as it stood on that day. `rows` carries that
+  // day's figures in row.installment; everything below reads from it.
+  const isBackdated = paidAt !== '' && paidAt < today;
+  const valuationQuery = useInstallmentValuation(
+    installments.map((installment) => installment.id),
+    paidAt,
+    isBackdated,
+  );
+  const valuationById = new Map(
+    (isBackdated ? (valuationQuery.data ?? []) : []).map((valuation) => [
+      valuation.installmentId,
+      valuation,
+    ]),
+  );
+  const isValuationPending =
+    isBackdated && valuationById.size < installments.length;
+  const rows: RowState[] = rowState.map((row) => {
+    const valuation = valuationById.get(row.installment.id);
+    return valuation
+      ? {
+          ...row,
+          installment: {
+            ...row.installment,
+            overdueDays: valuation.overdueDays,
+            interest: valuation.interest,
+            totalDue: valuation.totalDue,
+          },
+        }
+      : row;
+  });
+
+  // A batch must settle every cuota exactly, so each row's amount is
+  // re-filled with the balance of whichever day is now picked (and any
+  // waiver cleared, its maximum having changed too).
+  const valuationData = valuationQuery.data;
+  useEffect(() => {
+    const byId = new Map(
+      (isBackdated ? (valuationData ?? []) : []).map((valuation) => [
+        valuation.installmentId,
+        valuation.totalDue,
+      ]),
+    );
+    setRows((current) =>
+      current.map((row) => ({
+        ...row,
+        amountPaid: Math.ceil(
+          byId.get(row.installment.id) ?? row.installment.totalDue,
+        ),
+        isWaiverOpen: false,
+        moraWaiver: 0,
+        moraWaiverReason: '',
+      })),
+    );
+  }, [isBackdated, valuationData]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
@@ -176,6 +238,24 @@ export function BulkRegisterPaymentDialog({
 
     if (!paidAt) {
       setError('La fecha de pago es obligatoria.');
+      return;
+    }
+    if (paidAt > today) {
+      setError('La fecha de pago no puede ser posterior a hoy.');
+      return;
+    }
+    if (minPaidAt && paidAt < minPaidAt) {
+      setError(
+        `La fecha de pago no puede ser anterior al desembolso (${formatDateOnly(minPaidAt)}).`,
+      );
+      return;
+    }
+    if (isValuationPending) {
+      setError(
+        valuationQuery.isError
+          ? 'No se pudo calcular el saldo de las cuotas a esa fecha. Intenta de nuevo.'
+          : 'Calculando el saldo de las cuotas a esa fecha…',
+      );
       return;
     }
 
@@ -279,6 +359,9 @@ export function BulkRegisterPaymentDialog({
               value={paidAt}
               onChange={setPaidAt}
               className={inputClassName}
+              ariaLabel="Fecha de pago"
+              min={minPaidAt}
+              max={today}
             />
           </Field>
           <Field label="Observación (opcional)">
@@ -291,6 +374,17 @@ export function BulkRegisterPaymentDialog({
             />
           </Field>
         </div>
+
+        {/* Human request, 2026-11-05 — see the single-payment dialog. */}
+        {isBackdated && (
+          <p className="text-small text-muted">
+            {isValuationPending
+              ? valuationQuery.isError
+                ? 'No se pudo calcular el saldo de las cuotas a esa fecha.'
+                : 'Calculando el saldo de las cuotas a esa fecha…'
+              : `Pago con fecha anterior: cada cuota se toma con el saldo que tenía el ${formatDateOnly(paidAt)}, no el de hoy.`}
+          </p>
+        )}
 
         <div className="flex flex-col gap-3">
           {rows.map((row, index) => (

@@ -167,6 +167,17 @@ export interface SourceWhatsappMessage {
   receivedAt: string;
 }
 
+// Matches apps/api/src/loans/installments/installments.service.ts's
+// InstallmentValuation. valuationDate is the day actually used: the
+// requested one, or a later payment already registered on the cuota.
+export interface InstallmentValuation {
+  installmentId: string;
+  valuationDate: string;
+  overdueDays: number;
+  interest: number;
+  totalDue: number;
+}
+
 export const installmentsApi = {
   getAll: async (
     params: InstallmentsQueryParams = {},
@@ -179,6 +190,20 @@ export const installmentsApi = {
       limit: params.limit,
     });
     return { items: data, meta: meta as PaginatedInstallments['meta'] };
+  },
+
+  // Human request, 2026-11-05 — what each cuota owed on a payment's own
+  // date (GET /installments/valuation). The server values a payment with
+  // that paidAt exactly the same way, so these are the figures to offer.
+  getValuation: async (
+    installmentIds: string[],
+    date: string,
+  ): Promise<InstallmentValuation[]> => {
+    const { data } = await apiClient.get<InstallmentValuation[]>(
+      '/installments/valuation',
+      { installmentIds: installmentIds.join(','), date },
+    );
+    return data;
   },
 
   registerPayment: async (
