@@ -30,6 +30,8 @@ import {
   estadoBadge,
   moraBadgeClasses,
 } from '@/features/loans/loanStatusDisplay';
+import { RefinanceChainNote } from '@/features/loans/RefinanceChainNote';
+import { useDeletedLoans } from '@/features/loans/useLoanDeletion';
 import { useClientDebtSummary, useLoans } from '@/features/loans/useLoans';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
@@ -100,6 +102,10 @@ export function ClientDetailPage() {
     isLoading: loansLoading,
     isError: loansError,
   } = useLoans({ clientId: id, limit: 100 });
+  // Phase 35 — this client's deleted pagarés, listed after the live ones
+  // with an "Eliminado" badge (read-only detail). Never part of any figure
+  // on this page: the stats below only ever read `loans`.
+  const { data: deletedLoans } = useDeletedLoans({ clientId: id, limit: 100 });
   // Two separate queries on purpose: `messages` (unfiltered) feeds the
   // "Mensajes enviados" KPI card below, which must reflect the true total
   // regardless of status. `failedMessages` feeds the history list itself —
@@ -155,6 +161,7 @@ export function ClientDetailPage() {
   // comment above).
   const allLoans = loans?.items ?? [];
   const displayedLoans = allLoans.slice(0, 10);
+  const displayedDeletedLoans = deletedLoans?.items ?? [];
   const totalLoans = loans?.meta.total ?? 0;
   const totalPrincipal = allLoans.reduce(
     (sum, loan) => sum + loan.principalAmount,
@@ -330,70 +337,113 @@ export function ClientDetailPage() {
               No se pudieron cargar los préstamos de este cliente.
             </p>
           )}
-          {!loansLoading && !loansError && displayedLoans.length === 0 && (
-            <p className="p-4 text-small text-muted">
-              Este cliente todavía no tiene préstamos registrados.
-            </p>
-          )}
-          {!loansLoading && !loansError && displayedLoans.length > 0 && (
-            <table className="w-full min-w-[880px]">
-              <thead className="bg-input">
-                <tr>
-                  <Th className="w-12">#</Th>
-                  <Th>ID</Th>
-                  <Th>Capital inicial</Th>
-                  <Th className="whitespace-nowrap">
-                    Saldo total (capital + incremento)
-                  </Th>
-                  <Th>Cuotas</Th>
-                  <Th>Estado</Th>
-                  <Th>Días mora</Th>
-                  <Th>Próxima cuota</Th>
-                  <Th>Acciones</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayedLoans.map((loan, index) => {
-                  const estado = estadoBadge(loan);
-                  return (
-                    <tr key={loan.id} className="border-t border-border">
-                      <Td muted>{index + 1}</Td>
-                      <Td>{loan.promissoryNoteNumber}</Td>
+          {!loansLoading &&
+            !loansError &&
+            displayedLoans.length === 0 &&
+            displayedDeletedLoans.length === 0 && (
+              <p className="p-4 text-small text-muted">
+                Este cliente todavía no tiene préstamos registrados.
+              </p>
+            )}
+          {!loansLoading &&
+            !loansError &&
+            (displayedLoans.length > 0 || displayedDeletedLoans.length > 0) && (
+              <table className="w-full min-w-[880px]">
+                <thead className="bg-input">
+                  <tr>
+                    <Th className="w-12">#</Th>
+                    <Th>ID</Th>
+                    <Th>Capital inicial</Th>
+                    <Th className="whitespace-nowrap">
+                      Saldo total (capital + incremento)
+                    </Th>
+                    <Th>Cuotas</Th>
+                    <Th>Estado</Th>
+                    <Th>Días mora</Th>
+                    <Th>Próxima cuota</Th>
+                    <Th>Acciones</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayedLoans.map((loan, index) => {
+                    const estado = estadoBadge(loan);
+                    return (
+                      <tr key={loan.id} className="border-t border-border">
+                        <Td muted>{index + 1}</Td>
+                        <Td>{loan.promissoryNoteNumber}</Td>
+                        <Td>{formatCurrency(loan.principalAmount)}</Td>
+                        <Td>{formatCurrency(loan.outstandingBalance)}</Td>
+                        <Td>
+                          {loan.installmentsPaid}/{loan.totalInstallments}
+                        </Td>
+                        <Td>
+                          <span
+                            className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${estado.classes}`}
+                          >
+                            {estado.label}
+                          </span>
+                        </Td>
+                        <Td>
+                          <span
+                            className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(loan.overdueDays)}`}
+                          >
+                            {loan.overdueDays} días
+                          </span>
+                        </Td>
+                        <Td muted>
+                          {loan.nextInstallmentDueDate
+                            ? formatDateOnly(loan.nextInstallmentDueDate)
+                            : '—'}
+                        </Td>
+                        <Td>
+                          <RowActionButton to={`/prestamos/${loan.id}`}>
+                            Ver
+                          </RowActionButton>
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                  {displayedDeletedLoans.map((loan, index) => (
+                    <tr
+                      key={loan.id}
+                      className="border-t border-border opacity-70"
+                    >
+                      <Td muted>{displayedLoans.length + index + 1}</Td>
+                      <Td>
+                        {loan.promissoryNoteNumber}
+                        <RefinanceChainNote
+                          refinancedLoans={loan.refinancedLoans}
+                        />
+                      </Td>
                       <Td>{formatCurrency(loan.principalAmount)}</Td>
-                      <Td>{formatCurrency(loan.outstandingBalance)}</Td>
-                      <Td>
-                        {loan.installmentsPaid}/{loan.totalInstallments}
-                      </Td>
+                      <Td muted>—</Td>
+                      <Td muted>—/{loan.totalInstallments}</Td>
                       <Td>
                         <span
-                          className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${estado.classes}`}
+                          className="rounded-[3px] border border-danger bg-danger-bg px-2 py-[3px] text-meta font-medium text-danger"
+                          title={
+                            loan.deletionReason
+                              ? `Motivo: ${loan.deletionReason}`
+                              : undefined
+                          }
                         >
-                          {estado.label}
+                          Eliminado
                         </span>
                       </Td>
+                      <Td muted>—</Td>
+                      <Td muted>—</Td>
                       <Td>
-                        <span
-                          className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(loan.overdueDays)}`}
+                        <RowActionButton
+                          to={`/prestamos/eliminados/${loan.id}`}
                         >
-                          {loan.overdueDays} días
-                        </span>
-                      </Td>
-                      <Td muted>
-                        {loan.nextInstallmentDueDate
-                          ? formatDateOnly(loan.nextInstallmentDueDate)
-                          : '—'}
-                      </Td>
-                      <Td>
-                        <RowActionButton to={`/prestamos/${loan.id}`}>
                           Ver
                         </RowActionButton>
                       </Td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+                  ))}
+                </tbody>
+              </table>
+            )}
         </div>
 
         <div className="flex items-center gap-4 text-label text-muted">

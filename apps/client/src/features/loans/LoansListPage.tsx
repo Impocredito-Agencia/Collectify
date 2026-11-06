@@ -2,11 +2,13 @@ import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { FilterTab } from '@/components/ui/FilterTab';
 import { Legend } from '@/components/ui/Legend';
 import { Pager } from '@/components/ui/Pager';
 import { Select } from '@/components/ui/Select';
 import { Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
+import { DeletedLoansPanel } from '@/features/loans/DeletedLoansPanel';
 import { LoanForm } from '@/features/loans/LoanForm';
 import { LoanRow } from '@/features/loans/LoanRow';
 import { LoanStatus } from '@/features/loans/loansApi';
@@ -55,6 +57,12 @@ export function LoansListPage() {
   );
   const [page, setPage] = useSessionState('loans.list.page', 1);
   const [isCreating, setIsCreating] = useState(false);
+  // Phase 35 — the "Eliminados" tab (read-only deleted pagarés). Kept
+  // across opening one and coming back, same as the search.
+  const [view, setView] = useSessionState<'loans' | 'deleted'>(
+    'loans.list.view',
+    'loans',
+  );
 
   // Human report, 2026-09-22 — "que se pueda filtrar por columna... de
   // menor a mayor y si la vuelve a tocar de mayor a menor". 2026-09-25: the
@@ -106,62 +114,79 @@ export function LoansListPage() {
 
       <div className="border-t border-border" />
 
-      <div className="flex h-10 items-center gap-3">
-        <div className="flex h-[38px] w-[220px] items-center gap-2 rounded bg-input px-3">
-          <input
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Buscar cliente…"
-            className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
-          />
-        </div>
-
-        <Select
-          value={statusFilter}
-          onChange={(next) => {
-            setStatusFilter(next as StatusFilter);
-            setPage(1);
-          }}
-          options={STATUS_FILTER_OPTIONS}
-          className="w-[190px]"
+      <div className="flex items-center gap-2">
+        <FilterTab
+          label="Préstamos"
+          isActive={view === 'loans'}
+          onClick={() => setView('loans')}
         />
-
-        <div className="flex-1" />
-
-        {canCreateLoan && (
-          <Button
-            onClick={() => setIsCreating(true)}
-            className="flex items-center gap-1.5"
-          >
-            {/* An SVG here instead of a literal "+" character — the glyph
-                rendered visibly clipped at the bottom in this font/weight
-                at this size. */}
-            <svg
-              className="size-3.5 shrink-0"
-              viewBox="0 0 20 20"
-              fill="none"
-              stroke="currentColor"
-            >
-              <path
-                d="M10 4v12M4 10h12"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-              />
-            </svg>
-            Nuevo préstamo
-          </Button>
-        )}
+        <FilterTab
+          label="Eliminados"
+          isActive={view === 'deleted'}
+          onClick={() => setView('deleted')}
+        />
       </div>
 
-      {/* QoL, 2026-09-10 — the pager used to live only below the table;
+      {view === 'deleted' ? (
+        <DeletedLoansPanel />
+      ) : (
+        <>
+          <div className="flex h-10 items-center gap-3">
+            <div className="flex h-[38px] w-[220px] items-center gap-2 rounded bg-input px-3">
+              <input
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="Buscar cliente…"
+                className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
+              />
+            </div>
+
+            <Select
+              value={statusFilter}
+              onChange={(next) => {
+                setStatusFilter(next as StatusFilter);
+                setPage(1);
+              }}
+              options={STATUS_FILTER_OPTIONS}
+              className="w-[190px]"
+            />
+
+            <div className="flex-1" />
+
+            {canCreateLoan && (
+              <Button
+                onClick={() => setIsCreating(true)}
+                className="flex items-center gap-1.5"
+              >
+                {/* An SVG here instead of a literal "+" character — the glyph
+                rendered visibly clipped at the bottom in this font/weight
+                at this size. */}
+                <svg
+                  className="size-3.5 shrink-0"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path
+                    d="M10 4v12M4 10h12"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                Nuevo préstamo
+              </Button>
+            )}
+          </div>
+
+          {/* QoL, 2026-09-10 — the pager used to live only below the table;
           same block above and below now (see the comment above
           paginationBar) so paging doesn't require scrolling down first. */}
-      {paginationBar}
+          {paginationBar}
 
-      {/* Style cleanup, 2026-09-06 — same table-fixed recipe as Clientes'
+          {/* Style cleanup, 2026-09-06 — same table-fixed recipe as Clientes'
           list (itself copied from LoanQuotePage's schedule-preview table):
           give an explicit, content-sized width to the ONE column whose
           content is genuinely fixed-size ("#" — a row number), leave every
@@ -171,86 +196,88 @@ export function LoansListPage() {
           centered to match, except "#" (untouched) and "Cliente" — its
           header centers with the rest, but the name itself stays
           left-aligned, same "Nombre" treatment as Clientes' list. */}
-      <div className="overflow-x-auto rounded-lg bg-surface">
-        <table className="w-full min-w-[880px] table-fixed">
-          <thead className="bg-input">
-            <tr className="divide-x divide-border">
-              <Th className="w-10 whitespace-nowrap">#</Th>
-              <Th
-                className="w-24 whitespace-nowrap"
-                style={{ textAlign: 'center' }}
-                sortDirection={directionFor('promissoryNoteNumber')}
-                onSort={() => toggleSort('promissoryNoteNumber')}
-              >
-                ID
-              </Th>
-              <Th
-                style={{ textAlign: 'center' }}
-                sortDirection={directionFor('clientFullName')}
-                onSort={() => toggleSort('clientFullName')}
-              >
-                Cliente
-              </Th>
-              <Th
-                style={{ textAlign: 'center' }}
-                sortDirection={directionFor('outstandingBalance')}
-                onSort={() => toggleSort('outstandingBalance')}
-              >
-                Saldo total (capital + incremento)
-              </Th>
-              <Th style={{ textAlign: 'center' }}>Cuotas</Th>
-              <Th
-                style={{ textAlign: 'center' }}
-                sortDirection={directionFor('overdueDays')}
-                onSort={() => toggleSort('overdueDays')}
-              >
-                Días mora
-              </Th>
-              <Th
-                style={{ textAlign: 'center' }}
-                sortDirection={directionFor('status')}
-                onSort={() => toggleSort('status')}
-              >
-                Estado
-              </Th>
-              <Th
-                className="w-32 whitespace-nowrap"
-                style={{ textAlign: 'center' }}
-              >
-                Acciones
-              </Th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && <EmptyRow>Cargando…</EmptyRow>}
-            {isError && (
-              <EmptyRow tone="error">
-                No se pudo cargar la lista de préstamos.
-              </EmptyRow>
-            )}
-            {!isLoading && !isError && loans.length === 0 && (
-              <EmptyRow>No se encontraron préstamos.</EmptyRow>
-            )}
-            {loans.map((loan, index) => (
-              <LoanRow
-                key={loan.id}
-                loan={loan}
-                rowNumber={rowNumberOffset + index + 1}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+          <div className="overflow-x-auto rounded-lg bg-surface">
+            <table className="w-full min-w-[880px] table-fixed">
+              <thead className="bg-input">
+                <tr className="divide-x divide-border">
+                  <Th className="w-10 whitespace-nowrap">#</Th>
+                  <Th
+                    className="w-24 whitespace-nowrap"
+                    style={{ textAlign: 'center' }}
+                    sortDirection={directionFor('promissoryNoteNumber')}
+                    onSort={() => toggleSort('promissoryNoteNumber')}
+                  >
+                    ID
+                  </Th>
+                  <Th
+                    style={{ textAlign: 'center' }}
+                    sortDirection={directionFor('clientFullName')}
+                    onSort={() => toggleSort('clientFullName')}
+                  >
+                    Cliente
+                  </Th>
+                  <Th
+                    style={{ textAlign: 'center' }}
+                    sortDirection={directionFor('outstandingBalance')}
+                    onSort={() => toggleSort('outstandingBalance')}
+                  >
+                    Saldo total (capital + incremento)
+                  </Th>
+                  <Th style={{ textAlign: 'center' }}>Cuotas</Th>
+                  <Th
+                    style={{ textAlign: 'center' }}
+                    sortDirection={directionFor('overdueDays')}
+                    onSort={() => toggleSort('overdueDays')}
+                  >
+                    Días mora
+                  </Th>
+                  <Th
+                    style={{ textAlign: 'center' }}
+                    sortDirection={directionFor('status')}
+                    onSort={() => toggleSort('status')}
+                  >
+                    Estado
+                  </Th>
+                  <Th
+                    className="w-32 whitespace-nowrap"
+                    style={{ textAlign: 'center' }}
+                  >
+                    Acciones
+                  </Th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading && <EmptyRow>Cargando…</EmptyRow>}
+                {isError && (
+                  <EmptyRow tone="error">
+                    No se pudo cargar la lista de préstamos.
+                  </EmptyRow>
+                )}
+                {!isLoading && !isError && loans.length === 0 && (
+                  <EmptyRow>No se encontraron préstamos.</EmptyRow>
+                )}
+                {loans.map((loan, index) => (
+                  <LoanRow
+                    key={loan.id}
+                    loan={loan}
+                    rowNumber={rowNumberOffset + index + 1}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-      <div className="flex items-center gap-4 text-label text-muted">
-        <span>Días mora:</span>
-        <Legend tone="success" label="0 días" />
-        <Legend tone="warning" label="1–30" />
-        <Legend tone="mora-mid" label="31–60" />
-        <Legend tone="danger" label="+60" />
-      </div>
+          <div className="flex items-center gap-4 text-label text-muted">
+            <span>Días mora:</span>
+            <Legend tone="success" label="0 días" />
+            <Legend tone="warning" label="1–30" />
+            <Legend tone="mora-mid" label="31–60" />
+            <Legend tone="danger" label="+60" />
+          </div>
 
-      {paginationBar}
+          {paginationBar}
+        </>
+      )}
 
       {isCreating && (
         <LoanForm
