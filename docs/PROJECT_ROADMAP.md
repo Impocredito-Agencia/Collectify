@@ -316,6 +316,20 @@ Requested by the client. Depends on Phase 33 (buttons live on the templates it b
 
 **Exit criteria:** every button across Templates 4–8 does exactly what's specified, the self-service menu and its submenu work end-to-end, and Phase 22's four open questions are marked resolved.
 
+## Phase 35 — Irreversible loan deletion with audit trail
+
+**Done.** See `docs/phases/PHASE_35_LOAN_DELETION.md` / `docs/phasesClient/PHASE_35_LOAN_DELETION.md`.
+
+Requested by the client (2026-11-05) — mainly to remove the test/fictitious pagarés they create to try things out. Supersedes Phase 30's "only while it has no payments" deletion rule.
+
+- An admin (admin only, for real — the endpoint had drifted to any collector with the loans module) can delete any **active** pagaré, with or without payments; a pagaré that came from a refinance takes its whole chain with it. Soft and permanent — no restore, in the api or the panel
+- Every payment of a deleted loan is voided through the existing void logic, and saldo a favor is corrected only through append-only ledger entries; blocked (with the exact payment named) when credit it generated was already spent elsewhere or refunded
+- Each cuota's figures, mora included, are frozen at the moment of deletion; a deleted pagaré never counts toward any client, dashboard or report figure and never triggers a WhatsApp message
+- Double confirmation in the panel: a red preview with a mandatory reason, then typing the pagaré number — both re-checked by the api
+- Deleted pagarés stay viewable read-only by every user: an "Eliminados" tab in Préstamos, a detail page (frozen cuotas, voided payments, the terms it was created with), and an "Eliminado" badge on the client's profile
+
+**Exit criteria:** a test pagaré, with or without payments, can be deleted permanently without leaving any money counted anywhere, and anyone can still look it up afterwards exactly as it was when deleted.
+
 ---
 
 ## Explicitly out of scope for now
