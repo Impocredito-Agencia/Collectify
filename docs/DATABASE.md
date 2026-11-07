@@ -1147,6 +1147,12 @@ No schema change. Human request: "necesitamos poder saber a qué tasa se les fin
 
 Shown as "Condiciones con las que se creó el crédito" (`LoanOriginationTerms.tsx`) on the loan detail page (with the refinanced-from pagarés) and, this loan only, inside the refinance form and the payoff dialog. Corriente is labeled per the loan's frequency (it's charged per cuota on the remaining balance); moratorio is monthly, prorated per day.
 
+**Every charge made visible, 2026-11-06 (human request).** The catalog fees ("otros cargos") had been a small grey line under the grid, without saying whether each one was charged on every cuota or only on an overdue one — easy to miss when refinancing or liquidating. Panel only, no api or schema change: `LoanOriginationTerms.tsx` now groups everything, by each fee's `category`, into "Se cobra en cada cuota" (the corriente rate, labeled "Intereses corrientes" to match its column in the cuotas table, + corriente fees) and "En caso de mora" ("Intereses moratorios" + moratorio fees; a fixed one reads "por cuota vencida"), every charge as its own small card (left edge blue for corriente, red for moratorio, like the cuotas table's "M" badge), all text at 13px. The summary above is split into the same two columns so both sides line up.
+
+**Only this loan's terms, 2026-11-06 (human feedback).** The loan detail page used to stack the terms of every pagaré in the refinance chain under "Pagarés anteriores (refinanciados)" — hard to read on a twice-refinanced loan. Every page now shows only the loan's own terms (the `compact` prop is gone); an earlier link's terms are on that loan's own page. The endpoint still returns the whole chain, unchanged — the panel just reads the first item.
+
+Tried and dropped at the human's call: a combined "mora total" (the moratorio rates added up), and a per-charge "$X en total" under each corriente charge (the sum of its stored `computed_amount` over every financed cuota) — the latter read as confusing next to the rate. A fixed-amount fee therefore shows its stored `value` as is; note that value is the whole-loan total when the fee was split across cuotas but a per-cuota figure when repeated each cuota, and `fixed_amount_distribution` lives only on the catalog type, not on the loan.
+
 ## Related documents
 
 - `GLOSSARY.md` — definitions of `pagaré`, `cuota`, `mora`, `refinanciación`, and other terms used above
