@@ -734,7 +734,7 @@ export function RefinanceLoanForm({
         {/* Human request, 2026-11-05 — the rate the loan being refinanced
             was made at, for reference while setting the new terms. */}
         <div className="mt-3.5">
-          <LoanOriginationTerms loanId={oldLoanId} compact />
+          <LoanOriginationTerms loanId={oldLoanId} />
         </div>
 
         <div className="mt-5 border-t border-border" />

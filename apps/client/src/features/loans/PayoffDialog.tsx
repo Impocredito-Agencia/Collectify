@@ -164,7 +164,7 @@ export function PayoffDialog({
       {/* Human request, 2026-11-05 — the rate the loan was made at is
           needed almost every time a loan is liquidated. */}
       <div className="mt-3.5">
-        <LoanOriginationTerms loanId={loanId} compact />
+        <LoanOriginationTerms loanId={loanId} />
       </div>
 
       <div className="mt-5 border-t border-border" />
