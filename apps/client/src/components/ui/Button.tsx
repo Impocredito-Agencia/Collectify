@@ -10,7 +10,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 // this). Now every button in the app renders through here, so a variant's
 // look is defined exactly once.
 export type ButtonVariant =
-  'primary' | 'secondary' | 'neutral' | 'danger' | 'dangerSolid';
+  'primary' | 'secondary' | 'neutral' | 'danger' | 'dangerSolid' | 'brandBlue';
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   // Main call-to-action — "Entrar", "Guardar cliente", "Crear préstamo",
@@ -47,6 +47,12 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   // definitivamente" after the soft warning).
   dangerSolid:
     'rounded bg-danger px-4 py-2.5 text-small font-semibold text-white hover:bg-danger/90 disabled:cursor-not-allowed disabled:opacity-60',
+  // Phase 36 (human request, 2026-11-09) — the Publi Mark blue
+  // (`accent-secondary`) as a solid button, for an entry point that should
+  // stand out without competing with a screen's orange primary action.
+  // First used by Plantillas' "Correo y SMS".
+  brandBlue:
+    'rounded-lg bg-accent-secondary px-4 py-2.5 text-small font-semibold text-white hover:bg-accent-secondary/85 disabled:cursor-not-allowed disabled:opacity-60',
 };
 
 interface ButtonProps extends Omit<
