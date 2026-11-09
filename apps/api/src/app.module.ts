@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuditLogModule } from './auditLog/auditLog.module';
 import { AuthModule } from './auth/auth.module';
+import { BrevoModule } from './brevo/brevo.module';
 import { ClientsImportModule } from './clientsImport/clientsImport.module';
 import { ClientsModule } from './clients/clients.module';
 import configuration, { Configuration } from './config/configuration';
@@ -43,6 +44,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     InterestConceptTypesModule,
     UsuryRatesModule,
     WhatsappModule,
+    BrevoModule,
     DashboardModule,
     OverdueInstallmentsReportModule,
     UploadsModule,
