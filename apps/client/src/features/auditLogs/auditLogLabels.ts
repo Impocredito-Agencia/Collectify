@@ -80,6 +80,9 @@ export const ACTION_LABELS: Record<string, string> = {
   'bankAccount.update': 'Cambió la cuenta bancaria para pagos',
   // Phase 36 — Brevo test send from the Plantillas page.
   'brevo.testSend': 'Envió un correo o SMS de prueba por Brevo',
+  'messageChannelTemplate.update': 'Editó una plantilla de correo o SMS',
+  'messageChannelTemplate.testSend':
+    'Envió una prueba de una plantilla de correo o SMS',
   'whatsapp.sendReminder': 'Envió manualmente un recordatorio de mora',
   'whatsapp.sendUpcomingDue':
     'Envió manualmente un recordatorio de cuota próxima',
@@ -151,6 +154,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   usuryRate: 'Tasa de usura',
   bankAccount: 'Cuenta bancaria',
   brevo: 'Correo y SMS (Brevo)',
+  messageChannelTemplate: 'Plantilla de correo o SMS',
   // Phase 32 — same sync gap as ACTION_LABELS above. Kept for historical
   // rows logged before the 2026-09-06 split below.
   clientLoanImport: 'Importación de clientes',
