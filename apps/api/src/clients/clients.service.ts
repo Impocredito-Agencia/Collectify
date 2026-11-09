@@ -559,6 +559,23 @@ export class ClientsService {
       await this.assertPhoneNumberIsUnique(dto.alternatePhoneNumber, id);
     }
 
+    // Same "at least one address" rule as create(), checked against the
+    // merged result: an edit can send null to clear a field (see the
+    // client's buildClientPayload.ts), so it could otherwise wipe both.
+    // Only when the edit touches an address, so an unrelated edit of an
+    // older client saved without one isn't blocked.
+    const touchesAddress =
+      dto.homeAddress !== undefined || dto.workAddress !== undefined;
+    const homeAddress =
+      dto.homeAddress !== undefined ? dto.homeAddress : client.homeAddress;
+    const workAddress =
+      dto.workAddress !== undefined ? dto.workAddress : client.workAddress;
+    if (touchesAddress && !homeAddress?.trim() && !workAddress?.trim()) {
+      throw new BadRequestException(
+        'Debe registrar al menos una dirección (de residencia o de trabajo).',
+      );
+    }
+
     // Same "server clock, not caller-supplied" reasoning as create(): only
     // stamp consentGivenAt when consent is actually transitioning to true,
     // don't overwrite an existing timestamp on an unrelated update.
