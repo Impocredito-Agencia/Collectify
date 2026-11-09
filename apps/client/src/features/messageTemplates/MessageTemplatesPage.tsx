@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { BankAccountCard } from '@/features/bankAccount/BankAccountCard';
+import { BrevoCard } from '@/features/brevo/BrevoCard';
 import {
   buildCronExpression,
   DEFAULT_SCHEDULE_CONFIG,
@@ -118,6 +119,8 @@ export function MessageTemplatesPage() {
         title="Plantillas de mensaje"
         subtitle="Solo ADMIN — Contenido fijo; solo la cuenta bancaria es editable"
       />
+
+      <BrevoCard />
 
       <BankAccountCard />
 
