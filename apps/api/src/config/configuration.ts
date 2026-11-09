@@ -59,6 +59,24 @@ export interface WhatsappConfig {
   paymentConfirmationPaused: boolean;
 }
 
+// Phase 36 — Brevo, the provider for the email and SMS channels. Same
+// safety model as WhatsappConfig: a kill switch per channel plus a test
+// allowlist that bypasses both, all checked inside BrevoService before any
+// network call. See docs/phases/PHASE_36_BREVO_EMAIL_SMS.md.
+export interface BrevoConfig {
+  apiKey: string;
+  senderEmail: string;
+  senderName: string;
+  smsSender: string;
+  emailSendingPaused: boolean;
+  // Defaults to true — every SMS costs a prepaid credit, so a deploy that
+  // forgets BREVO_SMS_SENDING_PAUSED must not start spending them. Only an
+  // explicit "false" turns SMS on.
+  smsSendingPaused: boolean;
+  // Emails (lowercased) and E.164 phone numbers, mixed in one list.
+  testRecipients: string[];
+}
+
 export interface CloudinaryConfig {
   cloudName: string;
   apiKey: string;
@@ -109,6 +127,7 @@ export interface Configuration {
   database: DatabaseConfig;
   jwt: JwtConfig;
   whatsapp: WhatsappConfig;
+  brevo: BrevoConfig;
   cloudinary: CloudinaryConfig;
   cron: CronConfig;
   loans: LoansConfig;
@@ -145,6 +164,23 @@ export default (): Configuration => ({
       .filter((phoneNumber) => phoneNumber.length > 0),
     paymentConfirmationPaused:
       process.env.PAYMENT_CONFIRMATION_MESSAGES_PAUSED === 'true',
+  },
+  brevo: {
+    apiKey: process.env.BREVO_API_KEY ?? '',
+    senderEmail: process.env.BREVO_SENDER_EMAIL ?? '',
+    senderName: process.env.BREVO_SENDER_NAME ?? '',
+    smsSender: process.env.BREVO_SMS_SENDER ?? '',
+    emailSendingPaused:
+      process.env.BREVO_EMAIL_SENDING_PAUSED?.trim().toLowerCase() === 'true',
+    smsSendingPaused:
+      process.env.BREVO_SMS_SENDING_PAUSED?.trim().toLowerCase() !== 'false',
+    testRecipients: (process.env.BREVO_TEST_RECIPIENTS ?? '')
+      .split(',')
+      .map((recipient) => recipient.trim())
+      .filter((recipient) => recipient.length > 0)
+      .map((recipient) =>
+        recipient.includes('@') ? recipient.toLowerCase() : recipient,
+      ),
   },
   cloudinary: {
     // Live in production since 2026-09-16, same status as the Meta

@@ -57,6 +57,15 @@ WHATSAPP_TEST_RECIPIENTS=
 # ── WhatsApp — payment confirmation kill switch (2026-09-11) ──
 PAYMENT_CONFIRMATION_MESSAGES_PAUSED=false
 
+# ── Brevo — email and SMS (Phase 36) ────────────────────
+BREVO_API_KEY=
+BREVO_SENDER_EMAIL=
+BREVO_SENDER_NAME=Collectify
+BREVO_SMS_SENDER=
+BREVO_EMAIL_SENDING_PAUSED=false
+BREVO_SMS_SENDING_PAUSED=true
+BREVO_TEST_RECIPIENTS=
+
 # ── Loans — silent pending-cuota correction (2026-09-25) ─
 LOAN_INSTALLMENT_ADJUSTMENT_ENABLED=false
 LOAN_INSTALLMENT_ADJUSTMENT_PROMISSORY_NOTES=
@@ -100,6 +109,13 @@ CLIENT_URL=http://localhost:5173
 | `WHATSAPP_SENDING_PAUSED` | ✅ | Added 2026-09-06 (incident response — needed to pause every outbound WhatsApp send while re-importing real client/loan data). `true`/`false`, default `false`. When `true`, `WhatsAppService`'s three send methods (text, template, interactive buttons) short-circuit before ever calling Meta's API — covers every message type unconditionally: cron reminders, the synchronous new-loan/payment-confirmation sends, and self-service menu replies alike. Toggle back to `false` (or unset) and redeploy/restart to resume sending — see the relevant PR for the reactivation plan once decided. |
 | `WHATSAPP_TEST_RECIPIENTS` | ⚠️ Optional | Added 2026-09-08 — comma-separated E.164 phone numbers (e.g. `+573001234567,+573007654321`) that bypass `WHATSAPP_SENDING_PAUSED`: a send to one of these numbers goes out for real even while the kill switch above stays `true` for everyone else. Lets a real end-to-end WhatsApp test run (own phone + another developer's) without lifting the pause for the whole client base. Empty by default — no bypass happens unless explicitly set. **Never commit real phone numbers** — leave this blank in `.env.example` and set the real value only in Railway's Variables tab (or a local, gitignored `.env`). Remove the variable (or clear it) once testing is done; it has no effect while `WHATSAPP_SENDING_PAUSED` is `false`. See `apps/api/src/database/seedWhatsappTestData.ts` and `cleanupWhatsappTestData.ts` for the paired test-data scripts. |
 | `PAYMENT_CONFIRMATION_MESSAGES_PAUSED` | ✅ | Added 2026-09-11 — `true`/`false`, default `false`. A narrower kill switch than `WHATSAPP_SENDING_PAUSED` above: stops only `PaymentConfirmationService`'s two message types (`PaymentConfirmation`, `PaidInFull`), checked before either ever reaches `WhatsAppService` — so no `message_logs` row gets created for them at all while this is `true`, not even a `Failed` one. Exists because historical payments are being backfilled alongside historical loans (`Loan.isNewLoan` already stops the "nuevo pagaré" message for those); there's no per-payment equivalent flag to key off of, so this pauses the message type globally instead until real payments start flowing through normally. Independent of `WHATSAPP_SENDING_PAUSED` — the two compose (either one blocks), so flipping this back to `false` doesn't resume sends if the global switch is still `true`. |
+| `BREVO_API_KEY` | ⚠️ Optional | Added Phase 36. Brevo API key (Brevo → SMTP & API → API Keys), sent as the `api-key` header. Empty in local dev: `BrevoService` skips every email/SMS with a warning and the app runs normally. **Never expose it** — `GET /brevo/status` only reports whether it's set. Not yet live in production. See `docs/phases/PHASE_36_BREVO_EMAIL_SMS.md`. |
+| `BREVO_SENDER_EMAIL` | ⚠️ Optional | Added Phase 36. The "from" address for every email. Must be a sender verified in Brevo (Senders & IP → Senders); for real delivery (not spam) the business's domain should be authenticated there too (SPF/DKIM/DMARC). Email counts as "not configured" while this is empty. |
+| `BREVO_SENDER_NAME` | ❌ | Added Phase 36. Display name next to the sender email (max 70 characters). Omitted from the send when empty. |
+| `BREVO_SMS_SENDER` | ⚠️ Optional | Added Phase 36. SMS sender: up to 11 letters/digits (alphanumeric) or up to 15 digits (numeric) — Brevo's own limit, validated at boot. Whether Colombian carriers accept an alphanumeric sender is still to be confirmed with Brevo (stage 6). SMS counts as "not configured" while this is empty. |
+| `BREVO_EMAIL_SENDING_PAUSED` | ✅ | Added Phase 36. `true`/`false`, default `false`. Kill switch for every email, same behavior as `WHATSAPP_SENDING_PAUSED`: checked before credentials or any call to Brevo; `BREVO_TEST_RECIPIENTS` still receive. |
+| `BREVO_SMS_SENDING_PAUSED` | ✅ | Added Phase 36. **Default `true`** — every SMS costs a prepaid credit, so anything other than an explicit `false` (unset included) keeps SMS paused, and a deploy that forgets the variable can't spend credits. `BREVO_TEST_RECIPIENTS` still receive. |
+| `BREVO_TEST_RECIPIENTS` | ⚠️ Optional | Added Phase 36. Comma-separated emails and E.164 phones (e.g. `dev@example.com,+573001234567`) that bypass both Brevo pauses above, for real end-to-end tests while everyone else stays blocked — same idea as `WHATSAPP_TEST_RECIPIENTS`. Emails match case-insensitively. **Never commit real values** — set only in Railway or a local, gitignored `.env`. |
 | `LOAN_INSTALLMENT_ADJUSTMENT_ENABLED` | ✅ | Added 2026-09-25 — `true`/`false`, default `false`. Unlocks `PATCH /loans/:id/installments/amount-adjustment` ("Ajustar cuotas pendientes" on the loan detail page), which adds the same amount, as capital, to every pending cuota of a loan **without sending any WhatsApp message**. Only works together with `LOAN_INSTALLMENT_ADJUSTMENT_PROMISSORY_NOTES` below — the flag alone unlocks nothing. Exists for correcting loans that were loaded wrong from the old Excel, where the client already knows the real cuota and Refinanciar's new pagaré + message would only confuse them. Keep it `false` except while a specific correction is being made. See `docs/DATABASE.md`'s note of this date. |
 | `LOAN_INSTALLMENT_ADJUSTMENT_PROMISSORY_NOTES` | ❌ | Added 2026-09-25 — comma-separated pagaré numbers the adjustment above is allowed on, e.g. `0965,1113`. The leading `#` and zero padding are ignored when matching (`#0965`, `0965` and `965` are the same loan). Empty by default, which unlocks nothing even with the flag on. Only active loans qualify. |
 | `OVERDUE_REMINDER_CRON` | ✅ | Cron expression controlling when the overdue reminder job runs. Default `0 9 * * 1,3,5` = every Monday, Wednesday, and Friday at 9:00 AM. Changed from a single weekly run (Monday only) at the client's request — the message content is still one consolidated summary per client, it's just sent three times a week instead of once. |
@@ -179,6 +195,8 @@ NEW_LOAN_REMINDER_CRON=0 10 * * 1
 CREDIT_REPORT_REMINDER_CRON=0 9 * * *
 CLIENT_URL=<the Cloudflare Workers production URL for this project, e.g. https://collectify.<subdomain>.workers.dev>
 # META_WHATSAPP_* — see "On the (now live) Meta Cloud API credentials" above.
+# BREVO_* — see the variable reference above. BREVO_SMS_SENDING_PAUSED stays
+# true until SMS credits are bought and tested (Phase 36, stage 6).
 # CLOUDINARY_* — see "Cloudinary uploads are signed by the api" above.
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=

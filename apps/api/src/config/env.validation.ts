@@ -40,6 +40,26 @@ export const envValidationSchema = Joi.object({
   // backfilled. See WhatsappConfig.paymentConfirmationPaused.
   PAYMENT_CONFIRMATION_MESSAGES_PAUSED: Joi.boolean().default(false),
 
+  // Phase 36 — Brevo (email + SMS). Same "allow blank" pattern as the Meta
+  // vars above: BrevoService skips every send with a warning while the API
+  // key is empty, so local dev needs no real credentials. See
+  // docs/phases/PHASE_36_BREVO_EMAIL_SMS.md.
+  BREVO_API_KEY: Joi.string().allow('').default(''),
+  BREVO_SENDER_EMAIL: Joi.string().email().allow('').default(''),
+  BREVO_SENDER_NAME: Joi.string().max(70).allow('').default(''),
+  // Brevo's own limit: up to 11 characters when alphanumeric, up to 15
+  // digits when numeric.
+  BREVO_SMS_SENDER: Joi.string()
+    .pattern(/^(?:\d{1,15}|(?=.*[A-Za-z])[A-Za-z0-9]{1,11})$/)
+    .allow('')
+    .default(''),
+  BREVO_EMAIL_SENDING_PAUSED: Joi.boolean().default(false),
+  // SMS costs a credit per message — paused unless explicitly "false".
+  BREVO_SMS_SENDING_PAUSED: Joi.boolean().default(true),
+  // Comma-separated emails and E.164 phones that bypass both pauses above.
+  // Same rule as WHATSAPP_TEST_RECIPIENTS: never commit real values.
+  BREVO_TEST_RECIPIENTS: Joi.string().allow('').default(''),
+
   // Live in production since 2026-09-16 — same "allow blank" pattern as
   // the Meta WhatsApp vars above, kept for local dev. UploadsService fails
   // clearly (not silently) if a signature is requested while any of these
