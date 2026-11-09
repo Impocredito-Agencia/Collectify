@@ -511,6 +511,57 @@ describe('ClientsService', () => {
       expect(repository.findOne).not.toHaveBeenCalled();
     });
 
+    // The admin panel sends null for an optional field the admin emptied
+    // (e.g. the alternate phone number) — that must actually clear it.
+    it('clears an optional field sent as null', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        alternatePhoneNumber: '+573009876543',
+      });
+      repository.save.mockImplementation((client: Client) =>
+        Promise.resolve(client),
+      );
+
+      const result = await service.update(mockClient.id, {
+        alternatePhoneNumber: null as unknown as string,
+      });
+
+      expect(result.alternatePhoneNumber).toBeNull();
+    });
+
+    it('rejects an update that would leave the client without any address', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        homeAddress: 'Cra 1 #2-3',
+        workAddress: null,
+      });
+
+      await expect(
+        service.update(mockClient.id, {
+          homeAddress: null as unknown as string,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('allows clearing one address while the other is still set', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        homeAddress: 'Cra 1 #2-3',
+        workAddress: 'Av. 4 #5-6',
+      });
+      repository.save.mockImplementation((client: Client) =>
+        Promise.resolve(client),
+      );
+
+      const result = await service.update(mockClient.id, {
+        workAddress: null as unknown as string,
+      });
+
+      expect(result.workAddress).toBeNull();
+      expect(result.homeAddress).toBe('Cra 1 #2-3');
+    });
+
     it('throws NotFoundException when the client does not exist', async () => {
       repository.findOneBy.mockResolvedValue(null);
 
