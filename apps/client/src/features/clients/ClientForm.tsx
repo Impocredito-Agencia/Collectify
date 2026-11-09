@@ -10,6 +10,7 @@ import { FileUploadField } from '@/components/ui/FileUploadField';
 import { Modal } from '@/components/ui/Modal';
 import { PlusIcon } from '@/components/ui/PlusIcon';
 import { Select } from '@/components/ui/Select';
+import { buildClientPayload } from '@/features/clients/buildClientPayload';
 import {
   ClientReferenceType,
   CLIENT_REFERENCE_TYPE_LABELS,
@@ -517,30 +518,31 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
     setIsSubmitting(true);
     try {
       const savedClient = await onSubmit({
-        firstName,
-        lastName,
-        documentNumber,
-        phoneNumber,
-        ...(creditLimit > 0 ? { creditLimit } : {}),
-        ...(documentType ? { documentType: documentType as DocumentType } : {}),
-        ...(dateOfBirth ? { dateOfBirth } : {}),
-        ...(gender ? { gender: gender as Gender } : {}),
-        ...(documentIssuePlace.trim()
-          ? { documentIssuePlace: documentIssuePlace.trim() }
-          : {}),
-        ...(documentIssueDate ? { documentIssueDate } : {}),
-        ...(email.trim() ? { email: email.trim() } : {}),
-        ...(alternatePhoneNumber.trim()
-          ? { alternatePhoneNumber: alternatePhoneNumber.trim() }
-          : {}),
-        ...(homeAddress.trim() ? { homeAddress: homeAddress.trim() } : {}),
-        ...(workAddress.trim() ? { workAddress: workAddress.trim() } : {}),
-        ...(city.trim() ? { city: city.trim() } : {}),
-        ...(occupation.trim() ? { occupation: occupation.trim() } : {}),
-        ...(employerName.trim() ? { employerName: employerName.trim() } : {}),
-        ...(monthlyIncome > 0 ? { monthlyIncome } : {}),
+        ...buildClientPayload(
+          {
+            firstName,
+            lastName,
+            documentNumber,
+            phoneNumber,
+            creditLimit,
+            documentType,
+            dateOfBirth,
+            gender,
+            documentIssuePlace,
+            documentIssueDate,
+            email,
+            alternatePhoneNumber,
+            homeAddress,
+            workAddress,
+            city,
+            occupation,
+            employerName,
+            monthlyIncome,
+            dataProcessingConsent,
+          },
+          isEditing,
+        ),
         ...uploadedUrls,
-        dataProcessingConsent,
       });
 
       try {

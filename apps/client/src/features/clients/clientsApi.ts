@@ -230,34 +230,35 @@ export interface PaginatedClients {
 // enforced as required by ClientForm.tsx's own validation (a checkbox that
 // blocks submit), not by this type, since Excel-imported clients go
 // through a different path that's deliberately exempt (decision 6).
+// Optional fields also accept null: in a PATCH an omitted field is left
+// untouched, so null is how an edit clears a saved value — see
+// buildClientPayload.ts.
 export interface CreateClientInput {
   firstName: string;
   lastName: string;
   documentNumber: string;
   phoneNumber: string;
-  // Omitted (not 0/null) means no cupo enforced — see CreateClientDto's
-  // @IsOptional() @IsPositive(). There is currently no way to explicitly
-  // clear a previously-set cupo via PATCH; see DESIGN_TOKENS.md "Known
-  // design/backend gaps".
-  creditLimit?: number;
-  documentType?: DocumentType;
-  dateOfBirth?: string;
-  gender?: Gender;
-  documentIssuePlace?: string;
-  documentIssueDate?: string;
-  email?: string;
-  alternatePhoneNumber?: string;
-  homeAddress?: string;
-  workAddress?: string;
-  city?: string;
-  occupation?: string;
-  employerName?: string;
-  monthlyIncome?: number;
-  idDocumentFrontUrl?: string;
-  idDocumentBackUrl?: string;
-  selfieImageUrl?: string;
+  // Omitted/null means no cupo enforced — see CreateClientDto's
+  // @IsOptional() @IsPositive().
+  creditLimit?: number | null;
+  documentType?: DocumentType | null;
+  dateOfBirth?: string | null;
+  gender?: Gender | null;
+  documentIssuePlace?: string | null;
+  documentIssueDate?: string | null;
+  email?: string | null;
+  alternatePhoneNumber?: string | null;
+  homeAddress?: string | null;
+  workAddress?: string | null;
+  city?: string | null;
+  occupation?: string | null;
+  employerName?: string | null;
+  monthlyIncome?: number | null;
+  idDocumentFrontUrl?: string | null;
+  idDocumentBackUrl?: string | null;
+  selfieImageUrl?: string | null;
   dataProcessingConsent?: boolean;
-  consentDocumentUrl?: string;
+  consentDocumentUrl?: string | null;
 }
 
 export type UpdateClientInput = Partial<CreateClientInput>;
