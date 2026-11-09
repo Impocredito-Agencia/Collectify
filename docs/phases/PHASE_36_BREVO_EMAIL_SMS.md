@@ -53,7 +53,7 @@ Delivered as separate branches/PRs, in this order. Stages 1–2 don't depend on 
   - `BREVO_TEST_RECIPIENTS` — emails and E.164 phones that bypass both pauses (same behavior as `WHATSAPP_TEST_RECIPIENTS`).
 - **No credentials:** an empty `BREVO_API_KEY` logs a warning and sends nothing; the app boots normally.
 - **Test send uses a fixed text** (no free-form content from the panel), short and GSM-7 only, so a test SMS always costs exactly one credit. It isn't written to `message_logs` (that table is per-client history with a mandatory `client_id` and `type`); it's recorded by the audit log, and the result (sent / reason) comes back immediately to the panel.
-- **Permissions:** both endpoints use `@RequireModule(AppModule.MessageTemplates)` — the Brevo card lives on the Plantillas page, which is gated by that module, and stage 2's per-channel templates will live there too.
+- **Permissions:** both endpoints use `@RequireModule(AppModule.MessageTemplates)` — the Brevo card lives under Plantillas (its "Correo y SMS" sub-page, `/plantillas/correo-sms`), gated by that same module, next to stage 2's per-channel templates.
 - **`message_logs` changes moved to stage 3.** Nothing writes an email/SMS row before stage 3, and making `phone_number` nullable now would force changes in retry and the inbox thread that couldn't be exercised yet.
 
 ### Scope
@@ -64,6 +64,28 @@ Delivered as separate branches/PRs, in this order. Stages 1–2 don't depend on 
 - [x] `POST /api/v1/brevo/test` — `{ channel: 'email' | 'sms', to }`, `@Audit('brevo.testSend')`.
 - [x] Unit tests: payloads, no API key, kill switches, allowlist, error mapping, account parsing.
 - [x] `.env.example`, `docs/ENVIRONMENT_VARIABLES.md`, `docs/ARCHITECTURE.md`.
+
+## Stage 2 — Email and SMS templates (`feature/brevo-channel-templates`)
+
+### Decisions
+
+- **Resolved with the human (2026-11-09): SMS are always sent in GSM-7.** Before sending, `toGsm7Text` (`whatsapp/smsText.ts`) drops the accents GSM-7 lacks (á, í, ó, ú → a, i, o, u), replaces typographic punctuation and removes emojis; é, ñ, ü, ¿ and ¡ are GSM-7 and stay. Otherwise one "días" — in nearly every reminder through the "hace N días" value — makes the whole SMS Unicode, 70 characters per credit instead of 160. Email and WhatsApp keep their accents.
+- **Wording lives in Collectify, not in Brevo's template editor** (`templateId`): new table `message_channel_templates`, one row per (type, channel), editable from the panel and covered by the audit log. See `docs/DATABASE.md`.
+- **Same values as WhatsApp.** A row is filled with the same `bodyParameters` the WhatsApp template of that type is sent with — no figure is computed twice. `MESSAGE_TYPE_PARAMETERS` (`whatsapp/messageTypeParameters.ts`) describes each `{{n}}` with a label and an example value; its spec builds a real selection for every one of the 18 types and checks the counts match, so it can't silently drift from what's sent. A text with a placeholder outside `{{1}}…{{N}}`, or a malformed one, is rejected on save (api and panel).
+- **Plain text, never HTML.** Email bodies use the WhatsApp convention (`*bold*`); `renderEmailHtml` escapes everything, makes paragraphs from blank lines and sends a plain-text part too. The admin can't break the layout or inject markup, and a client's own data in a value is escaped like any text.
+- **Limits:** email subject 150, email body 5000, SMS body 480 characters (before filling — already 4 credits). The SMS segment count is a warning in the panel, not a hard limit.
+- **Seeded texts** for all 18 types × 2 channels, adapted from the WhatsApp ones: emojis removed, and "adjunte su comprobante" became "Si ya realizó el pago, haga caso omiso de este mensaje" (an email reply isn't a channel the business monitors). Short SMS versions: with the example values every one costs at most 2 credits, most 1 (checked by a spec). **The business must review them before email/SMS go live (stage 5/6).**
+- **Template test send:** `POST /message-channel-templates/:type/:channel/test` sends the *saved* template filled with the example values, email subject prefixed "[Prueba] ", through `BrevoService` — same pauses and test list as everything else.
+- **Lives in the whatsapp module** (`whatsapp/channelTemplates/`), next to `messageTemplates/`, since it's keyed by `MessageType` and stage 3's senders are there; `WhatsappModule` now imports `BrevoModule`.
+
+### Scope
+
+- [x] Migration `CreateMessageChannelTemplatesTable1792000000000` + entity `MessageChannelTemplate`, seeded.
+- [x] `MESSAGE_TYPE_PARAMETERS` + sync spec against the real template selections.
+- [x] `toGsm7Text` / `countSmsSegments` (+ spec), `findInvalidPlaceholders` / `renderEmailHtml` / `renderEmailText` (+ spec).
+- [x] `MessageChannelTemplatesService`: `findAll`, `update`, `render` (for stage 3), `sendTest` (+ spec, including a check of every seeded text).
+- [x] `GET /message-channel-templates`, `PUT /message-channel-templates/:type/:channel` (`@Audit('messageChannelTemplate.update')`), `POST /message-channel-templates/:type/:channel/test` (`@Audit('messageChannelTemplate.testSend')`) — `message_templates` module, Swagger.
+- [x] `docs/DATABASE.md`, `docs/GLOSSARY.md` (canal, plantilla de correo/SMS, crédito SMS, segmento SMS).
 
 ## Related documents
 

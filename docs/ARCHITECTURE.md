@@ -72,6 +72,12 @@ apps/api/
     │   ├── messageTemplates/
     │   │   ├── messageTemplates.controller.ts
     │   │   └── messageTemplates.service.ts
+    │   ├── channelTemplates/          # Phase 36 — admin-editable email/SMS wording per message type
+    │   │   ├── messageChannelTemplates.controller.ts
+    │   │   ├── messageChannelTemplates.service.ts
+    │   │   └── channelTemplateText.ts  # placeholder check, email HTML
+    │   ├── smsText.ts                  # GSM-7 conversion + SMS segment count
+    │   ├── messageTypeParameters.ts    # what each {{n}} of each message type is
     │   ├── webhook/                   # Phase 22 — inbound events, the one
     │   │   │                          # @Public() exception in this module
     │   │   ├── whatsappWebhook.controller.ts

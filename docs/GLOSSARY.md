@@ -153,6 +153,18 @@ The fixed pattern used to generate a message. **Changed after Phase 33** (see `d
 
 **Content is not admin-editable**: WhatsApp only allows a business-initiated message outside the 24h reply window through a template Meta has pre-approved, so a freely-editable `content` field in our own database would misrepresent what can actually be changed without breaking delivery. As of Phase 33 this is enforced for real — every send goes through Meta's actual Template Messages API (`WhatsAppService.sendTemplateMessage`), not a self-rendered plain-text message; the admin can view the current template per type (`GET /message-templates`), but changing its content is a migration, matching whatever Meta has approved. **The send schedule IS admin-editable** (Phase 18) — see `cronExpression` below; as of Phase 33 this applies per reminder *family* (one schedule for "vencida", one for "próxima a vencer"), not per exact template.
 
+### Canal / Channel (Phase 36)
+The medium a message reaches the client through: **WhatsApp** (Meta, the original and still the only one used by automatic sends), **correo** (email) and **SMS** — the last two through Brevo. Every message type can have a WhatsApp, an email and an SMS version of its text; all three are filled with the same values, so the figures always match. Which messages go by which channel, and when, is still to be confirmed with the client (`docs/phases/PHASE_36_BREVO_EMAIL_SMS.md`, open questions). In code: `BrevoChannel` (`email`/`sms`).
+
+### Plantilla de correo / SMS (Phase 36)
+The email or SMS wording of a message type (`message_channel_templates`). **Editable from the panel**, unlike a WhatsApp template — neither email nor SMS needs anyone's approval. Uses the same `{{1}}`, `{{2}}`… values as the WhatsApp template of that type.
+
+### Crédito SMS
+Brevo charges SMS with prepaid credits, bought separately from the (free) email plan: **one credit per segment** sent. With no credits left, Brevo rejects the SMS. The panel's Brevo card shows the remaining balance.
+
+### Segmento SMS
+The unit an SMS is split into and charged by: **160 characters** in GSM-7, or 153 per segment once a message needs more than one. A single character outside GSM-7 (á, í, ó, ú, emojis) switches the whole message to Unicode — 70 characters, 67 per segment — which is why Collectify drops those accents from every SMS before sending (é, ñ, ü, ¿ and ¡ are GSM-7 and stay). A 200-character SMS costs 2 credits.
+
 ### Nota adicional
 A single closing-line parameter shared by every reminder/confirmation template (4 through 10, see `docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md`), filled with exactly one of three fixed strings depending on the client's situation: the normal closing ("Quedamos atentos a cualquier consulta"), a note about a **saldo pendiente** (an incomplete/partial payment already registered on one of the installments being mentioned), or a note about a **saldo a favor** (an unclaimed client credit). Exists because a Meta template can't show or hide a line conditionally — the backend always fills this one parameter with the right variant instead. Saldo pendiente is derived directly from existing `Payment` rows (no new schema). Saldo a favor (reconnected 2026-09-14, see `docs/DATABASE.md`'s `client_credit_ledger_entries` section) reads the client's real running credit balance (`ClientCreditBalanceService.getBalance`) rather than a same-transaction overpayment figure; when both a pendiente gap and a favor balance apply at once, saldo pendiente wins (confirmed with the human, the more urgent of the two); a message routed to a loan's alternate contact never reports saldo a favor, since that balance is client-wide and the contact is scoped to one loan.
 
