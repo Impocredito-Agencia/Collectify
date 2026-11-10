@@ -55,10 +55,10 @@ export function ChannelTemplatesCard() {
         <span className="text-card-title font-medium text-white">
           Plantillas de correo y SMS
         </span>
-        <p className="text-small text-muted">
+        <p className="text-label text-muted">
           El texto que recibirá el cliente por correo o SMS en cada tipo de
           mensaje, con los mismos valores que el WhatsApp. Se pueden editar
-          libremente. Todavía no se envían a los clientes.
+          libremente. Salen según los envíos automáticos de arriba.
         </p>
       </div>
 
@@ -72,7 +72,11 @@ export function ChannelTemplatesCard() {
       {templates &&
         MESSAGE_TYPE_GROUPS.map((group) => (
           <div key={group.label} className="flex flex-col gap-1.5">
-            <span className="text-[10px] text-muted">{group.label}</span>
+            <span className="text-label text-muted">
+              {group.label}
+              {!group.isSentByEmailOrSms &&
+                ' — hoy no se envía por correo ni SMS'}
+            </span>
             {/* A grid of compact cards rather than one full-width row per
                 type, which left most of a wide screen empty (human
                 feedback, 2026-11-09). items-stretch + justify-between keep
@@ -91,7 +95,7 @@ export function ChannelTemplatesCard() {
                     </span>
                     <div className="flex items-center justify-between gap-2">
                       <span
-                        className={`text-meta ${credits !== null && credits > 1 ? 'text-warning' : 'text-muted'}`}
+                        className={`text-label ${credits !== null && credits > 1 ? 'text-warning' : 'text-muted'}`}
                       >
                         {credits !== null &&
                           `SMS ≈ ${credits} ${credits === 1 ? 'crédito' : 'créditos'}`}

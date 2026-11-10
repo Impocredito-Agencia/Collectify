@@ -26,10 +26,9 @@ export function BrevoCard() {
         <span className="text-card-title font-medium text-white">
           Correo y SMS (Brevo)
         </span>
-        <p className="text-small text-muted">
-          Canales de envío adicionales a WhatsApp. Por ahora solo se usan para
-          el envío de prueba; los recordatorios siguen saliendo solo por
-          WhatsApp.
+        <p className="text-label text-muted">
+          Canales de envío adicionales a WhatsApp, a través de Brevo. Aquí se ve
+          si están listos y se hace un envío de prueba.
         </p>
       </div>
 
@@ -58,7 +57,7 @@ export function BrevoCard() {
           <AccountRow account={status.account} />
 
           {status.testRecipientsCount > 0 && (
-            <p className="text-meta text-muted">
+            <p className="text-label text-muted">
               Lista de prueba: {status.testRecipientsCount}{' '}
               {status.testRecipientsCount === 1
                 ? 'destinatario recibe'
@@ -86,11 +85,13 @@ function ChannelRow({ channel, title, status }: ChannelRowProps) {
     <div className="flex flex-col gap-1.5 rounded-lg bg-white/[0.03] px-3.5 py-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-small font-medium text-white">{title}</span>
-        <StatusBadge tone={state.tone}>{state.label}</StatusBadge>
+        <StatusBadge tone={state.tone} textSize="label">
+          {state.label}
+        </StatusBadge>
       </div>
-      <span className="text-meta text-muted">{state.description}</span>
+      <span className="text-label text-muted">{state.description}</span>
       {status.sender && (
-        <span className="text-meta text-muted">
+        <span className="text-label text-muted">
           Remitente: <span className="text-strong">{status.sender}</span>
         </span>
       )}

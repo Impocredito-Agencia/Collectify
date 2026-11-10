@@ -108,7 +108,7 @@ export function ChannelTemplateEditor({
             <span className="text-card-title font-medium text-white">
               {isSms ? 'SMS' : 'Correo'} · {MESSAGE_TYPE_LABELS[template.type]}
             </span>
-            <span className="text-meta text-muted">
+            <span className="text-label text-muted">
               Los cambios aplican desde el siguiente envío.
             </span>
           </div>
@@ -118,7 +118,7 @@ export function ChannelTemplateEditor({
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <div className="flex flex-col gap-3.5">
             {!isSms && (
-              <Field label="Asunto" layout="stack">
+              <Field textSize="readable" label="Asunto" layout="stack">
                 <input
                   type="text"
                   value={subject}
@@ -129,6 +129,7 @@ export function ChannelTemplateEditor({
               </Field>
             )}
             <Field
+              textSize="readable"
               label={isSms ? 'Texto del SMS' : 'Texto del correo'}
               layout="stack"
             >
@@ -142,7 +143,7 @@ export function ChannelTemplateEditor({
               />
             </Field>
             {!isSms && (
-              <p className="text-meta text-muted">
+              <p className="text-label text-muted">
                 *texto* sale en negrita. Una línea en blanco separa párrafos.
               </p>
             )}
@@ -154,7 +155,7 @@ export function ChannelTemplateEditor({
             )}
 
             <div className="flex flex-col gap-1.5">
-              <span className="text-[10px] text-muted">
+              <span className="text-label text-muted">
                 Datos disponibles — clic para insertarlos en el texto
               </span>
               <div className="flex flex-col gap-1">
@@ -163,7 +164,7 @@ export function ChannelTemplateEditor({
                     key={index}
                     type="button"
                     onClick={() => insertPlaceholder(index)}
-                    className="flex items-baseline gap-2 rounded px-2 py-1 text-left text-meta hover:bg-white/[0.05]"
+                    className="flex items-baseline gap-2 rounded px-2 py-1 text-left text-label hover:bg-white/[0.05]"
                   >
                     <code className="shrink-0 text-strong">{`{{${index + 1}}}`}</code>
                     <span className="text-muted">
@@ -176,7 +177,7 @@ export function ChannelTemplateEditor({
           </div>
 
           <div className="flex flex-col gap-2">
-            <span className="text-[10px] text-muted">
+            <span className="text-label text-muted">
               Vista previa con datos de ejemplo
             </span>
             {isSms ? (
@@ -202,6 +203,7 @@ export function ChannelTemplateEditor({
             {hasChanges ? 'Descartar' : 'Cerrar'}
           </Button>
           <Button
+            variant="brandBlue"
             onClick={handleSave}
             disabled={
               !hasChanges ||
