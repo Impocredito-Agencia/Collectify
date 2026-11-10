@@ -26,6 +26,7 @@ import {
   WhatsappManualReply,
   WhatsappManualReplyStatus,
 } from '../entities/whatsappManualReply.entity';
+import { MessageChannel } from '../messageChannel.enum';
 import { SelfServiceMenuService } from '../selfServiceMenu.service';
 import { WhatsappConversationStateService } from '../whatsappConversationState.service';
 import { WhatsappConversationTicketService } from '../whatsappConversationTicket.service';
@@ -1206,7 +1207,7 @@ describe('WhatsappWebhookService', () => {
 
       expect(messageLogsRepository.find).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { clientId: 'client-1' },
+          where: { clientId: 'client-1', channel: MessageChannel.WhatsApp },
           order: { sentAt: 'DESC' },
           take: 5,
         }),
