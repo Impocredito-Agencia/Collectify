@@ -332,7 +332,7 @@ Requested by the client (2026-11-05) — mainly to remove the test/fictitious pa
 
 ## Phase 36 — Email and SMS via Brevo
 
-**In progress — stages 1–2 of 7 built.** See `docs/phases/PHASE_36_BREVO_EMAIL_SMS.md` / `docs/phasesClient/PHASE_36_BREVO_EMAIL_SMS.md`.
+**In progress — stages 1–3 of 7 built.** See `docs/phases/PHASE_36_BREVO_EMAIL_SMS.md` / `docs/phasesClient/PHASE_36_BREVO_EMAIL_SMS.md`.
 
 Requested by the client — two more channels next to WhatsApp so a client without WhatsApp (or who blocked the number) still gets their messages.
 
