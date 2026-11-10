@@ -1,7 +1,6 @@
 import { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
 import {
   CREDIT_REPORT_FAMILY_TYPES,
-  NEW_LOAN_FAMILY_TYPES,
   OVERDUE_FAMILY_TYPES,
 } from '@/features/messageTemplates/messageTemplatesApi';
 
@@ -73,41 +72,21 @@ export function splitParagraphs(text: string): string[] {
 export interface MessageTypeGroup {
   label: string;
   types: MessageType[];
-  // Phase 36, stage 3 — false for the groups the email/SMS reminders never
-  // send: payment confirmations (confirmed with the human) and new pagaré /
-  // refinance (pending the business's answer). Their templates stay
-  // editable for when that changes.
-  isSentByEmailOrSms: boolean;
 }
 
-// How the editor lists the 18 message types — by what triggers them.
+// The message types email/SMS can send — collection only — in the order of
+// a loan's life (human request, 2026-11-09), the same as the schedule cards
+// above the templates: próximas a vencer → vencidas → Datacrédito. New
+// pagaré / refinance and payment confirmations have no email/SMS template
+// (removed by migration RemoveNonCollectionChannelTemplates).
 export const MESSAGE_TYPE_GROUPS: MessageTypeGroup[] = [
-  {
-    label: 'Nuevo pagaré / Refinanciación',
-    types: NEW_LOAN_FAMILY_TYPES,
-    isSentByEmailOrSms: false,
-  },
   {
     label: 'Cuotas próximas a vencer',
     types: [
       MessageType.SingleUpcomingInstallment,
       MessageType.MultipleUpcomingInstallments,
     ],
-    isSentByEmailOrSms: true,
   },
-  {
-    label: 'Cuotas vencidas',
-    types: OVERDUE_FAMILY_TYPES,
-    isSentByEmailOrSms: true,
-  },
-  {
-    label: 'Reporte a Datacrédito',
-    types: CREDIT_REPORT_FAMILY_TYPES,
-    isSentByEmailOrSms: true,
-  },
-  {
-    label: 'Pagos',
-    types: [MessageType.PaymentConfirmation, MessageType.PaidInFull],
-    isSentByEmailOrSms: false,
-  },
+  { label: 'Cuotas vencidas', types: OVERDUE_FAMILY_TYPES },
+  { label: 'Reporte a Datacrédito', types: CREDIT_REPORT_FAMILY_TYPES },
 ];

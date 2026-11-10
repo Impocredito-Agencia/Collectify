@@ -11,9 +11,10 @@ import { BrevoChannel } from '../../brevo/brevoTypes';
 import { ReminderFamily } from '../reminderFamily';
 
 // Phase 36, stage 3 — the reminder families that can also go out by email
-// and SMS. Collection only: payment confirmations never do (confirmed with
-// the human), and new pagaré / refinance are pending the business's
-// answer. Adding one later = a new enum value + its two seeded rows.
+// and SMS. Collection only (confirmed with the human, 2026-11-09): neither
+// payment confirmations nor new pagaré / refinance ever go by email/SMS,
+// and their email/SMS templates were removed. Adding one later = a new
+// enum value + its two seeded rows + its templates.
 export const CHANNEL_REMINDER_FAMILIES = [
   ReminderFamily.Overdue,
   ReminderFamily.UpcomingDue,
