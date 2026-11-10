@@ -83,6 +83,14 @@ export const ACTION_LABELS: Record<string, string> = {
   'messageChannelTemplate.update': 'Editó una plantilla de correo o SMS',
   'messageChannelTemplate.testSend':
     'Envió una prueba de una plantilla de correo o SMS',
+  'channelReminder.reschedule':
+    'Cambió el horario de un recordatorio por correo o SMS',
+  'channelReminder.pause': 'Pausó un recordatorio por correo o SMS',
+  'channelReminder.resume': 'Activó un recordatorio por correo o SMS',
+  'channelReminder.updateRecipients':
+    'Cambió qué clientes reciben correo o SMS',
+  'channelReminder.updateClient':
+    'Activó o desactivó el correo o SMS de un cliente',
   'whatsapp.sendReminder': 'Envió manualmente un recordatorio de mora',
   'whatsapp.sendUpcomingDue':
     'Envió manualmente un recordatorio de cuota próxima',
@@ -155,6 +163,8 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   bankAccount: 'Cuenta bancaria',
   brevo: 'Correo y SMS (Brevo)',
   messageChannelTemplate: 'Plantilla de correo o SMS',
+  channelReminderSchedule: 'Horario de correo o SMS',
+  channelReminderRecipients: 'Destinatarios de correo o SMS',
   // Phase 32 — same sync gap as ACTION_LABELS above. Kept for historical
   // rows logged before the 2026-09-06 split below.
   clientLoanImport: 'Importación de clientes',
