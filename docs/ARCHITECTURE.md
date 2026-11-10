@@ -81,6 +81,10 @@ apps/api/
     │   │   ├── channelReminderCron.service.ts  # one cron job per (family, channel)
     │   │   ├── channelRecipients.service.ts    # overdue list + per-client switches
     │   │   └── channelReminders.controller.ts  # /message-channels/schedules, /recipients
+    │   ├── brevoWebhook/              # Phase 36 — Brevo delivery webhooks (@Public, secret-checked)
+    │   │   ├── brevoWebhook.controller.ts  # POST /brevo/webhooks/email, /brevo/webhooks/sms
+    │   │   ├── brevoWebhook.service.ts     # delivery status + "not contactable" marks
+    │   │   └── brevoWebhookEvents.ts       # Brevo event → status / block (pure)
     │   ├── reminderPlan.ts             # a reminder worked out but not sent — shared by WhatsApp and email/SMS
     │   ├── smsText.ts                  # GSM-7 conversion + SMS segment count
     │   ├── messageTypeParameters.ts    # what each {{n}} of each message type is

@@ -38,7 +38,16 @@ On the Correo y SMS tab, between the Brevo card and the templates:
 - [x] Text size on the Correo y SMS page (human request, 2026-11-09): nothing below 12px — what was 10/11px (labels, hints, badges, day buttons, table metadata) is now 12px, and card descriptions went from 13 to 12px. Larger sizes are unchanged: card titles 16px, inputs and the template textarea 15px, the email preview 14px, buttons/table cells 13px, the page title. The shared components gained an opt-in size (`Field textSize="readable"`, `StatusBadge textSize="label"`, `CronScheduleForm textSize="label"`); every other page keeps its sizes.
 - [x] Tests: recipient filters, recipient formatting.
 
-Later stages add: delivery status and "correo rebotado" (stage 4), low-credit alert (stage 6).
+## Stage 4 — Delivery status and bounces (`feature/brevo-webhook`)
+
+- [x] **Mensajes:** the Estado column and the drawer now read the provider's delivery status too — Enviado / Entregado / Leído / No entregado / Fallido (`deliveryStatusLabel`), for every channel, WhatsApp included. A message that wasn't delivered shows Brevo's reason in the drawer.
+- [x] **Correo y SMS list:** "Correo bloqueado" under the email switch and "N números bloqueados" under the SMS one, Brevo's reason on hover, with "Reactivar".
+- [x] **Client profile:** the email block with its reason and how to fix it (change the email — it reactivates itself — or "Reactivar"), and one line per blocked SMS number with its own "Reactivar".
+- [x] **Brevo card:** "Estados de entrega" — configured or not (`BREVO_WEBHOOK_SECRET`), plus the two webhook addresses to register in Brevo.
+- [x] Audit label for `channelReminder.reactivate`.
+- [x] Tests: `deliveryStatusLabel`.
+
+Later stages add: low-credit alert (stage 6).
 
 ## Definition of done for this stage
 
