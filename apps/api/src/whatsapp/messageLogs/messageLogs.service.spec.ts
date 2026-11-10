@@ -6,9 +6,11 @@ import {
   bogotaEndOfDayUtc,
   bogotaStartOfDayUtc,
 } from '../../loans/dueDateSchedule';
+import { ChannelReminderService } from '../channelReminders/channelReminder.service';
 import { CreditReportReminderService } from '../creditReportReminder.service';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
+import { MessageChannel } from '../messageChannel.enum';
 import { MessageType } from '../messageType.enum';
 import { NewLoanReminderService } from '../newLoanReminder.service';
 import { OverdueReminderService } from '../overdueReminder.service';
@@ -33,18 +35,22 @@ describe('MessageLogsService', () => {
     sendPaymentConfirmation: jest.Mock;
     sendPaidInFull: jest.Mock;
   };
+  let channelReminderService: { retry: jest.Mock };
 
   const mockLog: MessageLog = {
     id: 'log-1',
     clientId: 'client-1',
     client: undefined as never,
     type: MessageType.SingleOverdueInstallment,
+    channel: MessageChannel.WhatsApp,
     phoneNumber: '+573001234567',
+    email: null,
     messageContent: 'Hola...',
     breakdownContent: null,
     status: MessageLogStatus.Sent,
     sentAt: new Date(),
     whatsappMessageId: null,
+    providerMessageId: null,
     deliveryStatus: null,
     deliveryStatusUpdatedAt: null,
     lastErrorCode: null,
@@ -73,6 +79,7 @@ describe('MessageLogsService', () => {
       sendPaymentConfirmation: jest.fn(),
       sendPaidInFull: jest.fn(),
     };
+    channelReminderService = { retry: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -99,6 +106,7 @@ describe('MessageLogsService', () => {
           provide: PaymentConfirmationService,
           useValue: paymentConfirmationService,
         },
+        { provide: ChannelReminderService, useValue: channelReminderService },
       ],
     }).compile();
 
@@ -238,6 +246,49 @@ describe('MessageLogsService', () => {
   });
 
   describe('retry', () => {
+    it('retries an email or SMS row over its own channel, never WhatsApp', async () => {
+      const failedSms = {
+        ...mockLog,
+        channel: MessageChannel.Sms,
+        status: MessageLogStatus.Failed,
+      };
+      repository.findOneBy.mockResolvedValue(failedSms);
+      const newLog = {
+        ...failedSms,
+        id: 'log-2',
+        status: MessageLogStatus.Sent,
+      };
+      channelReminderService.retry.mockResolvedValue([newLog]);
+
+      const result = await service.retry('log-1');
+
+      expect(channelReminderService.retry).toHaveBeenCalledWith(failedSms);
+      expect(
+        overdueReminderService.sendReminderForClient,
+      ).not.toHaveBeenCalled();
+      expect(repository.update).toHaveBeenCalledWith(
+        { id: 'log-2' },
+        { retryOfMessageLogId: 'log-1' },
+      );
+      expect(result).toBe(newLog);
+    });
+
+    it('explains an email/SMS retry that Brevo skipped (paused or not configured)', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockLog,
+        channel: MessageChannel.Email,
+        phoneNumber: null,
+        email: 'cliente@example.com',
+        status: MessageLogStatus.Failed,
+      });
+      channelReminderService.retry.mockResolvedValue([]);
+
+      await expect(service.retry('log-1')).rejects.toThrow(
+        'No se pudo reintentar: el envío por correo o SMS está en pausa o sin configurar.',
+      );
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
     it('throws NotFoundException when the message log does not exist', async () => {
       repository.findOneBy.mockResolvedValue(null);
 

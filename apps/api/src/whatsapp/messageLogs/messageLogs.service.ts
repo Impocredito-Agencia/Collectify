@@ -18,9 +18,11 @@ import {
   bogotaEndOfDayUtc,
   bogotaStartOfDayUtc,
 } from '../../loans/dueDateSchedule';
+import { ChannelReminderService } from '../channelReminders/channelReminder.service';
 import { CreditReportReminderService } from '../creditReportReminder.service';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
+import { MessageChannel } from '../messageChannel.enum';
 import { MessageType } from '../messageType.enum';
 import { NewLoanReminderService } from '../newLoanReminder.service';
 import { OverdueReminderService } from '../overdueReminder.service';
@@ -47,6 +49,7 @@ export class MessageLogsService {
     private readonly newLoanReminderService: NewLoanReminderService,
     private readonly creditReportReminderService: CreditReportReminderService,
     private readonly paymentConfirmationService: PaymentConfirmationService,
+    private readonly channelReminderService: ChannelReminderService,
   ) {}
 
   async findAll(
@@ -64,6 +67,9 @@ export class MessageLogsService {
     }
     if (query.status) {
       base.status = query.status;
+    }
+    if (query.channel) {
+      base.channel = query.channel;
     }
     // Bug fix, 2026-09-05 — same root cause and fix as
     // AuditLogService.findAll: `new Date(query.dateFrom/dateTo)` parses a
@@ -151,8 +157,20 @@ export class MessageLogsService {
     // one number this original row failed on — never every number again,
     // which would re-send to one that may have already succeeded. Exactly
     // one element back in the normal case.
-    const retryLogs = await this.dispatchRetry(original);
+    // Phase 36 — an email/SMS row is retried over its own channel, never
+    // over WhatsApp.
+    const retryLogs =
+      original.channel === MessageChannel.WhatsApp
+        ? await this.dispatchRetry(original)
+        : await this.channelReminderService.retry(original);
     const retryLog = retryLogs[0] ?? null;
+    // Brevo skipped it without trying (channel paused or not configured),
+    // so nothing was logged — see ChannelReminderService.saveLog.
+    if (!retryLog && original.channel !== MessageChannel.WhatsApp) {
+      throw new BadRequestException(
+        'No se pudo reintentar: el envío por correo o SMS está en pausa o sin configurar.',
+      );
+    }
     // PaymentConfirmation/PaidInFull return [] instead of a MessageLog
     // while paymentConfirmationPaused is on (see PaymentConfirmationService),
     // so there's nothing to stamp retriedAt against yet. Surfaced as a
@@ -180,6 +198,11 @@ export class MessageLogsService {
   // template types, so this groups by family instead (see
   // reminderFamily.ts and docs/phases/PHASE_33_MESSAGE_TEMPLATES_V2.md).
   private async dispatchRetry(original: MessageLog): Promise<MessageLog[]> {
+    if (!original.phoneNumber) {
+      throw new BadRequestException(
+        `Message log ${original.id} has no phone number to retry`,
+      );
+    }
     const targetPhoneNumbers = [original.phoneNumber];
     if (OVERDUE_FAMILY_TYPES.includes(original.type)) {
       return this.overdueReminderService.sendReminderForClient(

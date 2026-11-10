@@ -15,10 +15,15 @@ import { UsersModule } from '../users/users.module';
 
 import { BankAccountController } from './bankAccount.controller';
 import { BankAccountService } from './bankAccount.service';
+import { ChannelRecipientsService } from './channelReminders/channelRecipients.service';
+import { ChannelReminderService } from './channelReminders/channelReminder.service';
+import { ChannelReminderCronService } from './channelReminders/channelReminderCron.service';
+import { ChannelRemindersController } from './channelReminders/channelReminders.controller';
 import { MessageChannelTemplatesController } from './channelTemplates/messageChannelTemplates.controller';
 import { MessageChannelTemplatesService } from './channelTemplates/messageChannelTemplates.service';
 import { ClientBreakdownService } from './clientBreakdown.service';
 import { AppSetting } from './entities/appSetting.entity';
+import { MessageChannelSchedule } from './entities/messageChannelSchedule.entity';
 import { MessageChannelTemplate } from './entities/messageChannelTemplate.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
@@ -66,6 +71,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     TypeOrmModule.forFeature([
       MessageTemplate,
       MessageChannelTemplate,
+      MessageChannelSchedule,
       MessageLog,
       MessageLogItem,
       WhatsappInboundMessage,
@@ -106,6 +112,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     WhatsappController,
     MessageTemplatesController,
     MessageChannelTemplatesController,
+    ChannelRemindersController,
     MessageLogsController,
     WhatsappWebhookController,
     BankAccountController,
@@ -114,6 +121,9 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     WhatsAppService,
     MessageTemplatesService,
     MessageChannelTemplatesService,
+    ChannelReminderService,
+    ChannelReminderCronService,
+    ChannelRecipientsService,
     MessageFrequencyThrottleService,
     MessageLogsService,
     OverdueReminderService,
