@@ -65,12 +65,14 @@ export function ChannelRecipientRow({
           {error && <span className="text-label text-danger">{error}</span>}
         </div>
       </Td>
-      <Td muted>
+      {/* Same bright text as the name (human request, 2026-11-09) — the
+          figures the admin picks clients by. */}
+      <Td>
         {recipient.maxOverdueDays === null
           ? 'Al día'
           : `${recipient.maxOverdueDays} días`}
       </Td>
-      <Td muted>{recipient.overdueInstallments}</Td>
+      <Td>{recipient.overdueInstallments}</Td>
       <Td muted>
         <ChannelSwitch
           isOn={recipient.emailRemindersEnabled}
