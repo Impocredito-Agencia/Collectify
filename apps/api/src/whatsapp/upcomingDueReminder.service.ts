@@ -32,6 +32,11 @@ import {
   restrictToTargetPhoneNumber,
 } from './reminderRecipientGrouping';
 import { renderReminderBreakdown } from './reminderBreakdown';
+import {
+  buildPlannedLogItems,
+  isClientGroup,
+  PlannedReminder,
+} from './reminderPlan';
 import { selectReminderTemplate } from './reminderTemplateSelection';
 import { computeSaldoPendiente } from './saldoPendiente';
 import { renderTemplateBody } from './templateBodyRenderer';
@@ -115,6 +120,58 @@ export class UpcomingDueReminderService {
     clientId: string,
     options?: { allowEmpty?: boolean; targetPhoneNumbers?: string[] },
   ): Promise<MessageLog[]> {
+    const plans = await this.planReminderForClient(clientId, options);
+
+    const savedLogs: MessageLog[] = [];
+    for (const plan of plans) {
+      const template = await this.messageTemplatesService.findByTypeOrThrow(
+        plan.type,
+      );
+
+      for (const phoneNumber of plan.recipientPhoneNumbers) {
+        const { sent, whatsappMessageId } =
+          await this.whatsAppService.sendTemplateMessage(
+            phoneNumber,
+            template.metaTemplateName,
+            template.metaLanguageCode,
+            plan.bodyParameters,
+          );
+
+        const messageLog = this.messageLogsRepository.create({
+          clientId,
+          type: plan.type,
+          phoneNumber,
+          messageContent: renderTemplateBody(
+            template.content,
+            plan.bodyParameters,
+          ),
+          breakdownContent: plan.breakdownContent,
+          status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
+          sentAt: new Date(),
+          whatsappMessageId,
+        });
+        const savedLog = await this.messageLogsRepository.save(messageLog);
+
+        await this.messageLogItemsRepository.save(
+          plan.items.map((item) =>
+            this.messageLogItemsRepository.create({
+              messageLogId: savedLog.id,
+              ...item,
+            }),
+          ),
+        );
+        savedLogs.push(savedLog);
+      }
+    }
+
+    return savedLogs;
+  }
+
+  // Phase 36, stage 3 — see OverdueReminderService.planReminderForClient.
+  async planReminderForClient(
+    clientId: string,
+    options?: { allowEmpty?: boolean; targetPhoneNumbers?: string[] },
+  ): Promise<PlannedReminder[]> {
     const client = await this.clientsRepository.findOneBy({ id: clientId });
     if (!client) {
       throw new NotFoundException(`Client with id ${clientId} not found`);
@@ -155,7 +212,7 @@ export class UpcomingDueReminderService {
       );
     }
 
-    const savedLogs: MessageLog[] = [];
+    const plans: PlannedReminder[] = [];
     for (const group of groups) {
       const notaAdicional = await this.resolveNotaAdicional(
         clientId,
@@ -168,64 +225,19 @@ export class UpcomingDueReminderService {
         group.upcoming,
         notaAdicional,
       );
-      const template = await this.messageTemplatesService.findByTypeOrThrow(
-        selection.type,
-      );
-
-      for (const phoneNumber of group.recipientPhoneNumbers) {
-        const { sent, whatsappMessageId } =
-          await this.whatsAppService.sendTemplateMessage(
-            phoneNumber,
-            template.metaTemplateName,
-            template.metaLanguageCode,
-            selection.bodyParameters,
-          );
-
-        const messageLog = this.messageLogsRepository.create({
-          clientId,
-          type: selection.type,
-          phoneNumber,
-          messageContent: renderTemplateBody(
-            template.content,
-            selection.bodyParameters,
-          ),
-          breakdownContent: renderReminderBreakdown(
-            group.overdue,
-            group.upcoming,
-          ),
-          status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
-          sentAt: new Date(),
-          whatsappMessageId,
-        });
-        const savedLog = await this.messageLogsRepository.save(messageLog);
-
-        const items = [
-          ...group.overdue.map((installment) =>
-            this.messageLogItemsRepository.create({
-              messageLogId: savedLog.id,
-              installmentId: installment.id,
-              overdueDaysSnapshot: installment.overdueDays,
-              // Bug fix, 2026-09-07 — see OverdueReminderService's identical fix
-              // and reminderInstallmentQueries.ts's OverdueInstallmentResult.
-              // interest doc comment.
-              interestSnapshot: installment.interest,
-            }),
-          ),
-          ...group.upcoming.map((installment) =>
-            this.messageLogItemsRepository.create({
-              messageLogId: savedLog.id,
-              installmentId: installment.id,
-              overdueDaysSnapshot: 0,
-              interestSnapshot: 0,
-            }),
-          ),
-        ];
-        await this.messageLogItemsRepository.save(items);
-        savedLogs.push(savedLog);
-      }
+      plans.push({
+        type: selection.type,
+        bodyParameters: selection.bodyParameters,
+        recipientPhoneNumbers: group.recipientPhoneNumbers,
+        isClientGroup: isClientGroup(group.overdue, group.upcoming),
+        breakdownContent: renderReminderBreakdown(
+          group.overdue,
+          group.upcoming,
+        ),
+        items: buildPlannedLogItems(group.overdue, group.upcoming),
+      });
     }
-
-    return savedLogs;
+    return plans;
   }
 
   // Bug fix, 2026-09-08 — `overdue` widened to admit its already-computed

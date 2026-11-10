@@ -17,6 +17,7 @@ import { CreditReportReminderService } from './creditReportReminder.service';
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
+import { MessageChannel } from './messageChannel.enum';
 import { MessageType } from './messageType.enum';
 import { WhatsAppService } from './whatsapp.service';
 
@@ -164,7 +165,10 @@ describe('CreditReportReminderService', () => {
 
       expect(messageLogItemsRepository.existsBy).toHaveBeenCalledWith({
         installmentId: 'inst-30',
-        messageLog: { type: MessageType.CreditReport30Days },
+        messageLog: {
+          type: MessageType.CreditReport30Days,
+          channel: MessageChannel.WhatsApp,
+        },
       });
       expect(whatsAppService.sendTemplateMessage).not.toHaveBeenCalled();
     });
