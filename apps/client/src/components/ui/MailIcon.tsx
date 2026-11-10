@@ -1,5 +1,5 @@
 // Envelope icon — inline SVG, same approach as PlusIcon (no icon library in
-// this app). Phase 36: marks the "Correo y SMS" entry on Plantillas.
+// this app). Phase 36: marks Plantillas' "Correo y SMS" tab.
 export function MailIcon() {
   return (
     <svg

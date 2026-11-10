@@ -25,6 +25,9 @@ interface StatusBadgeProps {
   children: ReactNode;
   className?: string;
   title?: string;
+  // 'meta' (11px, default) everywhere; 'label' (12px) on Phase 36's
+  // Correo y SMS page, which runs on a 12/13px scale only.
+  textSize?: 'meta' | 'label';
 }
 
 export function StatusBadge({
@@ -32,11 +35,12 @@ export function StatusBadge({
   children,
   className = '',
   title,
+  textSize = 'meta',
 }: StatusBadgeProps) {
   return (
     <span
       title={title}
-      className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${TONE_CLASSES[tone]} ${className}`}
+      className={`rounded-[3px] border px-2 py-[3px] ${textSize === 'label' ? 'text-label' : 'text-meta'} font-medium ${TONE_CLASSES[tone]} ${className}`}
     >
       {children}
     </span>
