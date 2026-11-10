@@ -9,6 +9,7 @@ import { ChannelTab } from '@/features/messageTemplates/ChannelTab';
 import { CronScheduleForm } from '@/features/messageTemplates/CronScheduleForm';
 import {
   MESSAGE_TYPE_LABELS,
+  MESSAGE_TYPE_ORDER,
   MessageType,
   NEW_LOAN_FAMILY_TYPES,
   CREDIT_REPORT_FAMILY_TYPES,
@@ -46,6 +47,17 @@ import type { MessageTemplate } from '@/features/messageTemplates/messageTemplat
 // reminderFamily.ts's own comment for why.
 // The curated-audience concept (Phase 18) stays retired, per
 // docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.
+
+// In the order of a loan's life (human request, 2026-11-09): new pagaré →
+// próximas a vencer → vencidas → Datacrédito; the template cards below
+// follow MESSAGE_TYPE_ORDER, the same order, with the payment
+// confirmations last. The Correo y SMS tab uses it too, minus new pagaré.
+const FAMILY_ORDER: ReminderFamily[] = [
+  ReminderFamily.NewLoan,
+  ReminderFamily.UpcomingDue,
+  ReminderFamily.Overdue,
+  ReminderFamily.CreditReport,
+];
 
 const FAMILY_LABELS: Record<ReminderFamily, string> = {
   [ReminderFamily.Overdue]: 'Cuotas vencidas',
@@ -111,6 +123,10 @@ const EMAIL_SMS_PATH = '/plantillas/correo-sms';
 
 export function MessageTemplatesPage() {
   const { data: templates, isLoading, isError } = useMessageTemplates();
+  const sortedTemplates = [...(templates ?? [])].sort(
+    (a, b) =>
+      MESSAGE_TYPE_ORDER.indexOf(a.type) - MESSAGE_TYPE_ORDER.indexOf(b.type),
+  );
   const navigate = useNavigate();
   // Phase 36 — "WhatsApp" | "Correo y SMS" tabs, the same pattern as
   // Préstamos' "Préstamos" | "Eliminados" (human request, 2026-11-09):
@@ -179,7 +195,7 @@ export function MessageTemplatesPage() {
                 all of them regardless of how many badge rows sit above it — not
                 just equal height, but genuinely aligned. */}
               <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {Object.values(ReminderFamily).map((family) => (
+                {FAMILY_ORDER.map((family) => (
                   <div
                     key={family}
                     className="flex h-full flex-col gap-3 rounded border border-border p-3.5"
@@ -214,7 +230,7 @@ export function MessageTemplatesPage() {
           )}
 
           <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-            {templates?.map((template) => (
+            {sortedTemplates.map((template) => (
               <div
                 key={template.id}
                 className="flex flex-col gap-3.5 rounded-lg bg-surface p-5"
