@@ -1,15 +1,12 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Header } from '@/components/layout/Header';
-import { Button } from '@/components/ui/Button';
 import { MailIcon } from '@/components/ui/MailIcon';
+import { WhatsappIcon } from '@/components/ui/WhatsappIcon';
 import { BankAccountCard } from '@/features/bankAccount/BankAccountCard';
-import {
-  buildCronExpression,
-  DEFAULT_SCHEDULE_CONFIG,
-  parseCronExpression,
-} from '@/features/messageTemplates/cronScheduleUtils';
+import { EmailSmsPanel } from '@/features/channelTemplates/EmailSmsPanel';
+import { ChannelTab } from '@/features/messageTemplates/ChannelTab';
+import { CronScheduleForm } from '@/features/messageTemplates/CronScheduleForm';
 import {
   MESSAGE_TYPE_LABELS,
   MessageType,
@@ -27,9 +24,7 @@ import {
   useUpdateCronSchedule,
 } from '@/features/whatsapp/useWhatsapp';
 import { ReminderFamily } from '@/features/whatsapp/whatsappApi';
-import { ApiError } from '@/lib/apiClient';
 
-import type { ScheduleConfig } from '@/features/messageTemplates/cronScheduleUtils';
 import type { MessageTemplate } from '@/features/messageTemplates/messageTemplatesApi';
 
 // content stays read-only — templates are fixed per message type, editable
@@ -111,131 +106,143 @@ function triggerDescription(type: MessageType): string {
   return 'Se envía automáticamente al registrar el pago correspondiente — no tiene horario ni reintento programado.';
 }
 
+const TEMPLATES_PATH = '/plantillas';
+const EMAIL_SMS_PATH = '/plantillas/correo-sms';
+
 export function MessageTemplatesPage() {
   const { data: templates, isLoading, isError } = useMessageTemplates();
   const navigate = useNavigate();
+  // Phase 36 — "WhatsApp" | "Correo y SMS" tabs, the same pattern as
+  // Préstamos' "Préstamos" | "Eliminados" (human request, 2026-11-09):
+  // replaced a button to a separate sub-page. The tab lives in the URL
+  // (/plantillas vs /plantillas/correo-sms) rather than session state like
+  // Préstamos does, so the client profile can link straight to Correo y
+  // SMS and the browser's back button switches tabs too.
+  const isEmailSms = useLocation().pathname.startsWith(EMAIL_SMS_PATH);
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <Header
-          title="Plantillas de mensaje"
-          subtitle="Solo ADMIN — Contenido fijo; solo la cuenta bancaria es editable"
+      <Header
+        title="Plantillas de mensaje"
+        subtitle={
+          isEmailSms
+            ? 'Solo ADMIN — Envíos por Brevo; textos editables'
+            : 'Solo ADMIN — Contenido fijo; solo la cuenta bancaria es editable'
+        }
+      />
+
+      <div className="border-t border-border" />
+
+      <div className="flex items-center gap-2">
+        <ChannelTab
+          label="WhatsApp"
+          icon={<WhatsappIcon />}
+          tone="green"
+          isActive={!isEmailSms}
+          onClick={() => navigate(TEMPLATES_PATH)}
         />
-        {/* Phase 36 — email/SMS live on their own sub-page so this one
-            stays as it was (human request, 2026-11-09). Solid blue + icon so
-            the entry point isn't missed (human request, same day). */}
-        <Button
-          variant="brandBlue"
-          onClick={() => navigate('/plantillas/correo-sms')}
-          className="flex items-center gap-2"
-        >
-          <MailIcon />
-          Correo y SMS
-        </Button>
+        <ChannelTab
+          label="Correo y SMS"
+          icon={<MailIcon />}
+          tone="blue"
+          isActive={isEmailSms}
+          onClick={() => navigate(EMAIL_SMS_PATH)}
+        />
       </div>
 
-      <BankAccountCard />
+      {isEmailSms ? (
+        <EmailSmsPanel />
+      ) : (
+        <>
+          <BankAccountCard />
 
-      {isLoading && <p className="text-small text-muted">Cargando…</p>}
-      {isError && (
-        <p className="text-small text-danger" role="alert">
-          No se pudieron cargar las plantillas.
-        </p>
-      )}
+          {isLoading && <p className="text-small text-muted">Cargando…</p>}
+          {isError && (
+            <p className="text-small text-danger" role="alert">
+              No se pudieron cargar las plantillas.
+            </p>
+          )}
 
-      {!isLoading && !isError && (
-        <div className="flex flex-col gap-3.5 rounded bg-surface p-5">
-          <span className="text-card-title font-medium text-white">
-            Recordatorios automáticos
-          </span>
-          {/* Human report, 2026-09-14 — the cards look uneven in height
-              since each family lists a different number of template
-              badges, wrapping into a different number of rows.
-              items-stretch (grid's own default, made explicit) forces all
-              of them to match the tallest row's height; h-full + flex flex-col
-              on the card itself, plus FamilyCronControl's own flex-1 +
-              mt-auto on its schedule form below, pin "Recordatorios
-              semanales"/"Guardar horario" to the same bottom edge across
-              all of them regardless of how many badge rows sit above it — not
-              just equal height, but genuinely aligned. */}
-          <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {Object.values(ReminderFamily).map((family) => (
+          {!isLoading && !isError && (
+            <div className="flex flex-col gap-3.5 rounded bg-surface p-5">
+              <span className="text-card-title font-medium text-white">
+                Recordatorios automáticos
+              </span>
+              {/* Human report, 2026-09-14 — the cards look uneven in height
+                since each family lists a different number of template
+                badges, wrapping into a different number of rows.
+                items-stretch (grid's own default, made explicit) forces all
+                of them to match the tallest row's height; h-full + flex flex-col
+                on the card itself, plus FamilyCronControl's own flex-1 +
+                mt-auto on its schedule form below, pin "Recordatorios
+                semanales"/"Guardar horario" to the same bottom edge across
+                all of them regardless of how many badge rows sit above it — not
+                just equal height, but genuinely aligned. */}
+              <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {Object.values(ReminderFamily).map((family) => (
+                  <div
+                    key={family}
+                    className="flex h-full flex-col gap-3 rounded border border-border p-3.5"
+                  >
+                    {/* Human report, 2026-09-14 — this used to be text-small,
+                      the exact same size/weight as "Envío automático" one
+                      level below it inside FamilyCronControl, so the two
+                      read as peers instead of title→status. text-card-title
+                      is the same token "Recordatorios automáticos" (the
+                      section title above this grid) and each template
+                      card's own name already use — this card's title now
+                      unambiguously outranks everything inside it. */}
+                    <span className="text-card-title font-medium text-white">
+                      {FAMILY_LABELS[family]}
+                    </span>
+                    <FamilyCronControl
+                      family={family}
+                      types={FAMILY_TYPES[family]}
+                      scheduleOwner={templates?.find(
+                        (template) =>
+                          template.type === FAMILY_SCHEDULE_OWNER[family],
+                      )}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!isLoading && !isError && templates?.length === 0 && (
+            <p className="text-small text-muted">Todavía no hay plantillas.</p>
+          )}
+
+          <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+            {templates?.map((template) => (
               <div
-                key={family}
-                className="flex h-full flex-col gap-3 rounded border border-border p-3.5"
+                key={template.id}
+                className="flex flex-col gap-3.5 rounded-lg bg-surface p-5"
               >
-                {/* Human report, 2026-09-14 — this used to be text-small,
-                    the exact same size/weight as "Envío automático" one
-                    level below it inside FamilyCronControl, so the two
-                    read as peers instead of title→status. text-card-title
-                    is the same token "Recordatorios automáticos" (the
-                    section title above this grid) and each template
-                    card's own name already use — this card's title now
-                    unambiguously outranks everything inside it. */}
-                <span className="text-card-title font-medium text-white">
-                  {FAMILY_LABELS[family]}
-                </span>
-                <FamilyCronControl
-                  family={family}
-                  types={FAMILY_TYPES[family]}
-                  scheduleOwner={templates?.find(
-                    (template) =>
-                      template.type === FAMILY_SCHEDULE_OWNER[family],
-                  )}
-                />
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-card-title font-medium text-white">
+                    {template.name}
+                  </span>
+                  <span className="rounded-[3px] border border-border bg-input px-2 py-[3px] text-meta font-medium text-muted">
+                    {MESSAGE_TYPE_LABELS[template.type]}
+                  </span>
+                </div>
+                <p className="whitespace-pre-line text-small text-muted">
+                  {template.content}
+                </p>
+
+                <div className="border-t border-border pt-3">
+                  <p className="text-meta text-muted">
+                    {triggerDescription(template.type)}
+                  </p>
+                </div>
               </div>
             ))}
           </div>
-        </div>
+        </>
       )}
-
-      {!isLoading && !isError && templates?.length === 0 && (
-        <p className="text-small text-muted">Todavía no hay plantillas.</p>
-      )}
-
-      <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-        {templates?.map((template) => (
-          <div
-            key={template.id}
-            className="flex flex-col gap-3.5 rounded-lg bg-surface p-5"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-card-title font-medium text-white">
-                {template.name}
-              </span>
-              <span className="rounded-[3px] border border-border bg-input px-2 py-[3px] text-meta font-medium text-muted">
-                {MESSAGE_TYPE_LABELS[template.type]}
-              </span>
-            </div>
-            <p className="whitespace-pre-line text-small text-muted">
-              {template.content}
-            </p>
-
-            <div className="border-t border-border pt-3">
-              <p className="text-meta text-muted">
-                {triggerDescription(template.type)}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
-}
-
-const DAY_OF_WEEK_OPTIONS = [
-  { value: 1, label: 'Lun' },
-  { value: 2, label: 'Mar' },
-  { value: 3, label: 'Mié' },
-  { value: 4, label: 'Jue' },
-  { value: 5, label: 'Vie' },
-  { value: 6, label: 'Sáb' },
-  { value: 0, label: 'Dom' },
-];
-
-function pad2(value: number): string {
-  return String(value).padStart(2, '0');
 }
 
 // A friendly day-of-week+time picker instead of a raw cron expression
@@ -262,56 +269,7 @@ function FamilyCronControl({
   const resumeCron = useResumeCron(family);
   const updateSchedule = useUpdateCronSchedule(family);
 
-  const [config, setConfig] = useState<ScheduleConfig>(
-    () =>
-      parseCronExpression(scheduleOwner?.cronExpression ?? null) ??
-      DEFAULT_SCHEDULE_CONFIG,
-  );
-  const [isDirty, setIsDirty] = useState(false);
-  const [scheduleError, setScheduleError] = useState<string | null>(null);
-
-  // Keeps the picker in sync after a successful save (or if another admin
-  // changed it) without fighting the admin's own in-progress edits.
-  useEffect(() => {
-    setConfig(
-      parseCronExpression(scheduleOwner?.cronExpression ?? null) ??
-        DEFAULT_SCHEDULE_CONFIG,
-    );
-    setIsDirty(false);
-  }, [scheduleOwner?.cronExpression]);
-
-  const updateConfig = (changes: Partial<ScheduleConfig>) => {
-    setConfig((prev) => ({ ...prev, ...changes }));
-    setIsDirty(true);
-  };
-
-  const toggleDayOfWeek = (day: number) => {
-    updateConfig({
-      daysOfWeek: config.daysOfWeek.includes(day)
-        ? config.daysOfWeek.filter((d) => d !== day)
-        : [...config.daysOfWeek, day],
-    });
-  };
-
   const isTogglePending = pauseCron.isPending || resumeCron.isPending;
-  const hasNoDaysSelected = config.daysOfWeek.length === 0;
-
-  const handleSaveSchedule = async (
-    event: React.FormEvent<HTMLFormElement>,
-  ) => {
-    event.preventDefault();
-    setScheduleError(null);
-    try {
-      await updateSchedule.mutateAsync(buildCronExpression(config));
-      setIsDirty(false);
-    } catch (error) {
-      setScheduleError(
-        error instanceof ApiError
-          ? error.message
-          : 'No se pudo actualizar el horario.',
-      );
-    }
-  };
 
   return (
     <div className="flex flex-1 flex-col gap-3">
@@ -360,80 +318,18 @@ function FamilyCronControl({
 
       {/* border-t (human report, 2026-09-14) — separates "what this
           family does + its current status" above from "when it fires"
-          below, instead of one undifferentiated stack. Days get their
-          own row now; time + Guardar horario share a row with the button
-          pinned to the right, instead of everything (days, time, button)
-          crammed into a single flex-wrap row that wrapped unpredictably
-          depending on how many days were selected. */}
-      <form
-        onSubmit={handleSaveSchedule}
-        className="mt-auto flex flex-col gap-2 border-t border-border pt-3"
-      >
+          below. The picker itself is shared with the email/SMS schedules
+          (CronScheduleForm, Phase 36). */}
+      <div className="mt-auto flex flex-col gap-2 border-t border-border pt-3">
         <span className="text-meta text-muted">Recordatorios semanales</span>
-        <div className="flex flex-wrap gap-1">
-          {DAY_OF_WEEK_OPTIONS.map((option) => {
-            const isSelected = config.daysOfWeek.includes(option.value);
-            return (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={isSelected}
-                onClick={() => toggleDayOfWeek(option.value)}
-                className={`h-9 rounded border px-2.5 text-meta ${
-                  isSelected
-                    ? 'border-accent bg-accent text-white'
-                    : 'border-border bg-input text-muted hover:text-white'
-                }`}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center justify-between gap-2">
-          <input
-            type="time"
-            value={`${pad2(config.hour)}:${pad2(config.minute)}`}
-            onChange={(event) => {
-              const [hour, minute] = event.target.value.split(':').map(Number);
-              updateConfig({ hour, minute });
-            }}
-            className="h-9 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
-          />
-
-          {/* variant="primary" (human report, 2026-09-14) — was
-              "secondary", the same washed-out neutral look as the Pausar
-              toggle above, which read as unconvincing for what's
-              actually this form's real commit action. Every other
-              "Guardar" button in the app is accent/primary (see
-              Button.tsx's own doc comment) — this now matches. */}
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!isDirty || hasNoDaysSelected || updateSchedule.isPending}
-            className="shrink-0"
-          >
-            {updateSchedule.isPending ? 'Guardando…' : 'Guardar horario'}
-          </Button>
-        </div>
-        {hasNoDaysSelected && (
-          <span className="text-meta text-danger">
-            Seleccione al menos un día.
-          </span>
-        )}
-        {!hasNoDaysSelected && isDirty && (
-          <span className="text-meta text-warning">Cambios sin guardar</span>
-        )}
-      </form>
-      {scheduleError && (
-        <p className="text-meta text-danger">{scheduleError}</p>
-      )}
+        <CronScheduleForm
+          cronExpression={scheduleOwner?.cronExpression ?? null}
+          onSave={(cronExpression) =>
+            updateSchedule.mutateAsync(cronExpression)
+          }
+          isSaving={updateSchedule.isPending}
+        />
+      </div>
     </div>
   );
 }
-
-// TemplateAudienceEditor/ClientPickerModal (Phase 18) removed entirely in
-// Phase 27 — the overdue/upcoming_due audience concept no longer exists,
-// replaced by the per-client frequency whitelist on ClientDetailPage. See
-// docs/phasesClient/PHASE_27_MESSAGE_FREQUENCY.md.
