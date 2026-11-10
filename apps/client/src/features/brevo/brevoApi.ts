@@ -43,6 +43,8 @@ export interface BrevoStatus {
   email: BrevoChannelStatus;
   sms: BrevoChannelStatus;
   testRecipientsCount: number;
+  // Stage 4 — BREVO_WEBHOOK_SECRET is set on the server.
+  webhookConfigured: boolean;
   account: BrevoAccountInfo;
 }
 

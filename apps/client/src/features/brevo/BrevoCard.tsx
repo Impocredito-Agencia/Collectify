@@ -4,9 +4,11 @@ import {
   describeChannelState,
   describeSendFailure,
   formatPlanType,
+  isLocalAddress,
 } from '@/features/brevo/brevoLabels';
 import { BrevoTestSendForm } from '@/features/brevo/BrevoTestSendForm';
 import { useBrevoStatus } from '@/features/brevo/useBrevo';
+import { API_BASE_URL } from '@/lib/apiClient';
 
 import type {
   BrevoAccountInfo,
@@ -66,8 +68,51 @@ export function BrevoCard() {
             </p>
           )}
 
+          <WebhookRow isConfigured={status.webhookConfigured} />
+
           <BrevoTestSendForm />
         </>
+      )}
+    </div>
+  );
+}
+
+// Stage 4 — whether delivery statuses (entregado, leído, rebotado…) can
+// arrive, and the two addresses to register in Brevo (Transactional →
+// Settings → Webhooks, one for email and one for SMS).
+function WebhookRow({ isConfigured }: { isConfigured: boolean }) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg bg-white/[0.03] px-3.5 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-small font-medium text-white">
+          Estados de entrega
+        </span>
+        <StatusBadge
+          tone={isConfigured ? 'success' : 'neutral'}
+          textSize="label"
+        >
+          {isConfigured ? 'Configurado' : 'Sin configurar'}
+        </StatusBadge>
+      </div>
+      <span className="text-label text-muted">
+        {isConfigured
+          ? 'El servidor ya acepta los avisos de Brevo (entregado, leído, rebotado).'
+          : 'Falta BREVO_WEBHOOK_SECRET en el servidor: Brevo no puede avisar si los mensajes se entregan o rebotan.'}{' '}
+        Direcciones para registrar en Brevo, una para correo y otra para SMS
+        (este panel no puede saber si ya están registradas):
+      </span>
+      <code className="select-all break-all text-label text-strong">
+        {API_BASE_URL}/brevo/webhooks/email
+      </code>
+      <code className="select-all break-all text-label text-strong">
+        {API_BASE_URL}/brevo/webhooks/sms
+      </code>
+      {isLocalAddress(API_BASE_URL) && (
+        <span className="text-label text-warning">
+          Son direcciones locales: Brevo no puede llegar a este computador.
+          Regístralas desde el panel de producción, que muestra la dirección
+          pública.
+        </span>
       )}
     </div>
   );

@@ -83,3 +83,18 @@ export function formatPlanType(planType: string | null): string {
   }
   return PLAN_TYPE_LABELS[planType] ?? planType;
 }
+
+// localhost / 127.x / a private-network host: an address Brevo, on the
+// internet, can't call.
+export function isLocalAddress(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return (
+      hostname === 'localhost' ||
+      hostname.endsWith('.local') ||
+      /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}

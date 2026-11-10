@@ -24,6 +24,11 @@ import { tokenStore } from '@/lib/tokenStore';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
+// The API's own base URL (…/api/v1) — for showing addresses an external
+// service has to call, e.g. Brevo's webhooks (Phase 36). Every request in
+// this app still goes through apiClient below.
+export const API_BASE_URL: string = API_URL;
+
 interface ApiSuccessResponse<T> {
   success: true;
   data: T;
