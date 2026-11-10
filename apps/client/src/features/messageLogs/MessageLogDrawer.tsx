@@ -5,6 +5,7 @@ import {
   MESSAGE_CHANNEL_LABELS,
   MessageChannel,
 } from '@/features/messageLogs/messageLogsApi';
+import { deliveryStatusLabel } from '@/features/messageLogs/deliveryStatusLabel';
 import { formatMessageRecipient } from '@/features/messageLogs/messageRecipient';
 import { useMessageLogItems } from '@/features/messageLogs/useMessageLogs';
 import { formatCurrency } from '@/lib/format';
@@ -69,9 +70,13 @@ export function MessageLogDrawer({ log, onClose }: MessageLogDrawerProps) {
             label={log.channel === MessageChannel.Email ? 'Correo' : 'Celular'}
             value={formatMessageRecipient(log)}
           />
-          {log.status !== 'sent' && log.lastErrorTitle && (
-            <DetailField label="Motivo del fallo" value={log.lastErrorTitle} />
-          )}
+          {log.lastErrorTitle &&
+            (log.status !== 'sent' || log.deliveryStatus === 'failed') && (
+              <DetailField
+                label="Motivo del fallo"
+                value={log.lastErrorTitle}
+              />
+            )}
           <DetailField
             label="Fecha y hora"
             value={new Date(log.sentAt).toLocaleString('es-CO', {
@@ -83,11 +88,8 @@ export function MessageLogDrawer({ log, onClose }: MessageLogDrawerProps) {
             <span className="text-[10px] font-normal tracking-normal text-muted">
               ESTADO
             </span>
-            <StatusBadge
-              tone={log.status === 'sent' ? 'success' : 'danger'}
-              className="w-fit"
-            >
-              {log.status === 'sent' ? 'Enviado' : 'Fallido'}
+            <StatusBadge tone={deliveryStatusLabel(log).tone} className="w-fit">
+              {deliveryStatusLabel(log).label}
             </StatusBadge>
           </div>
         </div>
