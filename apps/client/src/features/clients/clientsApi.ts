@@ -139,6 +139,10 @@ export interface ClientDetail extends Client {
   // reminders on top of WhatsApp. Picked by hand; off by default.
   emailRemindersEnabled: boolean;
   smsRemindersEnabled: boolean;
+  // Stage 4 — marked by Brevo's webhook after a definitive failure.
+  emailUndeliverableAt: string | null;
+  emailUndeliverableReason: string | null;
+  smsUndeliverablePhoneNumbers: string[];
 }
 
 // Human report, 2026-09-23 — every number that can receive a collection

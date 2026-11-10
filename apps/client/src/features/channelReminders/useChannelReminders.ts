@@ -60,6 +60,17 @@ export function useUpdateChannelRecipients() {
   });
 }
 
+export function useReactivateChannel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: channelRemindersApi.reactivate,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: RECIPIENTS_KEY });
+      void queryClient.invalidateQueries({ queryKey: ['clients'] });
+    },
+  });
+}
+
 export function useUpdateChannelRecipient() {
   const queryClient = useQueryClient();
   return useMutation({

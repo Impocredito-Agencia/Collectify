@@ -33,6 +33,11 @@ export interface ChannelRecipient {
   overdueInstallments: number;
   emailRemindersEnabled: boolean;
   smsRemindersEnabled: boolean;
+  // Stage 4 — set by Brevo's webhook after a definitive failure; email/SMS
+  // reminders skip them until reactivated.
+  emailUndeliverableAt: string | null;
+  emailUndeliverableReason: string | null;
+  smsUndeliverablePhoneNumbers: string[];
 }
 
 export interface ChannelSelectionChange {
@@ -97,6 +102,19 @@ export const channelRemindersApi = {
       input,
     );
     return data;
+  },
+
+  // Lifts a "not contactable" mark. For SMS, no phoneNumber = every number.
+  reactivate: async (input: {
+    clientId: string;
+    channel: BrevoChannel;
+    phoneNumber?: string;
+  }): Promise<void> => {
+    const { clientId, ...body } = input;
+    await apiClient.post(
+      `/message-channels/recipients/${clientId}/reactivate`,
+      body,
+    );
   },
 
   updateRecipient: async ({
