@@ -405,7 +405,7 @@ Added Phase 36, stage 3 (migration `AddEmailAndSmsReminderChannels1792100000000`
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
-| `family` | ENUM (`overdue`, `upcoming_due`, `credit_report`) | Collection only. Payment confirmations never go by email/SMS (confirmed with the human); new pagaré / refinance are pending the business's answer — adding it later is a new enum value + two rows. |
+| `family` | ENUM (`overdue`, `upcoming_due`, `credit_report`) | Collection only. Payment confirmations never go by email/SMS (confirmed with the human); new pagaré / refinance aren't either (human, 2026-11-09) — adding one later is a new enum value + two rows. |
 | `channel` | ENUM (`email`, `sms`) | |
 | `cron_expression` | VARCHAR | Seeded with the WhatsApp defaults: overdue `0 9 * * 1`, upcoming `0 8 * * *`, credit report `0 9 * * *` (must stay daily — a notice day that doesn't run isn't caught up). |
 | `is_paused` | BOOLEAN, default `true` | Every row is seeded paused. |
@@ -415,7 +415,7 @@ Unique index `IDX_message_channel_schedules_family_channel` on (`family`, `chann
 
 ### `message_channel_templates`
 
-Added Phase 36, stage 2 (migration `CreateMessageChannelTemplatesTable1792000000000`). The **email and SMS** wording of each message type — one row per (`type`, `channel`), 36 rows seeded (18 types × 2 channels). Unlike `message_templates` (WhatsApp text approved by Meta, changed only by migration), these rows are **admin-editable from the panel** (Plantillas → "Correo y SMS" → "Plantillas de correo y SMS", `PUT /message-channel-templates/:type/:channel`, audited as `messageChannelTemplate.update`). Not used by any automatic send yet — choosing which messages go by which channel is stage 3 (see `docs/phases/PHASE_36_BREVO_EMAIL_SMS.md`).
+Added Phase 36, stage 2 (migration `CreateMessageChannelTemplatesTable1792000000000`). The **email and SMS** wording of each message type — one row per (`type`, `channel`). 36 rows seeded (18 types × 2 channels); the 14 for new pagaré / refinance and payment confirmations were removed by `RemoveNonCollectionChannelTemplates1792300000000` (human, 2026-11-09: email/SMS is collection only), leaving 22 — the 11 collection types × 2. The enum still lists all 18 types. Unlike `message_templates` (WhatsApp text approved by Meta, changed only by migration), these rows are **admin-editable from the panel** (Plantillas → "Correo y SMS" → "Plantillas de correo y SMS", `PUT /message-channel-templates/:type/:channel`, audited as `messageChannelTemplate.update`). Not used by any automatic send yet — choosing which messages go by which channel is stage 3 (see `docs/phases/PHASE_36_BREVO_EMAIL_SMS.md`).
 
 | Column | Type | Notes |
 |---|---|---|
