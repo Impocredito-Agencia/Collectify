@@ -59,6 +59,9 @@ export const envValidationSchema = Joi.object({
   // Comma-separated emails and E.164 phones that bypass both pauses above.
   // Same rule as WHATSAPP_TEST_RECIPIENTS: never commit real values.
   BREVO_TEST_RECIPIENTS: Joi.string().allow('').default(''),
+  // Stage 4 — Brevo's webhook calls must present this secret; empty means
+  // every webhook call is rejected. Generate with `openssl rand -hex 32`.
+  BREVO_WEBHOOK_SECRET: Joi.string().allow('').default(''),
 
   // Live in production since 2026-09-16 — same "allow blank" pattern as
   // the Meta WhatsApp vars above, kept for local dev. UploadsService fails

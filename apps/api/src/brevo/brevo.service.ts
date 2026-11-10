@@ -174,6 +174,7 @@ export class BrevoService {
         sender: config.smsSender || null,
       },
       testRecipientsCount: config.testRecipients.length,
+      webhookConfigured: Boolean(config.webhookSecret),
       account: await this.getAccountInfo(),
     };
   }
