@@ -52,6 +52,8 @@ describe('NewLoanReminderService', () => {
     email: null,
     alternatePhoneNumber: null,
     mutedPhoneNumbers: [],
+    emailRemindersEnabled: false,
+    smsRemindersEnabled: false,
     homeAddress: null,
     workAddress: null,
     city: null,

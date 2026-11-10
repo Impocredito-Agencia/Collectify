@@ -99,6 +99,17 @@ export class Client {
   @Column({ type: 'text', array: true, default: () => "'{}'" })
   mutedPhoneNumbers!: string[];
 
+  // Phase 36, stage 3 — whether this client receives the scheduled email /
+  // SMS reminders, on top of WhatsApp. Picked by hand by the admin (the
+  // client's profile, or the overdue list on Plantillas → Correo y SMS),
+  // typically for the clients with the most days of mora. Off by default.
+  // Email still needs `email` set; SMS goes to the same phones as WhatsApp.
+  @Column({ default: false })
+  emailRemindersEnabled!: boolean;
+
+  @Column({ default: false })
+  smsRemindersEnabled!: boolean;
+
   @Column({ type: 'text', nullable: true })
   homeAddress!: string | null;
 

@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
+import { MessageChannel } from '../messageChannel.enum';
 import { MessageType } from '../messageType.enum';
 import { WhatsappDeliveryStatus } from '../whatsappDeliveryStatus.enum';
 
@@ -35,8 +36,23 @@ export class MessageLog {
   @Column({ type: 'enum', enum: MessageType })
   type!: MessageType;
 
-  @Column()
-  phoneNumber!: string;
+  // Phase 36, stage 3 — whatsapp for every row before email/SMS existed.
+  // Readers that only make sense for WhatsApp (inbox thread, delivery
+  // health, frequency throttle) filter on it.
+  @Column({
+    type: 'enum',
+    enum: MessageChannel,
+    default: MessageChannel.WhatsApp,
+  })
+  channel!: MessageChannel;
+
+  // Null only on an email row — a DB CHECK keeps phone_number set for
+  // whatsapp/sms and email set for email. See docs/DATABASE.md.
+  @Column({ type: 'varchar', nullable: true })
+  phoneNumber!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  email!: string | null;
 
   @Column({ type: 'text' })
   messageContent!: string;
@@ -67,6 +83,13 @@ export class MessageLog {
   @Column({ type: 'varchar', nullable: true })
   whatsappMessageId!: string | null;
 
+  // Phase 36 — Brevo's messageId for an email/SMS row (null for WhatsApp,
+  // which keeps whatsappMessageId above). The lookup key for Brevo's
+  // delivery webhook (stage 4).
+  @Index('IDX_message_logs_provider_message_id')
+  @Column({ type: 'varchar', nullable: true })
+  providerMessageId!: string | null;
+
   // Added 2026-09-16 — Meta's per-message webhook status callback
   // (change.value.statuses[]), applied by
   // WhatsappWebhookService.applyDeliveryStatusUpdate once a matching WAMID
@@ -88,6 +111,10 @@ export class MessageLog {
   @Column({ type: 'int', nullable: true })
   lastErrorCode!: number | null;
 
+  // Phase 36 — also set on a failed email/SMS row, right at send time:
+  // Brevo's failure reason and message (e.g. "insufficient_credits: Not
+  // enough credits"). lastErrorCode stays null there — Brevo's codes are
+  // strings.
   @Column({ type: 'varchar', nullable: true })
   lastErrorTitle!: string | null;
 
