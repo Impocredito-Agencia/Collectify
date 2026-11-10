@@ -45,6 +45,8 @@ function client(overrides: Partial<Client> = {}): Client {
     phoneNumber: '+573001111111',
     emailRemindersEnabled: true,
     smsRemindersEnabled: true,
+    emailUndeliverableAt: null,
+    smsUndeliverablePhoneNumbers: [],
     ...overrides,
   } as Client;
 }
@@ -249,6 +251,38 @@ describe('ChannelReminderService', () => {
           interestSnapshot: 900,
         }),
       ]);
+    });
+
+    it('skips an email marked not contactable by the Brevo webhook', async () => {
+      clientsRepository.find.mockResolvedValue([
+        client({ emailUndeliverableAt: new Date() }),
+      ]);
+      findOverdueIds.mockResolvedValue(['client-a']);
+      overdueReminderService.planReminderForClient.mockResolvedValue([plan()]);
+
+      await service.runFamily(ReminderFamily.Overdue, BrevoChannel.Email);
+
+      const [{ where }] = clientsRepository.find.mock.calls[0] as [
+        { where: Record<string, unknown> },
+      ];
+      expect(where).toHaveProperty('emailUndeliverableAt');
+      expect(brevoService.sendEmail).not.toHaveBeenCalled();
+    });
+
+    it('skips the SMS numbers marked not contactable', async () => {
+      clientsRepository.find.mockResolvedValue([
+        client({ smsUndeliverablePhoneNumbers: ['+573002222222'] }),
+      ]);
+      findOverdueIds.mockResolvedValue(['client-a']);
+      overdueReminderService.planReminderForClient.mockResolvedValue([plan()]);
+
+      await service.runFamily(ReminderFamily.Overdue, BrevoChannel.Sms);
+
+      expect(
+        brevoService.sendSms.mock.calls.map(
+          ([input]) => (input as { to: string }).to,
+        ),
+      ).toEqual(['+573001111111']);
     });
 
     it('never emails the client about a loan whose reminders go to a third party', async () => {

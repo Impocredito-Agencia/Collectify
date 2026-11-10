@@ -246,7 +246,12 @@ export class ChannelReminderService {
     return this.clientsRepository.find({
       where:
         channel === BrevoChannel.Email
-          ? { emailRemindersEnabled: true, email: Not(IsNull()) }
+          ? {
+              emailRemindersEnabled: true,
+              email: Not(IsNull()),
+              // Stage 4 — not after a definitive failure (BrevoWebhookService).
+              emailUndeliverableAt: IsNull(),
+            }
           : { smsRemindersEnabled: true },
     });
   }
@@ -273,7 +278,9 @@ export class ChannelReminderService {
         // third-party contact isn't emailed to the client, the same way
         // WhatsApp doesn't message the client about it.
         const email = client.email?.trim();
-        if (!plan.isClientGroup || !email) {
+        // Stage 4 — skipped after a definitive failure (hard bounce, spam,
+        // unsubscribe…) until the admin re-enables it.
+        if (!plan.isClientGroup || !email || client.emailUndeliverableAt) {
           continue;
         }
         const result = await this.brevoService.sendEmail({
@@ -293,11 +300,13 @@ export class ChannelReminderService {
         continue;
       }
 
-      const phoneNumbers = options.targetPhoneNumber
-        ? plan.recipientPhoneNumbers.filter(
-            (phone) => phone === options.targetPhoneNumber,
-          )
-        : plan.recipientPhoneNumbers;
+      // Stage 4 — minus the numbers that hard-bounced, are blacklisted or
+      // replied STOP, until the admin re-enables them.
+      const phoneNumbers = plan.recipientPhoneNumbers.filter(
+        (phone) =>
+          !client.smsUndeliverablePhoneNumbers.includes(phone) &&
+          (!options.targetPhoneNumber || phone === options.targetPhoneNumber),
+      );
       for (const phoneNumber of phoneNumbers) {
         const result = await this.brevoService.sendSms({
           to: phoneNumber,

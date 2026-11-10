@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseEnumPipe,
   ParseUUIDPipe,
@@ -35,6 +37,7 @@ import {
 } from './channelRecipients.service';
 import { ChannelReminderCronService } from './channelReminderCron.service';
 import { BulkUpdateChannelSelectionDto } from './dto/bulkUpdateChannelSelection.dto';
+import { ReactivateChannelDto } from './dto/reactivateChannel.dto';
 import { UpdateChannelSelectionDto } from './dto/updateChannelSelection.dto';
 
 // Phase 36, stage 3 — the scheduled email/SMS reminders: when they run
@@ -146,6 +149,29 @@ export class ChannelRemindersController {
   ): Promise<BulkSelectionResult> {
     const { clientIds, ...change } = dto;
     return this.recipientsService.updateMany(clientIds, change);
+  }
+
+  @Post('recipients/:clientId/reactivate')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit('channelReminder.reactivate', 'client')
+  @ApiOperation({
+    summary:
+      "Re-enable a client's email, or an SMS number, marked not contactable",
+    description:
+      "Lifts the mark Brevo's webhook left after a definitive failure (email: hard bounce, invalid, blocked, spam, unsubscribed; SMS: hard bounce, blacklisted, STOP). For SMS, omit phoneNumber to re-enable every number.",
+  })
+  @ApiResponse({ status: 204, description: 'Re-enabled.' })
+  @ApiResponse({ status: 404, description: 'Client not found.' })
+  async reactivate(
+    @Param('clientId', ParseUUIDPipe) clientId: string,
+    @Body() dto: ReactivateChannelDto,
+  ): Promise<void> {
+    await this.recipientsService.reactivate(
+      clientId,
+      dto.channel === BrevoChannel.Email
+        ? { channel: 'email' }
+        : { channel: 'sms', phoneNumber: dto.phoneNumber },
+    );
   }
 
   @Put('recipients/:clientId')
