@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
+import { TimePicker } from '@/components/ui/TimePicker';
 import {
   buildCronExpression,
   DEFAULT_SCHEDULE_CONFIG,
@@ -19,10 +20,6 @@ const DAY_OF_WEEK_OPTIONS = [
   { value: 6, label: 'Sáb' },
   { value: 0, label: 'Dom' },
 ];
-
-function pad2(value: number): string {
-  return String(value).padStart(2, '0');
-}
 
 // accent (orange) for the WhatsApp families; blue for the email/SMS
 // schedules, so the two are easy to tell apart (human request, 2026-11-09).
@@ -135,14 +132,15 @@ export function CronScheduleForm({
         </div>
 
         <div className="flex items-center justify-between gap-2">
-          <input
-            type="time"
-            value={`${pad2(config.hour)}:${pad2(config.minute)}`}
-            onChange={(event) => {
-              const [hour, minute] = event.target.value.split(':').map(Number);
-              updateConfig({ hour, minute });
-            }}
-            className={`h-9 rounded border border-border bg-input px-2 ${text} text-white focus:outline-none`}
+          {/* App-styled picker instead of <input type="time">, whose popup
+              and nearly invisible clock icon couldn't follow the dark
+              theme (human request, 2026-11-09). */}
+          <TimePicker
+            hour={config.hour}
+            minute={config.minute}
+            onChange={(hour, minute) => updateConfig({ hour, minute })}
+            ariaLabel="Hora del envío"
+            className={`h-9 rounded border border-border bg-input px-2.5 ${text} text-white`}
           />
 
           <Button
