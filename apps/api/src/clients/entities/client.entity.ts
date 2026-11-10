@@ -110,6 +110,22 @@ export class Client {
   @Column({ default: false })
   smsRemindersEnabled!: boolean;
 
+  // Phase 36, stage 4 — set by Brevo's delivery webhook when the email
+  // failed for good (hard bounce, invalid, blocked, spam, unsubscribed):
+  // no more email reminders until the admin re-enables it, or changes the
+  // email (ClientsService.update clears it). Reason is Brevo's event, e.g.
+  // "hard_bounce: mailbox does not exist".
+  @Column({ type: 'timestamptz', nullable: true })
+  emailUndeliverableAt!: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  emailUndeliverableReason!: string | null;
+
+  // Same, per phone number, for SMS only (WhatsApp is never affected): hard
+  // bounce, blacklisted or STOP. E.164, like mutedPhoneNumbers.
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  smsUndeliverablePhoneNumbers!: string[];
+
   @Column({ type: 'text', nullable: true })
   homeAddress!: string | null;
 
