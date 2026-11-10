@@ -21,6 +21,20 @@ export enum WhatsappDeliveryStatus {
   Failed = 'failed',
 }
 
+// Matches apps/api/src/whatsapp/messageChannel.enum.ts (Phase 36). Every
+// row before Phase 36 is WhatsApp.
+export enum MessageChannel {
+  WhatsApp = 'whatsapp',
+  Email = 'email',
+  Sms = 'sms',
+}
+
+export const MESSAGE_CHANNEL_LABELS: Record<MessageChannel, string> = {
+  [MessageChannel.WhatsApp]: 'WhatsApp',
+  [MessageChannel.Email]: 'Correo',
+  [MessageChannel.Sms]: 'SMS',
+};
+
 // GET /message-logs now leftJoinAndSelects `client` (added this phase) so
 // the list can show a name instead of a bare clientId — comes back as a
 // nested object, not a flattened clientFullName like LoanSummary.
@@ -33,7 +47,10 @@ export interface MessageLog {
     lastName: string;
   };
   type: MessageType;
-  phoneNumber: string;
+  channel: MessageChannel;
+  // Null only on an email row; `email` is set there instead.
+  phoneNumber: string | null;
+  email: string | null;
   messageContent: string;
   // Human report, 2026-10-09 — the cuota-by-cuota desglose behind a
   // reminder that covers several cuotas, snapshotted at send time.
@@ -43,6 +60,8 @@ export interface MessageLog {
   status: MessageLogStatus;
   sentAt: string;
   whatsappMessageId: string | null;
+  // Brevo's id for an email/SMS row (Phase 36).
+  providerMessageId: string | null;
   // Added 2026-09-16 — Meta's delivery-status webhook callback, applied
   // once a matching WAMID arrives. deliveryStatus null means no callback
   // has been received yet (or ever) for this send.
@@ -63,6 +82,7 @@ export interface MessageLogsQueryParams {
   clientId?: string;
   type?: MessageType;
   status?: MessageLogStatus;
+  channel?: MessageChannel;
   dateFrom?: string;
   dateTo?: string;
   search?: string;
@@ -115,6 +135,7 @@ export const messageLogsApi = {
       clientId: params.clientId,
       type: params.type,
       status: params.status,
+      channel: params.channel,
       dateFrom: params.dateFrom,
       dateTo: params.dateTo,
       search: params.search,
