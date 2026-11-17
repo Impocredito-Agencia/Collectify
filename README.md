@@ -80,6 +80,8 @@ create the first admin account with:
 npm run seed:admin -- "Full Name" admin@example.com "a-strong-password"
 ```
 
+**Email and SMS (Brevo) locally.** No credentials are needed: with `BREVO_API_KEY` empty, every email/SMS is skipped with a warning and the app runs normally. To try a real send, put a Brevo API key and a verified `BREVO_SENDER_EMAIL` in your `.env`, then call `POST /api/v1/brevo/test` (Swagger) with `{ "channel": "email", "to": "<your email>" }`. SMS stays paused (`BREVO_SMS_SENDING_PAUSED=true`) unless you add your own phone to `BREVO_TEST_RECIPIENTS` — each SMS spends a real Brevo credit. See `docs/ENVIRONMENT_VARIABLES.md`.
+
 ### 4. Set up and run the Client
 
 In a separate terminal:

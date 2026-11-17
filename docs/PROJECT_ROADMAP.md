@@ -330,6 +330,20 @@ Requested by the client (2026-11-05) — mainly to remove the test/fictitious pa
 
 **Exit criteria:** a test pagaré, with or without payments, can be deleted permanently without leaving any money counted anywhere, and anyone can still look it up afterwards exactly as it was when deleted.
 
+## Phase 36 — Email and SMS via Brevo
+
+**In progress — stage 1 of 7.** See `docs/phases/PHASE_36_BREVO_EMAIL_SMS.md`.
+
+Requested by the client — two more channels next to WhatsApp so a client without WhatsApp (or who blocked the number) still gets their messages.
+
+- A Brevo integration for transactional email (free up to the plan's daily limit) and SMS (prepaid credits), with the same kill-switch + test-allowlist safety as WhatsApp — SMS paused by default
+- Per-channel templates editable from the panel, rendered from the exact same figures as the WhatsApp message (no duplicated financial calculation)
+- Channel selection in the existing flows (reminders, new pagaré, payment confirmation, paz y salvo) per a rule still to be confirmed with the client — see the brief's open questions
+- Brevo's delivery webhook: delivery status in Mensajes, and a bounced email marked as not contactable
+- SMS credit balance visible in the panel; a client-facing setup guide
+
+**Exit criteria:** an admin can send a real test email and SMS from the panel, the agreed flows send through the right channel with the same amounts as WhatsApp, and no SMS ever leaves while SMS sending is paused (except to the test list).
+
 ---
 
 ## Explicitly out of scope for now

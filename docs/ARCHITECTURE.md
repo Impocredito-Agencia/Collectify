@@ -85,6 +85,12 @@ apps/api/
     │   │   └── whatsappInboundMessage.entity.ts
     │   └── overdueReminder.cron.ts    # weekly scheduled job — see note below
     │
+    ├── brevo/                          # Phase 36 — email + SMS provider
+    │   ├── brevo.service.ts            # wraps Brevo's REST API v3 (fetch), never throws on a send
+    │   ├── brevo.controller.ts         # GET /brevo/status, POST /brevo/test
+    │   ├── brevoErrors.ts              # Brevo HTTP error → failure reason
+    │   └── brevo.module.ts             # exports BrevoService for the reminder flows (stage 3)
+    │
     ├── dashboard/
     │   ├── dashboard.controller.ts
     │   └── dashboard.service.ts
@@ -269,6 +275,7 @@ This keeps components focused on rendering, and centralizes loading/error/cache 
 | Auth | JWT (access + refresh token) | Stateless, works well with SPA + separate API |
 | ORM | TypeORM | Team has prior experience; mature NestJS integration |
 | Messaging | Meta Cloud API | Official WhatsApp Business API, no third-party markup |
+| Email / SMS | Brevo (REST API v3, plain `fetch`) | Transactional email free up to the plan's daily limit, SMS by prepaid credits, one account for both. Same safety model as WhatsApp: per-channel kill switch (SMS paused by default) + test allowlist — see `docs/phases/PHASE_36_BREVO_EMAIL_SMS.md` |
 | Deployment (API) | Railway | Simple, affordable for current scale |
 | Deployment (Client) | Cloudflare Workers (static assets) | Free tier, unlimited bandwidth, ideal for a static SPA build — Cloudflare's current recommended path for static sites, replacing the classic Pages product |
 
