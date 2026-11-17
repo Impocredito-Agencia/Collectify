@@ -29,11 +29,24 @@ export interface BrevoSendResult {
   errorMessage: string | null;
 }
 
+// A file attached to an email — e.g. a signed PDF (electronic signature
+// module). Either the file itself (`content`) or a public absolute URL Brevo
+// downloads it from (`url`, e.g. a Cloudinary file), never both. Brevo
+// checks the extension in `name` against its allowed list (pdf, png, jpg,
+// docx, xlsx, csv, txt, zip…).
+export interface EmailAttachment {
+  // With its extension: "pagare-1021-firmado.pdf".
+  name: string;
+  content?: Buffer;
+  url?: string;
+}
+
 export interface SendEmailInput {
   to: string;
   subject: string;
   htmlContent: string;
   textContent: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface SendSmsInput {
