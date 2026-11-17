@@ -60,6 +60,23 @@ export class BrevoService {
       return skipped;
     }
 
+    const attachments = input.attachments ?? [];
+    const invalidAttachment = attachments.find(
+      (attachment) =>
+        !attachment.name.trim() ||
+        !/\.[a-z0-9]+$/i.test(attachment.name.trim()) ||
+        Boolean(attachment.content) === Boolean(attachment.url),
+    );
+    if (invalidAttachment) {
+      this.logger.error(
+        `Invalid attachment "${invalidAttachment.name}" for email to ${recipient} — needs a file name with extension and either content or url.`,
+      );
+      return this.skippedResult(
+        BrevoSendFailureReason.Rejected,
+        `Invalid attachment "${invalidAttachment.name}": it needs a file name with its extension and either content or url, not both.`,
+      );
+    }
+
     return this.post(
       '/smtp/email',
       apiKey,
@@ -71,8 +88,20 @@ export class BrevoService {
         subject: input.subject,
         htmlContent: input.htmlContent,
         textContent: input.textContent,
+        ...(attachments.length > 0 && {
+          attachment: attachments.map((attachment) =>
+            attachment.content
+              ? {
+                  name: attachment.name.trim(),
+                  content: attachment.content.toString('base64'),
+                }
+              : { name: attachment.name.trim(), url: attachment.url },
+          ),
+        }),
       },
-      `email to ${recipient}`,
+      attachments.length > 0
+        ? `email to ${recipient} (${attachments.length} attachment(s))`
+        : `email to ${recipient}`,
     );
   }
 

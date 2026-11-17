@@ -121,6 +121,69 @@ describe('BrevoService', () => {
       expect(lastRequest().body.to).toEqual([{ email: EMAIL }]);
     });
 
+    it('sends no attachment key when there are no attachments', async () => {
+      useConfig();
+      fetchMock.mockResolvedValue(jsonResponse(201, { messageId: 'id' }));
+
+      await service.sendEmail({ ...input, attachments: [] });
+
+      expect(lastRequest().body).not.toHaveProperty('attachment');
+    });
+
+    it('attaches a file as base64 content, or by url', async () => {
+      useConfig();
+      fetchMock.mockResolvedValue(jsonResponse(201, { messageId: 'id' }));
+
+      const result = await service.sendEmail({
+        ...input,
+        attachments: [
+          {
+            name: ' pagare-1021-firmado.pdf ',
+            content: Buffer.from('%PDF-1.7'),
+          },
+          { name: 'anexo.pdf', url: 'https://cdn.example.com/anexo.pdf' },
+        ],
+      });
+
+      expect(result.sent).toBe(true);
+      expect(lastRequest().body.attachment).toEqual([
+        {
+          name: 'pagare-1021-firmado.pdf',
+          content: Buffer.from('%PDF-1.7').toString('base64'),
+        },
+        { name: 'anexo.pdf', url: 'https://cdn.example.com/anexo.pdf' },
+      ]);
+    });
+
+    it.each([
+      [
+        'both content and url',
+        { name: 'a.pdf', content: Buffer.from('x'), url: 'https://x/a.pdf' },
+      ],
+      ['neither content nor url', { name: 'a.pdf' }],
+      [
+        'no extension in the name',
+        { name: 'pagare', content: Buffer.from('x') },
+      ],
+      ['an empty name', { name: ' ', content: Buffer.from('x') }],
+    ])(
+      'rejects an attachment with %s without calling Brevo',
+      async (_case, attachment) => {
+        useConfig();
+
+        const result = await service.sendEmail({
+          ...input,
+          attachments: [attachment],
+        });
+
+        expect(result).toMatchObject({
+          sent: false,
+          failureReason: BrevoSendFailureReason.Rejected,
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
     it('skips without calling Brevo when the API key is missing', async () => {
       useConfig({ apiKey: '' });
 
