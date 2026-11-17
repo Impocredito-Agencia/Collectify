@@ -12,8 +12,8 @@ Delivered as separate branches/PRs, in this order. Stages 1–2 don't depend on 
 
 | Stage | Branch | Content |
 |---|---|---|
-| 1 | `feature/brevo-service` | `BrevoService`, config + kill switches, status and test-send endpoints (backend only — reusable by other modules, e.g. electronic signature) |
-| 2 | — | Brevo card in the panel; email/SMS templates per message type, editable from the panel, SMS segment counter |
+| 1 | `feature/brevo-service` | `BrevoService`, config + kill switches, status and test-send endpoints, Brevo card in the panel |
+| 2 | — | Email/SMS templates per message type, editable from the panel, SMS segment counter |
 | 3 | — | Channel selection in the real flows, `message_logs.channel` + recipient columns, client channel preferences, retry |
 | 4 | — | Brevo webhook (delivery status, bounces), "correo no contactable" |
 | 5 | — | Email live in production (domain authenticated by the business) |
@@ -53,8 +53,7 @@ Delivered as separate branches/PRs, in this order. Stages 1–2 don't depend on 
   - `BREVO_TEST_RECIPIENTS` — emails and E.164 phones that bypass both pauses (same behavior as `WHATSAPP_TEST_RECIPIENTS`).
 - **No credentials:** an empty `BREVO_API_KEY` logs a warning and sends nothing; the app boots normally.
 - **Test send uses a fixed text** (no free-form content from the panel), short and GSM-7 only, so a test SMS always costs exactly one credit. It isn't written to `message_logs` (that table is per-client history with a mandatory `client_id` and `type`); it's recorded by the audit log, and the result (sent / reason) comes back immediately to the panel.
-- **Permissions:** both endpoints use `@RequireModule(AppModule.MessageTemplates)` — the panel's Brevo card (stage 2) will live under Plantillas, gated by that module.
-- **Reusable outside reminders:** `BrevoModule` exports `BrevoService` — any module (e.g. electronic signature) imports `BrevoModule` and calls `sendEmail` / `sendSms`; the same pauses, test list and "never throws" contract apply.
+- **Permissions:** both endpoints use `@RequireModule(AppModule.MessageTemplates)` — the Brevo card lives on the Plantillas page, which is gated by that module, and stage 2's per-channel templates will live there too.
 - **`message_logs` changes moved to stage 3.** Nothing writes an email/SMS row before stage 3, and making `phone_number` nullable now would force changes in retry and the inbox thread that couldn't be exercised yet.
 
 ### Scope
@@ -68,5 +67,6 @@ Delivered as separate branches/PRs, in this order. Stages 1–2 don't depend on 
 
 ## Related documents
 
+- `docs/phasesClient/PHASE_36_BREVO_EMAIL_SMS.md` — the panel side
 - `docs/phases/PHASE_5_WHATSAPP.md`, `PHASE_18_MESSAGE_AUDIENCES.md` (retry), `PHASE_22_WHATSAPP_WEBHOOK.md` (webhook), `PHASE_33_MESSAGE_TEMPLATES_V2.md` (current catalog)
 - Brevo API: https://developers.brevo.com/
