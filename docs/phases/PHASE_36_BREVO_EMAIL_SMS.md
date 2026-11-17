@@ -55,6 +55,7 @@ Delivered as separate branches/PRs, in this order. Stages 1–2 don't depend on 
 - **Test send uses a fixed text** (no free-form content from the panel), short and GSM-7 only, so a test SMS always costs exactly one credit. It isn't written to `message_logs` (that table is per-client history with a mandatory `client_id` and `type`); it's recorded by the audit log, and the result (sent / reason) comes back immediately to the panel.
 - **Permissions:** both endpoints use `@RequireModule(AppModule.MessageTemplates)` — the panel's Brevo card (stage 2) will live under Plantillas, gated by that module.
 - **Reusable outside reminders:** `BrevoModule` exports `BrevoService` — any module (e.g. electronic signature) imports `BrevoModule` and calls `sendEmail` / `sendSms`; the same pauses, test list and "never throws" contract apply.
+- **Email attachments** (requested for the electronic-signature module, 2026-11-17): `sendEmail({ …, attachments: [{ name, content }] })` with a `Buffer`, or `{ name, url }` with a public absolute URL Brevo downloads (e.g. Cloudinary). The name must carry its extension (Brevo checks it against its allowed list — pdf, images, office files…); an attachment with both or neither of `content`/`url` is rejected before calling Brevo (`failureReason: rejected`). Brevo's own documentation states no per-file size limit.
 - **`message_logs` changes moved to stage 3.** Nothing writes an email/SMS row before stage 3, and making `phone_number` nullable now would force changes in retry and the inbox thread that couldn't be exercised yet.
 
 ### Scope
