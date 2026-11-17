@@ -581,10 +581,21 @@ export class ClientsService {
     // don't overwrite an existing timestamp on an unrelated update.
     const consentNewlyGiven =
       dto.dataProcessingConsent === true && !client.dataProcessingConsent;
+    // Phase 36, stage 4 — a different email gets a fresh start: the
+    // "not contactable" mark Brevo's webhook left belongs to the old one.
+    const normalizeEmail = (email: string | null | undefined) =>
+      email?.trim().toLowerCase() || null;
+    const emailChanged =
+      dto.email !== undefined &&
+      normalizeEmail(dto.email) !== normalizeEmail(client.email);
 
     Object.assign(client, dto);
     if (consentNewlyGiven) {
       client.consentGivenAt = new Date();
+    }
+    if (emailChanged) {
+      client.emailUndeliverableAt = null;
+      client.emailUndeliverableReason = null;
     }
 
     try {

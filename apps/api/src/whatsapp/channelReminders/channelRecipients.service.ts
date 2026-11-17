@@ -26,6 +26,11 @@ export interface ChannelRecipient {
   overdueInstallments: number;
   emailRemindersEnabled: boolean;
   smsRemindersEnabled: boolean;
+  // Stage 4 — set by Brevo's webhook after a definitive failure; the
+  // email/SMS reminders skip them until reactivated.
+  emailUndeliverableAt: Date | null;
+  emailUndeliverableReason: string | null;
+  smsUndeliverablePhoneNumbers: string[];
 }
 
 export interface ChannelSelectionChange {
@@ -104,6 +109,9 @@ export class ChannelRecipientsService {
             : 0,
           emailRemindersEnabled: client.emailRemindersEnabled,
           smsRemindersEnabled: client.smsRemindersEnabled,
+          emailUndeliverableAt: client.emailUndeliverableAt,
+          emailUndeliverableReason: client.emailUndeliverableReason,
+          smsUndeliverablePhoneNumbers: client.smsUndeliverablePhoneNumbers,
         };
       })
       .sort(
@@ -168,6 +176,35 @@ export class ChannelRecipientsService {
         fullName: `${client.firstName} ${client.lastName}`,
       })),
     };
+  }
+
+  // Stage 4 — the admin lifts a "not contactable" mark Brevo's webhook left:
+  // the client's email, or one SMS number (none given = every number).
+  async reactivate(
+    clientId: string,
+    target: { channel: 'email' } | { channel: 'sms'; phoneNumber?: string },
+  ): Promise<void> {
+    const client = await this.clientsRepository.findOneBy({ id: clientId });
+    if (!client) {
+      throw new NotFoundException(`Client with id ${clientId} not found`);
+    }
+    if (target.channel === 'email') {
+      await this.clientsRepository.update(
+        { id: clientId },
+        { emailUndeliverableAt: null, emailUndeliverableReason: null },
+      );
+      return;
+    }
+    await this.clientsRepository.update(
+      { id: clientId },
+      {
+        smsUndeliverablePhoneNumbers: target.phoneNumber
+          ? client.smsUndeliverablePhoneNumbers.filter(
+              (phone) => phone !== target.phoneNumber,
+            )
+          : [],
+      },
+    );
   }
 
   private toUpdate(change: ChannelSelectionChange): ChannelSelectionChange {

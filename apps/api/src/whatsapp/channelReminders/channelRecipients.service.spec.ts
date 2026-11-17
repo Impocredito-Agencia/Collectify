@@ -21,6 +21,9 @@ function client(overrides: Partial<Client>): Client {
     email: 'juana@example.com',
     emailRemindersEnabled: false,
     smsRemindersEnabled: false,
+    emailUndeliverableAt: null,
+    emailUndeliverableReason: null,
+    smsUndeliverablePhoneNumbers: [],
     ...overrides,
   } as Client;
 }
@@ -159,6 +162,52 @@ describe('ChannelRecipientsService', () => {
 
       await expect(
         service.updateOne('missing', { smsRemindersEnabled: true }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('reactivate', () => {
+    it("clears the client's email mark", async () => {
+      clientsRepository.findOneBy.mockResolvedValue(
+        client({ emailUndeliverableAt: new Date() }),
+      );
+
+      await service.reactivate('client-a', { channel: 'email' });
+
+      expect(clientsRepository.update).toHaveBeenCalledWith(
+        { id: 'client-a' },
+        { emailUndeliverableAt: null, emailUndeliverableReason: null },
+      );
+    });
+
+    it('re-enables one SMS number, or every one when none is given', async () => {
+      clientsRepository.findOneBy.mockResolvedValue(
+        client({
+          smsUndeliverablePhoneNumbers: ['+573001111111', '+573002222222'],
+        }),
+      );
+
+      await service.reactivate('client-a', {
+        channel: 'sms',
+        phoneNumber: '+573001111111',
+      });
+      expect(clientsRepository.update).toHaveBeenLastCalledWith(
+        { id: 'client-a' },
+        { smsUndeliverablePhoneNumbers: ['+573002222222'] },
+      );
+
+      await service.reactivate('client-a', { channel: 'sms' });
+      expect(clientsRepository.update).toHaveBeenLastCalledWith(
+        { id: 'client-a' },
+        { smsUndeliverablePhoneNumbers: [] },
+      );
+    });
+
+    it('throws NotFound for an unknown client', async () => {
+      clientsRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(
+        service.reactivate('missing', { channel: 'email' }),
       ).rejects.toThrow(NotFoundException);
     });
   });

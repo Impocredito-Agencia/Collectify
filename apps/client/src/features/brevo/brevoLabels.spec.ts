@@ -8,6 +8,7 @@ import {
   describeChannelState,
   describeSendFailure,
   formatPlanType,
+  isLocalAddress,
 } from '@/features/brevo/brevoLabels';
 
 describe('describeChannelState', () => {
@@ -69,5 +70,22 @@ describe('formatPlanType', () => {
     expect(formatPlanType('free')).toBe('Gratuito');
     expect(formatPlanType('enterprise')).toBe('enterprise');
     expect(formatPlanType(null)).toBe('Desconocido');
+  });
+});
+
+describe('isLocalAddress', () => {
+  it('flags addresses Brevo cannot reach from the internet', () => {
+    expect(isLocalAddress('http://localhost:3000/api/v1')).toBe(true);
+    expect(isLocalAddress('http://127.0.0.1:3000/api/v1')).toBe(true);
+    expect(isLocalAddress('http://192.168.1.20:3000/api/v1')).toBe(true);
+    expect(isLocalAddress('http://172.20.0.5/api/v1')).toBe(true);
+  });
+
+  it('accepts a public address, and never throws on a bad one', () => {
+    expect(isLocalAddress('https://api-production.up.railway.app/api/v1')).toBe(
+      false,
+    );
+    expect(isLocalAddress('http://172.40.0.5/api/v1')).toBe(false);
+    expect(isLocalAddress('not a url')).toBe(false);
   });
 });

@@ -81,6 +81,9 @@ describe('ClientsService', () => {
     mutedPhoneNumbers: [],
     emailRemindersEnabled: false,
     smsRemindersEnabled: false,
+    emailUndeliverableAt: null,
+    emailUndeliverableReason: null,
+    smsUndeliverablePhoneNumbers: [],
     homeAddress: null,
     workAddress: null,
     city: null,
@@ -529,6 +532,45 @@ describe('ClientsService', () => {
       });
 
       expect(result.alternatePhoneNumber).toBeNull();
+    });
+
+    it('clears the email "not contactable" mark when the email changes', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        email: 'old@example.com',
+        emailUndeliverableAt: new Date(),
+        emailUndeliverableReason: 'hard_bounce: no such user',
+      });
+      repository.save.mockImplementation((client: Client) =>
+        Promise.resolve(client),
+      );
+
+      const result = await service.update(mockClient.id, {
+        email: 'new@example.com',
+      });
+
+      expect(result.emailUndeliverableAt).toBeNull();
+      expect(result.emailUndeliverableReason).toBeNull();
+    });
+
+    it('keeps the mark when the same email is saved again', async () => {
+      const markedAt = new Date();
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        email: 'old@example.com',
+        emailUndeliverableAt: markedAt,
+        emailUndeliverableReason: 'spam',
+      });
+      repository.save.mockImplementation((client: Client) =>
+        Promise.resolve(client),
+      );
+
+      const result = await service.update(mockClient.id, {
+        email: ' OLD@example.com ',
+        firstName: 'Juanita',
+      });
+
+      expect(result.emailUndeliverableAt).toBe(markedAt);
     });
 
     it('rejects an update that would leave the client without any address', async () => {

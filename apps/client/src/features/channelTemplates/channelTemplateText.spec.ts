@@ -7,7 +7,10 @@ import {
   splitBold,
   splitParagraphs,
 } from '@/features/channelTemplates/channelTemplateText';
-import { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
+import {
+  MessageType,
+  NEW_LOAN_FAMILY_TYPES,
+} from '@/features/messageTemplates/messageTemplatesApi';
 
 describe('fillPlaceholders', () => {
   it('fills every occurrence and leaves unknown numbers as they are', () => {
@@ -58,8 +61,24 @@ describe('splitParagraphs', () => {
 });
 
 describe('MESSAGE_TYPE_GROUPS', () => {
-  it('lists every message type exactly once', () => {
+  it("follows a loan's life: próximas, vencidas, Datacrédito", () => {
+    expect(MESSAGE_TYPE_GROUPS.map((group) => group.label)).toEqual([
+      'Cuotas próximas a vencer',
+      'Cuotas vencidas',
+      'Reporte a Datacrédito',
+    ]);
+  });
+
+  it('lists every collection type once, and no new-loan or payment type', () => {
     const listed = MESSAGE_TYPE_GROUPS.flatMap((group) => group.types);
-    expect([...listed].sort()).toEqual(Object.values(MessageType).sort());
+    expect(new Set(listed).size).toBe(listed.length);
+    expect(listed).toHaveLength(11);
+    for (const type of [
+      ...NEW_LOAN_FAMILY_TYPES,
+      MessageType.PaymentConfirmation,
+      MessageType.PaidInFull,
+    ]) {
+      expect(listed).not.toContain(type);
+    }
   });
 });

@@ -18,6 +18,9 @@ function recipient(overrides: Partial<ChannelRecipient>): ChannelRecipient {
     overdueInstallments: 1,
     emailRemindersEnabled: false,
     smsRemindersEnabled: false,
+    emailUndeliverableAt: null,
+    emailUndeliverableReason: null,
+    smsUndeliverablePhoneNumbers: [],
     ...overrides,
   };
 }

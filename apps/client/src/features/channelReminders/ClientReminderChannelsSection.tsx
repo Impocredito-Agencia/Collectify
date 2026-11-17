@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { BrevoChannel } from '@/features/brevo/brevoApi';
 import { ChannelSwitch } from '@/features/channelReminders/ChannelSwitch';
+import { UndeliverableNotice } from '@/features/channelReminders/UndeliverableNotice';
 import { useUpdateChannelRecipient } from '@/features/channelReminders/useChannelReminders';
 import { ApiError } from '@/lib/apiClient';
+import { formatPhoneNumber } from '@/lib/format';
 
 import type { ChannelSelectionChange } from '@/features/channelReminders/channelRemindersApi';
 import type { ClientDetail } from '@/features/clients/clientsApi';
@@ -16,6 +19,9 @@ interface ClientReminderChannelsSectionProps {
     | 'phoneNumber'
     | 'emailRemindersEnabled'
     | 'smsRemindersEnabled'
+    | 'emailUndeliverableAt'
+    | 'emailUndeliverableReason'
+    | 'smsUndeliverablePhoneNumbers'
   >;
 }
 
@@ -88,6 +94,32 @@ export function ClientReminderChannelsSection({
           </span>
         </label>
       </div>
+      {client.emailUndeliverableAt && (
+        <div className="flex flex-col gap-0.5">
+          <span className="text-label text-muted">
+            No se le envían correos: Brevo informó{' '}
+            {client.emailUndeliverableReason ?? 'un fallo definitivo'}. Corrige
+            el correo en la ficha (se reactiva solo) o reactívalo si ya se
+            resolvió.
+          </span>
+          <UndeliverableNotice
+            clientId={client.id}
+            channel={BrevoChannel.Email}
+            label="Correo bloqueado"
+            detail={client.emailUndeliverableReason ?? ''}
+          />
+        </div>
+      )}
+      {client.smsUndeliverablePhoneNumbers.map((phoneNumber) => (
+        <UndeliverableNotice
+          key={phoneNumber}
+          clientId={client.id}
+          channel={BrevoChannel.Sms}
+          label={`SMS bloqueado al ${formatPhoneNumber(phoneNumber)} (rebotó o respondió STOP)`}
+          detail={phoneNumber}
+          phoneNumber={phoneNumber}
+        />
+      ))}
       {error && (
         <p className="text-small text-danger" role="alert">
           {error}

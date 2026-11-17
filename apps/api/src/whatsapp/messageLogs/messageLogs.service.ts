@@ -168,7 +168,7 @@ export class MessageLogsService {
     // so nothing was logged — see ChannelReminderService.saveLog.
     if (!retryLog && original.channel !== MessageChannel.WhatsApp) {
       throw new BadRequestException(
-        'No se pudo reintentar: el envío por correo o SMS está en pausa o sin configurar.',
+        'No se pudo reintentar: el envío por correo o SMS está en pausa o sin configurar, o ese correo o número quedó marcado como no contactable.',
       );
     }
     // PaymentConfirmation/PaidInFull return [] instead of a MessageLog

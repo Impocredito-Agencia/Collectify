@@ -75,6 +75,11 @@ export interface BrevoConfig {
   smsSendingPaused: boolean;
   // Emails (lowercased) and E.164 phone numbers, mixed in one list.
   testRecipients: string[];
+  // Stage 4 — the shared secret Brevo's webhook calls must carry (Bearer
+  // token, or the password of Basic auth in the webhook URL). Brevo doesn't
+  // sign its webhooks, so this is their only proof of origin. Empty =
+  // every webhook call is rejected.
+  webhookSecret: string;
 }
 
 export interface CloudinaryConfig {
@@ -181,6 +186,7 @@ export default (): Configuration => ({
       .map((recipient) =>
         recipient.includes('@') ? recipient.toLowerCase() : recipient,
       ),
+    webhookSecret: process.env.BREVO_WEBHOOK_SECRET ?? '',
   },
   cloudinary: {
     // Live in production since 2026-09-16, same status as the Meta

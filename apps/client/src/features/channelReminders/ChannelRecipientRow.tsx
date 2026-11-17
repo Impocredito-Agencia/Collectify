@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Td } from '@/components/ui/Table';
+import { BrevoChannel } from '@/features/brevo/brevoApi';
 import { ChannelSwitch } from '@/features/channelReminders/ChannelSwitch';
+import { UndeliverableNotice } from '@/features/channelReminders/UndeliverableNotice';
 import { useUpdateChannelRecipient } from '@/features/channelReminders/useChannelReminders';
 import { ApiError } from '@/lib/apiClient';
 
@@ -63,12 +65,14 @@ export function ChannelRecipientRow({
           {error && <span className="text-label text-danger">{error}</span>}
         </div>
       </Td>
-      <Td muted>
+      {/* Same bright text as the name (human request, 2026-11-09) — the
+          figures the admin picks clients by. */}
+      <Td>
         {recipient.maxOverdueDays === null
           ? 'Al día'
           : `${recipient.maxOverdueDays} días`}
       </Td>
-      <Td muted>{recipient.overdueInstallments}</Td>
+      <Td>{recipient.overdueInstallments}</Td>
       <Td muted>
         <ChannelSwitch
           isOn={recipient.emailRemindersEnabled}
@@ -80,6 +84,14 @@ export function ChannelRecipientRow({
           label={`Correo para ${recipient.fullName}`}
           onChange={(isOn) => update({ emailRemindersEnabled: isOn })}
         />
+        {recipient.emailUndeliverableAt && (
+          <UndeliverableNotice
+            clientId={recipient.clientId}
+            channel={BrevoChannel.Email}
+            label="Correo bloqueado"
+            detail={recipient.emailUndeliverableReason ?? ''}
+          />
+        )}
       </Td>
       <Td muted>
         <ChannelSwitch
@@ -89,6 +101,18 @@ export function ChannelRecipientRow({
           label={`SMS para ${recipient.fullName}`}
           onChange={(isOn) => update({ smsRemindersEnabled: isOn })}
         />
+        {recipient.smsUndeliverablePhoneNumbers.length > 0 && (
+          <UndeliverableNotice
+            clientId={recipient.clientId}
+            channel={BrevoChannel.Sms}
+            label={
+              recipient.smsUndeliverablePhoneNumbers.length === 1
+                ? '1 número bloqueado'
+                : `${recipient.smsUndeliverablePhoneNumbers.length} números bloqueados`
+            }
+            detail={recipient.smsUndeliverablePhoneNumbers.join(', ')}
+          />
+        )}
       </Td>
     </tr>
   );

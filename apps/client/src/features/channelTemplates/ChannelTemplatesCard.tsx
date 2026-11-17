@@ -72,17 +72,13 @@ export function ChannelTemplatesCard() {
       {templates &&
         MESSAGE_TYPE_GROUPS.map((group) => (
           <div key={group.label} className="flex flex-col gap-1.5">
-            <span className="text-label text-muted">
-              {group.label}
-              {!group.isSentByEmailOrSms &&
-                ' — hoy no se envía por correo ni SMS'}
-            </span>
+            <span className="text-label text-muted">{group.label}</span>
             {/* A grid of compact cards rather than one full-width row per
                 type, which left most of a wide screen empty (human
                 feedback, 2026-11-09). items-stretch + justify-between keep
                 the buttons on one baseline across a row even when a long
                 name wraps. */}
-            <div className="grid grid-cols-1 items-stretch gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 items-stretch gap-2.5 md:grid-cols-2">
               {group.types.map((type) => {
                 const credits = smsCredits(find(type, BrevoChannel.Sms));
                 return (

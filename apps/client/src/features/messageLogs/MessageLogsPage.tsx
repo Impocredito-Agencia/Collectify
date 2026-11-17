@@ -15,6 +15,7 @@ import {
   MessageChannel,
   MessageLogStatus,
 } from '@/features/messageLogs/messageLogsApi';
+import { deliveryStatusLabel } from '@/features/messageLogs/deliveryStatusLabel';
 import { formatMessageRecipient } from '@/features/messageLogs/messageRecipient';
 import {
   useMessageLogs,
@@ -271,16 +272,8 @@ export function MessageLogsPage() {
                   })}
                 </Td>
                 <Td>
-                  <StatusBadge
-                    tone={
-                      log.status === MessageLogStatus.Sent
-                        ? 'success'
-                        : 'danger'
-                    }
-                  >
-                    {log.status === MessageLogStatus.Sent
-                      ? 'Enviado'
-                      : 'Fallido'}
+                  <StatusBadge tone={deliveryStatusLabel(log).tone}>
+                    {deliveryStatusLabel(log).label}
                   </StatusBadge>
                 </Td>
                 <Td muted className="max-w-[280px] truncate">

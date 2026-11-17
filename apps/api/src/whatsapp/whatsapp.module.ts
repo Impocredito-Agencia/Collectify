@@ -15,6 +15,8 @@ import { UsersModule } from '../users/users.module';
 
 import { BankAccountController } from './bankAccount.controller';
 import { BankAccountService } from './bankAccount.service';
+import { BrevoWebhookController } from './brevoWebhook/brevoWebhook.controller';
+import { BrevoWebhookService } from './brevoWebhook/brevoWebhook.service';
 import { ChannelRecipientsService } from './channelReminders/channelRecipients.service';
 import { ChannelReminderService } from './channelReminders/channelReminder.service';
 import { ChannelReminderCronService } from './channelReminders/channelReminderCron.service';
@@ -113,6 +115,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     MessageTemplatesController,
     MessageChannelTemplatesController,
     ChannelRemindersController,
+    BrevoWebhookController,
     MessageLogsController,
     WhatsappWebhookController,
     BankAccountController,
@@ -124,6 +127,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     ChannelReminderService,
     ChannelReminderCronService,
     ChannelRecipientsService,
+    BrevoWebhookService,
     MessageFrequencyThrottleService,
     MessageLogsService,
     OverdueReminderService,

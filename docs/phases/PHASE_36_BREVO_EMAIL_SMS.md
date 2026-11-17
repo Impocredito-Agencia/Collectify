@@ -16,7 +16,7 @@ Delivered as separate branches/PRs, in this order. Stages 1–2 don't depend on 
 | 2 | — | Email/SMS templates per message type, editable from the panel, SMS segment counter |
 | 3 | — | Channel selection in the real flows, `message_logs.channel` + recipient columns, client channel preferences, retry |
 | 4 | — | Brevo webhook (delivery status, bounces), "correo no contactable" |
-| 5 | — | Email live in production (domain authenticated by the business) |
+| 5 | — | Email live in production (domain authenticated by the business). **Paused 2026-11-09** — waiting for the business to choose and buy its domain (open question 4); the sender is a `@gmail.com` address until then, fine for tests but likely to land in spam for clients |
 | 6 | — | SMS live: credits bought, test with the allowlist, daily cap / low-balance alert |
 | 7 | — | Client-facing guide (`docs/cliente/GUIA_BREVO.md`) |
 
@@ -96,7 +96,7 @@ The open questions above, as they apply to this stage:
 1. **Purpose — not a WhatsApp fallback.** Email and SMS are *extra pressure* on debtors the admin picks by hand, typically the ones with the most days of mora. They go out **in addition to** WhatsApp, never instead of it, and regardless of whether WhatsApp worked.
 2. **Who:** a client receives email and/or SMS reminders only when the admin turned that channel on for them — two switches (Correo, SMS) on the client's profile, plus a list of clients with overdue cuotas, sorted by days of mora, to switch many at once. Off by default for everyone.
 3. **When:** scheduled like WhatsApp — one card per reminder family, each with **its own on/off and schedule per channel** (e.g. overdue email every Monday 9:00, overdue SMS only Fridays 10:00). All start paused.
-4. **Which families:** overdue, upcoming due, Datacrédito. **Payment confirmation and paz y salvo never go by email/SMS.** New pagaré / refinance are pending — the human is checking with the business whether everything that isn't collection gets dropped; left out until confirmed (adding it later is one more family row).
+4. **Which families:** overdue, upcoming due, Datacrédito. **Payment confirmation and paz y salvo never go by email/SMS.** New pagaré / refinance: **not sent by email/SMS either** (human, 2026-11-09: "99% sure they won't be used") — their email/SMS templates were removed (migration `RemoveNonCollectionChannelTemplates1792300000000`), so email/SMS is collection only. Adding one back later is a family row plus its templates.
 5. **SMS recipients:** the same phones as WhatsApp (client's main and alternate number, and the loan's third-party contact), muted numbers excluded. **Email** can only go to the client — they're the only one with an email on file — and only for their own group (a loan whose reminders go to a third party isn't emailed to the client, same as WhatsApp doesn't message the client about it).
 6. **Data-processing consent:** same as WhatsApp today — not checked at send time.
 7. **Per-client minimum days between reminders (Phase 27): doesn't apply to email/SMS.** It stays WhatsApp-only, and email/SMS sends don't count against it either.
@@ -108,6 +108,7 @@ The open questions above, as they apply to this stage:
 - **Nothing is logged for a send that was never attempted** — channel paused (`BREVO_*_SENDING_PAUSED`) or not configured. Logging those as `failed` is what filled `message_logs` with junk twice before (see the 2026-09-11 and 2026-09-19 cleanups).
 - **Every WhatsApp-only reader of `message_logs` filters `channel = 'whatsapp'`:** the inbox conversation thread, delivery health ("possibly blocked"), the message-frequency throttle and the Datacrédito "already sent" check (per channel, so the email notice doesn't stop the SMS one). Dashboard message counts include every channel — they're all messages the client received.
 - **Schedules live in a new `message_channel_schedules` table** (family, channel, cron expression, paused), not on template rows like WhatsApp's schedule owners — six rows seeded paused, with the same default times as the WhatsApp families. `ChannelReminderCronService` registers one job per row in `America/Bogota`, the same way `WhatsappCronService` does.
+- **Order (human request, 2026-11-09):** every family list follows a loan's life — new pagaré → próximas a vencer → vencidas → Datacrédito (→ payments) — on the WhatsApp tab (family cards and template cards) and on Correo y SMS (schedules and templates, without new pagaré).
 - **Retry (Phase 18) works for email/SMS rows too:** it resends the client's current state for that family to the same recipient over the same channel.
 
 ### Scope
@@ -120,6 +121,35 @@ The open questions above, as they apply to this stage:
 - [x] WhatsApp-only readers filter `channel = 'whatsapp'`: inbox conversation list and thread, delivery health, message-frequency throttle.
 - [x] `docs/DATABASE.md`, `docs/GLOSSARY.md`, `docs/ARCHITECTURE.md`.
 - [ ] Manual test against a real database and Brevo (not possible from the development sandbox).
+
+## Stage 4 — Brevo delivery webhook (`feature/brevo-webhook`)
+
+### Resolved with the human (2026-11-09)
+
+1. **Email:** every *definitive* event stops email to that client until the admin re-enables it — hard bounce, invalid email, blocked, marked as spam, unsubscribed. Insisting on addresses that bounce or complained damages the sender's reputation (everything starts landing in spam).
+2. **SMS:** a number that hard-bounces, is blacklisted or replies STOP (unsubscribed) gets no more SMS — WhatsApp is unaffected — until the admin re-enables it. Saves credits, and honoring STOP is a legal requirement.
+
+### Decisions
+
+- **Two public endpoints**, one per Brevo webhook (Brevo configures email and SMS webhooks separately and their payloads differ): `POST /api/v1/brevo/webhooks/email` and `POST /api/v1/brevo/webhooks/sms`. Both accept a single event or a batched array.
+- **Authentication:** Brevo doesn't sign webhooks, so each call must carry `BREVO_WEBHOOK_SECRET` — as `Authorization: Bearer <secret>` (webhook created through Brevo's API with `auth`) or as the password of Basic auth embedded in the webhook URL (what Brevo's dashboard allows). Constant-time comparison; 401 otherwise, and every call is rejected while the secret is empty.
+- **Matching:** by `message_logs.provider_message_id` — email `message-id` (compared with and without its `<…>`), SMS `messageId`. An unknown id (a test send, a message from before stage 3, another app on the same Brevo account) is ignored without failing.
+- **Delivery status** reuses `delivery_status` (`sent` / `delivered` / `read` / `failed`) and `delivery_status_updated_at`, like WhatsApp: email `request`→sent, `delivered`→delivered, `opened`/`unique_opened`/`click`/`proxy_open`→read, definitive failures→failed; SMS `sent`/`accepted`→sent, `delivered`→delivered, `hard_bounce`/`rej`/`bl`→failed. **Never downgrades** (a late `sent` can't undo `delivered`; `failed` doesn't override `delivered`/`read`), which also makes Brevo's re-sends idempotent. A failure's reason goes in `last_error_title`. Soft bounces / deferrals are transient: they only record the reason.
+- **Not contactable:** `clients.email_undeliverable_at` + `email_undeliverable_reason` for the email; `clients.sms_undeliverable_phone_numbers` (TEXT[]) for SMS, per number. The email/SMS reminders skip them. Cleared by the admin ("Reactivar") or, for the email, automatically when it's changed on the client's profile.
+- Spam and unsubscribe arrive *after* a delivery: they don't change that message's delivery status, only the client's contactability.
+- **Unknown message ids still block the contact** they name (email address, or a client's own phone number) — an unsubscribe or STOP must be honored even when it came from a send Collectify didn't log (a test send).
+- **Not batched:** the webhooks are created without Brevo's batching. Arrays are accepted anyway, but a large batch could exceed the API's default 100 KB JSON body limit.
+- `GET /brevo/status` gains `webhookConfigured` (whether the secret is set, never the secret).
+
+### Scope
+
+- [x] `BREVO_WEBHOOK_SECRET` (config, validation, `.env.example`, `docs/ENVIRONMENT_VARIABLES.md`).
+- [x] Migration `AddClientEmailAndSmsContactability1792200000000`; `ClientsService.update` clears the email mark when the email changes (+ spec).
+- [x] `brevoWebhookEvents.ts` — event → status/block/reason, forward-only status, id candidates (+ spec).
+- [x] `BrevoWebhookService` + `BrevoWebhookController` (`POST /brevo/webhooks/email`, `POST /brevo/webhooks/sms`) (+ spec: auth, idempotency, unknown ids, per-event isolation, email/SMS blocking).
+- [x] `ChannelReminderService` skips blocked emails/numbers; `POST /message-channels/recipients/:clientId/reactivate` (audited); recipients list returns the marks (+ specs).
+- [x] `docs/DATABASE.md`, `docs/GLOSSARY.md` (rebote / no contactable), `docs/ARCHITECTURE.md`.
+- [ ] Register the two webhooks in Brevo and check a real delivery/bounce end to end (needs the API on a public URL).
 
 ## Related documents
 

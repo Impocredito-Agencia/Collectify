@@ -22,6 +22,7 @@ function buildConfig(overrides: Partial<BrevoConfig> = {}): BrevoConfig {
     emailSendingPaused: false,
     smsSendingPaused: false,
     testRecipients: [],
+    webhookSecret: '',
     ...overrides,
   };
 }
@@ -446,6 +447,7 @@ describe('BrevoService', () => {
         },
         sms: { configured: true, sendingPaused: true, sender: 'Collectify' },
         testRecipientsCount: 2,
+        webhookConfigured: false,
         account: {
           available: true,
           planType: 'free',
@@ -454,6 +456,15 @@ describe('BrevoService', () => {
         },
       });
       expect(JSON.stringify(status)).not.toContain('xkeysib-test');
+    });
+
+    it('reports whether the webhook secret is set, never the secret', async () => {
+      useConfig({ apiKey: '', webhookSecret: 'hook-secret' });
+
+      const status = await service.getStatus();
+
+      expect(status.webhookConfigured).toBe(true);
+      expect(JSON.stringify(status)).not.toContain('hook-secret');
     });
 
     it('marks both channels unconfigured without an API key', async () => {

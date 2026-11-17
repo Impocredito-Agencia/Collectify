@@ -16,6 +16,9 @@ import {
 
 import type { ChannelSchedule } from '@/features/channelReminders/channelRemindersApi';
 
+// In the order of a loan's life — próximas a vencer → vencidas →
+// Datacrédito — the same as the WhatsApp family cards (human request,
+// 2026-11-09).
 // types: the templates each family sends, listed on its card the same way
 // the WhatsApp family cards on Plantillas do (human request, 2026-11-09).
 // Upcoming lists only its two own templates, like WhatsApp's card: the
@@ -27,13 +30,6 @@ const FAMILIES: {
   types: MessageType[];
 }[] = [
   {
-    family: ChannelReminderFamily.Overdue,
-    label: 'Cuotas vencidas',
-    description:
-      'A los clientes marcados que tengan cuotas vencidas. Mismo texto y valores que el recordatorio de WhatsApp.',
-    types: OVERDUE_FAMILY_TYPES,
-  },
-  {
     family: ChannelReminderFamily.UpcomingDue,
     label: 'Cuotas próximas a vencer',
     description:
@@ -42,6 +38,13 @@ const FAMILIES: {
       MessageType.SingleUpcomingInstallment,
       MessageType.MultipleUpcomingInstallments,
     ],
+  },
+  {
+    family: ChannelReminderFamily.Overdue,
+    label: 'Cuotas vencidas',
+    description:
+      'A los clientes marcados que tengan cuotas vencidas. Mismo texto y valores que el recordatorio de WhatsApp.',
+    types: OVERDUE_FAMILY_TYPES,
   },
   {
     family: ChannelReminderFamily.CreditReport,

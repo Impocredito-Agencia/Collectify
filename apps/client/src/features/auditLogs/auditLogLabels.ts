@@ -91,6 +91,8 @@ export const ACTION_LABELS: Record<string, string> = {
     'Cambió qué clientes reciben correo o SMS',
   'channelReminder.updateClient':
     'Activó o desactivó el correo o SMS de un cliente',
+  'channelReminder.reactivate':
+    'Reactivó un correo o número marcado como no contactable',
   'whatsapp.sendReminder': 'Envió manualmente un recordatorio de mora',
   'whatsapp.sendUpcomingDue':
     'Envió manualmente un recordatorio de cuota próxima',

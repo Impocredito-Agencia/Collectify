@@ -878,6 +878,7 @@ underlying `className` string — that's the whole point:
   blue main action for the Correo y SMS tab (`brandBlue`, Phase 36). A `className` prop
   remains as an escape hatch for one-off sizing/spacing only (e.g. `h-[42px]
   shrink-0`) — never for color or shape, those live in the variant.
+- **`src/components/ui/TimePicker.tsx`** — `<TimePicker hour minute onChange className minuteStep?>`. App-styled replacement for `<input type="time">` (Phase 36, 2026-11-09), same look and popover behavior as `DatePicker`: hour (1–12), minute and a. m./p. m. columns, 12-hour es-CO display ("09:00 a. m."), 0–23 values in and out. Used by `CronScheduleForm` for every automatic-send schedule.
 - **`src/components/ui/Modal.tsx`** — `<Modal maxWidth="max-w-[440px]"
   scroll? maxHeight?>`. Wraps the fixed backdrop + centered card markup
   shared by all 15 modal/dialog components. A dialog that renders a sibling

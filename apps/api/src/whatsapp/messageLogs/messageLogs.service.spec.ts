@@ -284,7 +284,7 @@ describe('MessageLogsService', () => {
       channelReminderService.retry.mockResolvedValue([]);
 
       await expect(service.retry('log-1')).rejects.toThrow(
-        'No se pudo reintentar: el envío por correo o SMS está en pausa o sin configurar.',
+        'No se pudo reintentar: el envío por correo o SMS está en pausa o sin configurar, o ese correo o número quedó marcado como no contactable.',
       );
       expect(repository.update).not.toHaveBeenCalled();
     });
