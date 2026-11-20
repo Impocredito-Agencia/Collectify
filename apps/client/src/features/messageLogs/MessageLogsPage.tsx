@@ -10,7 +10,12 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Td, Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
 import { MessageLogDrawer } from '@/features/messageLogs/MessageLogDrawer';
-import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
+import {
+  MESSAGE_CHANNEL_LABELS,
+  MessageChannel,
+  MessageLogStatus,
+} from '@/features/messageLogs/messageLogsApi';
+import { formatMessageRecipient } from '@/features/messageLogs/messageRecipient';
 import {
   useMessageLogs,
   useRetryMessageLog,
@@ -21,7 +26,6 @@ import {
   messageTypeLabel,
 } from '@/features/messageTemplates/messageTemplatesApi';
 import { ApiError } from '@/lib/apiClient';
-import { formatPhoneNumber } from '@/lib/format';
 
 import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
 import type { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
@@ -62,12 +66,22 @@ import type { ReactNode } from 'react';
 //     holds, but an admin can switch to Enviados/Todos to verify sends.
 type TypeFilter = 'all' | MessageType;
 type StatusFilter = 'all' | MessageLogStatus;
+type ChannelFilter = 'all' | MessageChannel;
 
 const TYPE_FILTER_OPTIONS = [
   { value: 'all', label: 'Todos los tipos' },
   ...MESSAGE_TYPE_ORDER.map((type) => ({
     value: type,
     label: MESSAGE_TYPE_LABELS[type],
+  })),
+];
+
+// Phase 36 — email and SMS rows share this page with WhatsApp.
+const CHANNEL_FILTER_OPTIONS = [
+  { value: 'all', label: 'Todos los canales' },
+  ...Object.values(MessageChannel).map((channel) => ({
+    value: channel,
+    label: MESSAGE_CHANNEL_LABELS[channel],
   })),
 ];
 
@@ -91,6 +105,7 @@ export function MessageLogsPage() {
     MessageLogStatus.Failed,
   );
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
@@ -102,6 +117,7 @@ export function MessageLogsPage() {
     search: search || undefined,
     status: statusFilter === 'all' ? undefined : statusFilter,
     type: typeFilter === 'all' ? undefined : typeFilter,
+    channel: channelFilter === 'all' ? undefined : channelFilter,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
     page,
@@ -125,7 +141,7 @@ export function MessageLogsPage() {
     <div className="flex flex-col gap-5">
       <Header
         title="Envíos fallidos"
-        subtitle="Mensajes de WhatsApp que no se pudieron enviar"
+        subtitle="Mensajes de WhatsApp, correo y SMS que no se pudieron enviar"
       />
 
       {retryMessageLog.isError && (
@@ -176,6 +192,16 @@ export function MessageLogsPage() {
           className="w-[190px]"
         />
 
+        <Select
+          value={channelFilter}
+          onChange={(next) => {
+            setChannelFilter(next as ChannelFilter);
+            setPage(1);
+          }}
+          options={CHANNEL_FILTER_OPTIONS}
+          className="w-[170px]"
+        />
+
         <div className="flex h-[38px] w-[220px] items-center gap-2 rounded bg-input px-3">
           <input
             value={search}
@@ -207,7 +233,8 @@ export function MessageLogsPage() {
           <thead className="bg-input">
             <tr>
               <Th>Cliente</Th>
-              <Th>Celular</Th>
+              <Th>Canal</Th>
+              <Th>Destino</Th>
               <Th>Tipo</Th>
               <Th>Fecha envío</Th>
               <Th>Estado</Th>
@@ -234,7 +261,8 @@ export function MessageLogsPage() {
                 <Td>
                   {log.client.firstName} {log.client.lastName}
                 </Td>
-                <Td muted>{formatPhoneNumber(log.phoneNumber)}</Td>
+                <Td muted>{MESSAGE_CHANNEL_LABELS[log.channel]}</Td>
+                <Td muted>{formatMessageRecipient(log)}</Td>
                 <Td muted>{messageTypeLabel(log.type)}</Td>
                 <Td muted>
                   {new Date(log.sentAt).toLocaleString('es-CO', {
@@ -327,7 +355,7 @@ function EmptyRow({
   return (
     <tr>
       <td
-        colSpan={7}
+        colSpan={8}
         className={`p-6 text-center text-small ${tone === 'error' ? 'text-danger' : 'text-muted'}`}
       >
         {children}

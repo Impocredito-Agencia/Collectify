@@ -73,22 +73,41 @@ export function splitParagraphs(text: string): string[] {
 export interface MessageTypeGroup {
   label: string;
   types: MessageType[];
+  // Phase 36, stage 3 — false for the groups the email/SMS reminders never
+  // send: payment confirmations (confirmed with the human) and new pagaré /
+  // refinance (pending the business's answer). Their templates stay
+  // editable for when that changes.
+  isSentByEmailOrSms: boolean;
 }
 
 // How the editor lists the 18 message types — by what triggers them.
 export const MESSAGE_TYPE_GROUPS: MessageTypeGroup[] = [
-  { label: 'Nuevo pagaré / Refinanciación', types: NEW_LOAN_FAMILY_TYPES },
+  {
+    label: 'Nuevo pagaré / Refinanciación',
+    types: NEW_LOAN_FAMILY_TYPES,
+    isSentByEmailOrSms: false,
+  },
   {
     label: 'Cuotas próximas a vencer',
     types: [
       MessageType.SingleUpcomingInstallment,
       MessageType.MultipleUpcomingInstallments,
     ],
+    isSentByEmailOrSms: true,
   },
-  { label: 'Cuotas vencidas', types: OVERDUE_FAMILY_TYPES },
-  { label: 'Reporte a Datacrédito', types: CREDIT_REPORT_FAMILY_TYPES },
+  {
+    label: 'Cuotas vencidas',
+    types: OVERDUE_FAMILY_TYPES,
+    isSentByEmailOrSms: true,
+  },
+  {
+    label: 'Reporte a Datacrédito',
+    types: CREDIT_REPORT_FAMILY_TYPES,
+    isSentByEmailOrSms: true,
+  },
   {
     label: 'Pagos',
     types: [MessageType.PaymentConfirmation, MessageType.PaidInFull],
+    isSentByEmailOrSms: false,
   },
 ];

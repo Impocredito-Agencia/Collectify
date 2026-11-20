@@ -51,7 +51,7 @@ export function ChannelTemplateTestSend({
       <span className="text-small font-medium text-white">
         Probar esta plantilla
       </span>
-      <p className="text-meta text-muted">
+      <p className="text-label text-muted">
         Envía la versión guardada con los datos de ejemplo.
         {isSms && ' Consume créditos de Brevo si sale.'}
       </p>
@@ -74,7 +74,7 @@ export function ChannelTemplateTestSend({
         </Button>
       </div>
       {hasUnsavedChanges && (
-        <p className="text-meta text-warning">
+        <p className="text-label text-warning">
           Guarda los cambios para poder probarlos.
         </p>
       )}

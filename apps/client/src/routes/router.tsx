@@ -8,7 +8,6 @@ import { ProtectedRoute } from '@/features/auth/ProtectedRoute';
 import { RequirePermission } from '@/features/auth/RequirePermission';
 import { RequireRole } from '@/features/auth/RequireRole';
 import { ClientDetailPage } from '@/features/clients/ClientDetailPage';
-import { ChannelTemplatesPage } from '@/features/channelTemplates/ChannelTemplatesPage';
 import { ClientsListPage } from '@/features/clients/ClientsListPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { InterestConceptTypesPage } from '@/features/interestConceptTypes/InterestConceptTypesPage';
@@ -104,12 +103,12 @@ export const router = createBrowserRouter([
                 element: <MessageTemplatesPage />,
               },
               {
-                // Phase 36 — email/SMS (Brevo) sub-page, reached from the
-                // "Correo y SMS" button on Plantillas. Same module gate:
+                // Phase 36 — Plantillas' "Correo y SMS" tab: the same page,
+                // which picks the tab from the URL. Same module gate:
                 // BrevoController and MessageChannelTemplatesController are
                 // both @RequireModule(AppModule.MessageTemplates).
                 path: 'plantillas/correo-sms',
-                element: <ChannelTemplatesPage />,
+                element: <MessageTemplatesPage />,
               },
             ],
           },

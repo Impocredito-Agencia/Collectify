@@ -21,6 +21,7 @@ import {
   buildBankAccountTemplateMessage,
 } from '../bankAccountTemplate';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
+import { MessageChannel } from '../messageChannel.enum';
 import {
   WhatsappTicketStatus,
   WhatsappTicketTriggerKind,
@@ -167,7 +168,8 @@ function buildConversationEventsCte(): string {
       l.sent_at AS occurred_at
     FROM message_logs l
     LEFT JOIN clients c ON c.id = l.client_id AND c.deleted_at IS NULL
-    WHERE $1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1
+    WHERE l.channel = 'whatsapp'
+      AND ($1::text IS NULL OR c.first_name ILIKE $1 OR c.last_name ILIKE $1)
     UNION ALL
     SELECT
       r.id,
@@ -511,7 +513,7 @@ export class WhatsappWebhookService {
         UNION ALL
         SELECT l.id, 'message_log'::text AS source, l.client_id::text AS contact_key, l.sent_at AS occurred_at
         FROM message_logs l
-        WHERE l.client_id = ANY($1::uuid[])
+        WHERE l.client_id = ANY($1::uuid[]) AND l.channel = 'whatsapp'
         UNION ALL
         SELECT r.id, 'manual_reply'::text AS source, r.client_id::text AS contact_key, r.sent_at AS occurred_at
         FROM whatsapp_manual_replies r
@@ -634,7 +636,9 @@ export class WhatsappWebhookService {
         summaries.push({
           key: log.clientId,
           clientId: log.clientId,
-          fromPhoneNumber: log.phoneNumber,
+          // Never null here: email/SMS rows (the only ones without a
+          // phone) are filtered out of this inbox by channel above.
+          fromPhoneNumber: log.phoneNumber ?? '',
           lastEvent,
           messageCount: messageCountById.get(row.id) ?? 1,
           closedAt: closedAtById.get(row.id) ?? null,
@@ -941,7 +945,9 @@ export class WhatsappWebhookService {
   async getDeliveryHealth(clientId: string): Promise<WhatsappDeliveryHealth> {
     const [logs, replies] = await Promise.all([
       this.messageLogsRepository.find({
-        where: { clientId },
+        // Phase 36 — WhatsApp delivery only; an email/SMS failure says
+        // nothing about whether the client blocked the number.
+        where: { clientId, channel: MessageChannel.WhatsApp },
         order: { sentAt: 'DESC' },
         take: DELIVERY_HEALTH_WINDOW,
       }),

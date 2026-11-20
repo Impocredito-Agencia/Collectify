@@ -135,6 +135,10 @@ export interface ClientDetail extends Client {
   references: ClientReference[];
   messageFrequency: ClientMessageFrequency | null;
   messageRecipients: ClientMessageRecipient[];
+  // Phase 36 — whether this client receives the scheduled email / SMS
+  // reminders on top of WhatsApp. Picked by hand; off by default.
+  emailRemindersEnabled: boolean;
+  smsRemindersEnabled: boolean;
 }
 
 // Human report, 2026-09-23 — every number that can receive a collection

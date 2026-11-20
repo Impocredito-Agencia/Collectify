@@ -20,12 +20,15 @@ const examples = (parameters: MessageTypeParameter[]) =>
   parameters.map((parameter) => parameter.example);
 
 // Rendered with React elements, never as injected HTML — the same
-// paragraph/line/bold rules the api's renderEmailHtml applies.
+// paragraph/line/bold rules the api's renderEmailHtml applies. A soft
+// light gray "paper" with near-black text (the `paper` tokens): it reads as
+// the email itself without the pure white of a real inbox, which flashed
+// too hard in an all-dark app (human request, 2026-11-09).
 export function EmailPreview({ subject, body, parameters }: EmailPreviewProps) {
   const values = examples(parameters);
   return (
-    <div className="flex flex-col gap-2 rounded-lg bg-white px-4 py-3 text-[14px] leading-relaxed text-[#222]">
-      <span className="border-b border-black/10 pb-2 font-semibold">
+    <div className="flex flex-col gap-2 rounded-lg bg-paper px-4 py-3 text-[14px] leading-relaxed text-paper-ink">
+      <span className="border-b border-paper-line pb-2 font-semibold">
         {fillPlaceholders(subject, values) || '(sin asunto)'}
       </span>
       {splitParagraphs(fillPlaceholders(body, values)).map(
@@ -70,13 +73,13 @@ export function SmsPreview({ body, parameters }: SmsPreviewProps) {
       <p className="whitespace-pre-line rounded-lg bg-white/10 px-3.5 py-2.5 text-small text-white">
         {text || '(vacío)'}
       </p>
-      <p className={`text-meta ${tone}`} role="status">
+      <p className={`text-label ${tone}`} role="status">
         {length} caracteres · {segments}{' '}
         {segments === 1 ? 'crédito' : 'créditos'} por envío con estos datos de
         ejemplo
         {segments > 1 && ' — cada 153 caracteres extra suma un crédito'}
       </p>
-      <p className="text-meta text-muted">
+      <p className="text-label text-muted">
         Así sale el SMS: sin tildes en á, í, ó, ú ni emojis, para que cada
         crédito alcance para 160 caracteres. Un nombre o valor más largo que el
         del ejemplo puede sumar un crédito.

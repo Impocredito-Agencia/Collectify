@@ -19,8 +19,15 @@ import {
 } from './creditReportTemplateSelection';
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { MessageChannel } from './messageChannel.enum';
+import { MessageType } from './messageType.enum';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { renderReminderBreakdown } from './reminderBreakdown';
+import {
+  buildPlannedLogItems,
+  isClientGroup,
+  PlannedReminder,
+} from './reminderPlan';
 import { findOverdueInstallmentsForClient } from './reminderInstallmentQueries';
 import {
   groupInstallmentsByRecipient,
@@ -34,6 +41,15 @@ import { WhatsAppService } from './whatsapp.service';
 // this is deliberately NOT cumulative: a day the job doesn't run (paused,
 // schedule edited, server down) is not caught up later, because the message
 // would state a day count that's no longer true.
+export interface PlannedCreditReport {
+  clientId: string;
+  type: MessageType;
+  // The cuota whose day count triggered the notice — the "already sent"
+  // key, see wasAlreadySent.
+  oldestInstallmentId: string | null;
+  plans: PlannedReminder[];
+}
+
 @Injectable()
 export class CreditReportReminderService {
   private readonly logger = new Logger(CreditReportReminderService.name);
@@ -58,6 +74,26 @@ export class CreditReportReminderService {
   ) {}
 
   async runDailyReminder(): Promise<void> {
+    const loanIds = await this.findLoanIdsDueForNotice();
+    this.logger.log(
+      `Credit report notice: ${loanIds.length} candidate loan(s)`,
+    );
+    for (const loanId of loanIds) {
+      try {
+        await this.sendForLoan(loanId, { skipIfAlreadySent: true });
+      } catch (error) {
+        this.logger.error(
+          `Failed to send credit report notice for loan ${loanId}`,
+          error,
+        );
+      }
+    }
+  }
+
+  // Loans with a pending cuota exactly 30 or 50 days overdue today — the
+  // only days a notice can go out. Shared with the email/SMS notices
+  // (ChannelReminderService), which then keep only their selected clients.
+  async findLoanIdsDueForNotice(): Promise<string[]> {
     const today = todayDateString();
     const candidates = await this.installmentsRepository.find({
       where: {
@@ -70,21 +106,7 @@ export class CreditReportReminderService {
         loan: { status: LoanStatus.Active },
       },
     });
-    const loanIds = [...new Set(candidates.map((i) => i.loanId))];
-    this.logger.log(
-      `Credit report notice: ${loanIds.length} candidate loan(s)`,
-    );
-
-    for (const loanId of loanIds) {
-      try {
-        await this.sendForLoan(loanId, { skipIfAlreadySent: true });
-      } catch (error) {
-        this.logger.error(
-          `Failed to send credit report notice for loan ${loanId}`,
-          error,
-        );
-      }
-    }
+    return [...new Set(candidates.map((i) => i.loanId))];
   }
 
   // targetPhoneNumbers — a manual retry (MessageLogsService.dispatchRetry),
@@ -98,6 +120,68 @@ export class CreditReportReminderService {
     loanId: string,
     options?: { targetPhoneNumbers?: string[]; skipIfAlreadySent?: boolean },
   ): Promise<MessageLog[]> {
+    const planned = await this.planForLoan(loanId, options);
+    if (!planned) {
+      return [];
+    }
+    if (
+      options?.skipIfAlreadySent &&
+      (await this.wasAlreadySent(planned, MessageChannel.WhatsApp))
+    ) {
+      return [];
+    }
+
+    const template = await this.messageTemplatesService.findByTypeOrThrow(
+      planned.type,
+    );
+    const savedLogs: MessageLog[] = [];
+    for (const plan of planned.plans) {
+      for (const phoneNumber of plan.recipientPhoneNumbers) {
+        const { sent, whatsappMessageId } =
+          await this.whatsAppService.sendTemplateMessage(
+            phoneNumber,
+            template.metaTemplateName,
+            template.metaLanguageCode,
+            plan.bodyParameters,
+          );
+        const savedLog = await this.messageLogsRepository.save(
+          this.messageLogsRepository.create({
+            clientId: planned.clientId,
+            type: plan.type,
+            phoneNumber,
+            messageContent: renderTemplateBody(
+              template.content,
+              plan.bodyParameters,
+            ),
+            breakdownContent: plan.breakdownContent,
+            status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
+            sentAt: new Date(),
+            whatsappMessageId,
+          }),
+        );
+        await this.messageLogItemsRepository.save(
+          plan.items.map((item) =>
+            this.messageLogItemsRepository.create({
+              messageLogId: savedLog.id,
+              ...item,
+            }),
+          ),
+        );
+        savedLogs.push(savedLog);
+      }
+    }
+    return savedLogs;
+  }
+
+  // Phase 36, stage 3 — the notice sendForLoan sends, worked out without
+  // sending it, so the email/SMS notice (ChannelReminderService) carries
+  // exactly the same figures. Null when the loan isn't on its 30th/50th
+  // day of mora today (a retry then throws instead: the text would state a
+  // false day count).
+  async planForLoan(
+    loanId: string,
+    options?: { targetPhoneNumbers?: string[]; throwIfNotDue?: boolean },
+  ): Promise<PlannedCreditReport | null> {
     const loan = await this.loansRepository.findOneBy({ id: loanId });
     const client =
       loan && (await this.clientsRepository.findOneBy({ id: loan.clientId }));
@@ -106,7 +190,6 @@ export class CreditReportReminderService {
         `Loan ${loanId} or its client no longer exists`,
       );
     }
-
     const allOverdue = await findOverdueInstallmentsForClient(
       this.installmentsRepository,
       this.paymentsRepository,
@@ -114,29 +197,17 @@ export class CreditReportReminderService {
       client.id,
     );
     const overdue = allOverdue.filter((i) => i.loanId === loanId);
-
     const selection = selectCreditReportTemplate(
       `${client.firstName} ${client.lastName}`,
       overdue,
     );
     if (!selection) {
-      if (options?.targetPhoneNumbers) {
+      if (options?.targetPhoneNumbers || options?.throwIfNotDue) {
         throw new BadRequestException(
           'El aviso de Datacrédito solo se puede reenviar el mismo día en que el pagaré cumple 30 o 50 días de mora.',
         );
       }
-      return [];
-    }
-
-    if (options?.skipIfAlreadySent) {
-      const oldest = findOldestOverdueInstallment(overdue);
-      const alreadySent = await this.messageLogItemsRepository.existsBy({
-        installmentId: oldest?.id,
-        messageLog: { type: selection.type },
-      });
-      if (alreadySent) {
-        return [];
-      }
+      return null;
     }
 
     let groups = groupInstallmentsByRecipient(overdue, [], client);
@@ -147,50 +218,35 @@ export class CreditReportReminderService {
       );
     }
 
-    const template = await this.messageTemplatesService.findByTypeOrThrow(
-      selection.type,
-    );
+    const breakdownContent = renderReminderBreakdown(overdue, []);
+    const items = buildPlannedLogItems(overdue, []);
+    return {
+      clientId: client.id,
+      type: selection.type,
+      oldestInstallmentId: findOldestOverdueInstallment(overdue)?.id ?? null,
+      plans: groups.map((group) => ({
+        type: selection.type,
+        bodyParameters: selection.bodyParameters,
+        recipientPhoneNumbers: group.recipientPhoneNumbers,
+        isClientGroup: isClientGroup(group.overdue, group.upcoming),
+        breakdownContent,
+        items,
+      })),
+    };
+  }
 
-    const savedLogs: MessageLog[] = [];
-    for (const group of groups) {
-      for (const phoneNumber of group.recipientPhoneNumbers) {
-        const { sent, whatsappMessageId } =
-          await this.whatsAppService.sendTemplateMessage(
-            phoneNumber,
-            template.metaTemplateName,
-            template.metaLanguageCode,
-            selection.bodyParameters,
-          );
-
-        const savedLog = await this.messageLogsRepository.save(
-          this.messageLogsRepository.create({
-            clientId: client.id,
-            type: selection.type,
-            phoneNumber,
-            messageContent: renderTemplateBody(
-              template.content,
-              selection.bodyParameters,
-            ),
-            breakdownContent: renderReminderBreakdown(overdue, []),
-            status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
-            sentAt: new Date(),
-            whatsappMessageId,
-          }),
-        );
-        await this.messageLogItemsRepository.save(
-          overdue.map((installment) =>
-            this.messageLogItemsRepository.create({
-              messageLogId: savedLog.id,
-              installmentId: installment.id,
-              overdueDaysSnapshot: installment.overdueDays,
-              interestSnapshot: installment.interest,
-            }),
-          ),
-        );
-        savedLogs.push(savedLog);
-      }
+  // Each notice goes out once per cuota and channel: the email notice
+  // having gone out doesn't stop the SMS or WhatsApp one, nor vice versa.
+  async wasAlreadySent(
+    planned: PlannedCreditReport,
+    channel: MessageChannel,
+  ): Promise<boolean> {
+    if (!planned.oldestInstallmentId) {
+      return false;
     }
-
-    return savedLogs;
+    return this.messageLogItemsRepository.existsBy({
+      installmentId: planned.oldestInstallmentId,
+      messageLog: { type: planned.type, channel },
+    });
   }
 }

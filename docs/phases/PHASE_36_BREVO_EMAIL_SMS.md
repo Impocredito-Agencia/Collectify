@@ -53,7 +53,7 @@ Delivered as separate branches/PRs, in this order. Stages 1–2 don't depend on 
   - `BREVO_TEST_RECIPIENTS` — emails and E.164 phones that bypass both pauses (same behavior as `WHATSAPP_TEST_RECIPIENTS`).
 - **No credentials:** an empty `BREVO_API_KEY` logs a warning and sends nothing; the app boots normally.
 - **Test send uses a fixed text** (no free-form content from the panel), short and GSM-7 only, so a test SMS always costs exactly one credit. It isn't written to `message_logs` (that table is per-client history with a mandatory `client_id` and `type`); it's recorded by the audit log, and the result (sent / reason) comes back immediately to the panel.
-- **Permissions:** both endpoints use `@RequireModule(AppModule.MessageTemplates)` — the Brevo card lives under Plantillas (its "Correo y SMS" sub-page, `/plantillas/correo-sms`), gated by that same module, next to stage 2's per-channel templates.
+- **Permissions:** both endpoints use `@RequireModule(AppModule.MessageTemplates)` — the Brevo card lives under Plantillas (its "Correo y SMS" tab, `/plantillas/correo-sms`), gated by that same module, next to stage 2's per-channel templates.
 - **Reusable outside reminders:** `BrevoModule` exports `BrevoService` — any module (e.g. electronic signature) imports `BrevoModule` and calls `sendEmail` / `sendSms`; the same pauses, test list and "never throws" contract apply.
 - **Email attachments** (requested for the electronic-signature module, 2026-11-17): `sendEmail({ …, attachments: [{ name, content }] })` with a `Buffer`, or `{ name, url }` with a public absolute URL Brevo downloads (e.g. Cloudinary). The name must carry its extension (Brevo checks it against its allowed list — pdf, images, office files…); an attachment with both or neither of `content`/`url` is rejected before calling Brevo (`failureReason: rejected`). Brevo's own documentation states no per-file size limit.
 - **`message_logs` changes moved to stage 3.** Nothing writes an email/SMS row before stage 3, and making `phone_number` nullable now would force changes in retry and the inbox thread that couldn't be exercised yet.
@@ -88,6 +88,40 @@ Delivered as separate branches/PRs, in this order. Stages 1–2 don't depend on 
 - [x] `MessageChannelTemplatesService`: `findAll`, `update`, `render` (for stage 3), `sendTest` (+ spec, including a check of every seeded text).
 - [x] `GET /message-channel-templates`, `PUT /message-channel-templates/:type/:channel` (`@Audit('messageChannelTemplate.update')`), `POST /message-channel-templates/:type/:channel/test` (`@Audit('messageChannelTemplate.testSend')`) — `message_templates` module, Swagger.
 - [x] `docs/DATABASE.md`, `docs/GLOSSARY.md` (canal, plantilla de correo/SMS, crédito SMS, segmento SMS).
+
+## Stage 3 — Email and SMS reminders (`feature/brevo-reminder-channels`)
+
+### Resolved with the human (2026-11-09)
+
+The open questions above, as they apply to this stage:
+
+1. **Purpose — not a WhatsApp fallback.** Email and SMS are *extra pressure* on debtors the admin picks by hand, typically the ones with the most days of mora. They go out **in addition to** WhatsApp, never instead of it, and regardless of whether WhatsApp worked.
+2. **Who:** a client receives email and/or SMS reminders only when the admin turned that channel on for them — two switches (Correo, SMS) on the client's profile, plus a list of clients with overdue cuotas, sorted by days of mora, to switch many at once. Off by default for everyone.
+3. **When:** scheduled like WhatsApp — one card per reminder family, each with **its own on/off and schedule per channel** (e.g. overdue email every Monday 9:00, overdue SMS only Fridays 10:00). All start paused.
+4. **Which families:** overdue, upcoming due, Datacrédito. **Payment confirmation and paz y salvo never go by email/SMS.** New pagaré / refinance are pending — the human is checking with the business whether everything that isn't collection gets dropped; left out until confirmed (adding it later is one more family row).
+5. **SMS recipients:** the same phones as WhatsApp (client's main and alternate number, and the loan's third-party contact), muted numbers excluded. **Email** can only go to the client — they're the only one with an email on file — and only for their own group (a loan whose reminders go to a third party isn't emailed to the client, same as WhatsApp doesn't message the client about it).
+6. **Data-processing consent:** same as WhatsApp today — not checked at send time.
+7. **Per-client minimum days between reminders (Phase 27): doesn't apply to email/SMS.** It stays WhatsApp-only, and email/SMS sends don't count against it either.
+
+### Decisions
+
+- **Same figures as WhatsApp, by construction.** Each reminder service (overdue, upcoming, Datacrédito) is split into "plan the messages" (installments, recipient groups, nota adicional, template selection, breakdown, log items) and "send them over WhatsApp". The email/SMS sender consumes the very same plan, then renders it with the channel template (stage 2).
+- **`message_logs` gains `channel`** (`whatsapp` default for every existing row, `email`, `sms`), `email` (nullable), `provider_message_id` (Brevo's id, indexed, for stage 4's webhook), and `phone_number` becomes nullable — with a CHECK that an email row has an email and any other row has a phone. A failed Brevo send stores its reason in `last_error_title`.
+- **Nothing is logged for a send that was never attempted** — channel paused (`BREVO_*_SENDING_PAUSED`) or not configured. Logging those as `failed` is what filled `message_logs` with junk twice before (see the 2026-09-11 and 2026-09-19 cleanups).
+- **Every WhatsApp-only reader of `message_logs` filters `channel = 'whatsapp'`:** the inbox conversation thread, delivery health ("possibly blocked"), the message-frequency throttle and the Datacrédito "already sent" check (per channel, so the email notice doesn't stop the SMS one). Dashboard message counts include every channel — they're all messages the client received.
+- **Schedules live in a new `message_channel_schedules` table** (family, channel, cron expression, paused), not on template rows like WhatsApp's schedule owners — six rows seeded paused, with the same default times as the WhatsApp families. `ChannelReminderCronService` registers one job per row in `America/Bogota`, the same way `WhatsappCronService` does.
+- **Retry (Phase 18) works for email/SMS rows too:** it resends the client's current state for that family to the same recipient over the same channel.
+
+### Scope
+
+- [x] Migration `AddEmailAndSmsReminderChannels1792100000000`: `message_logs.channel` / `email` / `provider_message_id`, nullable `phone_number` + CHECK; `clients.email_reminders_enabled` / `sms_reminders_enabled`; `message_channel_schedules` seeded paused.
+- [x] `planReminderForClient` (overdue, upcoming) and `planForLoan` / `findLoanIdsDueForNotice` / `wasAlreadySent` (Datacrédito) split out of the WhatsApp senders — their existing specs pass unchanged, except the Datacrédito "already sent" check now being per channel.
+- [x] `ChannelReminderService.runFamily` / `retry`, `ChannelReminderCronService`, `ChannelRecipientsService` (+ specs).
+- [x] `GET /message-channels/schedules`, `PATCH /message-channels/schedules/:family/:channel`, `POST …/pause`, `POST …/resume`, `GET /message-channels/recipients`, `PUT /message-channels/recipients` (bulk), `PUT /message-channels/recipients/:clientId` — `message_templates` module, audited, Swagger.
+- [x] `GET /message-logs?channel=`; retry of an email/SMS row goes through `ChannelReminderService`.
+- [x] WhatsApp-only readers filter `channel = 'whatsapp'`: inbox conversation list and thread, delivery health, message-frequency throttle.
+- [x] `docs/DATABASE.md`, `docs/GLOSSARY.md`, `docs/ARCHITECTURE.md`.
+- [ ] Manual test against a real database and Brevo (not possible from the development sandbox).
 
 ## Related documents
 

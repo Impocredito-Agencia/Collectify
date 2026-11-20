@@ -11,6 +11,7 @@ import {
 } from 'class-validator';
 
 import { MessageLogStatus } from '../../entities/messageLog.entity';
+import { MessageChannel } from '../../messageChannel.enum';
 import { MessageType } from '../../messageType.enum';
 
 export class QueryMessageLogsDto {
@@ -35,6 +36,12 @@ export class QueryMessageLogsDto {
   @IsOptional()
   @IsEnum(MessageLogStatus)
   status?: MessageLogStatus;
+
+  // Phase 36 — whatsapp, email or sms.
+  @ApiPropertyOptional({ enum: MessageChannel })
+  @IsOptional()
+  @IsEnum(MessageChannel)
+  channel?: MessageChannel;
 
   @ApiPropertyOptional({
     description:

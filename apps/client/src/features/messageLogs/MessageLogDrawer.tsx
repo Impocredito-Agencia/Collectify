@@ -1,8 +1,13 @@
 import { CloseButton } from '@/components/ui/CloseButton';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { MessageBreakdown } from '@/features/messageLogs/MessageBreakdown';
+import {
+  MESSAGE_CHANNEL_LABELS,
+  MessageChannel,
+} from '@/features/messageLogs/messageLogsApi';
+import { formatMessageRecipient } from '@/features/messageLogs/messageRecipient';
 import { useMessageLogItems } from '@/features/messageLogs/useMessageLogs';
-import { formatCurrency, formatPhoneNumber } from '@/lib/format';
+import { formatCurrency } from '@/lib/format';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
@@ -57,9 +62,16 @@ export function MessageLogDrawer({ log, onClose }: MessageLogDrawerProps) {
         <div className="mt-5 flex flex-col gap-4">
           <DetailField label="Destinatario" value={clientFullName} />
           <DetailField
-            label="Celular"
-            value={formatPhoneNumber(log.phoneNumber)}
+            label="Canal"
+            value={MESSAGE_CHANNEL_LABELS[log.channel]}
           />
+          <DetailField
+            label={log.channel === MessageChannel.Email ? 'Correo' : 'Celular'}
+            value={formatMessageRecipient(log)}
+          />
+          {log.status !== 'sent' && log.lastErrorTitle && (
+            <DetailField label="Motivo del fallo" value={log.lastErrorTitle} />
+          )}
           <DetailField
             label="Fecha y hora"
             value={new Date(log.sentAt).toLocaleString('es-CO', {

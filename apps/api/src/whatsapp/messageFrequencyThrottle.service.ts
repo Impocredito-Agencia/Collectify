@@ -5,6 +5,7 @@ import { In, Repository } from 'typeorm';
 import { ClientMessageFrequency } from '../clients/entities/clientMessageFrequency.entity';
 
 import { MessageLog } from './entities/messageLog.entity';
+import { MessageChannel } from './messageChannel.enum';
 import { MessageType } from './messageType.enum';
 
 // Phase 27 — replaces MessageAudiencesService for the overdue/upcoming_due
@@ -105,6 +106,10 @@ export class MessageFrequencyThrottleService {
       .addSelect('MAX(log.sent_at)', 'lastSentAt')
       .where('log.client_id IN (:...clientIds)', { clientIds })
       .andWhere('log.type IN (:...types)', { types })
+      // Phase 36 — confirmed with the human: the per-client minimum days
+      // between reminders is WhatsApp-only; email/SMS sends neither obey
+      // nor count against it.
+      .andWhere('log.channel = :channel', { channel: MessageChannel.WhatsApp })
       .groupBy('log.client_id')
       .getRawMany<{ clientId: string; lastSentAt: Date }>();
 

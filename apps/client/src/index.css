@@ -50,7 +50,12 @@
   --color-background: #08090a; /* was #0a0a0a — Linear's exact page bg */
   --color-surface: #0f1011; /* was #141414 — Linear's exact card bg, much closer to background */
   --color-input: #16171a; /* was #1f1f1f — Linear's "alt surface" tone, form fields */
-  --color-border: rgba(255, 255, 255, 0.08); /* was flat #2a2a2a — Linear
+  --color-border: rgba(
+    255,
+    255,
+    255,
+    0.08
+  ); /* was flat #2a2a2a — Linear
     uses translucent white for every border/divider instead of a fixed gray,
     so it blends correctly no matter which surface it sits on. Also used as
     `bg-border` for chip/badge/pill fills app-wide (32 call sites) — those
@@ -116,6 +121,26 @@
   --color-accent: #f26522; /* Publi Mark orange — primary buttons, active nav, focus ring */
   --color-accent-hover: #d9591c; /* accent, ~15% darker, for hover/active states */
   --color-accent-secondary: #3f7fd1; /* Publi Mark blue — links, secondary emphasis */
+  /* Phase 36 (human request, 2026-11-09) — the "off" state of a blue
+     toggle (email/SMS day buttons and switches): a dark, desaturated
+     accent-secondary for the fill, and a soft blue for its text, so an off
+     toggle still reads as blue — not as the generic gray `border`. */
+  --color-accent-secondary-dim: #1d2f4a;
+  --color-accent-secondary-soft: #8fb2e0;
+  /* Phase 36 (human request, 2026-11-09) — Plantillas' "WhatsApp" tab: a
+     WhatsApp-style green, a little darker than the brand's #25D366 so white
+     text on it stays readable; plus the dim fill and soft text of its
+     inactive state (same idea as accent-secondary-dim/-soft). */
+  --color-whatsapp: #1da851;
+  --color-whatsapp-dim: #13301f;
+  --color-whatsapp-soft: #7fd8a3;
+  /* Phase 36 (human request, 2026-11-09) — the "paper" of the email preview
+     in the Correo y SMS template editor: a soft light gray, not pure white,
+     so it stands out from the dark app as "this is the email" without
+     flashing a white panel open; near-black ink on it. */
+  --color-paper: #d5d9df;
+  --color-paper-line: #b4bac3;
+  --color-paper-ink: #1b1d21;
 
   /* Elevation (visual polish, 2026-09-01) — the app had no shadow anywhere;
      every surface sat flush against the page. One soft shadow for panels

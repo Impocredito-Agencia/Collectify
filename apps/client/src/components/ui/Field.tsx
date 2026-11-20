@@ -19,6 +19,10 @@ interface FieldProps {
   // that's always full-width on its own line (UserForm,
   // ChangePasswordDialog).
   layout?: 'row' | 'stack';
+  // 'compact' (default) — 10px label, 11px error, as everywhere so far.
+  // 'readable' — 12px for both; Phase 36's Correo y SMS page runs on a
+  // 12/13px scale only (human request, 2026-11-09).
+  textSize?: 'compact' | 'readable';
 }
 
 export function Field({
@@ -27,7 +31,9 @@ export function Field({
   children,
   id,
   layout = 'row',
+  textSize = 'compact',
 }: FieldProps) {
+  const isReadable = textSize === 'readable';
   return (
     <div
       id={id}
@@ -37,12 +43,17 @@ export function Field({
           : 'flex flex-col gap-1.5'
       }
     >
-      <span className="text-[10px] font-normal tracking-normal text-muted">
+      <span
+        className={`${isReadable ? 'text-label' : 'text-[10px]'} font-normal tracking-normal text-muted`}
+      >
         {label}
       </span>
       {children}
       {error && (
-        <span className="text-meta text-danger" role="alert">
+        <span
+          className={`${isReadable ? 'text-label' : 'text-meta'} text-danger`}
+          role="alert"
+        >
           {error}
         </span>
       )}

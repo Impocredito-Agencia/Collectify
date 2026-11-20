@@ -82,6 +82,7 @@ export function BrevoTestSendForm() {
       </div>
 
       <Field
+        textSize="readable"
         label={isSms ? 'Celular' : 'Correo'}
         error={formError ?? undefined}
         layout="stack"
@@ -98,7 +99,7 @@ export function BrevoTestSendForm() {
         />
       </Field>
 
-      <p className="text-meta text-muted">
+      <p className="text-label text-muted">
         {isSms
           ? 'Se envía un SMS corto de prueba. Consume 1 crédito de Brevo si sale.'
           : 'Se envía un correo corto de prueba.'}
@@ -116,7 +117,9 @@ export function BrevoTestSendForm() {
       )}
 
       <div className="flex justify-end">
-        <Button type="submit" disabled={sendTest.isPending}>
+        {/* Blue like every main action on Correo y SMS, to tell it apart
+            from WhatsApp's orange (human request, 2026-11-09). */}
+        <Button type="submit" variant="brandBlue" disabled={sendTest.isPending}>
           {sendTest.isPending ? 'Enviando…' : 'Enviar prueba'}
         </Button>
       </div>

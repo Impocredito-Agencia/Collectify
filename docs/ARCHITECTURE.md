@@ -76,6 +76,12 @@ apps/api/
     │   │   ├── messageChannelTemplates.controller.ts
     │   │   ├── messageChannelTemplates.service.ts
     │   │   └── channelTemplateText.ts  # placeholder check, email HTML
+    │   ├── channelReminders/          # Phase 36 — scheduled email/SMS reminders for hand-picked clients
+    │   │   ├── channelReminder.service.ts      # sends a family's plans by email/SMS, retry
+    │   │   ├── channelReminderCron.service.ts  # one cron job per (family, channel)
+    │   │   ├── channelRecipients.service.ts    # overdue list + per-client switches
+    │   │   └── channelReminders.controller.ts  # /message-channels/schedules, /recipients
+    │   ├── reminderPlan.ts             # a reminder worked out but not sent — shared by WhatsApp and email/SMS
     │   ├── smsText.ts                  # GSM-7 conversion + SMS segment count
     │   ├── messageTypeParameters.ts    # what each {{n}} of each message type is
     │   ├── webhook/                   # Phase 22 — inbound events, the one

@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { RowActionButton } from '@/components/ui/RowActionButton';
 import { Td, Th } from '@/components/ui/Table';
 import { useAuth } from '@/features/auth/useAuth';
+import { ClientReminderChannelsSection } from '@/features/channelReminders/ClientReminderChannelsSection';
 import { ClientAccountStatusPanel } from '@/features/clients/ClientAccountStatusPanel';
 import { ClientCreditBanner } from '@/features/clients/ClientCreditBanner';
 import { ClientForm } from '@/features/clients/ClientForm';
@@ -33,7 +34,11 @@ import {
 import { RefinanceChainNote } from '@/features/loans/RefinanceChainNote';
 import { useDeletedLoans } from '@/features/loans/useLoanDeletion';
 import { useClientDebtSummary, useLoans } from '@/features/loans/useLoans';
-import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
+import {
+  MESSAGE_CHANNEL_LABELS,
+  MessageChannel,
+  MessageLogStatus,
+} from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
 import { messageTypeLabel } from '@/features/messageTemplates/messageTemplatesApi';
 import {
@@ -77,6 +82,12 @@ export function ClientDetailPage() {
   );
   const canSendMessage = Boolean(
     user && (user.role === 'admin' || user.modules.includes('messages')),
+  );
+  // Phase 36 — same module as the endpoint behind the switches (and the
+  // Plantillas → Correo y SMS page).
+  const canManageReminderChannels = Boolean(
+    user &&
+    (user.role === 'admin' || user.modules.includes('message_templates')),
   );
 
   const [isEditing, setIsEditing] = useState(false);
@@ -531,7 +542,11 @@ export function ClientDetailPage() {
               <tbody>
                 {failedMessages.items.map((message) => (
                   <tr key={message.id} className="border-t border-border">
-                    <Td muted>{messageTypeLabel(message.type)}</Td>
+                    <Td muted>
+                      {message.channel !== MessageChannel.WhatsApp &&
+                        `${MESSAGE_CHANNEL_LABELS[message.channel]} · `}
+                      {messageTypeLabel(message.type)}
+                    </Td>
                     <Td className="text-right">
                       <StatusBadge
                         tone={message.status === 'sent' ? 'success' : 'danger'}
@@ -552,6 +567,10 @@ export function ClientDetailPage() {
       </div>
 
       <MessageFrequencySection client={client} canManage={canManageClient} />
+
+      {canManageReminderChannels && (
+        <ClientReminderChannelsSection client={client} />
+      )}
 
       {/* Phase 21 — extended profile (KYC), sectioned the same way as
           ClientForm.tsx. Each DetailField skips rendering when its value
