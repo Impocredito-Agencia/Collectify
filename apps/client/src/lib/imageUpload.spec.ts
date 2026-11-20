@@ -28,7 +28,7 @@ describe('uploadPaymentReceipt', () => {
 
   it('uploads a PDF comprobante and returns its hosted URL', async () => {
     const pdfUrl =
-      'https://res.cloudinary.com/demo/image/upload/v1/payment-receipts/a.pdf';
+      'https://res.cloudinary.com/demo/raw/upload/v1/payment-receipts/a.pdf';
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({ secure_url: pdfUrl }),
@@ -39,10 +39,10 @@ describe('uploadPaymentReceipt', () => {
 
     await expect(uploadPaymentReceipt(pdf)).resolves.toBe(pdfUrl);
 
-    // `auto`, not `image` — Cloudinary's image-only endpoint is not what a
-    // comprobante that may be a PDF goes through.
+    // `raw`, not `auto` — `auto` stores a PDF as an image resource, whose
+    // delivery Cloudinary blocks by default (HTTP 401 when opened).
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.cloudinary.com/v1_1/demo/auto/upload',
+      'https://api.cloudinary.com/v1_1/demo/raw/upload',
       expect.objectContaining({ method: 'POST' }),
     );
     const body = fetchMock.mock.calls[0][1].body as FormData;
@@ -61,6 +61,10 @@ describe('uploadPaymentReceipt', () => {
     await expect(
       uploadPaymentReceipt(new File(['a'], 'a.jpg', { type: 'image/jpeg' })),
     ).resolves.toBe(photoUrl);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.cloudinary.com/v1_1/demo/auto/upload',
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 
   it('rejects a file that is neither a photo nor a PDF without uploading anything', async () => {

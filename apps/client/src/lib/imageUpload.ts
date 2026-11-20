@@ -29,6 +29,14 @@
  * goes through `auto` too, but still fails fast on anything that isn't an
  * image or a PDF (see uploadPaymentReceipt) instead of silently uploading
  * it as a raw resource.
+ *
+ * Human report, 2026-11-20 — a PDF is uploaded as `raw`, not `auto`:
+ * `auto` classifies a PDF as an *image* resource, and Cloudinary blocks
+ * delivery of PDFs stored as images by default ("Allow delivery of PDF
+ * and ZIP files" security setting), so opening the resulting
+ * /image/upload/....pdf URL answered HTTP 401. Raw resources aren't
+ * subject to that restriction, and keep the original extension in their
+ * URL (which isPdfUrl in lib/format.ts relies on).
  */
 
 import { apiClient, ApiError } from '@/lib/apiClient';
@@ -55,13 +63,12 @@ export class ImageUploadError extends Error {
 
 // Shared by both upload paths below: asks the api to sign the upload,
 // then posts the file straight to Cloudinary and unwraps secure_url.
-// `resourceType` picks the Cloudinary endpoint (`image` vs `auto`); the
-// error messages stay generic ("la foto"/"el archivo") via the caller's
-// own wording, not duplicated here.
+// The Cloudinary endpoint is `raw` for a PDF (see this file's header) and
+// `auto` for everything else; the error messages stay generic ("la
+// foto"/"el archivo") via the caller's own wording, not duplicated here.
 async function uploadToCloudinary(
   file: File,
   folder: CloudinaryUploadFolder,
-  resourceType: 'image' | 'auto',
   configErrorMessage: string,
   uploadErrorMessage: string,
 ): Promise<string> {
@@ -83,6 +90,7 @@ async function uploadToCloudinary(
   }
 
   const { signature, timestamp, apiKey, cloudName } = signaturePayload;
+  const resourceType = file.type === 'application/pdf' ? 'raw' : 'auto';
   const formData = new FormData();
   formData.append('file', file);
   formData.append('api_key', apiKey);
@@ -123,7 +131,6 @@ export async function uploadPaymentReceipt(file: File): Promise<string> {
   return uploadToCloudinary(
     file,
     'payment-receipts',
-    'auto',
     'La subida de archivos no está configurada (faltan las credenciales de Cloudinary en el api).',
     'No se pudo subir el comprobante. Intenta de nuevo.',
   );
@@ -135,14 +142,13 @@ export async function uploadPaymentReceipt(file: File): Promise<string> {
 // upload-before-submit pattern as uploadPaymentReceipt above, just
 // widened to accept image/* or application/pdf (enforced by the caller's
 // <input accept="image/*,application/pdf">, not re-checked here — the
-// `auto` resource type accepts either regardless). Every field this backs
+// `auto`/`raw` resource types accept either regardless). Every field this backs
 // is optional on the api side except the consent evidence document, which
 // is optional too — see docs/phases/PHASE_21_CLIENT_PROFILE.md decision 3.
 export async function uploadDocument(file: File): Promise<string> {
   return uploadToCloudinary(
     file,
     'client-documents',
-    'auto',
     'La subida de archivos no está configurada (faltan las credenciales de Cloudinary en el api).',
     'No se pudo subir el archivo. Intenta de nuevo.',
   );
