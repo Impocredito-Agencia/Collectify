@@ -171,8 +171,8 @@ describe('WhatsappMediaService', () => {
     expect(metadataInit.headers).toMatchObject({
       Authorization: 'Bearer meta-token',
     });
-    // Third call: the Cloudinary upload, hitting the "auto" endpoint (not
-    // "image") so a PDF/audio/video attachment uploads correctly too, and
+    // Third call: the Cloudinary upload, hitting the "auto" endpoint for
+    // an image (a PDF goes to "raw" instead — see the test below), and
     // carrying the signed payload UploadsService returned.
     const [uploadUrl, uploadInit] = fetchMock.mock.calls[2] as [
       string,
@@ -181,6 +181,45 @@ describe('WhatsappMediaService', () => {
     expect(uploadUrl).toBe('https://api.cloudinary.com/v1_1/demo/auto/upload');
     expect(uploadInit.method).toBe('POST');
     expect(uploadInit.body).toBeInstanceOf(FormData);
+  });
+
+  it('uploads a PDF document as a raw resource so Cloudinary delivers it', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            url: 'https://lookaside.fbsbx.com/media-2',
+            mime_type: 'application/pdf',
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            secure_url:
+              'https://res.cloudinary.com/demo/raw/upload/v1/whatsapp-media/abc.pdf',
+          }),
+      });
+
+    const result = await service.downloadAndStore('media-2');
+
+    expect(result).toBe(
+      'https://res.cloudinary.com/demo/raw/upload/v1/whatsapp-media/abc.pdf',
+    );
+    const [uploadUrl, uploadInit] = fetchMock.mock.calls[2] as [
+      string,
+      RequestInit,
+    ];
+    // "raw", not "auto" — "auto" stores a PDF as an image resource, whose
+    // delivery Cloudinary blocks by default (HTTP 401).
+    expect(uploadUrl).toBe('https://api.cloudinary.com/v1_1/demo/raw/upload');
+    const file = (uploadInit.body as FormData).get('file') as File;
+    expect(file.name).toBe('document.pdf');
   });
 
   it('never throws — an unexpected network error resolves to null', async () => {

@@ -6,6 +6,7 @@ import { CloudinaryUploadFolder } from '../../uploads/dto/generateCloudinarySign
 import { UploadsService } from '../../uploads/uploads.service';
 
 const META_GRAPH_API_VERSION = 'v21.0';
+const PDF_MIME_TYPE = 'application/pdf';
 
 interface MetaMediaMetadata {
   url: string;
@@ -86,7 +87,11 @@ export class WhatsappMediaService {
         return null;
       }
 
-      return await this.uploadToCloudinary(bytes, signature);
+      return await this.uploadToCloudinary(
+        bytes,
+        metadata.mime_type,
+        signature,
+      );
     } catch (error) {
       this.logger.error(
         `Failed to download/store WhatsApp media ${mediaId}`,
@@ -177,26 +182,38 @@ export class WhatsappMediaService {
     return Buffer.from(await response.arrayBuffer());
   }
 
-  // resource_type "auto" (not "image") the same way uploadDocument() does
-  // client-side — the attachment here is an image or a PDF document, and
-  // "auto" detects which rather than assuming it's always a photo the way
-  // uploadPaymentReceipt()'s narrower "image" endpoint does.
+  // resource_type "auto" for images (and anything else) the same way
+  // uploadDocument() does client-side — but a PDF goes up as "raw".
+  // Human report, 2026-11-20: "auto" classifies a PDF as an *image*
+  // resource, and Cloudinary blocks delivery of PDFs stored as images by
+  // default ("Allow delivery of PDF and ZIP files" security setting), so
+  // the resulting /image/upload/....pdf URL answered HTTP 401 when the
+  // admin opened it. Raw resources aren't subject to that restriction.
+  // The file is named with its extension so the raw public_id (and thus
+  // the URL) keeps ".pdf" — apps/client's isPdfUrl() relies on it.
   private async uploadToCloudinary(
     bytes: Buffer,
+    mimeType: string | undefined,
     signature: ReturnType<UploadsService['generateSignature']>,
   ): Promise<string | null> {
+    const isPdf = mimeType === PDF_MIME_TYPE;
+    const resourceType = isPdf ? 'raw' : 'auto';
     const formData = new FormData();
     // `new Uint8Array(bytes)` rather than `bytes` directly — TS's DOM
     // lib types BlobPart against Uint8Array, not Node's Buffer subclass,
     // even though a Buffer works fine here at runtime.
-    formData.append('file', new Blob([new Uint8Array(bytes)]));
+    formData.append(
+      'file',
+      new Blob([new Uint8Array(bytes)], mimeType ? { type: mimeType } : {}),
+      isPdf ? 'document.pdf' : 'file',
+    );
     formData.append('api_key', signature.apiKey);
     formData.append('timestamp', String(signature.timestamp));
     formData.append('folder', signature.folder);
     formData.append('signature', signature.signature);
 
     const response = await fetch(
-      `https://api.cloudinary.com/v1_1/${signature.cloudName}/auto/upload`,
+      `https://api.cloudinary.com/v1_1/${signature.cloudName}/${resourceType}/upload`,
       { method: 'POST', body: formData },
     );
     if (!response.ok) {
