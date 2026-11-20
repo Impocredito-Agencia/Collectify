@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { MailIcon } from '@/components/ui/MailIcon';
 import { BankAccountCard } from '@/features/bankAccount/BankAccountCard';
 import {
   buildCronExpression,
@@ -111,13 +113,27 @@ function triggerDescription(type: MessageType): string {
 
 export function MessageTemplatesPage() {
   const { data: templates, isLoading, isError } = useMessageTemplates();
+  const navigate = useNavigate();
 
   return (
     <div className="flex flex-col gap-5">
-      <Header
-        title="Plantillas de mensaje"
-        subtitle="Solo ADMIN — Contenido fijo; solo la cuenta bancaria es editable"
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <Header
+          title="Plantillas de mensaje"
+          subtitle="Solo ADMIN — Contenido fijo; solo la cuenta bancaria es editable"
+        />
+        {/* Phase 36 — email/SMS live on their own sub-page so this one
+            stays as it was (human request, 2026-11-09). Solid blue + icon so
+            the entry point isn't missed (human request, same day). */}
+        <Button
+          variant="brandBlue"
+          onClick={() => navigate('/plantillas/correo-sms')}
+          className="flex items-center gap-2"
+        >
+          <MailIcon />
+          Correo y SMS
+        </Button>
+      </div>
 
       <BankAccountCard />
 

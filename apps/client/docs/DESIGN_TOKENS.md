@@ -840,7 +840,7 @@ hex for these colors.
 |---|---|---|---|
 | `accent` | `#F26522` | Primary buttons, active nav item, focus ring — approximated from the Publi Mark logo's orange | `bg-accent`, `text-accent`, `border-accent` |
 | `accent-hover` | `#D9591C` | Hover/active state for `accent` (~15% darker) | `bg-accent-hover` |
-| `accent-secondary` | `#3F7FD1` | Reserved for links/secondary emphasis — approximated from the Publi Mark logo's blue, not yet applied anywhere | `bg-accent-secondary`, `text-accent-secondary` |
+| `accent-secondary` | `#3F7FD1` | Reserved for links/secondary emphasis — approximated from the Publi Mark logo's blue. Also the `brandBlue` Button variant (Phase 36, 2026-11-09): a solid blue entry point that stands out without competing with a screen's orange primary action — first used by Plantillas' "Correo y SMS" | `bg-accent-secondary`, `text-accent-secondary` |
 | `shadow-card` | `0 4px 14px rgba(0,0,0,0.35)` | Soft elevation shadow on modal/dialog cards, replacing flat borderless surfaces | `shadow-card` |
 
 Applied app-wide as part of the same pass: every primary CTA button
@@ -868,9 +868,10 @@ Three shared pieces now exist. Use them instead of hand-rolling the
 underlying `className` string — that's the whole point:
 
 - **`src/components/ui/Button.tsx`** — `<Button variant="primary" |
-  "secondary" | "neutral" | "danger" | "dangerSolid">`. Covers every button
-  in the app: primary CTAs, "Cancelar" buttons, neutral chips, destructive
-  actions (outline `danger` and solid `dangerSolid`). A `className` prop
+  "secondary" | "neutral" | "danger" | "dangerSolid" | "brandBlue">`. Covers
+  every button in the app: primary CTAs, "Cancelar" buttons, neutral chips,
+  destructive actions (outline `danger` and solid `dangerSolid`), and a solid
+  blue entry point (`brandBlue`, Phase 36). A `className` prop
   remains as an escape hatch for one-off sizing/spacing only (e.g. `h-[42px]
   shrink-0`) — never for color or shape, those live in the variant.
 - **`src/components/ui/Modal.tsx`** — `<Modal maxWidth="max-w-[440px]"

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuthModule } from '../auth/auth.module';
+import { BrevoModule } from '../brevo/brevo.module';
 import { ClientsModule } from '../clients/clients.module';
 import { Client } from '../clients/entities/client.entity';
 import { ClientMessageFrequency } from '../clients/entities/clientMessageFrequency.entity';
@@ -14,8 +15,11 @@ import { UsersModule } from '../users/users.module';
 
 import { BankAccountController } from './bankAccount.controller';
 import { BankAccountService } from './bankAccount.service';
+import { MessageChannelTemplatesController } from './channelTemplates/messageChannelTemplates.controller';
+import { MessageChannelTemplatesService } from './channelTemplates/messageChannelTemplates.service';
 import { ClientBreakdownService } from './clientBreakdown.service';
 import { AppSetting } from './entities/appSetting.entity';
+import { MessageChannelTemplate } from './entities/messageChannelTemplate.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
@@ -61,6 +65,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
   imports: [
     TypeOrmModule.forFeature([
       MessageTemplate,
+      MessageChannelTemplate,
       MessageLog,
       MessageLogItem,
       WhatsappInboundMessage,
@@ -95,10 +100,12 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
     // client's saldo a favor via ClientCreditBalanceService, which this
     // exports. One-directional: ClientsModule doesn't import WhatsappModule.
     ClientsModule,
+    BrevoModule,
   ],
   controllers: [
     WhatsappController,
     MessageTemplatesController,
+    MessageChannelTemplatesController,
     MessageLogsController,
     WhatsappWebhookController,
     BankAccountController,
@@ -106,6 +113,7 @@ import { WhatsappOutboundLogService } from './whatsappOutboundLog.service';
   providers: [
     WhatsAppService,
     MessageTemplatesService,
+    MessageChannelTemplatesService,
     MessageFrequencyThrottleService,
     MessageLogsService,
     OverdueReminderService,

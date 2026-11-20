@@ -395,6 +395,25 @@ Added Phase 14 — one row per interest/fee concept applied to a specific instal
 
 **Template selection** — which of the 13 templates a given send uses is decided in code, not stored: `newLoanTemplateSelection.ts` (new loan / refinance, by new-vs-existing client and with/without cuota inicial), `reminderTemplateSelection.ts` (overdue / upcoming-due / the mixed template, by count and days), and `paymentConfirmationTemplateSelection.ts` (payment confirmation / paid-in-full). Every reminder template (4 through 10) shares one closing-line mechanism — "nota adicional" (`notaAdicional.ts`) — filled with one of three fixed strings (normal / saldo pendiente / saldo a favor) since Meta templates can't show or hide a line conditionally.
 
+### `message_channel_templates`
+
+Added Phase 36, stage 2 (migration `CreateMessageChannelTemplatesTable1792000000000`). The **email and SMS** wording of each message type — one row per (`type`, `channel`), 36 rows seeded (18 types × 2 channels). Unlike `message_templates` (WhatsApp text approved by Meta, changed only by migration), these rows are **admin-editable from the panel** (Plantillas → "Correo y SMS" → "Plantillas de correo y SMS", `PUT /message-channel-templates/:type/:channel`, audited as `messageChannelTemplate.update`). Not used by any automatic send yet — choosing which messages go by which channel is stage 3 (see `docs/phases/PHASE_36_BREVO_EMAIL_SMS.md`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `type` | ENUM (`message_channel_templates_type_enum`, the 18 current message types) | same values as `message_templates.type` |
+| `channel` | ENUM (`email`, `sms`) | |
+| `subject` | VARCHAR, nullable | Email only (required there, max 150); always null for SMS. May use `{{n}}` too. |
+| `body` | TEXT | Plain text with `{{n}}` placeholders — never HTML. Email: `*texto*` is bold and a blank line starts a paragraph (`renderEmailHtml`, max 5000). SMS: max 480 characters before filling; sent in GSM-7 (see below). |
+| `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
+
+Unique index `IDX_message_channel_templates_type_channel` on (`type`, `channel`).
+
+- **Same figures as WhatsApp.** A row is filled with the exact `bodyParameters` array the WhatsApp template of that type is sent with (built by `reminderTemplateSelection.ts`, `newLoanTemplateSelection.ts`, etc.), so no amount is computed twice. What each `{{n}}` means, with an example value, lives in `MESSAGE_TYPE_PARAMETERS` (`whatsapp/messageTypeParameters.ts`), whose counts are checked against the real selections by its spec. Saving a text with a placeholder outside `{{1}}…{{N}}` (or a malformed one) is rejected, so a raw `{{7}}` can never reach a client. A template may skip parameters (e.g. the SMS versions leave out the product detail).
+- **SMS in GSM-7 (confirmed with the human, 2026-11-09).** Before an SMS is sent, the accents GSM-7 lacks (á, í, ó, ú) are dropped and emojis removed (`toGsm7Text`, `whatsapp/smsText.ts`; é, ñ, ü, ¿ and ¡ stay). Without it, a single "días" turns the whole SMS into UCS-2: 70 characters per Brevo credit instead of 160. The panel shows the resulting length and credits with the example values (a client-side copy of the same logic). Email and WhatsApp keep their accents.
+- **Seeded texts** are a first version adapted from each WhatsApp template (emojis removed; "adjunte su comprobante" replaced by "Si ya realizó el pago, haga caso omiso de este mensaje", since an email reply isn't a channel the business monitors). The business is expected to review them before email/SMS go live. With the example values every seeded SMS costs at most 2 credits; most cost 1.
+
 ### `message_logs`
 
 One row per reminder **actually sent to a client** — not per installment. **2026-09-19** (human report): also not per client-messaging-event anymore — a client with `clients.alternate_phone_number` set gets one row per phone number the reminder/confirmation actually went to (see `alternate_phone_number`'s own note above and `getRecipientPhoneNumbers()`), each independently `sent`/`failed`.
@@ -795,6 +814,11 @@ None currently open. (The only entry here — how `interest_rate` was determined
 - **Resolved 2026-09-03**: the real per-template button layout, confirmed against Meta's actual configuration — three templates (`proxima_vencer_y_vencida`, `varias_cuota_vencida`, `varias_cuota_proxima_vencer`) carry "Más información" + "Ya pagué"; three (`una_cuota_vencida`, `una_cuota_vencida_en_mora`, `una_cuota_proxima_vencer`) carry "Ya pagué" only; every other template has no buttons. No template carries "Hablar con asesor" — that option only exists in the self-service menu's own main menu. See `docs/phases/PHASE_34_INTERACTIVE_MENU.md`'s "Resolved" section.
 
 **Bug fix, 2026-09-02**: `current_menu` gained a fourth value, `handed_off_to_human` (see "`whatsapp_conversation_states`" above), plus two new admin endpoints — `GET`/`POST /whatsapp/inbound-messages/conversation-state` and `.../close-conversation` — and the corresponding `apps/client` UI ("Cerrar conversación" button on the inbound-messages inbox, replacing a stale reply-box gate that scanned for a literal `"1"` text left over from before the real menu existed).
+
+## Added in Phase 36
+
+- `message_channel_templates` — email and SMS wording per message type, admin-editable. See "`message_channel_templates`" above and `docs/phases/PHASE_36_BREVO_EMAIL_SMS.md`.
+- Stage 1 (Brevo service) added no tables. `message_logs` gains its channel/recipient columns in stage 3, when email/SMS rows are first written.
 
 ## Redesign, 2026-09-03 — loan interest as a system field, not a catalog concept
 
